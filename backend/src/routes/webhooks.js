@@ -37,9 +37,9 @@ router.post("/", (req, res) => {
     return res.status(400).json({ error: "Webhook URL must use HTTPS in production" });
   }
 
-  // Validate secret strength
-  if (secret.length < 16) {
-    return res.status(400).json({ error: "Secret must be at least 16 characters for HMAC-SHA256 security" });
+  // Validate secret strength (min 8 chars for HMAC-SHA256)
+  if (typeof secret !== "string" || secret.length < 8) {
+    return res.status(400).json({ error: "Secret must be at least 8 characters for HMAC-SHA256 security" });
   }
 
   try {
@@ -69,8 +69,8 @@ router.get("/:publicKey", (req, res) => {
  */
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
-  if (!/^\d+$/.test(id)) {
-    return res.status(400).json({ error: "Invalid webhook ID — must be a numeric value" });
+  if (!id || typeof id !== "string" || id.length === 0) {
+    return res.status(400).json({ error: "Webhook ID is required" });
   }
   const deleted = deleteWebhook(id);
   if (!deleted) {
