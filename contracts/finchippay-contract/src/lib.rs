@@ -21,9 +21,16 @@
 //!   explicit panics so overflows are never silently truncated.
 //! - Storage TTLs are extended on every read and write to prevent ledger
 //!   expiry from corrupting live streams or pending multi-sig proposals.
+//! - **Emergency pause**: admin can freeze all value-transferring operations
+//!   (circuit breaker pattern) to contain potential exploits.
+//! - **Upgradability**: admin can point the contract at a new WASM hash to
+//!   deploy security patches without migrating state.
+//! - **Bounded inputs**: escrow release ledgers, stream deposits, and
+//!   multi-sig amounts are capped to prevent griefing and permanent lock-up.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+    Vec,
 };
 
 // ─── Storage lifetime constants ───────────────────────────────────────────────
@@ -60,6 +67,8 @@ pub enum ContractError {
     AlreadySigned = 10,
     /// The stream has insufficient deposited funds.
     InsufficientFunds = 11,
+    /// The contract is paused; value-transferring operations are blocked.
+    ContractPaused = 12,
 }
 
 // ─── Shared data types ────────────────────────────────────────────────────────
@@ -177,11 +186,31 @@ pub struct MultiSigProposal {
     pub status: MultiSigStatus,
 }
 
+// ─── Security bounds ──────────────────────────────────────────────────────────
+
+/// Maximum ledgers into the future an escrow can be created (≈ 30 days at 5 s).
+const MAX_ESCROW_LEDGERS: u32 = 518_400;
+/// Maximum deposit amount for a single stream (1 trillion stroops).
+const MAX_STREAM_DEPOSIT: i128 = 1_000_000_000_000_000_000;
+/// Maximum rate per ledger for a stream (avoids overflow in elapsed * rate).
+const MAX_STREAM_RATE: i128 = 10_000_000_000;
+/// Maximum amount for a single escrow deposit.
+const MAX_ESCROW_AMOUNT: i128 = 1_000_000_000_000_000_000;
+/// Maximum amount for a single multi-sig proposal.
+const MAX_MULTISIG_AMOUNT: i128 = 1_000_000_000_000_000_000;
+/// Maximum signers allowed in a multi-sig proposal.
+const MAX_MULTISIG_SIGNERS: u32 = 20;
+/// Contract version identifier (used for off-chain discovery).
+const CONTRACT_VERSION: u32 = 2;
+
 // ─── Storage key enum ─────────────────────────────────────────────────────────
 
 #[contracttype]
 pub enum DataKey {
     Admin,
+    Paused,
+    /// Stored contract version; bumped on upgrade.
+    Version,
     // Tips
     TipTotal(Address),
     TipCount(Address),
@@ -221,6 +250,19 @@ fn get_admin(env: &Env) -> Address {
     admin
 }
 
+/// Check that the contract is not paused. Panics with `ContractPaused` if it is.
+fn require_not_paused(env: &Env) {
+    let paused: bool = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
+    if paused {
+        panic!("Contract is paused");
+    }
+    bump(env, &DataKey::Paused);
+}
+
 
 #[contract]
 pub struct FinchippayContract;
@@ -237,6 +279,10 @@ impl FinchippayContract {
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
         bump(&env, &DataKey::Admin);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Version, &CONTRACT_VERSION);
+        bump(&env, &DataKey::Version);
         env.events().publish((Symbol::new(&env, "init"),), admin);
         Ok(())
     }
@@ -259,13 +305,90 @@ impl FinchippayContract {
         get_admin(&env)
     }
 
+    /// Return `true` if the contract is currently paused (circuit breaker).
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Admin: pause all value-transferring operations. Read-only functions remain
+    /// accessible so users can still inspect escrows, streams, and proposals.
+    pub fn pause(env: Env, admin: Address) {
+        admin.require_auth();
+        let stored = get_admin(&env);
+        if admin != stored {
+            panic!("Unauthorized");
+        }
+        env.storage().persistent().set(&DataKey::Paused, &true);
+        bump(&env, &DataKey::Paused);
+        env.events()
+            .publish((Symbol::new(&env, "paused"),), ());
+    }
+
+    /// Admin: resume all value-transferring operations.
+    pub fn unpause(env: Env, admin: Address) {
+        admin.require_auth();
+        let stored = get_admin(&env);
+        if admin != stored {
+            panic!("Unauthorized");
+        }
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        bump(&env, &DataKey::Paused);
+        env.events()
+            .publish((Symbol::new(&env, "unpaused"),), ());
+    }
+
+    /// Return the current contract version.
+    pub fn get_version(env: Env) -> u32 {
+        let key = DataKey::Version;
+        let ver: u32 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(CONTRACT_VERSION);
+        if env.storage().persistent().has(&key) {
+            bump(&env, &key);
+        }
+        ver
+    }
+
+    /// Admin: upgrade the contract WASM to `new_wasm_hash`.
+    ///
+    /// After a successful upgrade the stored version is incremented so off-chain
+    /// indexers can detect the change.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let stored = get_admin(&env);
+        if admin != stored {
+            panic!("Unauthorized");
+        }
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        let current_ver: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Version)
+            .unwrap_or(CONTRACT_VERSION);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Version, &(current_ver + 1));
+        bump(&env, &DataKey::Version);
+        env.events().publish(
+            (Symbol::new(&env, "upgraded"),),
+            (current_ver + 1, new_wasm_hash),
+        );
+    }
+
     // ─── Tips ─────────────────────────────────────────────────────────────────
 
     /// Transfer `amount` tokens from `from` to `to` and record the tip on-chain.
     ///
     /// # Errors
-    /// Panics if `amount <= 0` or if `from` has not authorised the call.
+    /// Panics if `amount <= 0`, the contract is paused, or `from` has not
+    /// authorised the call.
     pub fn send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) {
+        require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
             panic!("Tip amount must be positive");
@@ -345,7 +468,10 @@ impl FinchippayContract {
     // ─── Receipts ─────────────────────────────────────────────────────────────
 
     /// Mint an immutable payment receipt. Returns the receipt index.
+    ///
+    /// No token transfer occurs — this is a pure metadata operation.
     pub fn mint_receipt(env: Env, from: Address, to: Address, amount: i128, memo: Symbol) -> u32 {
+        require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
             panic!("Receipt amount must be positive");
@@ -416,12 +542,19 @@ impl FinchippayContract {
         amount: i128,
         release_ledger: u32,
     ) -> u32 {
+        require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
             panic!("amount must be positive");
         }
+        if amount > MAX_ESCROW_AMOUNT {
+            panic!("amount exceeds maximum escrow size");
+        }
         if release_ledger <= env.ledger().sequence() {
             panic!("release_ledger must be in the future");
+        }
+        if release_ledger > env.ledger().sequence() + MAX_ESCROW_LEDGERS {
+            panic!("release_ledger is too far in the future");
         }
 
         let token = token::Client::new(&env, &token_address);
@@ -459,6 +592,7 @@ impl FinchippayContract {
 
     /// Recipient claims the escrowed funds after `release_ledger` has passed.
     pub fn claim_escrow(env: Env, id: u32) {
+        require_not_paused(&env);
         let mut escrow: Escrow = env
             .storage()
             .persistent()
@@ -487,6 +621,7 @@ impl FinchippayContract {
 
     /// Payer cancels the escrow before `release_ledger`; funds are returned.
     pub fn cancel_escrow(env: Env, id: u32) {
+        require_not_paused(&env);
         let mut escrow: Escrow = env
             .storage()
             .persistent()
@@ -547,12 +682,19 @@ impl FinchippayContract {
         rate_per_ledger: i128,
         deposit: i128,
     ) -> u32 {
+        require_not_paused(&env);
         payer.require_auth();
         if rate_per_ledger <= 0 {
             panic!("rate_per_ledger must be positive");
         }
+        if rate_per_ledger > MAX_STREAM_RATE {
+            panic!("rate_per_ledger exceeds maximum");
+        }
         if deposit <= 0 {
             panic!("deposit must be positive");
+        }
+        if deposit > MAX_STREAM_DEPOSIT {
+            panic!("deposit exceeds maximum stream size");
         }
 
         // Lock deposit in the contract.
@@ -595,6 +737,7 @@ impl FinchippayContract {
     /// Returns the amount claimed. Can be called multiple times as the stream
     /// progresses; the running `claimed` counter prevents double-claiming.
     pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
+        require_not_paused(&env);
         recipient.require_auth();
 
         let mut stream: Stream = env
@@ -635,6 +778,7 @@ impl FinchippayContract {
         payer: Address,
         amount: i128,
     ) {
+        require_not_paused(&env);
         payer.require_auth();
         if amount <= 0 {
             panic!("top-up amount must be positive");
@@ -657,6 +801,9 @@ impl FinchippayContract {
         token.transfer(&payer, &env.current_contract_address(), &amount);
 
         stream.deposited = stream.deposited.checked_add(amount).expect("overflow");
+        if stream.deposited > MAX_STREAM_DEPOSIT {
+            panic!("deposit exceeds maximum after top-up");
+        }
         env.storage()
             .persistent()
             .set(&DataKey::Stream(stream_id), &stream);
@@ -673,6 +820,7 @@ impl FinchippayContract {
     ///
     /// Returns the refund amount sent back to the payer.
     pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
+        require_not_paused(&env);
         payer.require_auth();
 
         let mut stream: Stream = env
@@ -785,12 +933,19 @@ impl FinchippayContract {
         threshold: u32,
         signers: Vec<Address>,
     ) -> u32 {
+        require_not_paused(&env);
         proposer.require_auth();
         if amount <= 0 {
             panic!("amount must be positive");
         }
+        if amount > MAX_MULTISIG_AMOUNT {
+            panic!("amount exceeds maximum multi-sig size");
+        }
         if threshold == 0 || threshold > signers.len() {
             panic!("threshold must be between 1 and signers.len()");
+        }
+        if signers.len() > MAX_MULTISIG_SIGNERS {
+            panic!("too many signers");
         }
 
         // Lock funds.
@@ -833,6 +988,7 @@ impl FinchippayContract {
     /// A signer approves proposal `id`. If the approval count reaches `threshold`
     /// the payment is executed immediately within this call.
     pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
+        require_not_paused(&env);
         signer.require_auth();
 
         let mut proposal: MultiSigProposal = env
@@ -894,6 +1050,7 @@ impl FinchippayContract {
 
     /// The proposer cancels the proposal before execution; funds are refunded.
     pub fn cancel_multisig(env: Env, proposal_id: u32, proposer: Address) {
+        require_not_paused(&env);
         proposer.require_auth();
 
         let mut proposal: MultiSigProposal = env
@@ -962,6 +1119,7 @@ impl FinchippayContract {
         recipients: Vec<Address>,
         amounts: Vec<i128>,
     ) {
+        require_not_paused(&env);
         from.require_auth();
         if recipients.len() != amounts.len() {
             panic!("arrays must have equal length");
