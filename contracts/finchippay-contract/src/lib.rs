@@ -221,7 +221,7 @@ const MAX_MULTISIG_SIGNERS: u32 = 20;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
-const CONTRACT_VERSION: u32 = 2;
+const CONTRACT_VERSION: u32 = 3;
 
 // ─── Storage key enum ─────────────────────────────────────────────────────────
 
@@ -1432,6 +1432,30 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::MultiSigCount)
             .unwrap_or(0)
+    }
+
+    // ─── Diagnostic helpers ───────────────────────────────────────────────────
+
+    /// Return aggregate counts of all active contract state for off-chain
+    /// monitoring and dashboards. Returns (escrow_count, stream_count,
+    /// multisig_count).
+    pub fn get_contract_stats(env: Env) -> (u32, u32, u32) {
+        let escrows = env
+            .storage()
+            .persistent()
+            .get(&DataKey::EscrowCount)
+            .unwrap_or(0);
+        let streams = env
+            .storage()
+            .persistent()
+            .get(&DataKey::StreamCount)
+            .unwrap_or(0);
+        let multisigs = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MultiSigCount)
+            .unwrap_or(0);
+        (escrows, streams, multisigs)
     }
 
     // ─── Batch send ───────────────────────────────────────────────────────────
