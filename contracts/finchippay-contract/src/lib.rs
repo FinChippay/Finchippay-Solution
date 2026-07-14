@@ -1060,6 +1060,7 @@ impl FinchippayContract {
         amount: i128,
         threshold: u32,
         signers: Vec<Address>,
+        expiration_ledger: u32,
     ) -> u32 {
         require_initialized(&env);
         require_not_paused(&env);
@@ -1106,6 +1107,7 @@ impl FinchippayContract {
             signers,
             approvals: Vec::new(&env),
             status: MultiSigStatus::Pending,
+            expiration_ledger,
         };
         env.storage()
             .persistent()
@@ -1137,6 +1139,13 @@ impl FinchippayContract {
 
         if proposal.status != MultiSigStatus::Pending {
             panic!("proposal is not pending");
+        }
+
+        // Check if the proposal has expired.
+        if proposal.expiration_ledger != 0
+            && env.ledger().sequence() > proposal.expiration_ledger
+        {
+            panic!("proposal has expired");
         }
 
         // Verify signer is in the allowed list using iterator.
@@ -1176,6 +1185,46 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::MultiSig(proposal_id), &proposal);
         bump(&env, &DataKey::MultiSig(proposal_id));
+    }
+
+    /// Anyone can call this to close an expired multi-sig proposal and refund
+    /// the proposer. This prevents funds from being locked forever if signers
+    /// abandon a proposal.
+    pub fn timeout_multisig(env: Env, proposal_id: u32) {
+        require_not_paused(&env);
+        let mut proposal: MultiSigProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MultiSig(proposal_id))
+            .expect("proposal not found");
+
+        if proposal.status != MultiSigStatus::Pending {
+            panic!("proposal is not pending");
+        }
+        if proposal.expiration_ledger == 0 {
+            panic!("proposal has no expiration");
+        }
+        if env.ledger().sequence() <= proposal.expiration_ledger {
+            panic!("proposal has not yet expired");
+        }
+
+        let token = token::Client::new(&env, &proposal.token);
+        token.transfer(
+            &env.current_contract_address(),
+            &proposal.proposer,
+            &proposal.amount,
+        );
+
+        proposal.status = MultiSigStatus::Cancelled;
+        env.storage()
+            .persistent()
+            .set(&DataKey::MultiSig(proposal_id), &proposal);
+        bump(&env, &DataKey::MultiSig(proposal_id));
+
+        env.events().publish(
+            (Symbol::new(&env, "multisig_timeout"), proposal_id),
+            (proposal.proposer.clone(), proposal.amount),
+        );
     }
 
     /// The proposer cancels the proposal before execution; funds are refunded.
