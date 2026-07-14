@@ -263,6 +263,14 @@ fn require_not_paused(env: &Env) {
     bump(env, &DataKey::Paused);
 }
 
+/// Check that the contract has been initialised. Panics if `initialize()` was
+/// never called. This prevents use of the contract before the admin is set.
+fn require_initialized(env: &Env) {
+    if !env.storage().persistent().has(&DataKey::Admin) {
+        panic!("Contract not initialized");
+    }
+}
+
 
 #[contract]
 pub struct FinchippayContract;
@@ -388,6 +396,7 @@ impl FinchippayContract {
     /// Panics if `amount <= 0`, the contract is paused, or `from` has not
     /// authorised the call.
     pub fn send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) {
+        require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
@@ -471,6 +480,7 @@ impl FinchippayContract {
     ///
     /// No token transfer occurs — this is a pure metadata operation.
     pub fn mint_receipt(env: Env, from: Address, to: Address, amount: i128, memo: Symbol) -> u32 {
+        require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
@@ -542,6 +552,7 @@ impl FinchippayContract {
         amount: i128,
         release_ledger: u32,
     ) -> u32 {
+        require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
@@ -682,6 +693,7 @@ impl FinchippayContract {
         rate_per_ledger: i128,
         deposit: i128,
     ) -> u32 {
+        require_initialized(&env);
         require_not_paused(&env);
         payer.require_auth();
         if rate_per_ledger <= 0 {
@@ -933,6 +945,7 @@ impl FinchippayContract {
         threshold: u32,
         signers: Vec<Address>,
     ) -> u32 {
+        require_initialized(&env);
         require_not_paused(&env);
         proposer.require_auth();
         if amount <= 0 {
@@ -1119,6 +1132,7 @@ impl FinchippayContract {
         recipients: Vec<Address>,
         amounts: Vec<i128>,
     ) {
+        require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
         if recipients.len() != amounts.len() {
