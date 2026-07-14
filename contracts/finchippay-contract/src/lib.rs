@@ -276,6 +276,12 @@ fn get_admin(env: &Env) -> Address {
     admin
 }
 
+/// Get a token client for a given token address, avoiding repeated
+/// boilerplate across all token-interacting functions.
+fn get_token_client(env: &Env, token_address: &Address) -> token::Client {
+    token::Client::new(env, token_address)
+}
+
 /// Check that the contract is not paused. Panics with `ContractPaused` if it is.
 fn require_not_paused(env: &Env) {
     let paused: bool = env
@@ -475,7 +481,7 @@ impl FinchippayContract {
         if amount <= 0 {
             panic!("amount must be positive");
         }
-        let token = token::Client::new(&env, &token_address);
+        let token = get_token_client(&env, &token_address);
         token.transfer(&env.current_contract_address(), &to, &amount);
 
         env.events().publish(
@@ -501,7 +507,7 @@ impl FinchippayContract {
         if amount <= 0 {
             panic!("Tip amount must be positive");
         }
-        let token = token::Client::new(&env, &token_address);
+        let token = get_token_client(&env, &token_address);
         token.transfer(&from, &to, &amount);
 
         let total: i128 = env
@@ -678,7 +684,7 @@ impl FinchippayContract {
             panic!("release_ledger is too far in the future");
         }
 
-        let token = token::Client::new(&env, &token_address);
+        let token = get_token_client(&env, &token_address);
         token.transfer(&from, &env.current_contract_address(), &amount);
 
         let next_id: u32 = env
@@ -749,7 +755,7 @@ impl FinchippayContract {
             panic!("claim amount exceeds escrow balance");
         }
 
-        let token = token::Client::new(&env, &escrow.token);
+        let token = get_token_client(&env, &escrow.token);
         token.transfer(&env.current_contract_address(), &escrow.to, &claim_amount);
 
         let remaining = escrow.amount - claim_amount;
@@ -801,7 +807,7 @@ impl FinchippayContract {
         }
         escrow.to.require_auth();
 
-        let token = token::Client::new(&env, &escrow.token);
+        let token = get_token_client(&env, &escrow.token);
         token.transfer(&env.current_contract_address(), &escrow.to, &escrow.amount);
 
         escrow.status = EscrowStatus::Released;
@@ -830,7 +836,7 @@ impl FinchippayContract {
         }
         escrow.from.require_auth();
 
-        let token = token::Client::new(&env, &escrow.token);
+        let token = get_token_client(&env, &escrow.token);
         token.transfer(&env.current_contract_address(), &escrow.from, &escrow.amount);
 
         escrow.status = EscrowStatus::Cancelled;
@@ -897,7 +903,7 @@ impl FinchippayContract {
         }
 
         // Lock deposit in the contract.
-        let token = token::Client::new(&env, &token_address);
+        let token = get_token_client(&env, &token_address);
         token.transfer(&payer, &env.current_contract_address(), &deposit);
 
         let id: u32 = env
@@ -996,7 +1002,7 @@ impl FinchippayContract {
             panic!("stream is closed");
         }
 
-        let token = token::Client::new(&env, &stream.token);
+        let token = get_token_client(&env, &stream.token);
         token.transfer(&payer, &env.current_contract_address(), &amount);
 
         stream.deposited = stream.deposited.checked_add(amount).expect("overflow");
@@ -1035,7 +1041,7 @@ impl FinchippayContract {
             panic!("stream is already closed");
         }
 
-        let token = token::Client::new(&env, &stream.token);
+        let token = get_token_client(&env, &stream.token);
 
         // Pay out any accrued-but-unclaimed tokens to the recipient first.
         let claimable = Self::_claimable(&env, &stream);
@@ -1093,7 +1099,7 @@ impl FinchippayContract {
             panic!("stream is already closed");
         }
 
-        let token = token::Client::new(&env, &stream.token);
+        let token = get_token_client(&env, &stream.token);
 
         // Pay accrued tokens to recipient.
         let claimable = Self::_claimable(&env, &stream);
@@ -1160,7 +1166,7 @@ impl FinchippayContract {
         // Auto-claim accrued tokens for the old recipient before transfer.
         let claimable = Self::_claimable(&env, &stream);
         if claimable > 0 {
-            let token = token::Client::new(&env, &stream.token);
+            let token = get_token_client(&env, &stream.token);
             token.transfer(
                 &env.current_contract_address(),
                 &current_recipient,
@@ -1279,7 +1285,7 @@ impl FinchippayContract {
         }
 
         // Lock funds.
-        let token = token::Client::new(&env, &token_address);
+        let token = get_token_client(&env, &token_address);
         token.transfer(&proposer, &env.current_contract_address(), &amount);
 
         let id: u32 = env
@@ -1359,7 +1365,7 @@ impl FinchippayContract {
 
         // Auto-execute if threshold is reached.
         if proposal.approvals.len() >= proposal.threshold {
-            let token = token::Client::new(&env, &proposal.token);
+            let token = get_token_client(&env, &proposal.token);
             token.transfer(
                 &env.current_contract_address(),
                 &proposal.recipient,
@@ -1399,7 +1405,7 @@ impl FinchippayContract {
             panic!("proposal has not yet expired");
         }
 
-        let token = token::Client::new(&env, &proposal.token);
+        let token = get_token_client(&env, &proposal.token);
         token.transfer(
             &env.current_contract_address(),
             &proposal.proposer,
@@ -1436,7 +1442,7 @@ impl FinchippayContract {
             panic!("proposal is not pending");
         }
 
-        let token = token::Client::new(&env, &proposal.token);
+        let token = get_token_client(&env, &proposal.token);
         token.transfer(
             &env.current_contract_address(),
             &proposer,
@@ -1533,7 +1539,7 @@ impl FinchippayContract {
                 panic!("amount must be positive");
             }
         }
-        let token = token::Client::new(&env, &token_address);
+        let token = get_token_client(&env, &token_address);
         for i in 0..recipients.len() {
             let to = recipients.get(i).unwrap();
             let amount = amounts.get(i).unwrap();
