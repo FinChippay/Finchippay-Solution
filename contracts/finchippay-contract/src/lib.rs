@@ -1119,7 +1119,7 @@ impl FinchippayContract {
 
         env.events().publish(
             (Symbol::new(&env, "multisig_approve"), proposal_id),
-            signer.clone(),
+            (signer.clone(), proposal.approvals.len() + 1, proposal.threshold),
         );
 
         // Auto-execute if threshold is reached.
