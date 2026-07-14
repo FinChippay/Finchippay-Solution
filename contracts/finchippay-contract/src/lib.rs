@@ -963,6 +963,15 @@ impl FinchippayContract {
             panic!("too many signers");
         }
 
+        // Prevent duplicate signers that could spoof the true threshold.
+        for i in 0..signers.len() {
+            for j in (i + 1)..signers.len() {
+                if signers.get(i).unwrap() == signers.get(j).unwrap() {
+                    panic!("duplicate signer in signers list");
+                }
+            }
+        }
+
         // Lock funds.
         let token = token::Client::new(&env, &token_address);
         token.transfer(&proposer, &env.current_contract_address(), &amount);
