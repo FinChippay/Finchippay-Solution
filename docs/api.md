@@ -4,6 +4,8 @@
 
 **Interactive docs:** [Swagger UI](http://localhost:4000/api/docs) · [OpenAPI JSON](http://localhost:4000/api/docs.json)
 
+> **🎯 25 total endpoints** across Health, Auth, Federation, Accounts, Payments, Analytics, Tips, Turrets, and Webhooks.
+
 ---
 
 ## Response conventions

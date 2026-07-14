@@ -329,13 +329,15 @@ cd frontend && npm run dev
 # Deployment should execute immediately and add to history
 ```
 
-## Notes
+## Security Notes
 
-- **No private keys**: All signing is done by Freighter. Backend never touches user keys.
+- **No private keys**: All signing is done by Freighter or Ledger hardware wallet. Backend never touches user keys.
+- **Signature verification**: Every deployment requires a cryptographically signed challenge transaction verified against the owner's Stellar public key.
 - **In-memory storage**: Deployments and history are lost on restart. For production, implement database persistence.
-- **Price feed**: Currently uses CoinGecko's free API. Monitor rate limits in production.
+- **Price feed**: Currently uses CoinGecko's free API. Monitor rate limits in production. Consider adding a fallback provider.
 - **Network support**: Works on both Stellar testnet and mainnet via environment variables.
 - **DEX operations**: DCA & stop-loss generate intent operations; actual placement requires manual submission or integration with Soroban smart signature accounts.
+- **Rate limiting**: Turrets endpoints are protected by strict rate limiting (20 req/min) to prevent abuse.
 
 ## Future Enhancements
 

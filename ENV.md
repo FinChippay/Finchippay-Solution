@@ -25,6 +25,8 @@ cp frontend/.env.example frontend/.env.local
 | `FEDERATION_DOMAIN` | ❌ | — | Domain used in SEP-0002 TOML discovery |
 | `FEDERATION_SERVER_URL` | ❌ | — | Override federation server URL |
 | `TURRETS_PORT` | ❌ | `4100` | Port for the Turrets side-server |
+| `TURRETS_EVALUATION_INTERVAL_MS` | ❌ | `30000` | Interval (ms) between txFunction evaluation runs |
+| `SERVER_PRIVATE_KEY` | ❌ | — | Stellar secret key for SEP-0010 challenge signing (generated on startup if unset) |
 
 ### Example `backend/.env`
 
@@ -46,9 +48,10 @@ NODE_ENV=development
 | `NEXT_PUBLIC_STELLAR_NETWORK` | ✅ | — | `testnet` or `mainnet` |
 | `NEXT_PUBLIC_HORIZON_URL` | ✅ | — | Stellar Horizon base URL |
 | `NEXT_PUBLIC_API_URL` | ✅ | — | Backend API base URL |
-| `NEXT_PUBLIC_CONTRACT_ID` | ❌ | — | Deployed `FinchippayContract` contract ID |
+| `NEXT_PUBLIC_CONTRACT_ID` | ❌ | — | Deployed `FinchippayContract` contract ID (v2 with pause/upgrade/bounds) |
 | `NEXT_PUBLIC_SOROBAN_RPC_URL` | ❌ | — | Soroban RPC endpoint |
 | `NEXT_PUBLIC_SENTRY_DSN` | ❌ | — | Sentry DSN for client-side error tracking |
+| `NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE` | ❌ | — | Soroban network passphrase (auto-set from network) |
 
 ### Example `frontend/.env.local`
 

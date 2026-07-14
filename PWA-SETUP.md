@@ -220,8 +220,8 @@ Edit the `InstallBanner` component in `_app.tsx`:
 
 Consider adding:
 - Background sync for offline transactions
-- Push notifications
-- More granular caching strategies
-- App shortcuts in manifest
-- Share target API
-- Periodic background sync
+- Push notification webhooks via web-push
+- More granular caching strategies (stale-while-revalidate)
+- App shortcuts in manifest for quick send / request
+- Share target API for receiving payments via Android share sheet
+- Periodic background sync for fetching account balances
