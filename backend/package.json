@@ -1,0 +1,43 @@
+{
+  "name": "stellar-micropay-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Stellar MicroPay",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "dev:turrets": "TURRETS_PORT=4100 nodemon src/server.js",
+    "start": "node src/server.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "jest",
+    "lint": "eslint src/**/*.js"
+  },
+  "dependencies": {
+    "@sentry/node": "^8.53.0",
+    "@stellar/stellar-sdk": "^15.1.0",
+    "axios": "^1.6.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.0",
+    "pino": "^9.0.0",
+    "pino-http": "^10.3.0",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "9.1.0",
+    "fast-check": "^3.22.0",
+    "jest": "^30.3.0",
+    "nock": "^14.0.15",
+    "nodemon": "^3.1.2",
+    "supertest": "^7.2.2"
+  },
+  "engines": {
+    "node": "20.19.5"
+  }
+}

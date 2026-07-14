@@ -1,0 +1,229 @@
+import React from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
+import Dashboard from "@/pages/dashboard";
+
+jest.mock("next/router", () => ({
+  useRouter: () => ({ push: jest.fn(), query: {} }),
+}));
+
+const mockUseWallet = jest.fn();
+jest.mock("@/lib/useWallet", () => ({
+  useWallet: () => mockUseWallet(),
+}));
+
+jest.mock("@/components/WalletConnect", () => () => <div>Wallet Connect</div>);
+jest.mock("@/components/TransactionList", () => () => <div>Transactions</div>);
+jest.mock("@/components/Toast", () => () => null);
+jest.mock("@/components/QRCodeModal", () => () => null);
+jest.mock("@/components/BatchPaymentForm", () => () => <div>Batch Payment</div>);
+jest.mock("@/components/MultiSigFlow", () => () => <div>Multi Sig</div>);
+jest.mock("@/components/CreatorTipsDashboard", () => () => <div>Creator Tips</div>);
+jest.mock("@/components/OnboardingTour", () => () => null);
+jest.mock("@/components/AIPaymentAssistant", () => () => null);
+jest.mock("@/components/ExternalPaymentBanner", () => () => null);
+jest.mock("@/pages/PaymentRequestGenerator", () => () => <div>Payment Request</div>);
+jest.mock("@/components/SendPaymentForm", () => ({
+  __esModule: true,
+  default: ({ onSuccess }: { onSuccess?: () => void }) => (
+    <button onClick={() => onSuccess?.()}>Mock send payment success</button>
+  ),
+}));
+
+jest.mock("@/lib/stellar", () => ({
+  getBalances: jest.fn().mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
+  getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
+  getAccountReserveInfo: jest.fn().mockResolvedValue(null),
+  getUSDCBalance: jest.fn().mockResolvedValue(null),
+  getRecentPaymentsForStats: jest.fn().mockResolvedValue([]),
+  getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
+  fetchAllPayments: jest.fn().mockResolvedValue([]),
+  getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
+  getFriendBotFunding: jest.fn(),
+  waitForAccountFunding: jest.fn().mockResolvedValue(true),
+  ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
+  streamPayments: jest.fn(() => jest.fn()),
+  isValidStellarAddress: jest.fn().mockReturnValue(true),
+  shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
+  explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
+}));
+
+const PUBLIC_KEY = "GABC1234567890ABCDEF";
+
+function jsonResponse(data: unknown, ok = true) {
+  return Promise.resolve({
+    ok,
+    json: async () => data,
+  } as Response);
+}
+
+describe("Dashboard payment stats widget", () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_API_URL = "http://localhost:4000";
+    mockUseWallet.mockReturnValue({
+      publicKey: PUBLIC_KEY,
+      connectWallet: jest.fn(),
+      disconnectWallet: jest.fn(),
+      isWalletReady: true,
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("shows a loading skeleton then renders formatted stats", async () => {
+    let resolveStats!: (value: Response) => void;
+    const statsPromise = new Promise<Response>((resolve) => {
+      resolveStats = resolve;
+    });
+
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("coingecko")) {
+        return jsonResponse({ stellar: { usd: 0.3 } });
+      }
+
+      if (url.includes("/api/payments/")) {
+        return statsPromise;
+      }
+
+      if (url.includes("/api/accounts/resolve/")) {
+        return jsonResponse({ success: true, data: {} });
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }) as jest.Mock;
+
+    render(<Dashboard />);
+
+    expect(screen.getByText("Loading payment stats")).toBeInTheDocument();
+
+    resolveStats({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          publicKey: PUBLIC_KEY,
+          totalSentXLM: "142.5000000",
+          totalReceivedXLM: "67.0000000",
+          sentCount: 4,
+          receivedCount: 3,
+          totalTransactions: 7,
+        },
+      }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.getByText("142.50 XLM sent")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("67.00 XLM received")).toBeInTheDocument();
+    expect(screen.getByText("7")).toBeInTheDocument();
+    expect(screen.getByText("4 outgoing payments")).toBeInTheDocument();
+    expect(screen.getByText("3 incoming payments")).toBeInTheDocument();
+  });
+
+  it("handles stats errors gracefully and retries successfully", async () => {
+    let statsCalls = 0;
+
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("coingecko")) {
+        return jsonResponse({ stellar: { usd: 0.3 } });
+      }
+
+      if (url.includes("/api/payments/")) {
+        statsCalls += 1;
+
+        if (statsCalls === 1) {
+          return jsonResponse({ success: false }, false);
+        }
+
+        return jsonResponse({
+          success: true,
+          data: {
+            publicKey: PUBLIC_KEY,
+            totalSentXLM: "10.0000000",
+            totalReceivedXLM: "5.2500000",
+            sentCount: 1,
+            receivedCount: 2,
+            totalTransactions: 3,
+          },
+        });
+      }
+
+      if (url.includes("/api/accounts/resolve/")) {
+        return jsonResponse({ success: true, data: {} });
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }) as jest.Mock;
+
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Could not load your payment stats.")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("10.00 XLM sent")).toBeInTheDocument();
+    });
+  });
+
+  it("refreshes the widget after a new payment succeeds", async () => {
+    jest.useFakeTimers();
+
+    let statsCalls = 0;
+
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("coingecko")) {
+        return jsonResponse({ stellar: { usd: 0.3 } });
+      }
+
+      if (url.includes("/api/payments/")) {
+        statsCalls += 1;
+        return jsonResponse({
+          success: true,
+          data: {
+            publicKey: PUBLIC_KEY,
+            totalSentXLM: statsCalls === 1 ? "12.5000000" : "20.0000000",
+            totalReceivedXLM: "3.0000000",
+            sentCount: statsCalls === 1 ? 2 : 3,
+            receivedCount: 1,
+            totalTransactions: statsCalls === 1 ? 3 : 4,
+          },
+        });
+      }
+
+      if (url.includes("/api/accounts/resolve/")) {
+        return jsonResponse({ success: true, data: {} });
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }) as jest.Mock;
+
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("12.50 XLM sent")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mock send payment success" }));
+
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("20.00 XLM sent")).toBeInTheDocument();
+    });
+    expect(screen.getByText("4")).toBeInTheDocument();
+  });
+});
