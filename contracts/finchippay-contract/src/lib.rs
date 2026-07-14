@@ -401,6 +401,9 @@ impl FinchippayContract {
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
+        if from == to {
+            panic!("cannot tip yourself");
+        }
         if amount <= 0 {
             panic!("Tip amount must be positive");
         }
@@ -557,6 +560,9 @@ impl FinchippayContract {
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
+        if from == to {
+            panic!("cannot create escrow to yourself");
+        }
         if amount <= 0 {
             panic!("amount must be positive");
         }
