@@ -1,4 +1,4 @@
-# Makefile — Common development commands for Stellar MicroPay
+# Makefile — Common development commands for Finchippay Solution
 #
 # Usage:
 #   make dev     — start frontend + backend concurrently (hot-reload)

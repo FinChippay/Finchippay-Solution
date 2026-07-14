@@ -137,7 +137,7 @@ soroban contract invoke \
 
 ### 1. Fork the Repository
 
-1. Go to the original repository: https://github.com/omolobamoyinoluwa-max/Finchippay-Solution
+1. Go to the original repository: https://github.com/FinChippay/Finchippay-Solution
 2. Click "Fork" to create your own copy
 3. Clone your fork locally:
    ```bash

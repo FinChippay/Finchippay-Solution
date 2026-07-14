@@ -3,7 +3,7 @@ Write-Host ""
 
 # Clone the forked repository
 Write-Host "Cloning the forked repository..." -ForegroundColor Yellow
-git clone https://github.com/omolobamoyinoluwa-max/Stellar-MicroPay.git temp_repo
+git clone https://github.com/FinChippay/Finchippay-Solution.git temp_repo
 Set-Location temp_repo
 
 # Switch to the target branch
@@ -57,7 +57,7 @@ This PR implements privacy-preserving proof of payment functionality using Sorob
 - ✅ TypeScript helper generates valid proofs
 
 ## Files Modified
-- contracts/stellar-micropay-contract/src/lib.rs - Main contract with ZK functionality
+- contracts/finchippay-contract/src/lib.rs - Main contract with ZK functionality
 - lib/stellar.ts - TypeScript helper for client-side proof generation
 - package.json - Dependencies for TypeScript helper
 - ZK_PROOF_IMPLEMENTATION.md - Detailed implementation documentation
@@ -85,7 +85,7 @@ git push origin "Implement-Zero-Knowledge-proof-of-payment"
 Write-Host ""
 Write-Host "✅ Successfully pushed to the forked repository!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Repository: https://github.com/omolobamoyinoluwa-max/Stellar-MicroPay/tree/Implement-Zero-Knowledge-proof-of-payment" -ForegroundColor Cyan
+Write-Host "Repository: https://github.com/FinChippay/Finchippay-Solution/tree/Implement-Zero-Knowledge-proof-of-payment" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. Visit the repository on GitHub"

@@ -25,7 +25,7 @@ cd C:\Users\USER\CascadeProjects
 ### 3. Clone the Forked Repository
 
 ```bash
-git clone https://github.com/omolobamoyinoluwa-max/Finchippay-Solution.git
+git clone https://github.com/FinChippay/Finchippay-Solution.git
 cd Finchippay-Solution
 ```
 
@@ -119,7 +119,7 @@ git push origin Implement-Zero-Knowledge-proof-of-payment
 
 ### 8. Create Pull Request
 
-1. **Visit GitHub**: Go to https://github.com/omolobamoyinoluwa-max/Finchippay-Solution
+1. **Visit GitHub**: Go to https://github.com/FinChippay/Finchippay-Solution
 2. **Switch to Branch**: Make sure you're on the `Implement-Zero-Knowledge-proof-of-payment` branch
 3. **Create PR**: Click "Compare & pull request" or "New pull request"
 4. **Fill PR Details**:
@@ -189,7 +189,7 @@ After pushing, verify that:
 
 ## Repository URL
 
-**Target Repository**: https://github.com/omolobamoyinoluwa-max/Finchippay-Solution/tree/Implement-Zero-Knowledge-proof-of-payment
+**Target Repository**: https://github.com/FinChippay/Finchippay-Solution/tree/Implement-Zero-Knowledge-proof-of-payment
 
 **Pull Request URL**: Will be available after creating the PR on GitHub
 
