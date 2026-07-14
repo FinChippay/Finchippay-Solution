@@ -200,6 +200,8 @@ const MAX_ESCROW_AMOUNT: i128 = 1_000_000_000_000_000_000;
 const MAX_MULTISIG_AMOUNT: i128 = 1_000_000_000_000_000_000;
 /// Maximum signers allowed in a multi-sig proposal.
 const MAX_MULTISIG_SIGNERS: u32 = 20;
+/// Maximum number of recipients allowed in a single batch_send call.
+const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
 const CONTRACT_VERSION: u32 = 2;
 
@@ -1135,6 +1137,9 @@ impl FinchippayContract {
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
+        if recipients.len() > MAX_BATCH_SIZE {
+            panic!("batch size exceeds maximum");
+        }
         if recipients.len() != amounts.len() {
             panic!("arrays must have equal length");
         }
