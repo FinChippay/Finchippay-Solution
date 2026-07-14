@@ -47,7 +47,7 @@ describe("Federation API", () => {
   describe("GET /federation", () => {
     describe("type=name", () => {
       it("should resolve a local stellar address", async () => {
-        const stellarAddress = `${testUsername}*stellarmicropay.io`;
+        const stellarAddress = `${testUsername}*stellarfinchippay.io`;
 
         const response = await request(app)
           .get("/federation")
@@ -59,7 +59,7 @@ describe("Federation API", () => {
       });
 
       it("should resolve configured legacy local domains", async () => {
-        const stellarAddress = `${testUsername}*stellarmicropay.com`;
+        const stellarAddress = `${testUsername}*stellarfinchippay.com`;
 
         const response = await request(app)
           .get("/federation")
@@ -71,7 +71,7 @@ describe("Federation API", () => {
       });
 
       it("should return 404 for non-existent username", async () => {
-        const stellarAddress = "nonexistent*stellarmicropay.io";
+        const stellarAddress = "nonexistent*stellarfinchippay.io";
 
         const response = await request(app)
           .get("/federation")
@@ -100,7 +100,7 @@ describe("Federation API", () => {
           .query({ q: testPublicKey, type: "id" })
           .expect(200);
 
-        expect(response.body).toHaveProperty("stellar_address", `${testUsername}*stellarmicropay.io`);
+        expect(response.body).toHaveProperty("stellar_address", `${testUsername}*stellarfinchippay.io`);
         expect(response.body).toHaveProperty("account_id", testPublicKey);
       });
 

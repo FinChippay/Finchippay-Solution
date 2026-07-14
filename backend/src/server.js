@@ -1,6 +1,6 @@
 /**
  * src/server.js
- * Express server entry point for Stellar MicroPay backend.
+ * Express server entry point for Finchippay Solution backend.
  */
 
 "use strict";
@@ -73,7 +73,7 @@ function getFederationDomain(req) {
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
       req.get("host") ||
-      "stellarmicropay.io"
+      "stellarfinchippay.io"
   );
 }
 
@@ -171,7 +171,7 @@ app.use("/api/health", healthRoutes);
 // discover the SEP-0002 federation endpoint for `name*domain` addresses.
 app.get("/.well-known/stellar.toml", (req, res) => {
   const serverUrl = getFederationServerUrl(req);
-  const tomlContent = `# Stellar MicroPay federation discovery
+  const tomlContent = `# Finchippay Solution federation discovery
 FEDERATION_SERVER="${serverUrl}"
 `;
 
@@ -209,7 +209,7 @@ app.use(
   "/api/docs",
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: "Stellar MicroPay API Docs",
+    customSiteTitle: "Finchippay Solution API Docs",
     customCss: ".swagger-ui .topbar { display: none }",
     swaggerOptions: { url: "/api/docs.json" },
   })
@@ -247,7 +247,7 @@ if (require.main === module) {
   validateEnv();
   app.listen(PORT, () => {
     console.log(`
-  ✨ Stellar MicroPay API
+  ✨ Finchippay Solution API
   🚀 Server running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);

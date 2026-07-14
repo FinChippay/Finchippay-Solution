@@ -1,6 +1,6 @@
 /**
  * src/config/stellar.js
- * Centralized Horizon Server configuration for the Stellar MicroPay backend.
+ * Centralized Horizon Server configuration for the Finchippay Solution backend.
  */
 
 "use strict";

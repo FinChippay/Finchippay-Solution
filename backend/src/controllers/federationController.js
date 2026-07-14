@@ -202,15 +202,15 @@ function getPrimaryFederationDomain() {
     process.env.FEDERATION_DOMAIN ||
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
-      "stellarmicropay.io"
+      "stellarfinchippay.io"
   );
 }
 
 function getLocalFederationDomains(req) {
   const domains = new Set([
     getPrimaryFederationDomain(),
-    "stellarmicropay.io",
-    "stellarmicropay.com",
+    "stellarfinchippay.io",
+    "stellarfinchippay.com",
   ]);
 
   if (req) {

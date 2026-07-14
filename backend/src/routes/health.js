@@ -11,7 +11,7 @@ const router = express.Router();
 router.get("/", (req, res) => {
   res.json({
     status: "ok",
-    service: "stellar-micropay-api",
+    service: "finchippay-api",
     network: process.env.STELLAR_NETWORK || "testnet",
     timestamp: new Date().toISOString(),
   });

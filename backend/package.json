@@ -1,7 +1,7 @@
 {
-  "name": "stellar-micropay-backend",
+  "name": "finchippay-backend",
   "version": "1.0.0",
-  "description": "Backend API for Stellar MicroPay",
+  "description": "Backend API for Finchippay Solution",
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
