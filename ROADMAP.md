@@ -1,107 +1,85 @@
-# 🗺 Finchippay Solution — Roadmap
+# Roadmap — Finchippay-Solution
 
-This document outlines what's been built, what's in progress, and what's planned for future versions.
-
----
-
-## ✅ v1.0 — Foundation (Current)
-
-- [x] Freighter wallet connection
-- [x] Send XLM to any Stellar address
-- [x] View transaction history
-- [x] Basic Next.js frontend
-- [x] Node.js / Express backend
-- [x] Soroban contract template
+This document tracks what's shipped, what's in progress, and what's planned.
 
 ---
 
-## 🔄 v1.1 — Developer Experience
+## ✅ v1.0 — Foundation (Shipped)
 
-- [ ] Docker Compose setup for one-command startup
-- [ ] GitHub Actions CI pipeline
-- [ ] Unit tests for frontend components
-- [ ] API integration tests
-- [ ] Improved error handling & toast notifications
-
----
-
-## 🧩 v1.2 — Username Payments
-
-> **Placeholder** — Contribute here!
-
-- [ ] Register a human-readable username (e.g. `@alice`)
-- [ ] Map username → Stellar wallet address
-- [ ] Send payments to `@username` instead of raw address
-- [ ] Username resolution API endpoint
+- [x] Freighter wallet connection (non-custodial)
+- [x] Send XLM or any Stellar asset
+- [x] Paginated transaction history with filters
+- [x] Next.js 14 frontend with Tailwind CSS
+- [x] Express backend with Horizon proxy, auth, rate limiting
+- [x] Docker Compose local dev environment
+- [x] GitHub Actions CI (frontend + backend + contracts + Playwright)
 
 ---
 
-## 📱 v1.3 — QR Code Payments
+## ✅ v1.1 — Smart Contract (Shipped)
 
-> **Placeholder** — Contribute here!
-
-- [ ] Generate QR code for your wallet address
-- [ ] Scan QR code to pre-fill payment form
-- [ ] Deep link support (`stellarfinchippay://pay?to=...&amount=...`)
-- [ ] Mobile-optimised QR scanner
-
----
-
-## 💡 v1.4 — Creator Tipping
-
-> **Placeholder** — Contribute here!
-
-- [ ] Public tip page (e.g. `/tip/alice`)
-- [ ] Preset tip amounts (☕ $1 / 🍕 $5 / 🚀 $20)
-- [ ] Tip with a message
-- [ ] Creator dashboard showing tips received
+- [x] `FinchippayContract` Soroban WASM contract
+- [x] Tips with on-chain aggregate stats
+- [x] Immutable payment receipts
+- [x] Time-locked escrow (create / claim / cancel)
+- [x] Streaming payments (open / claim / top-up / close)
+- [x] N-of-M multi-sig payment proposals (auto-execute at threshold)
+- [x] Batch fan-out sends
+- [x] Full test suite (15+ tests, checked arithmetic, TTL management)
 
 ---
 
-## 🔗 v1.5 — Payment Links
+## ✅ v1.2 — Platform Features (Shipped)
 
-> **Placeholder** — Contribute here!
-
-- [ ] Generate shareable payment request links
-- [ ] Set amount + memo in the link
-- [ ] One-click payment from link
-- [ ] Link expiry option
-
----
-
-## 🌐 v2.0 — Multi-Currency Payments
-
-> **Placeholder** — Contribute here!
-
-- [ ] Send USDC on Stellar
-- [ ] Stellar DEX integration for currency conversion
-- [ ] Display balance in local fiat equivalent
-- [ ] Support Stellar-issued assets
+- [x] SEP-0002 federation (username → Stellar address)
+- [x] SEP-0010 JWT auth
+- [x] Analytics dashboard (volume charts, top recipients, activity by day)
+- [x] Recurring payment schedules (client-side)
+- [x] Batch payment form
+- [x] Payment link generator + QR codes
+- [x] Creator tipping dashboard + `/tip/:username` pages
+- [x] AI payment assistant
+- [x] Address book with federation resolution
+- [x] Stellar DEX trading interface
+- [x] PWA manifest + service worker offline support
+- [x] Storybook component library
+- [x] Sentry error tracking (secret key redaction)
+- [x] Webhook delivery with HMAC-SHA256 signatures
+- [x] Turrets txFunction deployment and monitoring
 
 ---
 
-## 🔐 v2.1 — Soroban Escrow Payments
+## 🔄 v1.3 — Hardening (In Progress)
 
-> **Placeholder** — Contribute here!
-
-- [ ] Hold funds in Soroban smart contract escrow
-- [ ] Release on condition (time-lock, approval)
-- [ ] Milestone-based payment release
-- [ ] Dispute resolution flow
-
----
-
-## 📊 v2.2 — Analytics Dashboard
-
-- [ ] Payment volume chart
-- [ ] Top recipients
-- [ ] Monthly spending summary
-- [ ] CSV export
+- [ ] Migrate tips/username storage from in-memory to SQLite/PostgreSQL
+- [ ] Refresh token rotation for SEP-0010 sessions
+- [ ] Soroban RPC abstraction layer in the frontend
+- [ ] Contract upgrade path (admin transfer + re-initialization guard)
+- [ ] Stream pause / resume (contract extension)
+- [ ] Integration tests for streaming and multi-sig UI flows
 
 ---
 
-## 💬 Want to work on something?
+## 📋 v2.0 — Mainnet Readiness
 
-Open an issue or comment on an existing one. We'll assign it to you and help you get started!
+- [ ] Formal security audit of `FinchippayContract`
+- [ ] Mainnet contract deployment + verification
+- [ ] USDC and other SAC token support throughout the UI
+- [ ] Multi-network switching (testnet ↔ mainnet) per-session
+- [ ] Fiat on-ramp integration (MoneyGram, Stellar Anchor)
+- [ ] Mobile-responsive PWA improvements
+- [ ] Push notification webhooks via web-push
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to begin.
+---
+
+## 💡 Ideas / Community Requests
+
+- Milestone-based escrow releases
+- Subscription/recurring payments via Soroban streams
+- DAO treasury multi-sig management UI
+- CSV export of payment history
+- NFT receipt display in wallet dashboard
+
+---
+
+Have an idea? [Open an issue](https://github.com/FinChippay/Finchippay-Solution/issues) or see [CONTRIBUTING.md](CONTRIBUTING.md).
