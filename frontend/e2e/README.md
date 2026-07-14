@@ -1,4 +1,4 @@
-# E2E Test Coverage for Stellar-MicroPay
+# E2E Test Coverage for Finchippay-Solution
 
 This suite covers all major user journeys:
 

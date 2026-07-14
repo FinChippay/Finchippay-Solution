@@ -15,7 +15,7 @@ export default function Document() {
             __html: `
               (function() {
                 try {
-                  const saved = localStorage.getItem('stellar-micropay:theme');
+                  const saved = localStorage.getItem('finchippay:theme');
                   const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                   const theme = saved || preferred;
                   if (theme === 'dark') {
@@ -42,7 +42,7 @@ export default function Document() {
         {/* Apple mobile web app capable */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="MicroPay" />
+        <meta name="apple-mobile-web-app-title" content="Finchippay" />
 
         {/* MS Tile Color */}
         <meta name="msapplication-TileColor" content="#7B3FE4" />

@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 
 test('landing page loads with correct title', async ({ page }) => {
   await page.goto('/');
-  await expect(page).toHaveTitle('Home | Stellar-MicroPay');
+  await expect(page).toHaveTitle('Home | Finchippay-Solution');
 });
 
 test('landing page shows hero heading', async ({ page }) => {

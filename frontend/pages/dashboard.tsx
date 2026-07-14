@@ -86,7 +86,7 @@ interface CachedBalanceSnapshot {
   savedAt: number;
 }
 
-const BALANCE_CACHE_KEY_PREFIX = "stellar-micropay:offline-balance:";
+const BALANCE_CACHE_KEY_PREFIX = "finchippay:offline-balance:";
 
 function getBalanceCacheKey(publicKey: string) {
   return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}`;
@@ -645,7 +645,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Onboarding tour logic
   useEffect(() => {
     if (publicKey) {
-      const hasSeenTour = localStorage.getItem("stellar-micropay:onboarding-completed");
+      const hasSeenTour = localStorage.getItem("finchippay:onboarding-completed");
       if (!hasSeenTour) {
         setShowOnboardingTour(true);
       }
@@ -654,12 +654,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const handleTourComplete = () => {
     setShowOnboardingTour(false);
-    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+    localStorage.setItem("finchippay:onboarding-completed", "true");
   };
 
   const handleTourSkip = () => {
     setShowOnboardingTour(false);
-    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+    localStorage.setItem("finchippay:onboarding-completed", "true");
   };
 
   const handlePaymentSuccess = () => {
@@ -871,9 +871,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
       <Head>
-        <title>Dashboard | Stellar-MicroPay</title>
+        <title>Dashboard | Finchippay-Solution</title>
         <meta name="description" content="Manage your Stellar account, view balances, and send micropayments instantly. Real-time transaction history and wallet summary." />
-        <link rel="canonical" href="https://stellar-micropay.vercel.app/dashboard" />
+        <link rel="canonical" href="https://finchippay.vercel.app/dashboard" />
       </Head>
       <div className="mb-8">
         {/* Focus target after wallet connect / navigation so focus lands on the

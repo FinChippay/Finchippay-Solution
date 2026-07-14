@@ -36,9 +36,9 @@ export default function Home() {
   return (
     <div className="relative overflow-hidden cursor-default select-none">
       <Head>
-        <title>Home | Stellar-MicroPay</title>
+        <title>Home | Finchippay-Solution</title>
         <meta name="description" content="Experience lightning-fast micropayments on the Stellar network. Send funds globally for fractions of a cent." />
-        <link rel="canonical" href="https://stellar-micropay.vercel.app/" />
+        <link rel="canonical" href="https://finchippay.vercel.app/" />
       </Head>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-stellar-500/5 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-20 right-0 w-[300px] h-[300px] bg-stellar-600/5 rounded-full blur-2xl pointer-events-none" />
@@ -94,7 +94,7 @@ export default function Home() {
           </h1>
 
           <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
-            Stellar MicroPay lets anyone send tiny payments across borders instant — for fractions of a cent. No bank. No borders. No friction.
+            Finchippay Solution lets anyone send tiny payments across borders instant — for fractions of a cent. No bank. No borders. No friction.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -108,10 +108,10 @@ export default function Home() {
               </button>
             )}
             <a
-              href="https://github.com/your-org/stellar-micropay"
+              href="https://github.com/FinChippay/Finchippay-Solution"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="View Stellar-MicroPay source code on GitHub"
+              aria-label="View Finchippay-Solution source code on GitHub"
               className="btn-secondary text-base px-8 py-3.5 flex items-center gap-2"
             >
               <GithubIcon className="w-4 h-4" />
@@ -277,7 +277,7 @@ export default function Home() {
         <div className="text-center pt-12 border-t border-white/5">
           <p className="text-slate-600 text-sm">
             Open source · MIT License ·{" "}
-            <a href="https://github.com/your-org/stellar-micropay" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-400 transition-colors cursor-pointer">
+            <a href="https://github.com/FinChippay/Finchippay-Solution" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-400 transition-colors cursor-pointer">
               Contribute on GitHub
             </a>
           </p>

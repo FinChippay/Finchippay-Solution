@@ -59,7 +59,7 @@ function InstallBanner() {
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
             <h3 className="mb-1 text-sm font-display font-semibold text-slate-900 dark:text-white">
-              Install MicroPay
+              Install Finchippay
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Add to your home screen for quick access and offline support
@@ -152,7 +152,7 @@ export default function App({ Component, pageProps }: AppProps) {
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("stellar-micropay:theme") as
+    const saved = localStorage.getItem("finchippay:theme") as
       | "dark"
       | "light"
       | null;
@@ -197,7 +197,7 @@ export default function App({ Component, pageProps }: AppProps) {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
     document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    localStorage.setItem("stellar-micropay:theme", nextTheme);
+    localStorage.setItem("finchippay:theme", nextTheme);
   };
 
   return (
@@ -205,19 +205,19 @@ export default function App({ Component, pageProps }: AppProps) {
       <ToastProvider>
       <WalletProvider>
         <Head>
-          <title>Stellar-MicroPay | Instant Micropayments</title>
+          <title>Finchippay-Solution | Instant Micropayments</title>
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <meta
             name="description"
             content="Send instant, low-fee micropayments globally using the Stellar network. Secure, fast, and transparent."
           />
-          <link rel="canonical" href="https://stellar-micropay.vercel.app/" />
+          <link rel="canonical" href="https://finchippay.vercel.app/" />
           <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
           <meta property="og:type" content="website" />
-          <meta property="og:url" content="https://stellar-micropay.vercel.app/" />
+          <meta property="og:url" content="https://finchippay.vercel.app/" />
           <meta
             property="og:title"
-            content="Stellar-MicroPay | Instant Micropayments"
+            content="Finchippay-Solution | Instant Micropayments"
           />
           <meta
             property="og:description"
@@ -225,12 +225,12 @@ export default function App({ Component, pageProps }: AppProps) {
           />
           <meta
             property="og:image"
-            content="https://stellar-micropay.vercel.app/og-card.png"
+            content="https://finchippay.vercel.app/og-card.png"
           />
           <meta name="twitter:card" content="summary_large_image" />
           <meta
             name="twitter:title"
-            content="Stellar-MicroPay | Instant Micropayments"
+            content="Finchippay-Solution | Instant Micropayments"
           />
           <meta
             name="twitter:description"
@@ -238,7 +238,7 @@ export default function App({ Component, pageProps }: AppProps) {
           />
           <meta
             name="twitter:image"
-            content="https://stellar-micropay.vercel.app/og-card.png"
+            content="https://finchippay.vercel.app/og-card.png"
           />
         </Head>
 

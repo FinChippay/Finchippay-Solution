@@ -96,10 +96,10 @@ export default function TipPage() {
 
   const pageTitle =
     resolveState.status === "ready"
-      ? `Tip @${resolveState.account.username} | Stellar MicroPay`
+      ? `Tip @${resolveState.account.username} | Finchippay Solution`
       : routeUsername
-        ? `Tip @${routeUsername} | Stellar MicroPay`
-        : "Tip Creator | Stellar MicroPay";
+        ? `Tip @${routeUsername} | Finchippay Solution`
+        : "Tip Creator | Finchippay Solution";
 
   return (
     <>
