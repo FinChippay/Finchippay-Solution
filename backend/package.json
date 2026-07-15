@@ -10,7 +10,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "jest",
-    "lint": "eslint src/**/*.js"
+    "lint": "eslint 'src/**/*.js'"
   },
   "dependencies": {
     "@sentry/node": "^8.53.0",

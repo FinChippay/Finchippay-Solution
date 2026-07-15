@@ -222,7 +222,7 @@ app.get("/api/docs.json", (req, res) => {
 
 // ─── 404 Handler ───────────────────────────────────────────────────────────────
 
-app.use((req, res, next) => {
+app.use((req, res) => {
   const sanitizedPath = req.path.replace(/[\r\n]/g, "");
   logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
   res.status(404).json({ error: "Route not found" });
