@@ -82,7 +82,10 @@ export function parseStellarURI(uri: string): URIParseResult {
     const assetCode = params.get('asset_code') || undefined;
     const assetIssuer = params.get('asset_issuer') || undefined;
     const memo = params.get('memo') || undefined;
-    const memoType = params.get('memo_type') as any || undefined;
+    const memoTypeRaw = params.get('memo_type');
+    const memoType = (memoTypeRaw && ['MEMO_TEXT', 'MEMO_ID', 'MEMO_HASH', 'MEMO_RETURN'].includes(memoTypeRaw)
+      ? memoTypeRaw as ParsedStellarURI['memoType']
+      : undefined);
     const msg = params.get('msg') || undefined;
     const networkPassphrase = params.get('network_passphrase') || undefined;
     const originDomain = params.get('origin_domain') || undefined;

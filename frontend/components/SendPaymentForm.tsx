@@ -229,7 +229,8 @@ function SendPaymentForm({
   const startDetection = () => {
     if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
 
-    const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+    const BarcodeDetectorCtor = (window as Window & { BarcodeDetector: new (opts: { formats: string[] }) => BarcodeDetectorLike }).BarcodeDetector;
+    const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
     detectorRef.current = detector;
     isDetectingRef.current = true;
 
@@ -554,8 +555,9 @@ function SendPaymentForm({
       if (signError || !signedXDR) throw new Error(signError || "Receipt signing failed");
       const result = await submitTransaction(signedXDR);
       setReceiptMinted(true);
-    } catch (err: any) {
-      setReceiptError(err?.message || "Failed to mint receipt");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to mint receipt";
+      setReceiptError(message);
     } finally {
       setMintingReceipt(false);
     }
@@ -623,8 +625,8 @@ function SendPaymentForm({
       saveRecipient(trimmedDestination);
       addToast(`Payment sent! Tx: ${result.hash.slice(0, 8)}…`, "success");
       onSuccess?.(result.hash);
-    } catch (err: any) {
-      const message = err?.message || "An unexpected error occurred";
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
       setError(message);
       markStepFailed(activeStep, message);
       setStatus("error");
