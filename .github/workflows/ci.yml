@@ -106,8 +106,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            contracts/finchippay-contract/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
 
       - name: Check
         run: cargo check --target wasm32-unknown-unknown
@@ -137,14 +137,34 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: npm ci
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      - name: Start backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm start &
+          for i in $(seq 1 30); do
+            curl -s http://localhost:4000/health && break
+            [ "$i" -eq 30 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+        env:
+          PORT: 4000
+          NODE_ENV: test
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          JWT_SECRET: test-secret
+
       - name: Run E2E tests
+        working-directory: frontend
         run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
 
       - name: Upload Playwright report
         if: always()
