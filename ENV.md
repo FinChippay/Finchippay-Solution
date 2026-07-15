@@ -75,3 +75,4 @@ NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 - `ALLOWED_ORIGINS` should list only your actual frontend domain(s). Wildcards are not supported.
 - Never commit real `.env` files to git. They are listed in `.gitignore`.
 - In Docker / CI, inject secrets via environment variables or a secrets manager — not via files.
+- For production deployments, configure `ANTHROPIC_API_KEY` as a [GitHub repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) and reference it in your deployment workflow as `${{ secrets.ANTHROPIC_API_KEY }}`.

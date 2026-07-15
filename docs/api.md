@@ -4,7 +4,7 @@
 
 **Interactive docs:** [Swagger UI](http://localhost:4000/api/docs) · [OpenAPI JSON](http://localhost:4000/api/docs.json)
 
-> **🎯 25 total endpoints** across Health, Auth, Federation, Accounts, Payments, Analytics, Tips, Turrets, and Webhooks.
+> **🎯 27 total endpoints** across Health, Auth, Federation, Accounts, Payments, Analytics, Tips, Turrets, Webhooks, AI Parsing, and Scheduled Transactions.
 
 ---
 
@@ -65,6 +65,8 @@ Responses include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset
 - [Tips](#tips)
 - [Turrets (txFunctions)](#turrets-txfunctions)
 - [Webhooks](#webhooks)
+- [AI Payment Parsing](#ai-payment-parsing)
+- [Scheduled Transactions](#scheduled-transactions)
 - [Global errors](#global-errors)
 
 ---
@@ -1003,6 +1005,155 @@ Delete a webhook by numeric ID.
 | Status | Body |
 |--------|------|
 | 404 | `{ "error": "Webhook not found" }` |
+
+---
+
+## AI Payment Parsing
+
+AI-powered natural language payment intent parsing using Anthropic's Claude.
+
+Requires `ANTHROPIC_API_KEY` to be set in the backend environment. Returns **501** if not configured.
+
+### `POST /api/parse-payment`
+
+Parse a natural language payment description into a structured payment intent.
+
+**Request body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| input | string | yes | Natural language payment description |
+
+**Example request**
+```json
+{
+  "input": "Send 50 XLM to GABC123 for design work"
+}
+```
+
+**Response `200`**
+```json
+{
+  "amount": "50 XLM",
+  "recipient": "GABC123",
+  "memo": "design work",
+  "isValid": true,
+  "clarification": ""
+}
+```
+
+**Response `200` (ambiguous input)**
+```json
+{
+  "amount": "",
+  "recipient": "Alice",
+  "memo": "job",
+  "isValid": false,
+  "clarification": "What amount should be sent?"
+}
+```
+
+**Errors**
+
+| Status | Body |
+|--------|------|
+| 400 | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "Please provide a payment description." }` |
+| 501 | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "AI payment parsing is not configured. Set ANTHROPIC_API_KEY." }` |
+| 500 | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "Server error. Try again." }` |
+
+---
+
+## Scheduled Transactions
+
+Schedule pre-signed Stellar transactions for future automatic submission.
+
+### `POST /api/scheduled-txns`
+
+Schedule a transaction for future submission.
+
+**Request body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| signedXDR | string | yes | Signed transaction XDR (base64) |
+| submitAt | string | yes | ISO 8601 timestamp when the transaction should be submitted |
+| publicKey | string | yes | Stellar public key that owns this transaction |
+
+**Example request**
+```json
+{
+  "signedXDR": "AAAAAgAAAAC...",
+  "submitAt": "2026-08-01T12:00:00Z",
+  "publicKey": "GABC1234567890123456789012345678901234567890123456789012345"
+}
+```
+
+**Response `201`**
+```json
+{
+  "message": "Transaction scheduled successfully",
+  "id": 1,
+  "publicKey": "GABC1234567890123456789012345678901234567890123456789012345",
+  "submitAt": "2026-08-01T12:00:00.000Z"
+}
+```
+
+**Errors**
+
+| Status | Body |
+|--------|------|
+| 400 | `{ "error": "Missing signedXDR, submitAt, or publicKey" }` |
+| 400 | `{ "error": "submitAt must be a valid ISO 8601 date string" }` |
+
+---
+
+### `GET /api/scheduled-txns/:publicKey`
+
+List all pending scheduled transactions for a public key (sorted by earliest first).
+
+**Path parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| publicKey | string | Stellar `G...` public key |
+
+**Response `200`**
+```json
+[
+  {
+    "id": 1,
+    "submitAt": "2026-08-01T12:00:00.000Z",
+    "publicKey": "GABC1234567890123456789012345678901234567890123456789012345",
+    "attempts": 0,
+    "createdAt": "2026-07-15T08:00:00.000Z"
+  }
+]
+```
+
+---
+
+### `DELETE /api/scheduled-txns/:id`
+
+Cancel a scheduled transaction by its ID.
+
+**Path parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| id | string | Transaction ID assigned at scheduling |
+
+**Response `200`**
+```json
+{
+  "message": "Transaction 1 cancelled successfully."
+}
+```
+
+**Errors**
+
+| Status | Body |
+|--------|------|
+| 404 | `{ "error": "Transaction 1 not found or not pending." }` |
 
 ---
 
