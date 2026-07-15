@@ -12,25 +12,31 @@ const scheduledTransactionService = require("../services/scheduledTransactionSer
 /**
  * POST /api/scheduled-txns
  * Schedules a new transaction for future submission.
- * Body: { signedXDR: string, submitAt: string (ISO 8601) }
+ * Body: { signedXDR: string, submitAt: string (ISO 8601), publicKey: string }
  */
 router.post("/", (req, res, next) => {
   try {
-    const { signedXDR, submitAt } = req.body;
+    const { signedXDR, submitAt, publicKey } = req.body;
 
-    if (!signedXDR || !submitAt) {
-      return res.status(400).json({ error: "Missing signedXDR or submitAt" });
+    if (!signedXDR || !submitAt || !publicKey) {
+      return res.status(400).json({ error: "Missing signedXDR, submitAt, or publicKey" });
+    }
+
+    const submitDate = new Date(submitAt);
+    if (isNaN(submitDate.getTime())) {
+      return res.status(400).json({ error: "submitAt must be a valid ISO 8601 date string" });
     }
 
     const scheduledTx = scheduledTransactionService.scheduleTransaction(
       signedXDR,
-      submitAt
+      submitDate,
+      publicKey
     );
     res.status(201).json({
       message: "Transaction scheduled successfully",
       id: scheduledTx.id,
       publicKey: scheduledTx.publicKey,
-      submitAt: scheduledTx.submitAt.toISOString(),
+      submitAt: new Date(scheduledTx.submitAt).toISOString(),
     });
   } catch (error) {
     next(error);
@@ -44,7 +50,7 @@ router.post("/", (req, res, next) => {
 router.get("/:publicKey", (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const transactions = scheduledTransactionService.getScheduledTransactions(
+    const transactions = scheduledTransactionService.getPendingTransactions(
       publicKey
     );
     res.json(transactions);
@@ -60,7 +66,7 @@ router.get("/:publicKey", (req, res, next) => {
 router.delete("/:id", (req, res, next) => {
   try {
     const { id } = req.params;
-    const cancelled = scheduledTransactionService.cancelScheduledTransaction(id);
+    const cancelled = scheduledTransactionService.cancelTransaction(id);
     if (cancelled) {
       res.json({ message: `Transaction ${id} cancelled successfully.` });
     } else {
