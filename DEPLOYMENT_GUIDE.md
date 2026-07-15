@@ -8,7 +8,7 @@ This guide provides step-by-step instructions for deploying the Finchippay-Solut
 
 1. **Rust and Soroban SDK**: Install Rust and add Soroban target
    ```bash
-   rustup target add wasm32-unknown-unknown
+   rustup target add wasm32v1-none
    cargo install soroban-cli
    ```
 
@@ -24,10 +24,10 @@ This guide provides step-by-step instructions for deploying the Finchippay-Solut
 cd Finchippay-Solution
 
 # Build for WebAssembly target
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --target wasm32v1-none
 
 # The contract will be available at:
-# target/wasm32-unknown-unknown/release/finchippay_contract.wasm
+# target/wasm32v1-none/release/finchippay_contract.wasm
 ```
 
 ### 2. Run Tests
@@ -57,7 +57,7 @@ export SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 ```bash
 # Deploy the contract
 soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/finchippay_contract.wasm \
+  --wasm target/wasm32v1-none/release/finchippay_contract.wasm \
   --source <YOUR_STELLAR_SECRET_KEY> \
   --network $STELLAR_NETWORK
 

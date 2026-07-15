@@ -134,7 +134,7 @@ Swagger docs: http://localhost:4000/api/docs
 ```bash
 cd contracts/finchippay-contract
 cargo test
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --target wasm32v1-none
 ```
 
 ### Deploy the contract to Stellar testnet

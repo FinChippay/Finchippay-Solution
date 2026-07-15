@@ -76,3 +76,4 @@ NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 - Never commit real `.env` files to git. They are listed in `.gitignore`.
 - In Docker / CI, inject secrets via environment variables or a secrets manager — not via files.
 - For production deployments, configure `ANTHROPIC_API_KEY` as a [GitHub repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) and reference it in your deployment workflow as `${{ secrets.ANTHROPIC_API_KEY }}`.
+- Similarly, configure `JWT_SECRET`, `SERVER_PRIVATE_KEY`, `SENTRY_DSN`, and `NEXT_PUBLIC_SENTRY_DSN` as repository secrets for production CI/CD. Never hardcode secrets in workflow files.

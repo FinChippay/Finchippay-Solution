@@ -3,8 +3,8 @@
 # Build and deploy the FinchippayContract to Stellar testnet or mainnet.
 #
 # Prerequisites:
-#   - Rust + wasm32-unknown-unknown target
-#     rustup target add wasm32-unknown-unknown
+#   - Rust + wasm32v1-none target (required by soroban-sdk v27.0.0+)
+#     rustup target add wasm32v1-none
 #   - Stellar CLI
 #     cargo install --locked stellar-cli
 #   - A funded Stellar identity
@@ -23,7 +23,7 @@ NETWORK="${1:-testnet}"
 IDENTITY="${2:-alice}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONTRACT_DIR="$SCRIPT_DIR/../contracts/finchippay-contract"
-WASM="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/finchippay_contract.wasm"
+WASM="$CONTRACT_DIR/target/wasm32v1-none/release/finchippay_contract.wasm"
 
 echo "╔══════════════════════════════════════════╗"
 echo "║  Finchippay-Solution — Contract Deploy   ║"
@@ -50,7 +50,7 @@ done
 
 echo "🔨 Building WASM (release)..."
 cd "$CONTRACT_DIR"
-cargo build --target wasm32-unknown-unknown --release --quiet
+cargo build --target wasm32v1-none --release --quiet
 
 if [[ ! -f "$WASM" ]]; then
   echo "❌ WASM not found after build: $WASM"

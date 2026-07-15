@@ -58,16 +58,16 @@ Recipients can call `claim_stream` at any time to drain accrued tokens. Payers c
 ## Build
 
 ```bash
-# Requires Rust + wasm32-unknown-unknown target
-rustup target add wasm32-unknown-unknown
+# Requires Rust + wasm32v1-none target (soroban-sdk v27.0.0+)
+rustup target add wasm32v1-none
 
 cargo test
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --target wasm32v1-none
 ```
 
 The compiled WASM lands at:
 ```
-target/wasm32-unknown-unknown/release/finchippay_contract.wasm
+target/wasm32v1-none/release/finchippay_contract.wasm
 ```
 
 ## Deploy to Stellar Testnet
