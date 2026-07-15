@@ -90,7 +90,7 @@ export default function MultiSigSignPage() {
             <p><span className="text-slate-400">From:</span> {transaction.source}</p>
             {transaction.operations.map((op, i) => {
               if (op.type === "payment") {
-                const payment = op as any;
+                const payment = op as unknown as { destination: string; amount: string; asset?: { isNative: () => boolean; code: () => string } };
                 return (
                   <div key={i}>
                     <p><span className="text-slate-400">To:</span> {payment.destination}</p>
@@ -98,7 +98,7 @@ export default function MultiSigSignPage() {
                       <span className="text-slate-400">Amount:</span>{" "}
                       {formatAsset(
                         payment.amount,
-                        payment.asset?.isNative() ? "XLM" : payment.asset?.code
+                        payment.asset?.isNative() ? "XLM" : payment.asset?.code()
                       )}
                     </p>
                   </div>

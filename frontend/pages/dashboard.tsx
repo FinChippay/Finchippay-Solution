@@ -79,6 +79,22 @@ interface PaymentStats {
   totalTransactions: number;
 }
 
+interface ChartMonthData {
+  month: string;
+  monthIndex: number;
+  year: number;
+  sent: number;
+  received: number;
+  label: string;
+}
+
+interface ChartDayData {
+  day: string;
+  dateKey: string;
+  sent: number;
+  received: number;
+}
+
 interface CachedBalanceSnapshot {
   xlmBalance: string;
   usdcBalance: string | null;
@@ -211,14 +227,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
 
   // Stats and charts state
-  const [spendingData, setSpendingData] = useState<any[]>([]);
+  const [spendingData, setSpendingData] = useState<ChartMonthData[]>([]);
   const [spendingLoading, setSpendingLoading] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
-  const [sparklineData, setSparklineData] = useState<any[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<ChartMonthData | null>(null);
+  const [sparklineData, setSparklineData] = useState<number[]>([]);
   const [sparklineLoading, setSparklineLoading] = useState(false);
 
   // Analytics state
-  const [thirtyDayData, setThirtyDayData] = useState<any[]>([]);
+  const [thirtyDayData, setThirtyDayData] = useState<ChartDayData[]>([]);
   const [thirtyDayLoading, setThirtyDayLoading] = useState(false);
   const [topRecipients, setTopRecipients] = useState<Array<{ address: string; totalXLMSent: string }>>([]);
   const [topRecipientsLoading, setTopRecipientsLoading] = useState(false);
@@ -396,7 +412,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       
       // Group by calendar month (last 6 months)
       const now = new Date();
-      const months: any[] = [];
+      const months: ChartMonthData[] = [];
       for (let i = 5; i >= 0; i--) {
 
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -410,10 +426,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         });
       }
 
-      payments.forEach((p: any) => {
+      payments.forEach((p) => {
         const pDate = new Date(p.createdAt);
         const m = months.find(
-          (m: any) =>
+          (m) =>
             m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
         );
 
@@ -459,7 +475,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
       const now = new Date();
-      const days: any[] = [];
+      const days: ChartDayData[] = [];
       for (let i = 29; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
         days.push({
@@ -472,7 +488,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       payments.forEach((p: PaymentRecord) => {
         const pd = new Date(p.createdAt);
         const key = `${pd.getFullYear()}-${pd.getMonth()}-${pd.getDate()}`;
-        const entry = days.find((d: any) => d.dateKey === key);
+        const entry = days.find((d) => d.dateKey === key);
         if (entry) {
           const amt = parseFloat(p.amount);
           if (p.type === "sent") entry.sent += amt;
@@ -1414,9 +1430,9 @@ function MonthlySpendingChart({
   loading,
   onBarClick,
 }: {
-  data: any[];
+  data: ChartMonthData[];
   loading: boolean;
-  onBarClick: (data: any) => void;
+  onBarClick: (data: ChartMonthData) => void;
 }) {
   if (loading && data.length === 0) {
     return (
@@ -1433,11 +1449,12 @@ function MonthlySpendingChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            onClick={(state: any) =>
-              state &&
-              state.activePayload &&
-              onBarClick(state.activePayload[0].payload)
-            }
+            onClick={(state: unknown) => {
+              const s = state as { activePayload?: Array<{ payload: ChartMonthData }> } | null;
+              if (s?.activePayload?.[0]?.payload) {
+                onBarClick(s.activePayload[0].payload);
+              }
+            }}
 
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
@@ -1451,7 +1468,7 @@ function MonthlySpendingChart({
               axisLine={false}
               tickLine={false}
               tick={{ fill: "#94a3b8", fontSize: 12 }}
-              tickFormatter={(value: any) => `${value}`}
+              tickFormatter={(value: number) => `${value}`}
             />
             <Tooltip
               cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
@@ -1470,11 +1487,11 @@ function MonthlySpendingChart({
   );
 }
 
-function ThirtyDayVolumeChart({ data, loading }: { data: any[]; loading: boolean }) {
+function ThirtyDayVolumeChart({ data, loading }: { data: ChartDayData[]; loading: boolean }) {
   if (loading && data.length === 0) {
     return <div className="card mb-6 h-[280px] animate-pulse bg-white/[0.03] border-white/10" />;
   }
-  const visibleData = data.filter((_: any, i: number) => i % 5 === 0 || i === data.length - 1);
+  const visibleData = data.filter((_, i) => i % 5 === 0 || i === data.length - 1);
   return (
     <div className="card mb-6 overflow-hidden">
       <h2 className="font-display text-lg font-semibold text-white mb-6">30-Day Volume (XLM)</h2>
@@ -1487,7 +1504,7 @@ function ThirtyDayVolumeChart({ data, loading }: { data: any[]; loading: boolean
               axisLine={false}
               tickLine={false}
               tick={{ fill: "#94a3b8", fontSize: 11 }}
-              ticks={visibleData.map((d: any) => d.day)}
+              ticks={visibleData.map((d) => d.day)}
               interval="preserveStartEnd"
             />
             <YAxis

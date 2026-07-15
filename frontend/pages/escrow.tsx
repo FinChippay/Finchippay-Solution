@@ -22,6 +22,7 @@ import {
   CONTRACT_ID,
   EscrowRecord,
 } from "@/lib/stellar";
+import { Horizon } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
 type LookupState =
@@ -102,14 +103,15 @@ export default function EscrowPage() {
       const result = await submitTransaction(signedXDR);
       // The contract returns the new escrow id as the call return value.
       // Horizon attaches it under result_meta_xdr; we surface it best-effort.
-      const returned = (result as any)?.returnValue;
+      const returned = (result as Horizon.HorizonApi.SubmitTransactionResponse & { returnValue?: unknown }).returnValue;
       const id = typeof returned === "number" ? returned : null;
       setCreatedId(id);
       setRecipient("");
       setAmount("");
       setReleaseLedger("");
-    } catch (err: any) {
-      setCreateError(err?.message ?? "Failed to create escrow.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create escrow.";
+      setCreateError(message);
     } finally {
       setCreating(false);
     }
@@ -134,8 +136,9 @@ export default function EscrowPage() {
         return;
       }
       setLookup({ kind: "found", escrow, currentLedger: ledger });
-    } catch (err: any) {
-      setActionError(err?.message ?? "Lookup failed.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Lookup failed.";
+      setActionError(message);
       setLookup({ kind: "idle" });
     }
   }
@@ -156,8 +159,9 @@ export default function EscrowPage() {
       await submitTransaction(signedXDR);
       // Refresh the cached escrow so the UI reflects the new status.
       await handleLookup();
-    } catch (err: any) {
-      setActionError(err?.message ?? `Failed to ${action} escrow.`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : `Failed to ${action} escrow.`;
+      setActionError(message);
     } finally {
       setActionPending(null);
     }
