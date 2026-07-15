@@ -218,6 +218,16 @@ const options = {
             lastError: { type: "string", nullable: true },
           },
         },
+        ScheduledTransaction: {
+          type: "object",
+          properties: {
+            id: { type: "integer", description: "Transaction ID" },
+            submitAt: { type: "string", format: "date-time" },
+            publicKey: { type: "string" },
+            attempts: { type: "integer" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
         ExecutionLogEntry: {
           type: "object",
           properties: {
@@ -1049,6 +1059,124 @@ const options = {
                 },
               },
             },
+          },
+        },
+      },
+      "/api/parse-payment": {
+        post: {
+          tags: ["AI Parsing"],
+          summary: "Parse natural language into payment intent",
+          description: "Uses Anthropic's Claude to extract structured payment details (amount, recipient, memo) from natural language input. Requires `ANTHROPIC_API_KEY` to be set.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["input"],
+                  properties: {
+                    input: {
+                      type: "string",
+                      description: "Natural language payment description",
+                      example: "Send 50 XLM to GABC123 for design work",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Parsed payment intent",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      amount: { type: "string", example: "50 XLM" },
+                      recipient: { type: "string", example: "GABC123" },
+                      memo: { type: "string", example: "design work" },
+                      isValid: { type: "boolean", example: true },
+                      clarification: { type: "string", example: "" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing or invalid input" },
+            501: { description: "ANTHROPIC_API_KEY not configured" },
+            500: { description: "Anthropic API error" },
+          },
+        },
+      },
+      "/api/scheduled-txns": {
+        post: {
+          tags: ["Scheduled Transactions"],
+          summary: "Schedule a transaction for future submission",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["signedXDR", "submitAt", "publicKey"],
+                  properties: {
+                    signedXDR: { type: "string", description: "Signed transaction XDR (base64)" },
+                    submitAt: { type: "string", format: "date-time", description: "ISO 8601 timestamp" },
+                    publicKey: { type: "string", pattern: "^G[A-Z0-9]{55}$", description: "Owner public key" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: "Transaction scheduled successfully" },
+            400: { description: "Missing or invalid fields" },
+          },
+        },
+      },
+      "/api/scheduled-txns/{publicKey}": {
+        get: {
+          tags: ["Scheduled Transactions"],
+          summary: "List scheduled transactions for a public key",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Array of scheduled transactions",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ScheduledTransaction" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/scheduled-txns/{id}": {
+        delete: {
+          tags: ["Scheduled Transactions"],
+          summary: "Cancel a scheduled transaction",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "integer" },
+            },
+          ],
+          responses: {
+            200: { description: "Transaction cancelled" },
+            404: { description: "Transaction not found" },
           },
         },
       },
