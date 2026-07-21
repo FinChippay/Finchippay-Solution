@@ -17,6 +17,8 @@ import {
   registerProtocolHandler,
   type URIParseResult,
 } from "@/lib/sep0007";
+import { I18nextProvider } from "react-i18next";
+import i18n from "@/lib/i18n";
 import "@/styles/globals.css";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -203,7 +205,8 @@ export default function App({ Component, pageProps }: AppProps) {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <I18nextProvider i18n={i18n}>
+      <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <ToastProvider>
       <WalletProvider>
         <Head>
@@ -255,5 +258,6 @@ export default function App({ Component, pageProps }: AppProps) {
       </WalletProvider>
       </ToastProvider>
     </ThemeContext.Provider>
+    </I18nextProvider>
   );
 }

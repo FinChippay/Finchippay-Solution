@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
 import {
@@ -17,6 +18,7 @@ import {
   TurretsDeployment,
 } from "@/lib/turrets";
 import { shortenAddress } from "@/lib/stellar";
+import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
 
 interface SettingsPageProps {
   publicKey: string | null;
@@ -30,6 +32,8 @@ export default function SettingsPage({
   onConnect,
   onDisconnect,
 }: SettingsPageProps) {
+  const { t } = useTranslation("common");
+  const [currentLanguage, setCurrentLanguage] = useState<SupportedLanguage>(getCurrentLanguage);
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
     horizonUrl: "https://horizon-testnet.stellar.org",
@@ -327,22 +331,48 @@ export default function SettingsPage({
           <div className="space-y-8">
             <div>
               <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white mb-2">
-                Settings
+                {t("settings.title")}
               </h1>
               <p className="text-slate-600 dark:text-slate-400">
-                Configure your Stellar network preferences
+                {t("settings.subtitle")}
               </p>
+            </div>
+
+            {/* Language Selector */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                {t("settings.languageTitle")}
+              </h2>
+              <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">{t("settings.languageDescription")}</p>
+              <div className="grid grid-cols-3 gap-3">
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => {
+                      setLanguage(lang.code);
+                      setCurrentLanguage(lang.code);
+                    }}
+                    className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                      currentLanguage === lang.code
+                        ? "border-stellar-500 bg-stellar-500/10 text-stellar-400"
+                        : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
+                    }`}
+                  >
+                    {lang.nativeName}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                Network Configuration
+                {t("settings.networkConfig")}
               </h2>
 
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Select Network
+                    {t("settings.selectNetwork")}
                   </label>
                   <div className="grid grid-cols-3 gap-3">
                     <button
@@ -353,7 +383,7 @@ export default function SettingsPage({
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Testnet
+                      {t("settings.testnet")}
                     </button>
                     <button
                       onClick={() => handleNetworkChange("mainnet")}
@@ -363,7 +393,7 @@ export default function SettingsPage({
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Mainnet
+                      {t("settings.mainnet")}
                     </button>
                     <button
                       onClick={() => handleNetworkChange("custom")}
@@ -373,7 +403,7 @@ export default function SettingsPage({
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Custom
+                      {t("settings.custom")}
                     </button>
                   </div>
                 </div>
@@ -577,11 +607,11 @@ export default function SettingsPage({
             {/* Username Registration Section */}
             {publicKey ? (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                   <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  Creator Username
+                  {t("settings.creatorUsername")}
                 </h2>
 
                 {registeredUsername ? (
