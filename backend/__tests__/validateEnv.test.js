@@ -91,6 +91,60 @@ describe("validateEnv.collectErrors", () => {
     expect(errors[0]).toMatch(/"https:\/\/a\.com\/path"/);
     expect(errors[1]).toMatch(/".*evil\.com"/);
   });
+
+  // ─── METRICS_TOKEN validation ──────────────────────────────────────────────
+
+  it("returns no errors when METRICS_TOKEN is absent (optional)", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+      })
+    ).toEqual([]);
+  });
+
+  it("returns no errors for a valid METRICS_TOKEN (>= 16 chars)", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        METRICS_TOKEN: "a-secure-token-16+",
+      })
+    ).toEqual([]);
+  });
+
+  it("flags a METRICS_TOKEN that is too short", () => {
+    const errors = collectErrors({
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+      METRICS_TOKEN: "short",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("METRICS_TOKEN must be at least 16 characters"),
+      ])
+    );
+  });
+
+  it("returns no errors for a METRICS_TOKEN that is exactly 16 chars", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        METRICS_TOKEN: "1234567890123456",
+      })
+    ).toEqual([]);
+  });
+
+  it("ignores an empty METRICS_TOKEN string as optional", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        METRICS_TOKEN: "  ",
+      })
+    ).toEqual([]);
+  });
 });
 
 // ─── parseAllowedOrigins ──────────────────────────────────────────────────────

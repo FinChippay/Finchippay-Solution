@@ -27,6 +27,8 @@ services:
       - STELLAR_NETWORK=mainnet
       - HORIZON_URL=https://horizon.stellar.org
       - TURRETS_EVALUATION_INTERVAL_MS=60000
+      # Required in production to protect the /metrics endpoint
+      # - METRICS_TOKEN=<your-secure-random-token>
       # Optional: set to enable AI payment parsing via Anthropic
       # - ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
     healthcheck:
@@ -35,3 +37,48 @@ services:
       timeout: 10s
       retries: 3
     restart: always
+
+  # ─── Prometheus + Grafana stack (production monitoring) ──────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docs/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/finchippay.json
+      - ./docs/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+volumes:
+  prometheus_data:
+  grafana_data:

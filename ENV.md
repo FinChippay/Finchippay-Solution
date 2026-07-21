@@ -28,6 +28,7 @@ cp frontend/.env.example frontend/.env.local
 | `TURRETS_EVALUATION_INTERVAL_MS` | ❌ | `30000` | Interval (ms) between txFunction evaluation runs |
 | `SERVER_PRIVATE_KEY` | ❌ | — | Stellar secret key for SEP-0010 challenge signing (generated on startup if unset) |
 | `ANTHROPIC_API_KEY` | ❌ | — | Anthropic API key for the AI payment parsing feature (`/api/parse-payment`). Returns 501 if unset. |
+| `METRICS_TOKEN` | ❌ | — | Bearer token required to access `GET /metrics`. When unset the endpoint is open (with a warning). Must be at least 16 characters. Generate: `openssl rand -hex 32` |
 
 ### Example `backend/.env`
 

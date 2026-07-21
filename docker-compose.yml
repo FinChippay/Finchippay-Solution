@@ -5,6 +5,7 @@
 #
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:4000
+# Grafana:  http://localhost:3001 (admin / admin)
 #
 # For production:
 #   docker compose -f docker-compose.prod.yml up
@@ -68,3 +69,51 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+  # ─── Prometheus + Grafana stack (local dev metrics) ──────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docs/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/finchippay.json
+      - ./docs/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

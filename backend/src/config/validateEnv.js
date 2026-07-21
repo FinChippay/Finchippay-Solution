@@ -93,6 +93,19 @@ function collectErrors(env) {
     errors.push(w);
   }
 
+  // METRICS_TOKEN is strongly recommended in production but optional.
+  // A warning is logged at runtime when it is missing; we do not fail
+  // startup so that local development remains frictionless.
+  if (env.METRICS_TOKEN !== undefined && env.METRICS_TOKEN !== null) {
+    const token = String(env.METRICS_TOKEN).trim();
+    if (token.length > 0 && token.length < 16) {
+      errors.push(
+        `METRICS_TOKEN must be at least 16 characters, got ${token.length}. ` +
+          "Generate a secure token: openssl rand -hex 32"
+      );
+    }
+  }
+
   return errors;
 }
 

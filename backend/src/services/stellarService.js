@@ -8,6 +8,7 @@
 
 const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
+const metrics = require("./metricsService");
 
 // ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
 const ACCOUNT_CACHE_TTL_MS = 5_000;
@@ -106,6 +107,7 @@ async function getAccount(publicKey) {
 
   try {
     const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey));
+    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "success" });
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -129,6 +131,7 @@ async function getAccount(publicKey) {
     cacheSet(publicKey, result);
     return result;
   } catch (err) {
+    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "error" });
     if (err?.response?.status === 404) {
       const error = new Error(
         "Account not found. It may not be funded yet. Use Friendbot on testnet."
@@ -168,7 +171,14 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await withTimeoutAndRetry(() => query.call());
+  let result;
+  try {
+    result = await withTimeoutAndRetry(() => query.call());
+    metrics.horizonRequestsTotal.inc({ operation: "getPayments", status: "success" });
+  } catch (err) {
+    metrics.horizonRequestsTotal.inc({ operation: "getPayments", status: "error" });
+    throw err;
+  }
 
   const payments = [];
 
@@ -199,10 +209,12 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     let memo;
     try {
       const tx = await withTimeoutAndRetry(() => op.transaction());
+      metrics.horizonRequestsTotal.inc({ operation: "getTransaction", status: "success" });
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }
     } catch (err) {
+      metrics.horizonRequestsTotal.inc({ operation: "getTransaction", status: "error" });
       logger.error({ err, transactionHash: op.transaction_hash }, "Failed to fetch memo for transaction");
       // memo is optional
     }
