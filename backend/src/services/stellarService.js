@@ -6,8 +6,11 @@
 
 "use strict";
 
-const { server } = require("../config/stellar");
+const { server, HORIZON_URL } = require("../config/stellar");
 const logger = require("../utils/logger");
+const { trace } = require("@opentelemetry/api");
+
+const tracer = trace.getTracer("finchippay-stellar-service");
 
 // ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
 const ACCOUNT_CACHE_TTL_MS = 5_000;
@@ -48,8 +51,12 @@ async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
         fn(controller.signal),
         new Promise((_, reject) =>
           controller.signal.addEventListener("abort", () =>
-            reject(Object.assign(new Error("Horizon request timed out"), { name: "AbortError" }))
-          )
+            reject(
+              Object.assign(new Error("Horizon request timed out"), {
+                name: "AbortError",
+              }),
+            ),
+          ),
         ),
       ]);
       clearTimeout(timer);
@@ -63,6 +70,46 @@ async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
     }
   }
   throw lastErr;
+}
+
+// ─── Tracing helper ───────────────────────────────────────────────────────────
+
+/**
+ * Create an OpenTelemetry span wrapping a Horizon API call.
+ * Sets attributes: horizon.url, horizon.operation, attempt count,
+ * and http.status_code on success / error on failure.
+ *
+ * When the OTel SDK is not initialised (NODE_ENV=test or no
+ * OTEL_EXPORTER_OTLP_ENDPOINT) the global tracer is a no-op and
+ * spans are not exported — no overhead beyond a function call.
+ *
+ * @param {string} operation - e.g. "loadAccount", "getPayments"
+ * @param {string} description - human-readable span name
+ * @param {() => Promise<any>} fn - the Horizon call to wrap
+ * @returns {Promise<any>}
+ */
+async function withTracedSpan(operation, description, fn) {
+  const span = tracer.startSpan(description, {
+    attributes: {
+      "horizon.url": HORIZON_URL,
+      "horizon.operation": operation,
+    },
+  });
+
+  try {
+    const result = await fn();
+    span.setAttribute("http.status_code", 200);
+    span.setStatus({ code: 1 }); // OK
+    return result;
+  } catch (err) {
+    const status = err?.response?.status ?? err?.status ?? 500;
+    span.setAttribute("http.status_code", status);
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message }); // ERROR
+    throw err;
+  } finally {
+    span.end();
+  }
 }
 
 /** @type {Map<string, { value: object, expiresAt: number }>} */
@@ -86,7 +133,10 @@ function cacheSet(key, value) {
     // Evict the oldest entry (first key in insertion order)
     accountCache.delete(accountCache.keys().next().value);
   }
-  accountCache.set(key, { value, expiresAt: Date.now() + ACCOUNT_CACHE_TTL_MS });
+  accountCache.set(key, {
+    value,
+    expiresAt: Date.now() + ACCOUNT_CACHE_TTL_MS,
+  });
 }
 
 function clearAccountCache() {
@@ -105,7 +155,11 @@ async function getAccount(publicKey) {
   if (cached) return cached;
 
   try {
-    const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey));
+    const account = await withTracedSpan(
+      "loadAccount",
+      "Horizon.loadAccount",
+      () => withTimeoutAndRetry(() => server.loadAccount(publicKey)),
+    );
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -131,13 +185,19 @@ async function getAccount(publicKey) {
   } catch (err) {
     if (err?.response?.status === 404) {
       const error = new Error(
-        "Account not found. It may not be funded yet. Use Friendbot on testnet."
+        "Account not found. It may not be funded yet. Use Friendbot on testnet.",
       );
       error.status = 404;
-      logger.error({ err: error, publicKey: publicKey.replace(/[\r\n]/g, "") }, "Account not found");
+      logger.error(
+        { err: error, publicKey: publicKey.replace(/[\r\n]/g, "") },
+        "Account not found",
+      );
       throw error;
     }
-    logger.error({ err, publicKey: publicKey.replace(/[\r\n]/g, "") }, "Error loading account from Horizon");
+    logger.error(
+      { err, publicKey: publicKey.replace(/[\r\n]/g, "") },
+      "Error loading account from Horizon",
+    );
     throw err;
   }
 }
@@ -162,13 +222,21 @@ async function getXLMBalance(publicKey) {
 async function getPayments(publicKey, { limit = 20, cursor } = {}) {
   validatePublicKey(publicKey);
 
-  let query = server.payments().forAccount(publicKey).limit(limit).order("desc");
+  let query = server
+    .payments()
+    .forAccount(publicKey)
+    .limit(limit)
+    .order("desc");
 
   if (cursor) {
     query = query.cursor(cursor);
   }
 
-  const result = await withTimeoutAndRetry(() => query.call());
+  const result = await withTracedSpan(
+    "getPayments",
+    "Horizon.getPayments",
+    () => withTimeoutAndRetry(() => query.call()),
+  );
 
   const payments = [];
 
@@ -188,7 +256,9 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     let assetCode;
     if (isPathPayment && !isSent) {
       assetCode =
-        op.dest_asset_type === "native" ? "XLM" : op.dest_asset_code || "UNKNOWN";
+        op.dest_asset_type === "native"
+          ? "XLM"
+          : op.dest_asset_code || "UNKNOWN";
     } else {
       assetCode =
         op.asset_type === "native" ? "XLM" : op.asset_code || "UNKNOWN";
@@ -198,12 +268,19 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 
     let memo;
     try {
-      const tx = await withTimeoutAndRetry(() => op.transaction());
+      const tx = await withTracedSpan(
+        "getTransaction",
+        "Horizon.getTransaction",
+        () => withTimeoutAndRetry(() => op.transaction()),
+      );
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }
     } catch (err) {
-      logger.error({ err, transactionHash: op.transaction_hash }, "Failed to fetch memo for transaction");
+      logger.error(
+        { err, transactionHash: op.transaction_hash },
+        "Failed to fetch memo for transaction",
+      );
       // memo is optional
     }
 
