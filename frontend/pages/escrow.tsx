@@ -72,8 +72,13 @@ export default function EscrowPage() {
     };
   }, [publicKey]);
 
+  const isSelfTransfer = Boolean(publicKey && recipient === publicKey);
+  const isInvalidAmount = amount !== "" && (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0);
+  const isPastLedger = releaseLedger !== "" && latestLedger !== null && parseInt(releaseLedger, 10) <= latestLedger;
+
   const isCreateDisabled = (() => {
     if (!publicKey) return true;
+    if (isSelfTransfer) return true;
     if (!isValidStellarAddress(recipient)) return true;
     const parsedAmount = parseFloat(amount);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return true;
@@ -234,6 +239,15 @@ export default function EscrowPage() {
                   add ~720 to the current ledger.
                 </span>
               </label>
+              {isSelfTransfer && (
+                <p className="text-xs text-red-600">Self-transfer is not allowed.</p>
+              )}
+              {isInvalidAmount && (
+                <p className="text-xs text-red-600">Amount must be a positive number.</p>
+              )}
+              {isPastLedger && (
+                <p className="text-xs text-red-600">Release ledger must be greater than current ledger.</p>
+              )}
               {createError && (
                 <p className="text-sm text-red-600">{createError}</p>
               )}

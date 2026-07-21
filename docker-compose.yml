@@ -3,9 +3,9 @@
 # Usage:
 #   docker compose up
 #
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:4000
-# Grafana:  http://localhost:3001 (admin / admin)
+# Frontend:  http://localhost:3000
+# Backend:   http://localhost:4000
+# Jaeger UI: http://localhost:16686
 #
 # For production:
 #   docker compose -f docker-compose.prod.yml up
@@ -25,6 +25,8 @@ services:
       - ALLOWED_ORIGINS=http://localhost:3000
       - JWT_SECRET=dev-secret-change-in-production
       - TURRETS_EVALUATION_INTERVAL_MS=30000
+      # Enable distributed tracing to local Jaeger
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       # Optional: set to enable AI payment parsing via Anthropic
       # - ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
     volumes:
@@ -70,50 +72,19 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # ─── Prometheus + Grafana stack (local dev metrics) ──────────────────────────
+  # ─── Jaeger all-in-one (local distributed tracing) ───────────────────────────
 
-  prometheus:
-    image: prom/prometheus:v2.55.0
+  jaeger:
+    image: jaegertracing/all-in-one:1.64
     ports:
-      - "9090:9090"
-    volumes:
-      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.enable-lifecycle"
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP HTTP/protobuf receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
     restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:11.3.0
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./docs/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/finchippay.json
-      - ./docs/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
-    depends_on:
-      prometheus:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-
-volumes:
-  prometheus_data:
-  grafana_data:

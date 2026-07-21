@@ -5,12 +5,21 @@
 
 "use strict";
 
+// ─── Environment ─────────────────────────────────────────────────────────────
+// dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
+// set in .env is visible when the OpenTelemetry SDK initialises.
+require("dotenv").config();
+
+// ─── OpenTelemetry tracing (must load before Express/HTTP imports) ────────────
+// Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
+// so this must be required before express, http, etc. are imported.
+const { sdk: otelSdk } = require("./config/tracing");
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
-require("dotenv").config();
 const Sentry = require("@sentry/node");
 
 const accountRoutes = require("./routes/accounts");
@@ -41,7 +50,9 @@ const PORT = process.env.PORT || 4000;
 
 const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
 function sanitizeMessage(msg) {
-  return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
+  return typeof msg === "string"
+    ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]")
+    : msg;
 }
 
 // ─── Sentry ───────────────────────────────────────────────────────────────────
@@ -77,7 +88,7 @@ function getFederationDomain(req) {
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
       req.get("host") ||
-      "stellarfinchippay.io"
+      "stellarfinchippay.io",
   );
 }
 
@@ -89,7 +100,9 @@ function getFederationServerUrl(req) {
   const domain = getFederationDomain(req);
   const protocol =
     process.env.FEDERATION_SERVER_PROTOCOL ||
-    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https");
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
 
   return `${protocol}://${domain}/federation`;
 }
@@ -152,7 +165,9 @@ app.use((err, req, res, next) => {
 // parseAllowedOrigins validates format at startup (see validateEnv.js) and
 // returns the trimmed list of origins that are safe to use at runtime.
 // Any malformed entries cause process.exit(1) before this line is reached.
-const { origins: allowedOrigins } = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+const { origins: allowedOrigins } = parseAllowedOrigins(
+  process.env.ALLOWED_ORIGINS,
+);
 
 app.use(
   cors({
@@ -167,7 +182,7 @@ app.use(
     methods: ["GET", "POST", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  })
+  }),
 );
 
 // ─── Health route (exempt from rate limiting) ─────────────────────────────────
@@ -223,7 +238,7 @@ app.use(
     customSiteTitle: "Finchippay Solution API Docs",
     customCss: ".swagger-ui .topbar { display: none }",
     swaggerOptions: { url: "/api/docs.json" },
-  })
+  }),
 );
 
 app.get("/api/docs.json", (req, res) => {
@@ -252,11 +267,44 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: message });
 });
 
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+// On SIGTERM / SIGINT, flush pending OpenTelemetry spans and close the
+// HTTP server before exiting so no traces or in-flight requests are lost.
+
+async function gracefulShutdown(signal, server, otelSdk) {
+  logger.info({ signal }, "Received shutdown signal — draining…");
+
+  // 1. Stop accepting new connections
+  server.close((err) => {
+    if (err) logger.error({ err }, "Error closing HTTP server");
+  });
+
+  // 2. Flush OTel spans (time-boxed at 5 s)
+  if (otelSdk) {
+    try {
+      await Promise.race([
+        otelSdk.shutdown(),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("OTel shutdown timed out")),
+            5_000
+          )
+        ),
+      ]);
+      logger.info("OpenTelemetry SDK shut down");
+    } catch (err) {
+      logger.error({ err }, "Error shutting down OpenTelemetry SDK");
+    }
+  }
+
+  process.exit(0);
+}
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
   validateEnv();
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`
   ✨ Finchippay Solution API
   🚀 Server running at http://localhost:${PORT}
@@ -265,6 +313,9 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server, otelSdk));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT", server, otelSdk));
 }
 
 module.exports = app;

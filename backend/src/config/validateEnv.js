@@ -50,7 +50,7 @@ function parseAllowedOrigins(raw) {
     if (!VALID_ORIGIN_RE.test(trimmed)) {
       warnings.push(
         `ALLOWED_ORIGINS entry "${trimmed}" is malformed — ` +
-          `expected scheme://host[:port] with no trailing slash, path, or wildcard`
+          `expected scheme://host[:port] with no trailing slash, path, or wildcard`,
       );
       // Still include it so startup warnings don't silently change CORS
       // behaviour; a human needs to decide whether to fix or remove it.
@@ -70,12 +70,16 @@ function collectErrors(env) {
   if (!stellarNetwork) {
     errors.push('STELLAR_NETWORK is required (e.g. "testnet" or "mainnet")');
   } else if (!VALID_NETWORKS.includes(stellarNetwork)) {
-    errors.push(`STELLAR_NETWORK must be "testnet" or "mainnet", got "${stellarNetwork}"`);
+    errors.push(
+      `STELLAR_NETWORK must be "testnet" or "mainnet", got "${stellarNetwork}"`,
+    );
   }
 
   const horizonUrl = env.HORIZON_URL?.trim();
   if (!horizonUrl) {
-    errors.push('HORIZON_URL is required (e.g. "https://horizon-testnet.stellar.org")');
+    errors.push(
+      'HORIZON_URL is required (e.g. "https://horizon-testnet.stellar.org")',
+    );
   } else {
     try {
       new URL(horizonUrl);
@@ -93,16 +97,17 @@ function collectErrors(env) {
     errors.push(w);
   }
 
-  // METRICS_TOKEN is strongly recommended in production but optional.
-  // A warning is logged at runtime when it is missing; we do not fail
-  // startup so that local development remains frictionless.
-  if (env.METRICS_TOKEN !== undefined && env.METRICS_TOKEN !== null) {
-    const token = String(env.METRICS_TOKEN).trim();
-    if (token.length > 0 && token.length < 16) {
-      errors.push(
-        `METRICS_TOKEN must be at least 16 characters, got ${token.length}. ` +
-          "Generate a secure token: openssl rand -hex 32"
-      );
+  // OTEL_EXPORTER_OTLP_ENDPOINT is optional but if set must be a valid URL.
+  if (env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+    const otelEndpoint = String(env.OTEL_EXPORTER_OTLP_ENDPOINT).trim();
+    if (otelEndpoint.length > 0) {
+      try {
+        new URL(otelEndpoint);
+      } catch {
+        errors.push(
+          `OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL, got "${otelEndpoint}"`,
+        );
+      }
     }
   }
 
@@ -126,7 +131,9 @@ function validateEnv(env = process.env) {
   for (const message of errors) {
     console.error(`  - ${message}`);
   }
-  console.error("\nCopy backend/.env.example to backend/.env and set the required values.\n");
+  console.error(
+    "\nCopy backend/.env.example to backend/.env and set the required values.\n",
+  );
   process.exit(1);
 }
 

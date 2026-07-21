@@ -43,7 +43,13 @@ export const test = base.extend<{
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ _embedded: { records: [] } }),
+          body: JSON.stringify({
+            hash: 'mock_tx_hash_12345',
+            ledger: 1001,
+            successful: true,
+            returnValue: 1,
+            _embedded: { records: [] },
+          }),
         });
       } else if (url.includes('/fee_stats')) {
         route.fulfill({
@@ -63,6 +69,58 @@ export const test = base.extend<{
       } else {
         route.fulfill({ status: 200, body: '{}' });
       }
+    });
+
+    // --- Soroban RPC (Contract state & transactions) ---
+    await page.route('**/soroban-testnet.stellar.org/**', async route => {
+      const req = route.request();
+      const postData = req.postDataJSON();
+      const method = postData?.method;
+      const reqId = postData?.id ?? 1;
+
+      if (method === 'getLatestLedger') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: reqId,
+            result: {
+              id: '0000000000000000000000000000000000000000000000000000000000000000',
+              protocolVersion: 20,
+              sequence: 1000,
+            },
+          }),
+        });
+      }
+
+      if (method === 'simulateTransaction') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: reqId,
+            result: {
+              latestLedger: 1000,
+              minResourceFee: '100',
+              results: [
+                {
+                  auth: [],
+                  xdr: 'AAAAAQAAAAE=',
+                },
+              ],
+              transactionData: 'AAAAAgAAAAA=',
+            },
+          }),
+        });
+      }
+
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ jsonrpc: '2.0', id: reqId, result: {} }),
+      });
     });
 
     // --- CoinGecko price ---

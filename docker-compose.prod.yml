@@ -27,8 +27,8 @@ services:
       - STELLAR_NETWORK=mainnet
       - HORIZON_URL=https://horizon.stellar.org
       - TURRETS_EVALUATION_INTERVAL_MS=60000
-      # Required in production to protect the /metrics endpoint
-      # - METRICS_TOKEN=<your-secure-random-token>
+      # Optional: set to enable distributed tracing via OTLP
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       # Optional: set to enable AI payment parsing via Anthropic
       # - ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
     healthcheck:
@@ -38,47 +38,27 @@ services:
       retries: 3
     restart: always
 
-  # ─── Prometheus + Grafana stack (production monitoring) ──────────────────────
+  # ─── Jaeger all-in-one (production distributed tracing) ──────────────────────
 
-  prometheus:
-    image: prom/prometheus:v2.55.0
+  jaeger:
+    image: jaegertracing/all-in-one:1.64
     ports:
-      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
     volumes:
-      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=30d"
+      - jaeger_data:/badger
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: always
 
-  grafana:
-    image: grafana/grafana:11.3.0
-    ports:
-      - "127.0.0.1:3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./docs/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/finchippay.json
-      - ./docs/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
-    depends_on:
-      prometheus:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: always
-
 volumes:
-  prometheus_data:
-  grafana_data:
+  jaeger_data:

@@ -92,9 +92,9 @@ describe("validateEnv.collectErrors", () => {
     expect(errors[1]).toMatch(/".*evil\.com"/);
   });
 
-  // ─── METRICS_TOKEN validation ──────────────────────────────────────────────
+  // ─── OTEL_EXPORTER_OTLP_ENDPOINT validation ─────────────────────────────
 
-  it("returns no errors when METRICS_TOKEN is absent (optional)", () => {
+  it("returns no errors when OTEL_EXPORTER_OTLP_ENDPOINT is absent (optional)", () => {
     expect(
       collectErrors({
         STELLAR_NETWORK: "testnet",
@@ -103,45 +103,35 @@ describe("validateEnv.collectErrors", () => {
     ).toEqual([]);
   });
 
-  it("returns no errors for a valid METRICS_TOKEN (>= 16 chars)", () => {
+  it("returns no errors for a valid OTLP endpoint URL", () => {
     expect(
       collectErrors({
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
-        METRICS_TOKEN: "a-secure-token-16+",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318",
       })
     ).toEqual([]);
   });
 
-  it("flags a METRICS_TOKEN that is too short", () => {
+  it("flags a malformed OTLP endpoint URL", () => {
     const errors = collectErrors({
       STELLAR_NETWORK: "testnet",
       HORIZON_URL: "https://horizon-testnet.stellar.org",
-      METRICS_TOKEN: "short",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "not-a-valid-url",
     });
     expect(errors).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("METRICS_TOKEN must be at least 16 characters"),
+        expect.stringContaining("OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL"),
       ])
     );
   });
 
-  it("returns no errors for a METRICS_TOKEN that is exactly 16 chars", () => {
+  it("returns no errors for an https OTLP endpoint", () => {
     expect(
       collectErrors({
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
-        METRICS_TOKEN: "1234567890123456",
-      })
-    ).toEqual([]);
-  });
-
-  it("ignores an empty METRICS_TOKEN string as optional", () => {
-    expect(
-      collectErrors({
-        STELLAR_NETWORK: "testnet",
-        HORIZON_URL: "https://horizon-testnet.stellar.org",
-        METRICS_TOKEN: "  ",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://tempo-prod.example.com:443",
       })
     ).toEqual([]);
   });

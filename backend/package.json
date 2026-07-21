@@ -13,6 +13,9 @@
     "lint": "eslint 'src/**/*.js'"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.78.0",
+    "@opentelemetry/sdk-node": "^0.220.0",
     "@sentry/node": "^8.53.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "axios": "^1.6.8",

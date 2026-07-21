@@ -11,11 +11,14 @@ import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";
 import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
+import OfflineBanner from "@/components/OfflineBanner";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
   type URIParseResult,
 } from "@/lib/sep0007";
+import { I18nextProvider } from "react-i18next";
+import i18n from "@/lib/i18n";
 import "@/styles/globals.css";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -126,6 +129,7 @@ function AppShell({
   return (
     <>
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
+        <OfflineBanner />
         <Navbar />
         <main>
           <Component {...pageProps} stellarURI={stellarURI} />
@@ -201,7 +205,8 @@ export default function App({ Component, pageProps }: AppProps) {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <I18nextProvider i18n={i18n}>
+      <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <ToastProvider>
       <WalletProvider>
         <Head>
@@ -253,5 +258,6 @@ export default function App({ Component, pageProps }: AppProps) {
       </WalletProvider>
       </ToastProvider>
     </ThemeContext.Provider>
+    </I18nextProvider>
   );
 }
