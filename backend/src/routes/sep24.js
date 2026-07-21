@@ -1,0 +1,168 @@
+/**
+ * src/routes/sep24.js
+ * SEP-0024 (Hosted Deposit and Withdrawal) route handlers.
+ *
+ * POST /api/sep24/transactions/deposit/interactive  – initiate interactive deposit
+ * POST /api/sep24/transactions/withdraw/interactive – initiate interactive withdrawal
+ * GET  /api/sep24/transaction                        – poll transaction status
+ */
+
+"use strict";
+
+const express = require("express");
+const router = express.Router();
+const sep24Service = require("../services/sep/sep24Service");
+
+/**
+ * POST /api/sep24/transactions/deposit/interactive
+ *
+ * Initiates an anchor interactive deposit session.
+ *
+ * Request body (JSON):
+ *   - asset_code  (required) — e.g. "USDC", "XLM"
+ *   - account     (required) — Stellar public key (G…)
+ *   - memo        (optional)
+ *   - memo_type   (optional)
+ *   - anchor_url  (optional) — override for the anchor's interactive flow URL
+ *
+ * Response 200:
+ *   { type: "interactive_customer_info_needed", url: string, id: string }
+ */
+router.post("/transactions/deposit/interactive", (req, res) => {
+  try {
+    const { asset_code, account, memo, memo_type, anchor_url } = req.body;
+
+    if (!asset_code || !account) {
+      return res
+        .status(400)
+        .json({ error: "asset_code and account are required" });
+    }
+
+    const record = sep24Service.initiateDeposit({
+      assetCode: asset_code,
+      account,
+      memo,
+      memoType: memo_type,
+      anchorBaseUrl: anchor_url,
+    });
+
+    res.json({
+      type: "interactive_customer_info_needed",
+      url: record.url,
+      id: record.id,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/sep24/transactions/withdraw/interactive
+ *
+ * Initiates an anchor interactive withdrawal session.
+ *
+ * Request body (JSON):
+ *   - asset_code  (required)
+ *   - account     (required)
+ *   - memo        (optional)
+ *   - memo_type   (optional)
+ *   - anchor_url  (optional)
+ *
+ * Response 200:
+ *   { type: "interactive_customer_info_needed", url: string, id: string }
+ */
+router.post("/transactions/withdraw/interactive", (req, res) => {
+  try {
+    const { asset_code, account, memo, memo_type, anchor_url } = req.body;
+
+    if (!asset_code || !account) {
+      return res
+        .status(400)
+        .json({ error: "asset_code and account are required" });
+    }
+
+    const record = sep24Service.initiateWithdrawal({
+      assetCode: asset_code,
+      account,
+      memo,
+      memoType: memo_type,
+      anchorBaseUrl: anchor_url,
+    });
+
+    res.json({
+      type: "interactive_customer_info_needed",
+      url: record.url,
+      id: record.id,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/sep24/transaction?id=<uuid>
+ *
+ * Polls the current status of an interactive transaction.
+ *
+ * Response 200:
+ *   {
+ *     transaction: {
+ *       id: string,
+ *       kind: "deposit" | "withdrawal",
+ *       status: "pending_external" | "completed" | "error",
+ *       status_eta: number | null,
+ *       more_info_url: string | null,
+ *       amount_in: string | null,
+ *       amount_out: string | null,
+ *       amount_fee: string | null,
+ *       started_at: string,
+ *       updated_at: string,
+ *       completed_at: string | null,
+ *       stellar_transaction_id: string | null,
+ *       external_transaction_id: string | null,
+ *       message: string | null
+ *     }
+ *   }
+ *
+ * Response 404:
+ *   { error: "Transaction not found" }
+ */
+router.get("/transaction", (req, res) => {
+  const { id } = req.query;
+
+  if (!id) {
+    return res
+      .status(400)
+      .json({ error: "Missing required query parameter: id" });
+  }
+
+  const record = sep24Service.getTransaction(id);
+  if (!record) {
+    return res.status(404).json({ error: "Transaction not found" });
+  }
+
+  // Build the SEP-0024 compliant transaction response
+  const txn = {
+    id: record.id,
+    kind: record.kind,
+    status: record.status,
+    status_eta: null,
+    more_info_url: record.url,
+    amount_in: null,
+    amount_out: null,
+    amount_fee: null,
+    started_at: record.createdAt.toISOString(),
+    updated_at: record.updatedAt.toISOString(),
+    completed_at:
+      record.status === "completed" ? record.updatedAt.toISOString() : null,
+    stellar_transaction_id: null,
+    external_transaction_id: null,
+    message: record.errorReason || null,
+  };
+
+  res.json({ transaction: txn });
+});
+
+module.exports = router;

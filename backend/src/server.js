@@ -33,6 +33,7 @@ const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
+const sep24Routes = require("./routes/sep24");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -187,9 +188,19 @@ app.use("/api/health", healthRoutes);
 // Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
 // discover the SEP-0002 federation endpoint for `name*domain` addresses.
 app.get("/.well-known/stellar.toml", (req, res) => {
+  const domain = getFederationDomain(req);
+  const protocol =
+    req.get("x-forwarded-proto") ||
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
   const serverUrl = getFederationServerUrl(req);
+  const transferServerUrl =
+    process.env.TRANSFER_SERVER_URL || `${protocol}://${domain}`;
+
   const tomlContent = `# Finchippay Solution federation discovery
 FEDERATION_SERVER="${serverUrl}"
+TRANSFER_SERVER_SEP0024="${transferServerUrl}"
 `;
 
   res.setHeader("Content-Type", "application/toml; charset=utf-8");
@@ -220,6 +231,7 @@ app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/sep24", sep24Routes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
@@ -278,10 +290,7 @@ async function gracefulShutdown(signal, server, otelSdk) {
       await Promise.race([
         otelSdk.shutdown(),
         new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("OTel shutdown timed out")),
-            5_000
-          )
+          setTimeout(() => reject(new Error("OTel shutdown timed out")), 5_000),
         ),
       ]);
       logger.info("OpenTelemetry SDK shut down");
