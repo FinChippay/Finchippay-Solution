@@ -105,6 +105,57 @@ git pull origin main
 docker compose -f docker-compose.prod.yml up --build -d --no-deps backend frontend
 ```
 
+## Distributed Tracing (OpenTelemetry)
+
+The backend supports OpenTelemetry distributed tracing via OTLP. When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, traces are automatically exported to any OTLP-compatible collector (Jaeger, Grafana Tempo, Honeycomb, Datadog, etc.).
+
+### Enabling in production
+
+```bash
+# Set in backend/.env or docker-compose environment:
+OTEL_EXPORTER_OTLP_ENDPOINT=https://your-collector.example.com:4318
+OTEL_SERVICE_NAME=finchippay-backend
+```
+
+### What is traced
+
+- **Every HTTP request** — Express routes are auto-instrumented; spans include method, route, status code, and duration.
+- **Every Horizon API call** (`loadAccount`, `getPayments`, `getTransaction`) — custom spans with attributes:
+  - `horizon.url` — the Horizon server base URL
+  - `horizon.operation` — operation name (e.g. `loadAccount`)
+  - `http.status_code` — response status from Horizon
+- **Outbound HTTP/fetch calls** — auto-instrumented via `@opentelemetry/auto-instrumentations-node`.
+
+### Local development with Jaeger
+
+```bash
+docker compose up  # includes Jaeger at http://localhost:16686
+
+# Make some requests, then open the Jaeger UI to see traces:
+curl http://localhost:4000/health
+curl http://localhost:4000/api/accounts/resolve/GABC...
+```
+
+### Connecting to a production collector
+
+Most observability vendors provide OTLP ingestion endpoints:
+
+| Vendor | Endpoint format |
+|--------|----------------|
+| Grafana Cloud Tempo | `https://tempo-<region>.grafana.net:443` |
+| Honeycomb | `https://api.honeycomb.io:443` |
+| Datadog | Use the Datadog Agent OTLP ingest |
+| AWS X-Ray | Use the AWS Distro for OpenTelemetry |
+
+You may need to set additional environment variables for authentication:
+
+```bash
+OTEL_EXPORTER_OTLP_HEADERS="x-api-key=your-key"
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+Tracing is **disabled** when `NODE_ENV=test` (no test impact) and when `OTEL_EXPORTER_OTLP_ENDPOINT` is not set.
+
 ## Logs and Monitoring
 
 ```bash

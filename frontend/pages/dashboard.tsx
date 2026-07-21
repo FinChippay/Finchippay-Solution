@@ -17,6 +17,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
+import { useTranslation } from "react-i18next";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
 const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
@@ -145,6 +146,7 @@ function formatSnapshotTime(savedAt: number) {
 
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
+  const { t } = useTranslation("common");
   const AUTO_REFRESH_SECONDS = 30;
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
@@ -876,8 +878,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">Dashboard</h1>
-          <p className="text-slate-400">Connect your wallet to get started</p>
+          <h1 className="font-display text-3xl font-bold text-white mb-3">{t("dashboard.title")}</h1>
+          <p className="text-slate-400">{t("dashboard.connectPrompt")}</p>
         </div>
         <WalletConnect />
       </div>
@@ -899,9 +901,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           tabIndex={-1}
           className="font-display text-3xl font-bold text-white mb-1 outline-none"
         >
-          Dashboard
+          {t("dashboard.title")}
         </h1>
-        <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
+        <p className="text-slate-400 text-sm">{t("dashboard.subtitle")}</p>
         <div className="mt-4">
           <button
             onClick={handleToggleNotifications}
@@ -910,10 +912,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           >
             <span>
               {notificationEnabled
-                ? 'Disable payment notifications'
+                ? t("dashboard.disableNotifications")
                 : notificationPermission === 'denied'
-                ? 'Notifications blocked'
-                : 'Enable payment notifications'}
+                ? t("dashboard.notificationsBlocked")
+                : t("dashboard.enableNotifications")}
             </span>
             {notificationEnabled
               ? <BellOffIcon className="w-4 h-4" />
@@ -926,7 +928,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               onClick={handleTestNotification}
               className="mt-2 text-xs text-slate-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <TestIcon className="w-3.5 h-3.5" /> Test notification
+              <TestIcon className="w-3.5 h-3.5" /> {t("dashboard.testNotification")}
             </button>
           )}
         </div>
@@ -937,27 +939,29 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         loading={paymentStatsLoading}
         error={paymentStatsError}
         onRetry={fetchPaymentStats}
+        t={t}
       />
 
       <MonthlySpendingChart 
         data={spendingData} 
         loading={spendingLoading}
         onBarClick={setSelectedMonth}
+        t={t}
       />
 
       {selectedMonth && (
         <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
           <div>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">
-              Selected Period: {selectedMonth.label}
+              {t("dashboard.selectedPeriod")}: {selectedMonth.label}
             </p>
             <div className="flex items-center gap-6">
               <div>
-                <span className="text-xs text-slate-400">Total Sent</span>
+                <span className="text-xs text-slate-400">{t("dashboard.sent")}</span>
                 <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
               </div>
               <div>
-                <span className="text-xs text-slate-400">Total Received</span>
+                <span className="text-xs text-slate-400">{t("dashboard.received")}</span>
                 <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
               </div>
             </div>
@@ -971,14 +975,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       )}
 
-      <ThirtyDayVolumeChart data={thirtyDayData} loading={thirtyDayLoading} />
+      <ThirtyDayVolumeChart data={thirtyDayData} loading={thirtyDayLoading} t={t} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} />
+        <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} t={t} />
         <div className="card flex flex-col justify-between">
           <div>
-            <h2 className="font-display text-lg font-semibold text-white mb-2">Export Payment History</h2>
-            <p className="text-sm text-slate-400">Download your full transaction history as a CSV file.</p>
+            <h2 className="font-display text-lg font-semibold text-white mb-2">{t("dashboard.exportHistory")}</h2>
+            <p className="text-sm text-slate-400">{t("dashboard.exportDesc")}</p>
           </div>
           <button
             onClick={handleExportCSV}
@@ -988,12 +992,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             {csvExporting ? (
               <>
                 <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                Exporting…
+                {t("dashboard.exporting")}
               </>
             ) : (
               <>
                 <DownloadIcon className="w-4 h-4" />
-                Export CSV
+                {t("dashboard.exportCsv")}
               </>
             )}
           </button>
@@ -1004,11 +1008,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="label mb-1">Wallet Address</p>
+            <p className="label mb-1">{t("dashboard.walletAddress")}</p>
             <button
               onClick={() => setAddressExpanded((x) => !x)}
               className="font-mono text-sm text-slate-300 select-text cursor-pointer hover:text-white transition-colors text-left break-all"
-              title={addressExpanded ? "Click to collapse" : "Click to show full address"}
+              title={addressExpanded ? t("dashboard.clickToCollapse") : t("dashboard.clickToShow")}
             >
               {addressExpanded
                 ? publicKey
@@ -1021,11 +1025,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               >
                 {copied ? (
                   <>
-                    <CheckIcon className="w-3.5 h-3.5" /> Copied!
+                    <CheckIcon className="w-3.5 h-3.5" /> {t("dashboard.copied")}
                   </>
                 ) : (
                   <>
-                    <CopyIcon className="w-3.5 h-3.5" /> Copy address
+                    <CopyIcon className="w-3.5 h-3.5" /> {t("dashboard.copyAddress")}
                   </>
                 )}
               </button>
@@ -1034,13 +1038,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 onClick={() => setAddressExpanded((x) => !x)}
                 className="text-xs text-slate-400 hover:text-slate-300 transition-colors cursor-pointer"
               >
-                {addressExpanded ? "Collapse" : "Show full"}
+                {addressExpanded ? t("dashboard.collapse") : t("dashboard.showFull")}
               </button>
             </div>
           </div>
 
           <div className="sm:text-right flex-shrink-0">
-            <p className="label mb-1">XLM Balance</p>
+            <p className="label mb-1">{t("dashboard.xlmBalance")}</p>
             {balanceLoading ? (
               <div className="h-8 w-36 bg-white/10 rounded-lg animate-pulse" />
             ) : xlmBalance !== null ? (
@@ -1058,12 +1062,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 )}
                 {staleBalanceAt && (
                   <p className="mt-1 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-200">
-                    Offline snapshot from {formatSnapshotTime(staleBalanceAt)}
+                    {t("dashboard.offlineSnapshot")} {formatSnapshotTime(staleBalanceAt)}
                   </p>
                 )}
                 {!sparklineLoading && sparklineData.length > 0 && (
                   <div className="mt-3">
-                    <BalanceSparkline data={sparklineData} />
+                    <BalanceSparkline data={sparklineData} t={t} />
                   </div>
                 )}
                 <button
@@ -1072,27 +1076,27 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   disabled={balanceLoading}
                 >
                   <RefreshIcon className={`w-3 h-3 ${isRefreshingBalance ? "animate-spin" : ""}`} />
-                  {isRefreshingBalance ? "Refreshing..." : "Refresh"}
+                  {isRefreshingBalance ? t("dashboard.refreshing") : t("dashboard.refresh")}
                 </button>
                 <p className="mt-1 text-[11px] text-slate-400 sm:text-right">
-                  Refreshing in {refreshCountdown}s
+                  {t("dashboard.refreshingIn")} {refreshCountdown}s
                 </p>
               </div>
             ) : accountNotFound && isTestnet ? (
               <div className="sm:text-right">
-                <p className="text-amber-400 text-sm mb-2">Account not funded yet</p>
+                <p className="text-amber-400 text-sm mb-2">{t("dashboard.accountNotFunded")}</p>
                 <p className="text-xs text-slate-400">
-                  Use the funding card below to credit your wallet on testnet.
+                  {t("dashboard.useFundingCard")}
                 </p>
               </div>
             ) : (
               <div>
-                <p className="text-slate-400 text-sm">Failed to load</p>
+                <p className="text-slate-400 text-sm">{t("dashboard.failedToLoad")}</p>
                 <button
                   onClick={fetchBalance}
                   className="text-xs text-stellar-400 hover:underline cursor-pointer"
                 >
-                  Retry
+                  {t("dashboard.retry")}
                 </button>
               </div>
             )}
@@ -1106,14 +1110,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
           <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-            You&apos;re on <strong>Testnet</strong> — funds are not real.{" "}
+            {t("dashboard.testnetWarning")}{" "}
             <a
               href="https://friendbot.stellar.org"
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-amber-300"
             >
-              Get test XLM
+              {t("dashboard.getTestXlm")}
             </a>
           </div>
         )}
@@ -1131,8 +1135,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           ? "border-red-500/40 bg-red-500/5 text-red-200"
           : "border-amber-500/40 bg-amber-500/5 text-amber-200";
         const headline = atOrBelow
-          ? "XLM balance is at or below the minimum reserve"
-          : "XLM balance is close to the minimum reserve";
+          ? t("dashboard.reserveWarningAt")
+          : t("dashboard.reserveWarningNear");
         return (
           <div
             className={`card mb-6 ${tone}`}
@@ -1142,12 +1146,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           >
             <p className="font-semibold mb-1">{headline}</p>
             <p className="text-sm opacity-90">
-              You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account
-              must keep at least{" "}
-              <strong>{min.toFixed(4)} XLM</strong> reserved
-              ({subentryCount} subentries × 0.5 XLM + 2 XLM base). Top up
-              before submitting transactions to avoid{" "}
-              <code className="text-xs opacity-80">tx_insufficient_balance</code>.
+              {t("dashboard.reserveDetail", { balance: bal.toFixed(4), minimum: min.toFixed(4), subentries: subentryCount })}
             </p>
             <p className="text-sm mt-2">
               <a
@@ -1156,7 +1155,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 rel="noopener noreferrer"
                 className="underline hover:opacity-100 opacity-80"
               >
-                Stellar base reserves docs →
+                {t("dashboard.stellarReserveDocs")}
               </a>
             </p>
           </div>
@@ -1167,9 +1166,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <p className="font-semibold text-white mb-1">Fund Testnet Wallet</p>
+              <p className="font-semibold text-white mb-1">{t("dashboard.fundTestnetWallet")}</p>
               <p className="text-sm text-amber-200/90">
-                Your wallet is not funded yet. Click once to receive 10,000 XLM from Friendbot.
+                {t("dashboard.fundingDescription")}
               </p>
               {friendbotSuccessMessage && (
                 <p className="text-sm text-emerald-400 mt-2">{friendbotSuccessMessage}</p>
@@ -1183,11 +1182,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             >
               {friendbotLoading ? (
                 <>
-                  <SpinnerIcon className="w-4 h-4 animate-spin" /> Funding...
+                  <SpinnerIcon className="w-4 h-4 animate-spin" /> {t("dashboard.funding")}
                 </>
               ) : (
                 <>
-                  <DropIcon className="w-4 h-4" /> Fund Testnet Wallet
+                  <DropIcon className="w-4 h-4" /> {t("dashboard.fundTestnetWallet")}
                 </>
               )}
             </button>
@@ -1201,7 +1200,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
           <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <p className="label mb-1">USDC Balance</p>
+              <p className="label mb-1">{t("dashboard.usdcBalance")}</p>
               <div className="font-display text-3xl font-bold text-white">
                 {formatAsset(usdcBalance, "USDC")}
               </div>
@@ -1214,7 +1213,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div key={b.code} className="card mb-4 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-violet-500/20 relative overflow-hidden">
           <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <p className="label mb-1">{b.code} Balance</p>
+              <p className="label mb-1">{b.code} {t("dashboard.balance")}</p>
               <div className="font-display text-3xl font-bold text-white">
                 {formatAsset(b.balance, b.code)}
               </div>
@@ -1263,7 +1262,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                     : "text-slate-300 hover:bg-white/10"
                 }`}
               >
-                Batch Send
+                {t("dashboard.batchSend")}
               </button>
             </div>
           </div>
@@ -1310,13 +1309,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
                 <HistoryIcon className="w-5 h-5 text-stellar-400" />
-                Recent Activity
+                {t("dashboard.recentActivity")}
               </h2>
               <Link
                 href="/transactions"
                 className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors cursor-pointer"
               >
-                View all →
+                {t("dashboard.viewAll")}
               </Link>
             </div>
             <TransactionList key={refreshKey} publicKey={publicKey} limit={5} compact />
@@ -1359,11 +1358,13 @@ function PaymentStatsWidget({
   loading,
   error,
   onRetry,
+  t,
 }: {
   stats: PaymentStats | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  t: (key: string, opts?: any) => string;
 }) {
   if (loading) {
     return (
@@ -1391,11 +1392,11 @@ function PaymentStatsWidget({
       <section className="card mb-6 border-red-500/20 bg-red-500/5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-white">Payment summary</p>
+            <p className="text-sm font-semibold text-white">{t("dashboard.paymentSummary")}</p>
             <p className="text-sm text-red-300">{error}</p>
           </div>
           <button onClick={onRetry} className="btn-secondary text-sm px-4 py-2">
-            Retry
+            {t("dashboard.retry")}
           </button>
         </div>
       </section>
@@ -1407,19 +1408,19 @@ function PaymentStatsWidget({
   return (
     <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
       <StatsCard
-        label="Total Sent"
+        label={t("dashboard.totalSent")}
         value={formatStatsXLM(stats.totalSentXLM)}
-        helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
+        helper={`${stats.sentCount} ${t(`dashboard.${stats.sentCount === 1 ? "outgoingPayment" : "outgoingPayments"}` as any)}`}
       />
       <StatsCard
-        label="Total Received"
+        label={t("dashboard.totalReceived")}
         value={formatStatsXLM(stats.totalReceivedXLM, "received")}
-        helper={`${stats.receivedCount} incoming payment${stats.receivedCount === 1 ? "" : "s"}`}
+        helper={`${stats.receivedCount} ${t(`dashboard.${stats.receivedCount === 1 ? "incomingPayment" : "incomingPayments"}` as any)}`}
       />
       <StatsCard
-        label="Transactions"
+        label={t("dashboard.transactions_count")}
         value={stats.totalTransactions.toLocaleString("en-US")}
-        helper="Across sent and received activity"
+        helper={t("dashboard.acrossActivity")}
       />
     </section>
   );
@@ -1429,10 +1430,12 @@ function MonthlySpendingChart({
   data,
   loading,
   onBarClick,
+  t,
 }: {
   data: ChartMonthData[];
   loading: boolean;
   onBarClick: (data: ChartMonthData) => void;
+  t: (key: string) => string;
 }) {
   if (loading && data.length === 0) {
     return (
@@ -1443,7 +1446,7 @@ function MonthlySpendingChart({
   return (
     <div className="card mb-6 overflow-hidden">
       <h2 className="font-display text-lg font-semibold text-white mb-6">
-        Monthly Spending (XLM)
+        {t("dashboard.monthlySpending")}
       </h2>
       <div className="h-[250px] w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -1487,14 +1490,14 @@ function MonthlySpendingChart({
   );
 }
 
-function ThirtyDayVolumeChart({ data, loading }: { data: ChartDayData[]; loading: boolean }) {
+function ThirtyDayVolumeChart({ data, loading, t }: { data: ChartDayData[]; loading: boolean; t: (key: string) => string }) {
   if (loading && data.length === 0) {
     return <div className="card mb-6 h-[280px] animate-pulse bg-white/[0.03] border-white/10" />;
   }
   const visibleData = data.filter((_, i) => i % 5 === 0 || i === data.length - 1);
   return (
     <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-white mb-6">30-Day Volume (XLM)</h2>
+      <h2 className="font-display text-lg font-semibold text-white mb-6">{t("dashboard.thirtyDayVolume")}</h2>
       <div className="h-[220px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
@@ -1529,13 +1532,15 @@ function ThirtyDayVolumeChart({ data, loading }: { data: ChartDayData[]; loading
 function TopRecipientsWidget({
   recipients,
   loading,
+  t,
 }: {
   recipients: Array<{ address: string; totalXLMSent: string }>;
   loading: boolean;
+  t: (key: string) => string;
 }) {
   return (
     <div className="card">
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Top Recipients</h2>
+      <h2 className="font-display text-lg font-semibold text-white mb-4">{t("dashboard.topRecipients")}</h2>
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => (
@@ -1543,7 +1548,7 @@ function TopRecipientsWidget({
           ))}
         </div>
       ) : recipients.length === 0 ? (
-        <p className="text-sm text-slate-400">No sent payments yet.</p>
+        <p className="text-sm text-slate-400">{t("dashboard.noSentPayments")}</p>
       ) : (
         <ol className="space-y-2">
           {recipients.map((r, idx) => (
@@ -1605,7 +1610,7 @@ function formatStatsXLM(amount: string, suffix = "sent") {
  * Green when the overall trend is upward, red when downward.
  * Hover tooltip shows the running balance delta at each data point.
  */
-function BalanceSparkline({ data }: { data: number[] }) {
+function BalanceSparkline({ data, t }: { data: number[]; t: (key: string) => string }) {
   const W = 160;
   const H = 40;
   const PAD = 4;
@@ -1639,7 +1644,7 @@ function BalanceSparkline({ data }: { data: number[] }) {
         height={H}
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
+        aria-label={trend ? t("dashboard.balanceTrendUpward") : t("dashboard.balanceTrendDownward")}
       >
         {/* Fill area */}
         <path d={fillPath} fill={fillColor} />
@@ -1689,7 +1694,7 @@ function BalanceSparkline({ data }: { data: number[] }) {
         ))}
       </svg>
       <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
-        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+        {trend ? t("dashboard.upwardTrend") : t("dashboard.downwardTrend")}
       </p>
     </div>
   );
