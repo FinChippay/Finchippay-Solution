@@ -12,6 +12,8 @@ import PaymentStatusModal, {
   type PaymentStepId,
   type PaymentStepTiming,
 } from "@/components/PaymentStatusModal";
+import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
+import { parseStellarURI } from "@/lib/sep0007";
 import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
@@ -91,14 +93,6 @@ interface CustomAsset {
 
 const ESTIMATED_NETWORK_FEE = `${STELLAR_BASE_FEE_XLM} XLM`;
 
-interface BarcodeDetectorResult {
-  rawValue?: string;
-}
-
-interface BarcodeDetectorLike {
-  detect(source: ImageBitmapSource): Promise<BarcodeDetectorResult[]>;
-}
-
 const RECENT_RECIPIENTS_KEY = "finchippay:recent-recipients";
 const MAX_RECENT = 3;
 
@@ -162,8 +156,7 @@ function SendPaymentForm({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
-  const frameRequestRef = useRef<number | null>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -189,74 +182,92 @@ function SendPaymentForm({
 
   useEffect(() => {
     const checkSupport = async () => {
-      if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+      if (
+        typeof window !== "undefined" &&
+        navigator.mediaDevices &&
+        typeof navigator.mediaDevices.getUserMedia === "function"
+      ) {
         setIsScannerSupported(true);
       }
     };
     checkSupport();
   }, []);
 
-  const openScanner = async () => {
+  const handleDecodedResult = (rawValue: string) => {
+    const sepResult = parseStellarURI(rawValue);
+    if (sepResult.success && sepResult.data) {
+      setDestination(sepResult.data.destination);
+      if (sepResult.data.amount) setAmount(sepResult.data.amount);
+      if (sepResult.data.memo) setMemo(truncateMemoText(sepResult.data.memo));
+      setDestinationResolutionError(null);
+      setResolvedPaymentDestination(null);
+      closeScanner();
+      return;
+    }
+    if (isValidStellarAddress(rawValue)) {
+      setDestination(rawValue);
+      setDestinationResolutionError(null);
+      setResolvedPaymentDestination(null);
+      closeScanner();
+      return;
+    }
+  };
+
+  const handleDecodedResultRef = useRef(handleDecodedResult);
+  handleDecodedResultRef.current = handleDecodedResult;
+
+  useEffect(() => {
+    if (!isScannerOpen || !videoRef.current) return;
+
+    let controls: IScannerControls | null = null;
+    isDetectingRef.current = true;
+
+    const codeReader = new BrowserQRCodeReader();
+    codeReader
+      .decodeFromConstraints(
+        { video: { facingMode: "environment" } },
+        videoRef.current,
+        (result, _error, ctrl) => {
+          if (result && isDetectingRef.current) {
+            isDetectingRef.current = false;
+            handleDecodedResultRef.current(result.getText());
+            ctrl.stop();
+          }
+        },
+      )
+      .then((c) => {
+        controls = c;
+        scannerControlsRef.current = c;
+      })
+      .catch(() => {
+        setScannerError("Camera access denied or not available.");
+        setIsScannerOpen(false);
+      });
+
+    return () => {
+      isDetectingRef.current = false;
+      controls?.stop();
+      scannerControlsRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScannerOpen]);
+
+  const openScanner = () => {
     setIsScannerOpen(true);
     setScannerError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      startDetection();
-    } catch (err) {
-      setScannerError("Camera access denied or not available.");
-      setIsScannerOpen(false);
-    }
   };
 
   const closeScanner = () => {
     setIsScannerOpen(false);
+    isDetectingRef.current = false;
+    if (scannerControlsRef.current) {
+      scannerControlsRef.current.stop();
+      scannerControlsRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    if (frameRequestRef.current) {
-      cancelAnimationFrame(frameRequestRef.current);
-    }
-    isDetectingRef.current = false;
-  };
-
-  const startDetection = () => {
-    if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
-
-    const BarcodeDetectorCtor = (window as Window & { BarcodeDetector: new (opts: { formats: string[] }) => BarcodeDetectorLike }).BarcodeDetector;
-    const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
-    detectorRef.current = detector;
-    isDetectingRef.current = true;
-
-    const detect = async () => {
-      if (!isDetectingRef.current || !videoRef.current) return;
-
-      try {
-        const barcodes = await detector.detect(videoRef.current);
-        if (barcodes.length > 0 && barcodes[0].rawValue) {
-          const result = barcodes[0].rawValue;
-          if (isValidStellarAddress(result)) {
-            setDestination(result);
-            setDestinationResolutionError(null);
-            setResolvedPaymentDestination(null);
-            closeScanner();
-            return;
-          }
-        }
-      } catch (e) {
-        // detection error
-      }
-
-      frameRequestRef.current = requestAnimationFrame(detect);
-    };
-
-    detect();
   };
 
   const [recentRecipients, setRecentRecipients] = useState<string[]>(() => {
@@ -814,7 +825,7 @@ function SendPaymentForm({
                   <button
                     type="button"
                     onClick={openScanner}
-                    className="text-slate-400 hover:text-white"
+                    className="md:hidden text-slate-400 hover:text-white"
                     title="Scan QR Code"
                     aria-label="Scan QR code to fill destination address"
                   >
@@ -957,6 +968,31 @@ function SendPaymentForm({
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
       />
+
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="QR code scanner">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-white/10 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+              <h3 className="font-display text-sm font-semibold text-white">Scan QR Code</h3>
+              <button onClick={closeScanner} className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5" aria-label="Close scanner">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="relative aspect-square bg-black">
+              <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-48 h-48 border-2 border-white/30 rounded-2xl" />
+              </div>
+            </div>
+            {scannerError && (
+              <div className="px-4 py-3 text-sm text-red-400 text-center">{scannerError}</div>
+            )}
+            <div className="px-4 py-3 text-center">
+              <p className="text-xs text-slate-400">Point your camera at a Stellar QR code</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PaymentStatusModal
         isOpen={isStatusModalOpen}

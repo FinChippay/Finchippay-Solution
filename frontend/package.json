@@ -22,6 +22,8 @@
     "@sentry/nextjs": "^8.53.0",
     "@stellar/freighter-api": "^3.1.0",
     "@stellar/stellar-sdk": "^15.1.0",
+    "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.23.0",
     "axios": "^1.6.8",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
