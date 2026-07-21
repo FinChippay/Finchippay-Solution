@@ -49,6 +49,9 @@ export default defineConfig({
       NEXT_PUBLIC_HORIZON_URL: 'https://horizon-testnet.stellar.org',
       NEXT_PUBLIC_API_URL:
         process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
+      NEXT_PUBLIC_CONTRACT_ID:
+        process.env.NEXT_PUBLIC_CONTRACT_ID ||
+        'CCW67TSZV3SSS2HXMBQ52NVF3FB25GQ2G6E3BGLZ52B7W7TKG4E7SML2',
     },
   },
 });
