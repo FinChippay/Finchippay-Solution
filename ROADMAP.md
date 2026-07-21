@@ -77,6 +77,8 @@ This document tracks what's shipped, what's in progress, and what's planned.
 
 ## 💡 Ideas / Community Requests
 
+- Multi-language i18n support (English, Spanish, French) ✅
+- RTL language support (Arabic, Hebrew) — noted as future work
 - Milestone-based escrow releases
 - Subscription/recurring payments via Soroban streams
 - DAO treasury multi-sig management UI
