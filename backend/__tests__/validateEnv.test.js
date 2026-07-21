@@ -91,6 +91,50 @@ describe("validateEnv.collectErrors", () => {
     expect(errors[0]).toMatch(/"https:\/\/a\.com\/path"/);
     expect(errors[1]).toMatch(/".*evil\.com"/);
   });
+
+  // ─── OTEL_EXPORTER_OTLP_ENDPOINT validation ─────────────────────────────
+
+  it("returns no errors when OTEL_EXPORTER_OTLP_ENDPOINT is absent (optional)", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+      })
+    ).toEqual([]);
+  });
+
+  it("returns no errors for a valid OTLP endpoint URL", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318",
+      })
+    ).toEqual([]);
+  });
+
+  it("flags a malformed OTLP endpoint URL", () => {
+    const errors = collectErrors({
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "not-a-valid-url",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL"),
+      ])
+    );
+  });
+
+  it("returns no errors for an https OTLP endpoint", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://tempo-prod.example.com:443",
+      })
+    ).toEqual([]);
+  });
 });
 
 // ─── parseAllowedOrigins ──────────────────────────────────────────────────────
