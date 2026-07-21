@@ -129,6 +129,13 @@ jest.mock("@/utils/format", () => ({
   formatDate: jest.fn(() => "2026-01-01"),
 }));
 
+jest.mock("@/utils/export", () => ({
+  generateCSV: jest.fn(() => "mock,csv,content\n"),
+  downloadCSV: jest.fn(),
+  generatePDF: jest.fn(() => new Blob(["mock pdf"], { type: "application/pdf" })),
+  downloadPDF: jest.fn(),
+}));
+
 // ─── Component imports ────────────────────────────────────────────────────────
 
 import Navbar from "@/components/Navbar";
