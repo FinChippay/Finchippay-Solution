@@ -374,6 +374,64 @@ function SendPaymentForm({
     setResolvedPaymentDestination(null);
   }, [prefill]);
 
+  // Debounced federation address resolution on keystroke (#98)
+  useEffect(() => {
+    const trimmed = destination.trim();
+    if (!trimmed || isValidStellarAddress(trimmed)) {
+      setResolvedPaymentDestination(null);
+      setDestinationResolutionError(null);
+      return;
+    }
+    if (!isValidFederationAddress(trimmed) && !trimmed.includes('*')) {
+      setResolvedPaymentDestination(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsResolvingDestination(true);
+      setDestinationResolutionError(null);
+      try {
+        const resolved = await resolveFederationAddress(trimmed);
+        setResolvedPaymentDestination(resolved);
+      } catch (err: unknown) {
+        setDestinationResolutionError(
+          err instanceof Error ? err.message : 'Failed to resolve address'
+        );
+      } finally {
+        setIsResolvingDestination(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [destination]);
+
+  // Debounced federation address resolution on keystroke (#98)
+  useEffect(() => {
+    const trimmed = destination.trim();
+    if (!trimmed || isValidStellarAddress(trimmed)) {
+      setResolvedPaymentDestination(null);
+      setDestinationResolutionError(null);
+      return;
+    }
+    if (!isValidFederationAddress(trimmed) && !trimmed.includes('*')) {
+      setResolvedPaymentDestination(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsResolvingDestination(true);
+      setDestinationResolutionError(null);
+      try {
+        const resolved = await resolveFederationAddress(trimmed);
+        setResolvedPaymentDestination(resolved);
+      } catch (err: unknown) {
+        setDestinationResolutionError(
+          err instanceof Error ? err.message : 'Failed to resolve address'
+        );
+      } finally {
+        setIsResolvingDestination(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [destination]);
+
   // Pre-validate destination account existence on the Stellar network (#294)
   useEffect(() => {
     if (!isValidStellarAddress(destination)) {

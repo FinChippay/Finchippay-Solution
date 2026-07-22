@@ -6,7 +6,7 @@
 #   make lint    — lint frontend + backend
 #   make build   — build Docker images (dev compose)
 
-.PHONY: dev test lint build storybook
+.PHONY: dev test lint build storybook deploy-contract-testnet
 
 dev:
 	npm run dev
@@ -24,3 +24,11 @@ build:
 
 storybook:
 	npm run storybook --prefix frontend
+
+# ─── Contract Deployment ────────────────────────────────────────────────────
+# Deploy the Soroban contract to Stellar testnet.
+# Requires: Stellar CLI, Rust + wasm32v1-none target, funded Stellar identity.
+NETWORK ?= testnet
+IDENTITY ?= alice
+deploy-contract-testnet:
+	./scripts/deploy-contract.sh $(NETWORK) $(IDENTITY)

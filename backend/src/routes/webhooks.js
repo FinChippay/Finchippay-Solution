@@ -3,6 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const { registerWebhook, getWebhooksByPublicKey, deleteWebhook } = require("../services/webhookService");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * POST /api/webhooks
@@ -18,12 +19,16 @@ const { registerWebhook, getWebhooksByPublicKey, deleteWebhook } = require("../s
 router.post("/", (req, res) => {
   const { publicKey, url, secret } = req.body;
   if (!publicKey || !url || !secret) {
-    return res.status(400).json({ error: "publicKey, url, and secret are required" });
+    return res
+      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["publicKey", "url", "secret"] }));
   }
 
   // Validate public key format
   if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
-    return res.status(400).json({ error: "Invalid Stellar public key format" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
   }
 
   // Validate URL scheme (production should only accept HTTPS)
@@ -31,22 +36,30 @@ router.post("/", (req, res) => {
   try {
     parsedUrl = new URL(url);
   } catch {
-    return res.status(400).json({ error: "Invalid URL format" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_URL.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_URL"));
   }
   if (process.env.NODE_ENV === "production" && parsedUrl.protocol !== "https:") {
-    return res.status(400).json({ error: "Webhook URL must use HTTPS in production" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_URL.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_URL", { reason: "Must use HTTPS in production." }));
   }
 
   // Validate secret strength (min 8 chars for HMAC-SHA256)
   if (typeof secret !== "string" || secret.length < 8) {
-    return res.status(400).json({ error: "Secret must be at least 8 characters for HMAC-SHA256 security" });
+    return res
+      .status(ERROR_CODES.VAL_WEAK_SECRET.httpStatus)
+      .json(formatErrorResponse("VAL_WEAK_SECRET"));
   }
 
   try {
     const webhook = registerWebhook(publicKey, url, secret);
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res
+      .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
+      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
   }
 });
 
@@ -57,7 +70,9 @@ router.post("/", (req, res) => {
 router.get("/:publicKey", (req, res) => {
   const { publicKey } = req.params;
   if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
-    return res.status(400).json({ error: "Invalid Stellar public key format" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
   }
   const hooks = getWebhooksByPublicKey(publicKey);
   return res.json({ webhooks: hooks });
@@ -70,11 +85,15 @@ router.get("/:publicKey", (req, res) => {
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
   if (!id || typeof id !== "string" || id.length === 0) {
-    return res.status(400).json({ error: "Webhook ID is required" });
+    return res
+      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["id"] }));
   }
   const deleted = deleteWebhook(id);
   if (!deleted) {
-    return res.status(404).json({ error: "Webhook not found" });
+    return res
+      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "webhook", id }));
   }
   return res.json({ success: true, message: `Webhook ${id} deleted` });
 });

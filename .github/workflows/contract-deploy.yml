@@ -1,0 +1,266 @@
+# .github/workflows/contract-deploy.yml
+# Contract Deployment & Verification Automation
+#
+# Automates the build, deploy, and on-chain verification of
+# FinchippayContract WASM to Stellar testnet.
+#
+# Triggers:
+#   - push to master
+#   - manual workflow_dispatch
+#
+# Outputs:
+#   - Contract ID and WASM hash as workflow artifacts
+#   - PR comment with deployment details
+#   - Environment variables for downstream workflows
+
+name: Contract Deploy (Testnet)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      identity:
+        description: 'Stellar identity name for deployment'
+        required: false
+        type: string
+        default: 'deployer'
+
+env:
+  STELLAR_NETWORK: testnet
+  STELLAR_IDENTITY: ${{ github.event.inputs.identity || 'deployer' }}
+
+jobs:
+  deploy-contract:
+    name: Build, Deploy & Verify Contract
+    runs-on: ubuntu-latest
+    environment:
+      name: testnet
+
+    outputs:
+      contract_id: ${{ steps.deploy.outputs.contract_id }}
+      wasm_hash: ${{ steps.install-wasm.outputs.wasm_hash }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ─── Install Rust toolchain ─────────────────────────────────────────
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-stable-deploy-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-stable-deploy-
+            ${{ runner.os }}-cargo-stable-
+
+      # ─── Build contract WASM ────────────────────────────────────────────
+      - name: Build WASM
+        run: cargo build --target wasm32v1-none --release
+
+      - name: Verify WASM exists
+        run: |
+          WASM_PATH="target/wasm32v1-none/release/finchippay_contract.wasm"
+          if [ ! -f "$WASM_PATH" ]; then
+            echo "::error::WASM not found after build: $WASM_PATH"
+            exit 1
+          fi
+          echo "✅ WASM built successfully"
+          ls -lh "$WASM_PATH"
+
+      # ─── Compute local WASM hash ────────────────────────────────────────
+      - name: Compute WASM SHA-256 hash
+        id: hash
+        run: |
+          WASM_PATH="target/wasm32v1-none/release/finchippay_contract.wasm"
+          WASM_HASH=$(sha256sum "$WASM_PATH" | cut -d' ' -f1)
+          echo "wasm_hash=$WASM_HASH" >> "$GITHUB_OUTPUT"
+          echo "✅ Local WASM SHA-256: $WASM_HASH"
+
+      # ─── Upload WASM artifact ───────────────────────────────────────────
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: finchippay-contract-wasm
+          path: target/wasm32v1-none/release/finchippay_contract.wasm
+          retention-days: 90
+
+      # ─── Install Stellar CLI ────────────────────────────────────────────
+      - name: Install Stellar CLI
+        run: |
+          if ! command -v stellar &>/dev/null; then
+            cargo install --locked stellar-cli
+          else
+            echo "✅ Stellar CLI already installed"
+          fi
+
+      # ─── Set up Stellar identity ────────────────────────────────────────
+      - name: Set up Stellar identity
+        env:
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
+        run: |
+          if [ -n "$STELLAR_SECRET_KEY" ]; then
+            echo "$STELLAR_SECRET_KEY" | stellar keys import "$STELLAR_IDENTITY" --network "$STELLAR_NETWORK"
+            echo "✅ Imported deployer identity: $STELLAR_IDENTITY"
+          else
+            echo "::warning::STELLAR_DEPLOYER_SECRET not set - deploy will fail"
+            echo "   Create a funded testnet account and store the secret key in GitHub Secrets."
+          fi
+
+      # ─── Install WASM on-chain (returns on-chain hash) ──────────────────
+      - name: Install WASM on-chain
+        id: install-wasm
+        env:
+          STELLAR_DEPLOYER_SECRET: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
+        run: |
+          if [ -z "$STELLAR_DEPLOYER_SECRET" ]; then
+            echo "::error::STELLAR_DEPLOYER_SECRET is not set. Cannot deploy."
+            exit 1
+          fi
+
+          WASM_PATH="target/wasm32v1-none/release/finchippay_contract.wasm"
+
+          echo "📦 Installing WASM on $STELLAR_NETWORK..."
+          WASM_HASH_ONCHAIN=$(stellar contract install \
+            --wasm "$WASM_PATH" \
+            --source "$STELLAR_IDENTITY" \
+            --network "$STELLAR_NETWORK" 2>/dev/null)
+
+          echo "wasm_hash=$WASM_HASH_ONCHAIN" >> "$GITHUB_OUTPUT"
+          echo "✅ On-chain WASM hash: $WASM_HASH_ONCHAIN"
+
+          LOCAL_HASH="${{ steps.hash.outputs.wasm_hash }}"
+          if [ "$LOCAL_HASH" = "$WASM_HASH_ONCHAIN" ]; then
+            echo "✅ Local and on-chain WASM hashes match!"
+          else
+            echo "::error::WASM hash mismatch!"
+            echo "   Local:     $LOCAL_HASH"
+            echo "   On-chain:  $WASM_HASH_ONCHAIN"
+            exit 1
+          fi
+
+      # ─── Deploy contract from installed WASM hash ───────────────────────
+      - name: Deploy contract
+        id: deploy
+        run: |
+          WASM_HASH_ONCHAIN="${{ steps.install-wasm.outputs.wasm_hash }}"
+
+          echo "🚀 Deploying contract from WASM hash on $STELLAR_NETWORK..."
+          CONTRACT_ID=$(stellar contract deploy \
+            --wasm-hash "$WASM_HASH_ONCHAIN" \
+            --source "$STELLAR_IDENTITY" \
+            --network "$STELLAR_NETWORK")
+
+          echo "contract_id=$CONTRACT_ID" >> "$GITHUB_OUTPUT"
+          echo "✅ Deployed!"
+          echo "   Contract ID: $CONTRACT_ID"
+          echo "   Network:     $STELLAR_NETWORK"
+
+      # ─── Initialize contract ────────────────────────────────────────────
+      - name: Initialize contract
+        id: init
+        env:
+          STELLAR_DEPLOYER_SECRET: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
+        run: |
+          CONTRACT_ID="${{ steps.deploy.outputs.contract_id }}"
+
+          echo "🔧 Initializing contract..."
+          ADMIN_ADDRESS=$(stellar keys address "$STELLAR_IDENTITY" --network "$STELLAR_NETWORK")
+
+          stellar contract invoke \
+            --id "$CONTRACT_ID" \
+            --source "$STELLAR_IDENTITY" \
+            --network "$STELLAR_NETWORK" \
+            -- initialize \
+            --admin "$ADMIN_ADDRESS"
+
+          echo "✅ Contract initialized with admin: $ADMIN_ADDRESS"
+
+          VERSION=$(stellar contract invoke \
+            --id "$CONTRACT_ID" \
+            --source "$STELLAR_IDENTITY" \
+            --network "$STELLAR_NETWORK" \
+            -- get_version 2>/dev/null || echo "unknown")
+
+          echo "   Contract version: $VERSION"
+
+      # ─── Post deployment comment on PR ──────────────────────────────────
+      - name: Post deployment summary
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+          WASM_HASH: ${{ steps.install-wasm.outputs.wasm_hash }}
+          NETWORK: testnet
+        with:
+          script: |
+            const contractId = process.env.CONTRACT_ID || 'N/A';
+            const wasmHash = process.env.WASM_HASH || 'N/A';
+            const network = process.env.NETWORK || 'testnet';
+            const explorerUrl = `https://stellar.expert/explorer/${network}/contract/${contractId}`;
+            const workflowRunId = process.env.GITHUB_RUN_ID || '';
+            const repo = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}`;
+            const workflowUrl = `${repo}/actions/runs/${workflowRunId}`;
+            const sha = (process.env.GITHUB_SHA || '').substring(0, 7);
+            const deploymentStatus = '${{ job.status }}' === 'success' ? '✅ Success' : '❌ Failed';
+
+            const body = [
+              '## 🚀 Contract Deployment — ' + deploymentStatus,
+              '',
+              '| Field | Value |',
+              '|-------|-------|',
+              `| **Network** | \`${network}\` |`,
+              `| **Contract ID** | \`${contractId}\` |`,
+              `| **WASM Hash (SHA-256)** | \`${wasmHash}\` |`,
+              `| **Explorer** | [View on Stellar Expert](${explorerUrl}) |`,
+              `| **Workflow Run** | [View run](${workflowUrl}) |`,
+              '',
+              `> Deployed via [contract-deploy workflow](${workflowUrl}) on commit \`${sha}\``,
+            ].join('\n');
+
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+            });
+
+            if (prs.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs[0].number,
+                body,
+              });
+              core.notice(`Posted deployment comment on PR #${prs[0].number}`);
+            } else {
+              core.notice('No associated PR found - skipping comment');
+            }
+
+      # ─── Export deployment outputs for downstream workflows ─────────────
+      - name: Export deployment outputs
+        if: steps.deploy.outputs.contract_id
+        run: |
+          mkdir -p deployment-outputs
+          printf 'CONTRACT_ID=%s\nWASM_HASH=%s\nSTELLAR_NETWORK=%s\n' \
+            "${{ steps.deploy.outputs.contract_id }}" \
+            "${{ steps.install-wasm.outputs.wasm_hash }}" \
+            "testnet" > deployment-outputs/contract.env
+          cat deployment-outputs/contract.env
+
+      - name: Upload deployment outputs
+        if: steps.deploy.outputs.contract_id
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-deployment-outputs
+          path: deployment-outputs/
+          retention-days: 90

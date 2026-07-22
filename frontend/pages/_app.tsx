@@ -21,6 +21,7 @@ import {
 } from "@/lib/sep0007";
 import { I18nextProvider } from "react-i18next";
 import i18n from "@/lib/i18n";
+import { initSdkAuth } from "@/lib/sdk-instance";
 import "@/styles/globals.css";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -171,6 +172,24 @@ function AppShellInner({
 export default function App({ Component, pageProps }: AppProps) {
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
+
+  useEffect(() => {
+    // Initialize SDK auth from stored token
+    initSdkAuth();
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("finchippay:theme") as
+      | "dark"
+      | "light"
+      | null;
+    const preferred =
+      saved ??
+      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+
+    setTheme(preferred);
+    document.documentElement.classList.toggle("dark", preferred === "dark");
+  }, []);
 
   useEffect(() => {
     const uriResult = getStellarURIFromURL();

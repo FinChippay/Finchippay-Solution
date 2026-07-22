@@ -111,6 +111,26 @@ function collectErrors(env) {
     }
   }
 
+  // REDIS_URL is optional but if set must be a valid redis:// URL.
+  if (env.REDIS_URL) {
+    const redisUrl = String(env.REDIS_URL).trim();
+    if (redisUrl.length > 0 && !redisUrl.startsWith("redis://") && !redisUrl.startsWith("rediss://")) {
+      errors.push(
+        `REDIS_URL must start with redis:// or rediss://, got "${redisUrl}"`,
+      );
+    }
+  }
+
+  // REDIS_CACHE_TTL_DEFAULT is optional; default is 60.
+  if (env.REDIS_CACHE_TTL_DEFAULT) {
+    const ttl = parseInt(env.REDIS_CACHE_TTL_DEFAULT, 10);
+    if (isNaN(ttl) || ttl < 1) {
+      errors.push(
+        `REDIS_CACHE_TTL_DEFAULT must be a positive integer, got "${env.REDIS_CACHE_TTL_DEFAULT}"`,
+      );
+    }
+  }
+
   return errors;
 }
 

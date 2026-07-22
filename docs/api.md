@@ -22,10 +22,20 @@ Most JSON endpoints use one of these shapes:
 { "success": true, "data": { }, "message": "..." }
 ```
 
-**Error**
+**Error (standardized — #169)**
+
+All API errors now follow a canonical shape:
 ```json
-{ "error": "Human-readable message" }
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable message",
+    "details": { ... }
+  }
+}
 ```
+
+> **Note:** Legacy `{ "error": "message" }` shapes are being migrated. New code should expect the canonical shape above.
 
 Some endpoints (health, federation, auth challenge, webhooks list) return a flat object without the `success` / `data` wrapper. Each route below shows the actual response shape.
 
@@ -34,6 +44,119 @@ Some endpoints (health, federation, auth challenge, webhooks list) return a flat
 ```
 Authorization: Bearer <token>
 ```
+
+---
+
+## Error Codes Reference
+
+All errors returned by the API use a machine-readable error code. The canonical registry is at `shared/errorCodes.js`.
+
+### Authentication Errors (`AUTH_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `AUTH_MISSING_TOKEN` | 401 | Authentication token is required. |
+| `AUTH_EXPIRED_TOKEN` | 401 | Token has expired. Please re-authenticate. |
+| `AUTH_INVALID_TOKEN` | 401 | Token is invalid or malformed. |
+| `AUTH_MISSING_HEADER` | 401 | Missing or invalid Authorization header. |
+| `AUTH_FORBIDDEN` | 403 | You do not have permission to access this resource. |
+| `AUTH_CHALLENGE_FAILED` | 401 | SEP-0010 challenge verification failed. |
+
+### Validation Errors (`VAL_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `VAL_INVALID_PUBLIC_KEY` | 400 | Invalid Stellar public key format. |
+| `VAL_INVALID_AMOUNT` | 400 | Amount must be a positive number. |
+| `VAL_MISSING_FIELD` | 400 | Required field is missing. |
+| `VAL_INVALID_JSON` | 400 | Request body contains invalid JSON. |
+| `VAL_BODY_TOO_LARGE` | 413 | Request body exceeds the maximum allowed size. |
+| `VAL_CONTENT_TYPE` | 415 | Content-Type must be application/json. |
+| `VAL_INVALID_USERNAME` | 400 | Username must be 3–20 alphanumeric characters. |
+| `VAL_INVALID_STELLAR_ADDRESS` | 400 | Invalid Stellar address format. |
+| `VAL_INVALID_URL` | 400 | Invalid URL format. |
+| `VAL_INVALID_DATE` | 400 | Invalid ISO 8601 date format. |
+| `VAL_MEMO_TOO_LONG` | 400 | Memo exceeds 28 bytes. |
+| `VAL_WEAK_SECRET` | 400 | Secret must be at least 8 characters. |
+| `VAL_INVALID_LIMIT` | 400 | Limit must be a positive integer. |
+| `VAL_INVALID_FEDERATION_TYPE` | 400 | Federation type must be 'name' or 'id'. |
+
+### Resource Errors (`RES_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `RES_NOT_FOUND` | 404 | The requested resource was not found. |
+| `RES_ACCOUNT_NOT_FOUND` | 404 | Stellar account not found. |
+| `RES_CONFLICT` | 409 | Resource already exists. |
+| `RES_USERNAME_CONFLICT` | 409 | Username already registered. |
+| `RES_PUBLIC_KEY_CONFLICT` | 409 | Public key already registered. |
+| `RES_GONE` | 410 | Resource no longer available. |
+| `RES_ROUTE_NOT_FOUND` | 404 | Route not found. |
+
+### Rate Limiting (`RATE_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `RATE_LIMITED_GLOBAL` | 429 | Too many requests. Try again later. |
+| `RATE_LIMITED_SENSITIVE` | 429 | Too many requests to sensitive routes. |
+| `RATE_LIMITED_USER` | 429 | Too many requests from this account. |
+
+### Contract Errors (`CONTRACT_*`)
+
+Mapped from the Soroban contract's numeric `ContractError` codes (1–17).
+
+| Code | HTTP | Contract Code | Description |
+|------|------|---------------|-------------|
+| `CONTRACT_ALREADY_INITIALIZED` | 409 | 1 | Contract already initialized. |
+| `CONTRACT_UNAUTHORIZED` | 403 | 2 | Not authorized for this action. |
+| `CONTRACT_NON_POSITIVE_AMOUNT` | 400 | 3 | Amount must be strictly positive. |
+| `CONTRACT_RELEASE_LEDGER_IN_PAST` | 400 | 4 | Release ledger must be in the future. |
+| `CONTRACT_NOT_FOUND` | 404 | 5 | Contract resource not found. |
+| `CONTRACT_INVALID_STATE` | 409 | 6 | Invalid state for this operation. |
+| `CONTRACT_OVERFLOW` | 500 | 7 | Arithmetic overflow. |
+| `CONTRACT_INVALID_THRESHOLD` | 400 | 8 | Signers/threshold mismatch. |
+| `CONTRACT_LENGTH_MISMATCH` | 400 | 9 | Array length mismatch. |
+| `CONTRACT_ALREADY_SIGNED` | 409 | 10 | Already approved this proposal. |
+| `CONTRACT_INSUFFICIENT_FUNDS` | 400 | 11 | Insufficient deposited funds. |
+| `CONTRACT_PAUSED` | 503 | 12 | Contract is paused. |
+| `CONTRACT_SELF_TRANSFER` | 400 | 13 | Cannot transfer to yourself. |
+| `CONTRACT_BATCH_TOO_LARGE` | 400 | 14 | Batch size exceeds maximum. |
+| `CONTRACT_DUPLICATE_SIGNER` | 400 | 15 | Duplicate signer detected. |
+| `CONTRACT_PROPOSAL_EXPIRED` | 410 | 16 | Proposal has expired. |
+| `CONTRACT_TRANSFER_FAILED` | 502 | 17 | Token transfer verification failed. |
+
+### Payment Errors (`PAY_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `PAY_BUILD_FAILED` | 500 | Failed to build payment transaction. |
+| `PAY_SIGN_FAILED` | 400 | Failed to sign transaction. |
+| `PAY_SUBMIT_FAILED` | 502 | Failed to submit to Stellar network. |
+| `PAY_CONFIRMATION_TIMEOUT` | 504 | Transaction confirmation timed out. |
+| `PAY_INSUFFICIENT_BALANCE` | 400 | Insufficient balance. |
+| `PAY_SELF_PAYMENT` | 400 | Cannot send to your own wallet. |
+| `PAY_DESTINATION_NOT_FUNDED` | 400 | Destination account does not exist. |
+| `PAY_INVALID_DESTINATION` | 400 | Invalid payment destination. |
+| `PAY_HORIZON_ERROR` | 502 | Stellar Horizon returned an error. |
+
+### Server Errors (`SRV_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `SRV_INTERNAL` | 500 | Internal server error. |
+| `SRV_HORIZON_UNAVAILABLE` | 502 | Stellar Horizon is temporarily unavailable. |
+| `SRV_FEDERATION_FAILED` | 502 | External federation resolution failed. |
+| `SRV_AI_NOT_CONFIGURED` | 501 | AI payment parsing not configured. |
+| `SRV_METRICS_FAILED` | 500 | Failed to collect Prometheus metrics. |
+| `SRV_NOT_IMPLEMENTED` | 501 | Feature not yet implemented. |
+
+### Generic Errors (`GEN_*`)
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `GEN_UNKNOWN` | 500 | An unexpected error occurred. |
+| `GEN_NETWORK_ERROR` | 0 | Network error. Check your connection. |
+| `GEN_OFFLINE` | 0 | You are offline. |
 
 ---
 
@@ -48,8 +171,8 @@ Responses include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset
 
 | Status | Body |
 |--------|------|
-| 429 (global) | `{ "error": "Too many requests, please try again later." }` |
-| 429 (strict) | `{ "error": "Too many requests to sensitive routes, please wait 1 minute." }` |
+| 429 (global) | `RATE_LIMITED_GLOBAL` — `{ "error": { "code": "RATE_LIMITED_GLOBAL", "message": "Too many requests. Please try again later." } }` |
+| 429 (strict) | `RATE_LIMITED_SENSITIVE` — `{ "error": { "code": "RATE_LIMITED_SENSITIVE", "message": "Too many requests to sensitive routes. Please wait 1 minute." } }` |
 
 ---
 
@@ -1159,15 +1282,27 @@ Cancel a scheduled transaction by its ID.
 
 ## Global errors
 
-These apply across routes unless noted otherwise.
+All errors now follow the standardized shape (see [Error Codes Reference](#error-codes-reference)).
 
-| HTTP status | When | Example body |
-|-------------|------|--------------|
-| 400 | Invalid JSON body | `{ "error": "Invalid JSON body" }` |
-| 404 | Unknown route | `{ "error": "Route not found" }` |
-| 429 | Rate limit (global) | `{ "error": "Too many requests, please try again later." }` |
-| 429 | Rate limit (strict) | `{ "error": "Too many requests to sensitive routes, please wait 1 minute." }` |
-| 500 | Unhandled server error | `{ "error": "Internal Server Error" }` or `{ "error": "<message>" }` |
+| HTTP status | Error Code | When |
+|-------------|------------|------|
+| 400 | `VAL_INVALID_JSON` | Invalid JSON body |
+| 404 | `RES_ROUTE_NOT_FOUND` | Unknown route |
+| 415 | `VAL_CONTENT_TYPE` | Missing `Content-Type: application/json` |
+| 413 | `VAL_BODY_TOO_LARGE` | Request body exceeds size limit |
+| 429 | `RATE_LIMITED_GLOBAL` | Global rate limit exceeded |
+| 429 | `RATE_LIMITED_SENSITIVE` | Strict rate limit exceeded |
+| 500 | `SRV_INTERNAL` | Unhandled server error |
+
+**Example standardized error response:**
+```json
+{
+  "error": {
+    "code": "RATE_LIMITED_GLOBAL",
+    "message": "Too many requests. Please try again later."
+  }
+}
+```
 
 **CORS:** Requests from origins not listed in `ALLOWED_ORIGINS` are rejected by the CORS middleware.
 
