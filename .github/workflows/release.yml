@@ -1,0 +1,36 @@
+# .github/workflows/release.yml
+# Automatically creates a GitHub Release when a version tag (v*.*.*) is pushed.
+# Generates release notes from conventional commits since the previous tag.
+#
+# Requires: no manual steps — pushes a tag to trigger:
+#   git tag v1.2.3 && git push origin v1.2.3
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+  discussions: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Release ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

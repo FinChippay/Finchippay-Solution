@@ -2,13 +2,14 @@
 # Continuous Integration for Finchippay-Solution
 #
 # Runs on every push to main/develop and on every pull-request targeting main.
-# Six parallel jobs:
-#   1. frontend  — lint, type-check, unit tests, Next.js build
-#   2. visual-regression — build and compare Storybook snapshots in Chromatic
-#   3. backend   — lint, unit tests
-#   4. contracts — cargo check, cargo test, WASM build
-#   5. compose   — validate Docker Compose configurations
-#   6. e2e       — Playwright end-to-end tests
+# Seven parallel jobs:
+#   1. frontend          — lint, i18n, type-check, unit tests, build
+#   2. visual-regression — Chromatic Storybook visual regression
+#   3. backend           — format check, lint, unit tests
+#   4. contracts         — cargo check, cargo test, WASM build
+#   5. compose           — validate Docker Compose configurations
+#   6. e2e               — Playwright end-to-end tests
+#   7. validate          — validate environment and config files
 
 name: CI
 
@@ -117,6 +118,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Format check
+        run: npm run format:check
+
       - name: Lint
         run: npm run lint
 
@@ -179,14 +183,10 @@ jobs:
     name: E2E Tests (Playwright)
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: frontend
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
@@ -194,9 +194,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
+        working-directory: frontend
         run: npm ci
 
       - name: Install Playwright browsers
+        working-directory: frontend
         run: npx playwright install --with-deps chromium
 
       - name: Start backend
@@ -214,7 +216,8 @@ jobs:
           NODE_ENV: test
           STELLAR_NETWORK: testnet
           HORIZON_URL: https://horizon-testnet.stellar.org
-          JWT_SECRET: test-secret
+          JWT_SECRET: test-secret-for-e2e-testing-only
+          ALLOWED_ORIGINS: "*"
           ANTHROPIC_API_KEY: test-key-for-ci
 
       - name: Run E2E tests
@@ -229,3 +232,45 @@ jobs:
         with:
           name: playwright-report
           path: frontend/playwright-report/
+
+  # ─── Validate Config ───────────────────────────────────────────────────────
+  validate:
+    name: Validate Config & Env
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required config files exist
+        run: |
+          MISSING=0
+          for file in backend/.env.example frontend/.env.example .nvmrc; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing required file: $file"
+              MISSING=1
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then exit 1; fi
+
+      - name: Validate root package.json
+        run: |
+          if [ -f package.json ]; then
+            node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))" && echo "✅ package.json is valid JSON"
+          fi
+
+      - name: Check for hardcoded secrets
+        run: |
+          # Exclude GitHub workflow files and test fixtures from secret scanning
+          if grep -rE "sk-[a-zA-Z0-9]{32,}" \
+            --include="*.{js,ts,json}" \
+            --exclude-dir=.github \
+            --exclude-dir=node_modules \
+            --exclude-dir=__tests__ \
+            --exclude-dir=e2e \
+            . 2>/dev/null; then
+            echo "⚠️  WARNING: Potential hardcoded API keys found above. Review before merging."
+          else
+            echo "✅ No suspicious hardcoded secrets detected"
+          fi
