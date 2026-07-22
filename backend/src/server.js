@@ -143,6 +143,10 @@ const helmetOptions = {
 };
 
 app.use(helmet(helmetOptions));
+// Prometheus HTTP metrics — track duration & count for every request.
+// Mounted before routes so the "finish" event captures the resolved
+// route pattern (e.g. "GET /api/payments/:id") rather than raw paths.
+app.use(trackHttpMetrics);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 app.use(pinoHttp({ logger }));
@@ -238,6 +242,7 @@ app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-txns", scheduledTransactionRoutes);
 app.use("/federation", federationRoutes);
+app.use("/metrics", metricsRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
 

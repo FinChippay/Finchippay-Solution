@@ -1,0 +1,26 @@
+# docs/prometheus.yml
+# Prometheus scrape configuration for Finchippay Solution.
+#
+# Scrapes the backend /metrics endpoint every 15 seconds.
+#
+# When METRICS_TOKEN is set in the backend environment, uncomment the
+# `authorization` block below and replace YOUR_METRICS_TOKEN with the
+# actual token value:
+#
+#   authorization:
+#     type: "Bearer"
+#     credentials: "YOUR_METRICS_TOKEN"
+#
+# In local development the /metrics endpoint is open by default
+# (no token required) so no authorization block is needed.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "finchippay-backend"
+    metrics_path: "/metrics"
+    scheme: "http"
+    static_configs:
+      - targets: ["backend:4000"]
