@@ -27,6 +27,7 @@ const crypto = require("crypto");
 const { Horizon } = require("@stellar/stellar-sdk");
 const logger = require("../utils/logger");
 const metrics = require("./metricsService");
+const { getRequestIdHeader } = require("../utils/correlationId");
 require("dotenv").config();
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -130,6 +131,7 @@ async function deliverWebhook(webhook, payload) {
       headers: {
         "Content-Type": "application/json",
         "X-Webhook-Signature": signature,
+        ...getRequestIdHeader(),
       },
       body: JSON.stringify(payload),
     });

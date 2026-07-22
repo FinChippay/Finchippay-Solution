@@ -26,6 +26,23 @@ describe("API Integration Tests", () => {
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty("status", "ok");
     });
+
+    it("should include X-Request-ID header", async () => {
+      const response = await request(app).get("/health");
+      expect(response.status).toBe(200);
+      expect(response.headers).toHaveProperty("x-request-id");
+      expect(response.headers["x-request-id"]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
+    });
+
+    it("should adopt incoming X-Request-ID header", async () => {
+      const customId = "custom-correlation-id";
+      const response = await request(app)
+        .get("/health")
+        .set("X-Request-ID", customId);
+      expect(response.headers["x-request-id"]).toBe(customId);
+    });
   });
 
   describe("GET /api/accounts/:key", () => {
