@@ -97,6 +97,18 @@ function collectErrors(env) {
     errors.push(w);
   }
 
+  // SOROBAN_RPC_URL is optional but if set must be a valid URL.
+  if (env.SOROBAN_RPC_URL) {
+    const rpcUrl = String(env.SOROBAN_RPC_URL).trim();
+    if (rpcUrl.length > 0) {
+      try {
+        new URL(rpcUrl);
+      } catch {
+        errors.push(`SOROBAN_RPC_URL must be a valid URL, got "${rpcUrl}"`);
+      }
+    }
+  }
+
   // OTEL_EXPORTER_OTLP_ENDPOINT is optional but if set must be a valid URL.
   if (env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     const otelEndpoint = String(env.OTEL_EXPORTER_OTLP_ENDPOINT).trim();

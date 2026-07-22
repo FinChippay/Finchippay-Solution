@@ -39,15 +39,20 @@ const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
+const eventRoutes = require("./routes/events");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const eventIndexer = require("./services/eventIndexer");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const {
+  correlationMiddleware,
+  getRequestId,
+} = require("./utils/correlationId");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -274,6 +279,7 @@ app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-txns", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
+app.use("/api/events", eventRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -358,9 +364,16 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+  eventIndexer.start();
 
-  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server, otelSdk));
-  process.on("SIGINT", () => gracefulShutdown("SIGINT", server, otelSdk));
+  process.on("SIGTERM", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGTERM", server, otelSdk);
+  });
+  process.on("SIGINT", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGINT", server, otelSdk);
+  });
 }
 
 module.exports = app;

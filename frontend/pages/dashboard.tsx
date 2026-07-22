@@ -204,6 +204,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
+  const [contractEventCount, setContractEventCount] = useState<number>(0);
+  const [contractEventCountLoading, setContractEventCountLoading] = useState(false);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
   const [showExternalBanner, setShowExternalBanner] = useState(true);
 
@@ -404,6 +406,36 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setPaymentStatsError("Could not load your payment stats.");
     } finally {
       setPaymentStatsLoading(false);
+    }
+  }, [publicKey]);
+
+  const fetchContractEventCount = useCallback(async () => {
+    if (!publicKey) return;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    setContractEventCountLoading(true);
+
+    try {
+      const headers: HeadersInit = {};
+      const token = getJwtToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(
+        `${apiBase}/api/events/${encodeURIComponent(publicKey)}/stats`,
+        { headers }
+      );
+
+      if (response.ok) {
+        const payload = await response.json();
+        setContractEventCount(payload?.data?.totalEvents ?? 0);
+      }
+    } catch {
+      // Swallow — contract events are an enhancement; failure is non-blocking.
+      setContractEventCount(0);
+    } finally {
+      setContractEventCountLoading(false);
     }
   }, [publicKey]);
 
@@ -612,6 +644,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   useEffect(() => {
     fetchPaymentStats();
   }, [fetchPaymentStats, refreshKey]);
+
+  useEffect(() => {
+    fetchContractEventCount();
+  }, [fetchContractEventCount, refreshKey]);
 
   useEffect(() => {
     fetchSparklineData();
@@ -941,6 +977,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         loading={paymentStatsLoading}
         error={paymentStatsError}
         onRetry={fetchPaymentStats}
+        t={t}
+      />
+
+      <ContractEventStatsWidget
+        count={contractEventCount}
+        loading={contractEventCountLoading}
         t={t}
       />
 
@@ -1597,6 +1639,53 @@ function StatsCard({
       <p className="font-display text-2xl font-bold text-white">{value}</p>
       <p className="text-xs text-slate-400 mt-2">{helper}</p>
     </div>
+  );
+}
+
+function ContractEventStatsWidget({
+  count,
+  loading,
+  t,
+}: {
+  count: number;
+  loading: boolean;
+  t: (key: string, opts?: any) => string;
+}) {
+  if (loading) {
+    return (
+      <section className="mb-6">
+        <div className="card border-white/10 bg-white/[0.03] animate-pulse">
+          <div className="h-3 w-36 rounded bg-white/10 mb-3" />
+          <div className="h-8 w-24 rounded bg-white/10 mb-2" />
+          <div className="h-3 w-32 rounded bg-white/10" />
+        </div>
+      </section>
+    );
+  }
+
+  if (count === 0) return null;
+
+  return (
+    <section className="mb-6">
+      <div className="card border-stellar-500/20 bg-gradient-to-br from-stellar-500/5 to-transparent">
+        <div className="flex items-center gap-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-stellar-500/10 flex items-center justify-center">
+            <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div>
+            <p className="label">{t("dashboard.contractEvents", "Contract Events")}</p>
+            <p className="font-display text-2xl font-bold text-stellar-400">
+              {count.toLocaleString("en-US")}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              {t("dashboard.contractEventsHelper", "Streaming, escrow & multi-sig events indexed from the Soroban contract")}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
