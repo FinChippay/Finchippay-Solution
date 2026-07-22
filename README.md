@@ -3,6 +3,7 @@
 > Instant, low-fee, non-custodial payments on the Stellar network — powered by Soroban smart contracts.
 
 [![CI](https://github.com/FinChippay/Finchippay-Solution/actions/workflows/ci.yml/badge.svg)](https://github.com/FinChippay/Finchippay-Solution/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/FinChippay/Finchippay-Solution/actions/workflows/codeql.yml/badge.svg)](https://github.com/FinChippay/Finchippay-Solution/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
