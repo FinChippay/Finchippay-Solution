@@ -304,7 +304,7 @@ jobs:
       - name: Check required config files exist
         run: |
           MISSING=0
-          for file in backend/.env.example frontend/.env.example .nvmrc; do
+          for file in backend/.env.example frontend/.env.example .nvmrc sdk/package.json scripts/generate-sdk.sh; do
             if [ ! -f "$file" ]; then
               echo "❌ Missing required file: $file"
               MISSING=1
