@@ -4,6 +4,7 @@
  */
 
 "use strict";
+const crypto = require("crypto");
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 // dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
@@ -14,6 +15,10 @@ require("dotenv").config();
 // Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
 // so this must be required before express, http, etc. are imported.
 const { sdk: otelSdk } = require("./config/tracing");
+
+// Must load before any route requiring axios so the global interceptor
+// can forward the correlation ID on every outbound HTTP call.
+require("./config/axiosInterceptors");
 
 const express = require("express");
 const cors = require("cors");
@@ -42,6 +47,7 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
+const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -150,9 +156,22 @@ app.use(helmet(helmetOptions));
 // Mounted before routes so the "finish" event captures the resolved
 // route pattern (e.g. "GET /api/payments/:id") rather than raw paths.
 app.use(trackHttpMetrics);
+// Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
+// Mounted before pino-http so the requestId appears in every log line.
+app.use(correlationMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-app.use(pinoHttp({ logger }));
+// req.id is set by correlationMiddleware above.
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => req.id || crypto.randomUUID(),
+    customProps: () => {
+      const requestId = getRequestId();
+      return requestId ? { requestId } : {};
+    },
+  }),
+);
 
 // Content-Type enforcement (#81) — reject POST/PUT requests whose body isn't
 // application/json before the JSON parser below gets a chance to silently
