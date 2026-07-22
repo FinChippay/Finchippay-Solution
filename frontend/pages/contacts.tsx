@@ -1,6 +1,8 @@
 /**
  * pages/contacts.tsx
  * Contacts page: save names mapped to Stellar addresses, lookup federation addresses.
+ *
+ * Updated for Issue #36 — adds CSV/vCard import and export.
  */
 
 import { useState, useEffect } from "react";
@@ -18,6 +20,12 @@ import {
   subscribeToAddressBookContacts,
   upsertAddressBookContact,
 } from "@/lib/addressBook";
+import {
+  exportContactsCSV,
+  exportContactsVCard,
+  downloadFile,
+} from "@/lib/contactImportExport";
+import ContactImportModal from "@/components/ContactImportModal";
 import { copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import Head from "next/head";
@@ -32,6 +40,9 @@ export default function Contacts() {
 
   // Contact management state
   const [contacts, setContacts] = useState<AddressBookContact[]>(loadAddressBookContacts);
+
+  // Import modal
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -152,6 +163,78 @@ export default function Contacts() {
     showToast("Address copied");
   };
 
+  // Export all contacts as CSV
+  const handleExportCSV = () => {
+    if (contacts.length === 0) {
+      showToast("No contacts to export");
+      return;
+    }
+    const csv = exportContactsCSV(
+      contacts.map((c) => ({ name: c.nickname, address: c.address }))
+    );
+    downloadFile(csv, "finchippay-contacts.csv", "text/csv");
+    showToast(`Exported ${contacts.length} contact${contacts.length !== 1 ? "s" : ""}`);
+  };
+
+  // Export all contacts as vCard (.vcf)
+  const handleExportVCard = () => {
+    if (contacts.length === 0) {
+      showToast("No contacts to export");
+      return;
+    }
+    const vcf = exportContactsVCard(
+      contacts.map((c) => ({ name: c.nickname, address: c.address }))
+    );
+    downloadFile(vcf, "finchippay-contacts.vcf", "text/vcard");
+    showToast(`Exported ${contacts.length} contact${contacts.length !== 1 ? "s" : ""}`);
+  };
+
+  // Handle confirmed import from modal
+  const handleImportContacts = (
+    imported: Array<{ name: string; address: string; federation?: string }>,
+    overwriteDuplicates: boolean
+  ) => {
+    const existing = loadAddressBookContacts();
+    const existingByAddress = new Map(existing.map((c) => [c.address, c]));
+    const timestamp = Date.now();
+    let added = 0;
+    let updated = 0;
+
+    for (const row of imported) {
+      const existing_contact = existingByAddress.get(row.address);
+      if (existing_contact) {
+        if (overwriteDuplicates) {
+          existingByAddress.set(row.address, {
+            ...existing_contact,
+            nickname: row.name,
+            updatedAt: timestamp,
+          });
+          updated++;
+        }
+        // else skip
+      } else {
+        existingByAddress.set(row.address, {
+          id: `${row.address}:${timestamp + added}`,
+          nickname: row.name,
+          address: row.address,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        added++;
+      }
+    }
+
+    const merged = Array.from(existingByAddress.values());
+    saveAddressBookContacts(merged);
+    setContacts(merged);
+    setShowImportModal(false);
+
+    const parts: string[] = [];
+    if (added > 0) parts.push(`${added} added`);
+    if (updated > 0) parts.push(`${updated} updated`);
+    showToast(parts.length > 0 ? `Contacts imported: ${parts.join(", ")}` : "No new contacts imported");
+  };
+
   if (!publicKey) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
@@ -182,7 +265,45 @@ export default function Contacts() {
           {`Contacts`}
         </h1>
         <p className="text-slate-400">{`Save and manage Stellar addresses`}</p>
+        {/* Import / Export toolbar */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-stellar-300 bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
+            aria-label="Import contacts from CSV"
+          >
+            <ImportIcon className="w-4 h-4" />
+            Import
+          </button>
+          <button
+            onClick={handleExportCSV}
+            disabled={contacts.length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 bg-slate-700/50 border border-slate-600/50 hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Export contacts as CSV"
+          >
+            <ExportIcon className="w-4 h-4" />
+            Export CSV
+          </button>
+          <button
+            onClick={handleExportVCard}
+            disabled={contacts.length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 bg-slate-700/50 border border-slate-600/50 hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Export contacts as vCard"
+          >
+            <CardIcon className="w-4 h-4" />
+            Export vCard
+          </button>
+        </div>
       </div>
+
+      {/* Import modal */}
+      {showImportModal && (
+        <ContactImportModal
+          existingContacts={contacts}
+          onImport={handleImportContacts}
+          onClose={() => setShowImportModal(false)}
+        />
+      )}
 
       {/* Toast notifications are handled by the global ToastContainer in _app.tsx */}
 
@@ -461,6 +582,30 @@ function Spinner() {
     <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
+function ImportIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  );
+}
+
+function ExportIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+    </svg>
+  );
+}
+
+function CardIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
     </svg>
   );
 }

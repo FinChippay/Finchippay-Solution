@@ -44,10 +44,8 @@ const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDash
   loading: () => <Skeleton height="h-48" />,
 });
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
-const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), {
-  ssr: false,
-  loading: () => <Skeleton height="h-48" />,
-});
+const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const StreamingPayments = dynamic(() => import("../components/StreamingPayments"), { ssr: false });
 
 import {
   ResponsiveContainer,
@@ -60,6 +58,7 @@ import {
 } from "recharts";
 
 
+import { FeatureGate } from "@/lib/FeatureFlags";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
@@ -1239,8 +1238,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       ))}
 
+      <FeatureGate flag="streaming_payments">
+        <StreamingPayments publicKey={publicKey} />
+      </FeatureGate>
+
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard 
+      <CreatorTipsDashboard
         publicKey={publicKey} 
         username={creatorUsername}
         xlmPrice={xlmPrice}
@@ -1313,11 +1316,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           <RecurringPayments onPayNow={handleRecurringPayNow} />
           <PaymentRequestGenerator />
           <div className="mt-6">
-            <MultiSigFlow
-              publicKey={publicKey}
-              xlmBalance={xlmBalance || "0"}
-              onSuccess={handlePaymentSuccess}
-            />
+            <FeatureGate flag="multi_sig_payments">
+              <MultiSigFlow
+                publicKey={publicKey}
+                xlmBalance={xlmBalance || "0"}
+                onSuccess={handlePaymentSuccess}
+              />
+            </FeatureGate>
           </div>
         </div>
 

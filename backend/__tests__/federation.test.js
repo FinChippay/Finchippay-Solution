@@ -6,6 +6,7 @@
 "use strict";
 
 const request = require("supertest");
+const nock = require("nock");
 const app = require("../src/server");
 const usernameService = require("../src/services/usernameService");
 
@@ -24,11 +25,16 @@ describe("Federation API", () => {
 
   afterAll(async () => {
     // Clean up
+    nock.cleanAll();
     try {
       usernameService.removeUsername(testUsername);
     } catch (err) {
       // User might not exist
     }
+  });
+
+  afterEach(() => {
+    nock.cleanAll();
   });
 
   describe("GET /.well-known/stellar.toml", () => {
@@ -90,6 +96,34 @@ describe("Federation API", () => {
           .expect(400);
 
         expect(response.body).toHaveProperty("error");
+      });
+
+      it("should return 502 when external federation returns invalid account_id", async () => {
+        const externalAddress = "someuser*externaldomain.com";
+
+        // Mock stellar.toml fetch
+        nock("https://externaldomain.com")
+          .get("/.well-known/stellar.toml")
+          .reply(200, 'FEDERATION_SERVER="https://fed.externaldomain.com/federation"');
+
+        // Mock federation server returning a malformed account_id
+        nock("https://fed.externaldomain.com")
+          .get("/federation")
+          .query({ q: externalAddress, type: "name" })
+          .reply(200, {
+            stellar_address: externalAddress,
+            account_id: "not-a-valid-stellar-key",
+          });
+
+        const response = await request(app)
+          .get("/federation")
+          .query({ q: externalAddress, type: "name" })
+          .expect(502);
+
+        expect(response.body).toHaveProperty(
+          "error",
+          "Invalid Stellar address returned from federation server"
+        );
       });
     });
 

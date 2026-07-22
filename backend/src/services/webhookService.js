@@ -26,6 +26,8 @@
 const crypto = require("crypto");
 const { Horizon } = require("@stellar/stellar-sdk");
 const logger = require("../utils/logger");
+const metrics = require("./metricsService");
+const { getRequestIdHeader } = require("../utils/correlationId");
 require("dotenv").config();
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -129,6 +131,7 @@ async function deliverWebhook(webhook, payload) {
       headers: {
         "Content-Type": "application/json",
         "X-Webhook-Signature": signature,
+        ...getRequestIdHeader(),
       },
       body: JSON.stringify(payload),
     });
@@ -162,7 +165,10 @@ async function deliverWebhook(webhook, payload) {
  * @param {{ publicKey:string }} webhook
  */
 function startMonitoring(webhook) {
-  if (activeStreams.has(webhook.publicKey)) return;
+  metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
+  if (activeStreams.has(webhook.publicKey)) {
+    return;
+  }
 
   const closeStream = server
     .payments()
@@ -196,12 +202,15 @@ function startMonitoring(webhook) {
           publicKey: webhook.publicKey,
           error: err.message,
         });
+        metrics.horizonRequestsTotal.inc({ operation: "sse", status: "error" });
         // Remove so a fresh stream can be created on the next registration.
         activeStreams.delete(webhook.publicKey);
+        metrics.activeWebhookStreams.set(activeStreams.size);
       },
     });
 
   activeStreams.set(webhook.publicKey, closeStream);
+  metrics.activeWebhookStreams.set(activeStreams.size);
   logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
 }
 

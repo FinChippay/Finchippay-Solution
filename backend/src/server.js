@@ -4,6 +4,7 @@
  */
 
 "use strict";
+const crypto = require("crypto");
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 // dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
@@ -14,6 +15,10 @@ require("dotenv").config();
 // Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
 // so this must be required before express, http, etc. are imported.
 const { sdk: otelSdk } = require("./config/tracing");
+
+// Must load before any route requiring axios so the global interceptor
+// can forward the correlation ID on every outbound HTTP call.
+require("./config/axiosInterceptors");
 
 const express = require("express");
 const cors = require("cors");
@@ -33,11 +38,16 @@ const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
+const sep24Routes = require("./routes/sep24");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const { requireJsonContentType } = require("./middleware/bodyParsing");
+const { trackHttpMetrics } = require("./middleware/metrics");
+const metricsRoutes = require("./routes/metrics");
+const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -142,15 +152,48 @@ const helmetOptions = {
 };
 
 app.use(helmet(helmetOptions));
+// Prometheus HTTP metrics — track duration & count for every request.
+// Mounted before routes so the "finish" event captures the resolved
+// route pattern (e.g. "GET /api/payments/:id") rather than raw paths.
+app.use(trackHttpMetrics);
+// Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
+// Mounted before pino-http so the requestId appears in every log line.
+app.use(correlationMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-app.use(pinoHttp({ logger }));
-app.use(express.json({ limit: "10kb" }));
+// req.id is set by correlationMiddleware above.
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => req.id || crypto.randomUUID(),
+    customProps: () => {
+      const requestId = getRequestId();
+      return requestId ? { requestId } : {};
+    },
+  }),
+);
 
-// JSON parsing error handler
+// Content-Type enforcement (#81) — reject POST/PUT requests whose body isn't
+// application/json before the JSON parser below gets a chance to silently
+// skip it.
+app.use(requireJsonContentType);
+
+// JSON body size limits (#81).
+// /api/turrets may receive larger txFunction payloads, so it gets its own
+// parser with a higher limit; every other route falls through to the 100kb
+// default. body-parser skips re-parsing a request whose body it has already
+// parsed (req._body), so mounting the turrets parser first is sufficient —
+// the global parser below is a no-op for requests it already handled.
+app.use("/api/turrets", express.json({ limit: "512kb" }));
+app.use(express.json({ limit: "100kb" }));
+
+// JSON body parsing error handler
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
     return res.status(400).json({ error: "Invalid JSON body" });
+  }
+  if (err.type === "entity.too.large" || err.status === 413) {
+    return res.status(413).json({ error: "Request body too large" });
   }
   next();
 });
@@ -187,9 +230,19 @@ app.use("/api/health", healthRoutes);
 // Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
 // discover the SEP-0002 federation endpoint for `name*domain` addresses.
 app.get("/.well-known/stellar.toml", (req, res) => {
+  const domain = getFederationDomain(req);
+  const protocol =
+    req.get("x-forwarded-proto") ||
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
   const serverUrl = getFederationServerUrl(req);
+  const transferServerUrl =
+    process.env.TRANSFER_SERVER_URL || `${protocol}://${domain}`;
+
   const tomlContent = `# Finchippay Solution federation discovery
 FEDERATION_SERVER="${serverUrl}"
+TRANSFER_SERVER_SEP0024="${transferServerUrl}"
 `;
 
   res.setHeader("Content-Type", "application/toml; charset=utf-8");
@@ -220,7 +273,9 @@ app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/sep24", sep24Routes);
 app.use("/federation", federationRoutes);
+app.use("/metrics", metricsRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
 
@@ -278,10 +333,7 @@ async function gracefulShutdown(signal, server, otelSdk) {
       await Promise.race([
         otelSdk.shutdown(),
         new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("OTel shutdown timed out")),
-            5_000
-          )
+          setTimeout(() => reject(new Error("OTel shutdown timed out")), 5_000),
         ),
       ]);
       logger.info("OpenTelemetry SDK shut down");

@@ -9,6 +9,8 @@ import { useWallet } from "@/lib/useWallet";
 interface TipWidgetProps {
   creatorUsername: string;
   destination: string;
+  walletPublicKey?: string | null;
+  loadBalance?: typeof getXLMBalance;
 }
 
 const PRESET_TIPS = [
@@ -22,8 +24,11 @@ const MIN_TIP_AMOUNT = 0.0000001;
 export default function TipWidget({
   creatorUsername,
   destination,
+  walletPublicKey,
+  loadBalance = getXLMBalance,
 }: TipWidgetProps) {
-  const { publicKey } = useWallet();
+  const { publicKey: connectedPublicKey } = useWallet();
+  const publicKey = walletPublicKey === undefined ? connectedPublicKey : walletPublicKey;
   const [amount, setAmount] = useState<string>(PRESET_TIPS[0].amount);
   const [showConnectPrompt, setShowConnectPrompt] = useState(false);
   const [xlmBalance, setXlmBalance] = useState("0");
@@ -45,7 +50,7 @@ export default function TipWidget({
     let isActive = true;
     setIsBalanceLoading(true);
 
-    getXLMBalance(publicKey)
+    loadBalance(publicKey)
       .then((balance) => {
         if (isActive) setXlmBalance(balance);
       })
@@ -59,7 +64,7 @@ export default function TipWidget({
     return () => {
       isActive = false;
     };
-  }, [publicKey]);
+  }, [loadBalance, publicKey]);
 
   useEffect(() => {
     if (!showConnectPrompt) return;

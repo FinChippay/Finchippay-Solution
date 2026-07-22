@@ -1979,3 +1979,150 @@ export async function getCurrentLedger(): Promise<number> {
   const latest = await sorobanServer.getLatestLedger();
   return latest.sequence;
 }
+
+// ─── Streaming payments (dashboard widget) ────────────────────────────────────
+//
+// Thin wrappers around the contract's get_stream / get_stream_count /
+// claim_stream entrypoints, mirroring the Escrow helpers above.
+
+export interface StreamRecord {
+  id: number;
+  payer: string;
+  recipient: string;
+  token: string;
+  /** Base units released per ledger, as a string (i128 can exceed safe integer range). */
+  ratePerLedger: string;
+  /** Total base units deposited into the stream, as a string. */
+  deposited: string;
+  /** Base units already claimed by the recipient, as a string. */
+  claimed: string;
+  startLedger: number;
+  closed: boolean;
+}
+
+export async function getStreamCount(callerPublicKey: string): Promise<number> {
+  if (!CONTRACT_ID) return 0;
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(
+      new Account(callerPublicKey, "0"),
+      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE },
+    )
+      .addOperation(contract.call("get_stream_count"))
+      .setTimeout(30)
+      .build();
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return 0;
+    return Number(scValToNative(sim.result.retval));
+  } catch {
+    return 0;
+  }
+}
+
+export async function getStream(
+  callerPublicKey: string,
+  streamId: number,
+): Promise<StreamRecord | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(
+      new Account(callerPublicKey, "0"),
+      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE },
+    )
+      .addOperation(contract.call("get_stream", nativeToScVal(streamId, { type: "u32" })))
+      .setTimeout(30)
+      .build();
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return null;
+    const decoded = scValToNative(sim.result.retval) as {
+      id: number;
+      payer: string;
+      recipient: string;
+      token: string;
+      rate_per_ledger: bigint;
+      deposited: bigint;
+      claimed: bigint;
+      start_ledger: number;
+      closed: boolean;
+    };
+    return {
+      id: Number(decoded.id),
+      payer: decoded.payer,
+      recipient: decoded.recipient,
+      token: decoded.token,
+      ratePerLedger: String(decoded.rate_per_ledger),
+      deposited: String(decoded.deposited),
+      claimed: String(decoded.claimed),
+      startLedger: Number(decoded.start_ledger),
+      closed: Boolean(decoded.closed),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch every open (non-closed) stream where `recipientPublicKey` is the
+ * recipient. The contract has no recipient index, so this walks every
+ * stream ID (0..count) in parallel and filters client-side.
+ */
+export async function getActiveStreamsForRecipient(
+  recipientPublicKey: string,
+): Promise<StreamRecord[]> {
+  const count = await getStreamCount(recipientPublicKey);
+  if (count === 0) return [];
+
+  const ids = Array.from({ length: count }, (_, i) => i);
+  const streams = await Promise.all(ids.map((id) => getStream(recipientPublicKey, id)));
+
+  return streams.filter(
+    (s): s is StreamRecord =>
+      s !== null && s.recipient === recipientPublicKey && !s.closed,
+  );
+}
+
+/**
+ * Compute how much of a stream is claimable at `currentLedger`, mirroring the
+ * contract's internal `_claimable` calculation. Uses BigInt since deposited/
+ * claimed amounts can exceed Number.MAX_SAFE_INTEGER.
+ */
+export function computeStreamClaimable(stream: StreamRecord, currentLedger: number): bigint {
+  const zero = BigInt(0);
+  if (stream.closed) return zero;
+  const elapsed = BigInt(Math.max(0, currentLedger - stream.startLedger));
+  const rate = BigInt(stream.ratePerLedger);
+  const deposited = BigInt(stream.deposited);
+  const claimed = BigInt(stream.claimed);
+  const totalStreamed = rate * elapsed;
+  const capped = totalStreamed < deposited ? totalStreamed : deposited;
+  const claimable = capped - claimed;
+  return claimable > zero ? claimable : zero;
+}
+
+export async function buildClaimStreamTransaction(
+  recipientPublicKey: string,
+  streamId: number,
+): Promise<Transaction> {
+  if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
+  const sourceAccount = await server.loadAccount(recipientPublicKey);
+  const contract = new Contract(CONTRACT_ID);
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "claim_stream",
+        nativeToScVal(streamId, { type: "u32" }),
+        nativeToScVal(recipientPublicKey, { type: "address" }),
+      ),
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+  const simulated = await sorobanServer.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error(`Simulation failed: ${simulated.error}`);
+  }
+  return sorobanServer.prepareTransaction(tx);
+}
