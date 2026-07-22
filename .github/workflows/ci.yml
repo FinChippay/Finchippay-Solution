@@ -50,6 +50,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
       - name: Lint
         run: npm run lint
 
@@ -134,6 +138,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
       - name: Format check
         run: npm run format:check
 
@@ -182,6 +190,12 @@ jobs:
             ~/.cargo/git
             contracts/finchippay-contract/target
           key: ${{ runner.os }}-cargo-${{ matrix.rust-channel }}-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit
 
       - name: Check
         run: cargo check --target wasm32v1-none
@@ -263,7 +277,23 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
 
-  # ─── Validate Config ───────────────────────────────────────────────────────
+# --- Lighthouse -----------------------------------------------------------
+  lighthouse:
+    name: Lighthouse CI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - run: npx lhci autorun
+
+  # --- Validate Config -------------------------------------------------------
   validate:
     name: Validate Config & Env
     runs-on: ubuntu-latest
