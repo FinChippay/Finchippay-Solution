@@ -19,6 +19,7 @@ import {
 } from "@/lib/turrets";
 import { shortenAddress } from "@/lib/stellar";
 import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
+import KyCForm from "@/components/KyCForm";
 
 interface SettingsPageProps {
   publicKey: string | null;
@@ -337,6 +338,9 @@ export default function SettingsPage({
                 {t("settings.subtitle")}
               </p>
             </div>
+
+            {/* KYC Verification Section */}
+            <KyCForm publicKey={publicKey} />
 
             {/* Language Selector */}
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
