@@ -1936,6 +1936,35 @@ export function buildCancelEscrowTransaction(fromPublicKey: string, id: number) 
   return buildEscrowMutation(fromPublicKey, "cancel_escrow", id);
 }
 
+/** Build a partial claim transaction to withdraw a portion of the escrowed funds. */
+export async function buildClaimEscrowPartialTransaction(
+  fromPublicKey: string,
+  id: number,
+  claimAmountStroops: bigint,
+): Promise<Transaction> {
+  if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+  const contract = new Contract(CONTRACT_ID);
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "claim_escrow_partial",
+        nativeToScVal(id, { type: "u32" }),
+        nativeToScVal(claimAmountStroops, { type: "i128" }),
+      ),
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+  const simulated = await sorobanServer.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error(`Simulation failed: ${simulated.error}`);
+  }
+  return sorobanServer.prepareTransaction(tx);
+}
+
 export async function getEscrow(callerPublicKey: string, id: number): Promise<EscrowRecord | null> {
   if (!CONTRACT_ID) return null;
   try {

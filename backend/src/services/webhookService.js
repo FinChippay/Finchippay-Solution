@@ -30,6 +30,15 @@ const metrics = require("./metricsService");
 const { getRequestIdHeader } = require("../utils/correlationId");
 require("dotenv").config();
 
+// Lazy-loaded to avoid circular dependency at parse time
+function getCache() {
+  try {
+    return require("./cacheService");
+  } catch {
+    return null;
+  }
+}
+
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 const server = new Horizon.Server(HORIZON_URL);
 
@@ -177,6 +186,17 @@ function startMonitoring(webhook) {
     .stream({
       onmessage: async (payment) => {
         if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
+
+        // Invalidate account & payment cache for the receiving account
+        try {
+          const cache = getCache();
+          if (cache) {
+            await cache.del(`account:${webhook.publicKey}`);
+            await cache.delPattern(`payments:${webhook.publicKey}:*`);
+          }
+        } catch {
+          // cache invalidation is best-effort
+        }
 
         const payload = {
           event: "payment.received",

@@ -11,6 +11,7 @@ const express = require("express");
 const jwt     = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const { JWT_SECRET } = require("../middleware/auth");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 const router = express.Router();
 
@@ -34,7 +35,9 @@ function getServerKeypair() {
 router.get("/", (req, res) => {
   const { account } = req.query;
   if (!account) {
-    return res.status(400).json({ error: "Missing account query parameter" });
+    return res
+      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["account"] }));
   }
 
   try {
@@ -48,7 +51,9 @@ router.get("/", (req, res) => {
     );
     res.json({ transaction: challenge, networkPassphrase: NETWORK_PASSPHRASE });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res
+      .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
+      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
   }
 });
 
@@ -56,7 +61,9 @@ router.get("/", (req, res) => {
 router.post("/", (req, res) => {
   const { transaction } = req.body;
   if (!transaction) {
-    return res.status(400).json({ error: "Missing transaction in request body" });
+    return res
+      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["transaction"] }));
   }
 
   try {
@@ -80,7 +87,9 @@ router.post("/", (req, res) => {
 
     res.json({ success: true, token });
   } catch (e) {
-    res.status(401).json({ error: "Unauthorized: " + e.message });
+    res
+      .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
+      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
   }
 });
 
