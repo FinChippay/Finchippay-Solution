@@ -49,6 +49,9 @@ let nextId = 1;
 /** @type {Map<string, Function>} Active Horizon SSE close-stream handles keyed by publicKey */
 const activeStreams = new Map();
 
+/** @type {Set<Promise<void>>} In-flight webhook delivery requests, tracked for graceful shutdown */
+const pendingDeliveries = new Set();
+
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 /**
@@ -214,7 +217,16 @@ function startMonitoring(webhook) {
 
         const hooks = getWebhooksByPublicKey(webhook.publicKey);
         // Deliver in parallel; individual failures are swallowed in deliverWebhook.
-        await Promise.allSettled(hooks.map((h) => deliverWebhook(h, payload)));
+        // Each delivery is tracked in `pendingDeliveries` so a graceful shutdown
+        // can wait for in-flight HTTP requests before closing streams.
+        const deliveries = hooks.map((h) => {
+          const promise = deliverWebhook(h, payload).finally(() =>
+            pendingDeliveries.delete(promise),
+          );
+          pendingDeliveries.add(promise);
+          return promise;
+        });
+        await Promise.allSettled(deliveries);
       },
       onerror: (err) => {
         logger.error({
@@ -234,4 +246,41 @@ function startMonitoring(webhook) {
   logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
 }
 
-module.exports = { registerWebhook, getWebhooksByPublicKey, deleteWebhook, signPayload };
+/**
+ * Close every active Horizon SSE stream and wait for in-flight webhook
+ * deliveries to settle, bounded by `timeoutMs`.
+ *
+ * Intended for use during graceful shutdown (SIGTERM/SIGINT) so streams
+ * don't leak as hanging TCP connections and Horizon-side resources aren't
+ * exhausted across restarts.
+ *
+ * @param {number} [timeoutMs=5000] - Max time to wait for in-flight deliveries
+ * @returns {Promise<void>}
+ */
+async function closeAllStreams(timeoutMs = 5000) {
+  for (const [publicKey, close] of activeStreams) {
+    try {
+      close();
+    } catch (err) {
+      logger.error({ type: "horizon_sse_close_error", publicKey, error: err.message });
+    }
+  }
+  activeStreams.clear();
+  metrics.activeWebhookStreams.set(0);
+  logger.info({ type: "horizon_monitoring_stopped" });
+
+  if (pendingDeliveries.size === 0) return;
+
+  await Promise.race([
+    Promise.allSettled(pendingDeliveries),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
+module.exports = {
+  registerWebhook,
+  getWebhooksByPublicKey,
+  deleteWebhook,
+  signPayload,
+  closeAllStreams,
+};
