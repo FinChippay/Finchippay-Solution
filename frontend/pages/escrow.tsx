@@ -150,6 +150,9 @@ export default function EscrowPage() {
 
   async function handleAction(action: "claim" | "cancel") {
     if (!publicKey || lookup.kind !== "found") return;
+    if (action === "cancel" && typeof window !== "undefined" && window.confirm && !window.confirm("Are you sure you want to cancel this escrow?")) {
+      return;
+    }
     setActionPending(action);
     setActionError(null);
     try {

@@ -15,19 +15,21 @@ import {
 import { SwapIcon } from "@/components/icons";
 
 interface TradeFormProps {
-  publicKey: string;
+  publicKey?: string | null;
   onTradeComplete: () => void;
   onError: (error: string) => void;
   onSuccess: (message: string) => void;
+  priceImpact?: number;
 }
 
-export default function TradeForm({ publicKey, onTradeComplete, onError, onSuccess }: TradeFormProps) {
+export default function TradeForm({ publicKey, onTradeComplete, onError, onSuccess, priceImpact: externalPriceImpact }: TradeFormProps) {
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [sellingAsset, setSellingAsset] = useState<"XLM" | "USDC">("XLM");
   const [buyingAsset, setBuyingAsset] = useState<"XLM" | "USDC">("USDC");
   const [amount, setAmount] = useState("");
   const [price, setPrice] = useState("");
+  const [slippage, setSlippage] = useState("0.5");
   const [isLoading, setIsLoading] = useState(false);
 
   const USDC_ISSUER = process.env.NEXT_PUBLIC_USDC_ISSUER || "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
@@ -36,8 +38,25 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
     return assetType === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
   };
 
+  const parsedSlippage = parseFloat(slippage);
+  const isSlippageInvalid = isNaN(parsedSlippage) || parsedSlippage < 0 || parsedSlippage > 50;
+
+  const currentPriceImpact = externalPriceImpact !== undefined
+    ? externalPriceImpact
+    : (parseFloat(amount) > 1000 ? 6.5 : 0);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!publicKey) {
+      onError("Wallet not connected");
+      return;
+    }
+
+    if (isSlippageInvalid) {
+      onError("Slippage tolerance must be between 0% and 50%");
+      return;
+    }
     
     if (!amount || (orderType === "limit" && !price)) {
       onError("Please fill in all required fields");
@@ -164,6 +183,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             </label>
             <div className="flex gap-2">
               <select
+                aria-label="Selling asset"
                 value={sellingAsset}
                 onChange={(e) => setSellingAsset(e.target.value as "XLM" | "USDC")}
                 className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white focus:outline-none focus:border-stellar-400"
@@ -188,7 +208,9 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             <button
               type="button"
               onClick={swapAssets}
-              className="p-2 rounded-lg bg-stellar-500/20 hover:bg-stellar-500/30 transition-colors"
+              disabled={!publicKey}
+              aria-label="Swap assets"
+              className="p-2 rounded-lg bg-stellar-500/20 hover:bg-stellar-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <SwapIcon className="w-5 h-5 text-stellar-400" />
             </button>
@@ -200,6 +222,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             </label>
             <div className="flex gap-2">
               <select
+                aria-label="Buying asset"
                 value={buyingAsset}
                 onChange={(e) => setBuyingAsset(e.target.value as "XLM" | "USDC")}
                 className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white focus:outline-none focus:border-stellar-400"
@@ -225,6 +248,33 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             </div>
           </div>
         </div>
+
+        {/* Slippage Tolerance Input */}
+        <div>
+          <label className="block text-sm font-medium text-slate-300 mb-1">
+            Slippage Tolerance (%)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            value={slippage}
+            onChange={(e) => setSlippage(e.target.value)}
+            placeholder="0.5"
+            className="w-full px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400 text-sm"
+          />
+          {isSlippageInvalid && (
+            <p className="text-xs text-red-400 mt-1">
+              Slippage tolerance must be between 0% and 50%
+            </p>
+          )}
+        </div>
+
+        {/* Price Impact Warning */}
+        {currentPriceImpact > 5 && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+            Warning: High price impact (&gt;5%)
+          </div>
+        )}
 
         {/* Limit Order Specific Options */}
         {orderType === "limit" && (
@@ -259,8 +309,8 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
         {/* Submit Button */}
         <button
           type="submit"
-          disabled={isLoading || !amount || (orderType === "limit" && !price)}
-          className="w-full btn-primary"
+          disabled={!publicKey || isLoading || !amount || (orderType === "limit" && !price) || isSlippageInvalid}
+          className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? "Processing..." : orderType === "market" ? "Execute Market Order" : `${side === "buy" ? "Place Buy" : "Place Sell"} Order`}
         </button>
