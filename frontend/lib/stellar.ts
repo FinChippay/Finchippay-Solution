@@ -25,6 +25,8 @@ import {
   Federation,
 } from "@stellar/stellar-sdk";
 
+import { FinchippayContractClient } from "./contract-bindings";
+
 // ─── Config ────────────────────────────────────────────────────────────────
 
 import {
@@ -1116,55 +1118,29 @@ export function explorerUrl(hash: string): string | null {
  * @param params.fromPublicKey - Sender's public key (G...).
  * @param params.toPublicKey - Recipient's public key (G...).
  * @param params.amount - XLM amount as a string (e.g. "0.5").
+ * @param params.memo - Optional memo for the tip.
  * @returns A promise resolving to a built and preflighted {@link Transaction}.
  */
 export async function buildSorobanTipTransaction({
   fromPublicKey,
   toPublicKey,
   amount,
+  memo,
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
+  memo?: string;
 }): Promise<Transaction> {
   if (!CONTRACT_ID) {
     throw new Error("Contract ID is not configured.");
   }
 
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  const contract = new Contract(CONTRACT_ID);
-
-  // Derive the XLM Asset Contract ID
   const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
-
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 
-  // Prepare the `send_tip` invocation
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        "send_tip",
-        nativeToScVal(xlmContractId, { type: "address" }),
-        nativeToScVal(fromPublicKey, { type: "address" }),
-        nativeToScVal(toPublicKey, { type: "address" }),
-        nativeToScVal(stroops, { type: "i128" })
-      )
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
-    .build();
-
-  // Preflight: Simulate the transaction to get resources and fees
-  const simulated = await sorobanServer.simulateTransaction(tx);
-
-  if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Simulation failed: ${simulated.error}`);
-  }
-
-  // Assemble the transaction with simulation results
-  return sorobanServer.prepareTransaction(tx);
+  const client = new FinchippayContractClient(CONTRACT_ID);
+  return client.sendTip(fromPublicKey, xlmContractId, fromPublicKey, toPublicKey, stroops, memo ?? "");
 }
 
 /**
@@ -1177,29 +1153,8 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
   if (!CONTRACT_ID) return "0";
 
   try {
-    const contract = new Contract(CONTRACT_ID);
-
-    // Create a dummy transaction to simulate the getter call
-    // Alternatively, we could use getLedgerEntries if we knew the storage key format,
-    // but simulation is more robust for contract getters.
-    const tx = new TransactionBuilder(
-      new Account(recipient, "0"),
-      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE }
-    )
-      .addOperation(
-        contract.call("get_tip_total", nativeToScVal(recipient, { type: "address" }))
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await sorobanServer.simulateTransaction(tx);
-
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const value = scValToNative(sim.result.retval);
-      return value.toString();
-    }
-
-    return "0";
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getTipTotal(recipient);
   } catch (err) {
     console.error("Failed to query tip total:", err);
     return "0";
@@ -1211,6 +1166,8 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 /**
  * Build a Soroban contract invocation to mint a payment receipt (NFT).
  * Simulates/preflights the transaction so it's ready for signing.
+ *
+ * Uses the auto-generated contract bindings for type-safe contract interaction.
  */
 export async function buildReceiptMintTransaction({
   fromPublicKey,
@@ -1227,61 +1184,23 @@ export async function buildReceiptMintTransaction({
     throw new Error("Contract ID is not configured.");
   }
 
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  const contract = new Contract(CONTRACT_ID);
-
   const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
   const memoStr = (memo ?? "").slice(0, 28);
-  const memoScVal = nativeToScVal(memoStr, { type: "symbol" });
 
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        "mint_receipt",
-        nativeToScVal(fromPublicKey, { type: "address" }),
-        nativeToScVal(toPublicKey, { type: "address" }),
-        nativeToScVal(stroops, { type: "i128" }),
-        memoScVal
-      )
-    )
-    .setTimeout(60)
-    .build();
-
-  const simulated = await sorobanServer.simulateTransaction(tx);
-
-  if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Receipt simulation failed: ${simulated.error}`);
-  }
-
-  return sorobanServer.prepareTransaction(tx);
+  const client = new FinchippayContractClient(CONTRACT_ID);
+  return client.mintReceipt(fromPublicKey, fromPublicKey, toPublicKey, stroops, memoStr);
 }
 
 /**
  * Get the number of receipt NFTs minted for a payer.
+ *
+ * Uses the auto-generated contract bindings for type-safe contract interaction.
  */
 export async function getReceiptCount(payer: string): Promise<number> {
   if (!CONTRACT_ID) return 0;
   try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(
-      new Account(payer, "0"),
-      { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
-    )
-      .addOperation(
-        contract.call("get_receipt_count", nativeToScVal(payer, { type: "address" }))
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await sorobanServer.simulateTransaction(tx);
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const value = scValToNative(sim.result.retval);
-      return Number(value);
-    }
-    return 0;
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getReceiptCount(payer);
   } catch {
     return 0;
   }
