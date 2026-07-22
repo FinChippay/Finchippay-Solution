@@ -80,7 +80,7 @@ function setupFetch(statsOk = true) {
       } as Response);
     }
 
-    if (url.includes("/api/payments/")) {
+    if (url.includes("/api/v1/payments/")) {
       return Promise.resolve({
         ok: statsOk,
         json: async () =>
@@ -100,7 +100,7 @@ function setupFetch(statsOk = true) {
       } as Response);
     }
 
-    if (url.includes("/api/accounts/resolve/")) {
+    if (url.includes("/api/v1/accounts/resolve/")) {
       return Promise.resolve({
         ok: true,
         json: async () => ({ success: true, data: {} }),

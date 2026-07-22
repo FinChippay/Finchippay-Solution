@@ -53,7 +53,7 @@ export default function CreatorTipsDashboard({
       
       // Fetch tips received
       const tipsResponse = await fetch(
-        `${apiBase}/api/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`
+        `${apiBase}/api/v1/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`
       );
       
       if (!tipsResponse.ok) {

@@ -31,7 +31,7 @@ export function getJwtToken() { return jwtToken; }
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-  const res  = await fetch(`${base}/api/auth?account=${encodeURIComponent(publicKey)}`, {
+  const res  = await fetch(`${base}/api/v1/auth?account=${encodeURIComponent(publicKey)}`, {
     credentials: "include",
   });
   if (!res.ok) throw new Error("Failed to fetch SEP-0010 challenge");
@@ -41,7 +41,7 @@ async function fetchAuthChallenge(publicKey: string): Promise<string> {
 
 async function verifyAuthChallenge(signedXDR: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-  const res  = await fetch(`${base}/api/auth`, {
+  const res  = await fetch(`${base}/api/v1/auth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

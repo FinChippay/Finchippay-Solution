@@ -86,11 +86,11 @@ describe("Dashboard payment stats widget", () => {
         return jsonResponse({ stellar: { usd: 0.3 } });
       }
 
-      if (url.includes("/api/payments/")) {
+      if (url.includes("/api/v1/payments/")) {
         return statsPromise;
       }
 
-      if (url.includes("/api/accounts/resolve/")) {
+      if (url.includes("/api/v1/accounts/resolve/")) {
         return jsonResponse({ success: true, data: {} });
       }
 
@@ -136,7 +136,7 @@ describe("Dashboard payment stats widget", () => {
         return jsonResponse({ stellar: { usd: 0.3 } });
       }
 
-      if (url.includes("/api/payments/")) {
+      if (url.includes("/api/v1/payments/")) {
         statsCalls += 1;
 
         if (statsCalls === 1) {
@@ -156,7 +156,7 @@ describe("Dashboard payment stats widget", () => {
         });
       }
 
-      if (url.includes("/api/accounts/resolve/")) {
+      if (url.includes("/api/v1/accounts/resolve/")) {
         return jsonResponse({ success: true, data: {} });
       }
 
@@ -188,7 +188,7 @@ describe("Dashboard payment stats widget", () => {
         return jsonResponse({ stellar: { usd: 0.3 } });
       }
 
-      if (url.includes("/api/payments/")) {
+      if (url.includes("/api/v1/payments/")) {
         statsCalls += 1;
         return jsonResponse({
           success: true,
@@ -203,7 +203,7 @@ describe("Dashboard payment stats widget", () => {
         });
       }
 
-      if (url.includes("/api/accounts/resolve/")) {
+      if (url.includes("/api/v1/accounts/resolve/")) {
         return jsonResponse({ success: true, data: {} });
       }
 

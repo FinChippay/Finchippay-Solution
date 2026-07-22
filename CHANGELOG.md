@@ -2,6 +2,25 @@
 
 All notable changes to the Finchippay-Solution smart contract will be documented in this file.
 
+## [Unreleased]
+
+### Backend API — Versioning (#83)
+
+All REST API routes are now available under `/api/v1/*`. Legacy `/api/*` paths remain as backwards-compatible aliases and return a `Deprecation: true` response header.
+
+**Migration guide for API clients:**
+
+| Before | After |
+|--------|-------|
+| `GET /api/accounts/{key}` | `GET /api/v1/accounts/{key}` |
+| `POST /api/auth` | `POST /api/v1/auth` |
+| All other `/api/*` routes | Same path with `/api/v1` prefix |
+
+- **`/health`** and **`/federation`** are unchanged (not versioned).
+- **`GET /health`** and **`GET /api/health`** now include `"API_VERSION": "v1"` in the JSON body.
+- Swagger docs at `/api/docs` describe the v1 paths.
+- Frontend clients should use `NEXT_PUBLIC_API_URL` as the host root (e.g. `http://localhost:4000`) and call `/api/v1/...` endpoints.
+
 ## [v3.1.0] - 2026-07-26
 
 ### Dependency Upgrades

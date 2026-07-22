@@ -59,7 +59,7 @@ function mockDashboardFetch(
       return coinGeckoResponse;
     }
 
-    if (url.includes("/api/payments/")) {
+    if (url.includes("/api/v1/payments/")) {
       return Promise.resolve({
         ok: true,
         json: async () => ({
@@ -76,7 +76,7 @@ function mockDashboardFetch(
       } as Response);
     }
 
-    if (url.includes("/api/accounts/resolve/")) {
+    if (url.includes("/api/v1/accounts/resolve/")) {
       return Promise.resolve({
         ok: true,
         json: async () => ({ success: true, data: {} }),

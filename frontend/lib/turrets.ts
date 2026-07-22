@@ -46,7 +46,7 @@ export async function createTurretsChallenge(params: {
   type: TurretsType;
   config: Record<string, unknown>;
 }) {
-  const res = await fetch(`${apiBase()}/api/turrets/challenge`, {
+  const res = await fetch(`${apiBase()}/api/v1/turrets/challenge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
@@ -67,7 +67,7 @@ export async function deployTurretsFunction(params: {
   deploymentHash: string;
   signedChallengeXDR: string;
 }) {
-  const res = await fetch(`${apiBase()}/api/turrets/deploy`, {
+  const res = await fetch(`${apiBase()}/api/v1/turrets/deploy`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
@@ -78,19 +78,19 @@ export async function deployTurretsFunction(params: {
 
 export async function listTurretsFunctions(ownerPublicKey: string) {
   const res = await fetch(
-    `${apiBase()}/api/turrets?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`
+    `${apiBase()}/api/v1/turrets?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`
   );
 
   return parseJson(res) as Promise<TurretsDeployment[]>;
 }
 
 export async function getTurretsHistory(id: string) {
-  const res = await fetch(`${apiBase()}/api/turrets/${encodeURIComponent(id)}/history`);
+  const res = await fetch(`${apiBase()}/api/v1/turrets/${encodeURIComponent(id)}/history`);
   return parseJson(res) as Promise<TurretsExecutionHistory[]>;
 }
 
 export async function pauseTurretsFunction(id: string) {
-  const res = await fetch(`${apiBase()}/api/turrets/${encodeURIComponent(id)}/pause`, {
+  const res = await fetch(`${apiBase()}/api/v1/turrets/${encodeURIComponent(id)}/pause`, {
     method: "POST",
   });
 
@@ -98,7 +98,7 @@ export async function pauseTurretsFunction(id: string) {
 }
 
 export async function resumeTurretsFunction(id: string) {
-  const res = await fetch(`${apiBase()}/api/turrets/${encodeURIComponent(id)}/resume`, {
+  const res = await fetch(`${apiBase()}/api/v1/turrets/${encodeURIComponent(id)}/resume`, {
     method: "POST",
   });
 
