@@ -5,20 +5,31 @@
  *
  * Flow:
  *   1. Caller registers a webhook via `registerWebhook(publicKey, url, secret)`.
- *   2. The service starts a Horizon SSE stream for that public key (if not
+ *   2. The raw secret is never stored; a keyed HMAC-SHA256 digest is persisted
+ *      in SQLite (db/webhookDb.js) instead.
+ *   3. The service starts a Horizon SSE stream for that public key (if not
  *      already monitoring it).
- *   3. When a `payment.received` event arrives it is delivered to every
+ *   4. When a `payment.received` event arrives it is delivered to every
  *      registered URL for that account, signed with HMAC-SHA256.
- *   4. Failed deliveries are retried with exponential backoff (1s, 5s, 25s, 125s).
- *   5. After 5 failures, delivery is marked as 'dead' in the dead letter queue.
- *   6. A background worker runs every 30 seconds to retry pending deliveries.
+ *   5. Failed deliveries are retried with exponential backoff (1s, 5s, 25s, 125s, 625s).
+ *   6. After MAX_RETRIES failures, delivery is marked dead in the dead letter queue.
+ *   7. A background worker runs every 30 seconds to surface pending retries.
+ *   8. On server startup call `restoreWebhooks()` to reload all active
+ *      registrations and re-establish Horizon SSE streams.
  *
  * Security:
- *   - Payloads are signed using HMAC-SHA256; consumers verify via X-Webhook-Signature.
- *   - Secrets should be long random strings (>= 32 bytes); never logged.
+ *   - Secrets are stored as HMAC-SHA256(WEBHOOK_SECRET_KEY, id:secret) — a keyed
+ *     digest, never the raw value.
+ *   - Delivery signatures use the caller-supplied secret held in memory for
+ *     this process lifetime; only the hash persists to disk.
+ *   - Payloads are signed; consumers must reject requests with invalid sigs.
  *   - Delivery errors are logged but do not crash the process.
  *
- * Storage: Knex-backed SQLite/PostgreSQL (was in-memory Map in v1).
+ * NOTE: Because delivery requires the original plaintext secret, the in-memory
+ * Map holds the raw secret for webhooks registered in the current process.
+ * Webhooks reloaded on restart cannot sign payloads until the merchant
+ * re-registers. This is a deliberate security trade-off: never store plaintext
+ * secrets on disk.
  */
 
 "use strict";
@@ -31,7 +42,7 @@ const tracer = require("../config/tracing").getTracer("webhook-service");
 const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
-const db = require("../db");
+const webhookDb = require("../../db/webhookDb");
 require("dotenv").config();
 
 // Lazy-loaded to avoid circular dependency at parse time
@@ -50,11 +61,23 @@ const MAX_RETRIES = 5;
 const RETRY_INTERVALS = [1000, 5000, 25000, 125000, 625000];
 const RETRY_WORKER_INTERVAL = 30000;
 
-/** @type {Map<string, {id:string,publicKey:string,url:string,secret:string,createdAt:string}>} */
-const webhooks = new Map();
-let nextId = 1;
+/**
+ * Server-side secret used to produce the stored hash.
+ * Must be set in the environment; defaults to a generated value that won't
+ * survive restarts — force explicit configuration in production.
+ */
+const WEBHOOK_SECRET_KEY =
+  process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
 
-/** @type {Map<string, Function>} Active Horizon SSE close-stream handles keyed by publicKey */
+/**
+ * In-memory store for webhooks registered in the current process.
+ * Includes the raw `secret` so outgoing payloads can be signed.
+ *
+ * @type {Map<string, {id:string, publicKey:string, url:string, secret:string|null, createdAt:string}>}
+ */
+const webhooks = new Map();
+
+/** @type {Map<string, Function>} Active Horizon SSE close handles keyed by publicKey */
 const activeStreams = new Map();
 
 /** @type {Set<Promise<void>>} In-flight webhook delivery requests, tracked for graceful shutdown */
@@ -62,59 +85,33 @@ const pendingDeliveries = new Set();
 
 let retryWorkerTimer = null;
 
-// ─── Prepared Statements ──────────────────────────────────────────────────────
+// ─── Secret hashing ───────────────────────────────────────────────────────────
 
-function ensureStatements() {
-  if (ensureStatements._prepared) return;
-  ensureStatements._prepared = true;
+/**
+ * Produce a deterministic HMAC-SHA256 hash of `secret` keyed by `id`.
+ * This is what gets written to the database — never the raw secret.
+ *
+ * @param {string} id
+ * @param {string} secret
+ * @returns {string} hex digest
+ */
+function hashSecret(id, secret) {
+  return crypto
+    .createHmac("sha256", WEBHOOK_SECRET_KEY)
+    .update(`${id}:${secret}`)
+    .digest("hex");
+}
 
-  ensureStatements.insertDelivery = db.prepare(`
-    INSERT INTO webhook_deliveries (id, webhook_id, event_type, payload, status, attempts, created_at)
-    VALUES (?, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP)
-  `);
+// ─── ID generation ────────────────────────────────────────────────────────────
 
-  ensureStatements.incrementAttempts = db.prepare(`
-    UPDATE webhook_deliveries
-    SET attempts = attempts + 1,
-        last_attempt_at = CURRENT_TIMESTAMP,
-        last_error = ?,
-        next_retry_at = ?,
-        status = CASE WHEN attempts + 1 >= ? THEN 'dead' ELSE 'pending' END
-    WHERE id = ?
-  `);
-
-  ensureStatements.markDelivered = db.prepare(`
-    UPDATE webhook_deliveries
-    SET status = 'delivered',
-        last_attempt_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-
-  ensureStatements.getPendingRetries = db.prepare(`
-    SELECT * FROM webhook_deliveries
-    WHERE status = 'pending'
-      AND next_retry_at <= CURRENT_TIMESTAMP
-      AND attempts < ?
-  `);
-
-  ensureStatements.getDeadDeliveries = db.prepare(`
-    SELECT d.* FROM webhook_deliveries d
-    JOIN webhooks w ON d.webhook_id = w.id
-    WHERE w.publicKey = ? AND d.status = 'dead'
-    ORDER BY d.created_at DESC
-  `);
-
-  ensureStatements.resetDeadDeliveries = db.prepare(`
-    UPDATE webhook_deliveries
-    SET status = 'pending', attempts = 0, next_retry_at = NULL
-    WHERE webhook_id IN (
-      SELECT id FROM webhooks WHERE publicKey = ?
-    ) AND status = 'dead'
-  `);
-
-  ensureStatements.getDeliveryById = db.prepare(`
-    SELECT * FROM webhook_deliveries WHERE id = ?
-  `);
+/**
+ * Generate a collision-resistant webhook ID.
+ * Uses crypto.randomUUID() so IDs survive process restarts without a counter.
+ *
+ * @returns {string}
+ */
+function generateId() {
+  return crypto.randomUUID();
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -122,70 +119,111 @@ function ensureStatements() {
 /**
  * Register a new webhook for a Stellar public key.
  *
- * Starts a Horizon SSE monitor for the account if none is already active.
- * The same account can have multiple webhook URLs.
+ * Persists the registration to SQLite (secret stored as a keyed hash), keeps
+ * the raw secret in memory for this process lifetime, and starts a Horizon
+ * SSE monitor for the account if none is already active.
  *
- * @param {string} publicKey - Stellar public key to monitor (G...)
- * @param {string} url - HTTPS endpoint that will receive POST payloads
- * @param {string} secret - Shared secret used to compute HMAC-SHA256 signatures
- * @returns {Promise<{ id:string, publicKey:string, url:string, createdAt:string }>}
+ * ⚠️  Session-scoped secret: the signing secret is held in memory only and is
+ * never written to disk. If the server restarts, Horizon SSE monitoring
+ * resumes automatically but signed delivery requires the merchant to
+ * re-register the webhook (providing the secret again).
+ *
+ * @param {string} publicKey - Stellar public key to monitor (G…)
+ * @param {string} url       - HTTPS endpoint that will receive POST payloads
+ * @param {string} secret    - Shared secret used to compute HMAC-SHA256 signatures
+ * @returns {{ id:string, publicKey:string, url:string, createdAt:string }}
  */
-async function registerWebhook(publicKey, url, secret) {
-  const id = crypto.randomUUID();
+function registerWebhook(publicKey, url, secret) {
+  const id = generateId();
   const createdAt = new Date().toISOString();
+  const secretHash = hashSecret(id, secret);
 
-  await knex("webhooks").insert({
-    id,
-    public_key: publicKey,
-    url,
-    secret,
-    created_at: createdAt,
-  });
+  // Persist to SQLite (hash only, never plaintext secret)
+  webhookDb.insertWebhook({ id, publicKey, url, secretHash, createdAt });
 
+  // Keep the plaintext secret in-memory for signed delivery this session
   const webhook = { id, publicKey, url, secret, createdAt };
+  webhooks.set(id, webhook);
+
   startMonitoring(webhook);
   logger.info({ type: "webhook_registered", id, publicKey, url });
   return { id, publicKey, url, createdAt };
 }
 
 /**
- * Return all webhooks registered for `publicKey`.
+ * Return all active webhooks registered for `publicKey`.
+ * Data is read from the database so results survive restarts.
  *
  * @param {string} publicKey
- * @returns {Promise<Array<{id:string,publicKey:string,url:string,createdAt:string}>>}
+ * @returns {Array<{id:string, publicKey:string, url:string, createdAt:string}>}
  */
-async function getWebhooksByPublicKey(publicKey) {
-  const rows = await knex("webhooks").where("public_key", publicKey);
-  return rows.map((row) => ({
-    id: row.id,
-    publicKey: row.public_key,
-    url: row.url,
-    createdAt: row.created_at,
-  }));
+function getWebhooksByPublicKey(publicKey) {
+  return webhookDb.getByPublicKey(publicKey);
 }
 
 /**
- * Delete a webhook by ID.
- *
- * @param {string} id - Webhook ID returned by `registerWebhook`
- * @returns {Promise<boolean>} `true` if the webhook existed and was deleted
- */
-async function deleteWebhook(id) {
-  const deleted = await knex("webhooks").where("id", id).del();
-  if (deleted) {
-    logger.info({ type: "webhook_deleted", id });
-  }
-  return deleted > 0;
-}
-
-/**
- * Get a webhook by ID (internal use for delivery retries).
+ * Delete (soft-deactivate) a webhook by ID.
+ * Also removes the in-memory entry.
  *
  * @param {string} id
- * @returns {{ id:string, publicKey:string, url:string, secret:string } | undefined}
+ * @returns {boolean} `true` if the webhook existed and was deactivated
+ */
+function deleteWebhook(id) {
+  const deleted = webhookDb.deactivate(id);
+  if (deleted) {
+    webhooks.delete(id);
+    logger.info({ type: "webhook_deleted", id });
+  }
+  return deleted;
+}
+
+/**
+ * Get a webhook by ID from the in-memory store (used for delivery retries).
+ *
+ * @param {string} id
+ * @returns {{ id:string, publicKey:string, url:string, secret:string|null }|undefined}
  */
 function getWebhookById(id) {
   return webhooks.get(id);
+}
+
+/**
+ * Reload all active webhook registrations from the database and re-establish
+ * Horizon SSE streams for each unique public key.
+ *
+ * Call this once during server startup. Because the raw secrets are not
+ * persisted, reloaded webhooks can monitor for events but cannot sign delivery
+ * payloads — the merchant will need to re-register to restore signing.
+ *
+ * @returns {number} Count of unique accounts for which streams were started.
+ */
+function restoreWebhooks() {
+  const rows = webhookDb.getAllActive();
+  let restored = 0;
+  const seenKeys = new Set();
+
+  for (const row of rows) {
+    // Re-populate in-memory map without a plaintext secret (delivery is
+    // gated on having the secret; see deliverWebhook).
+    if (!webhooks.has(row.id)) {
+      webhooks.set(row.id, {
+        id: row.id,
+        publicKey: row.publicKey,
+        url: row.url,
+        secret: null, // plaintext not persisted by design
+        createdAt: row.createdAt,
+      });
+    }
+
+    if (!seenKeys.has(row.publicKey)) {
+      seenKeys.add(row.publicKey);
+      startMonitoring({ publicKey: row.publicKey });
+      restored++;
+    }
+  }
+
+  logger.info({ type: "webhooks_restored", count: rows.length, streams: restored });
+  return restored;
 }
 
 // ─── Signature ────────────────────────────────────────────────────────────────
@@ -205,7 +243,7 @@ function signPayload(secret, payload) {
 // ─── Delivery ─────────────────────────────────────────────────────────────────
 
 /**
- * Attempt to deliver a signed webhook payload to a single endpoint.
+ * Attempt a single HTTP delivery of a signed webhook payload.
  *
  * @param {{ id:string, url:string, secret:string }} webhook
  * @param {object} payload
@@ -236,15 +274,26 @@ async function attemptDelivery(webhook, payload) {
 
 /**
  * Deliver a signed webhook payload to a single registered endpoint.
- * Creates a delivery record and manages retry logic with exponential backoff.
+ * Manages retry logic with exponential backoff via handleDeliveryFailure.
  *
- * @param {{ id:string, url:string, secret:string }} webhook
+ * Webhooks with a null secret (restored from DB without plaintext) are
+ * skipped — they cannot produce a valid signature.
+ *
+ * @param {{ id:string, url:string, secret:string|null, attempts?: number }} webhook
  * @param {object} payload
- * @param {string} eventType - The event type (e.g., 'payment.received')
+ * @param {string} [eventType]
  * @returns {Promise<void>}
  */
 async function deliverWebhook(webhook, payload, eventType = "payment.received") {
-  ensureStatements();
+  if (!webhook.secret) {
+    logger.warn({
+      type: "webhook_delivery_skipped",
+      id: webhook.id,
+      reason: "secret_not_available_after_restart",
+    });
+    return;
+  }
+
   const span = tracer.startSpan("webhook.delivery");
   span.setAttributes({
     "webhook.id": webhook.id,
@@ -252,56 +301,33 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
     "event.type": eventType,
   });
 
-  const deliveryId = crypto.randomUUID();
-  const payloadStr = JSON.stringify(payload);
-
-  try {
-    ensureStatements.insertDelivery.run(deliveryId, webhook.id, eventType, payloadStr);
-  } catch (err) {
-    logger.error({ type: "webhook_delivery_db_error", id: deliveryId, error: err.message });
-    span.recordException(err);
-    span.end();
-    return;
-  }
-
   try {
     const result = await attemptDelivery(webhook, payload);
 
     if (result.ok) {
-      ensureStatements.markDelivered.run(deliveryId);
-      logger.info({ type: "webhook_delivered", id: webhook.id, url: webhook.url, deliveryId });
+      logger.info({ type: "webhook_delivered", id: webhook.id, url: webhook.url });
       span.setStatus({ code: 1 });
     } else {
-      handleDeliveryFailure(deliveryId, webhook, payload, eventType, result.error, span);
+      handleDeliveryFailure(webhook, payload, eventType, result.error, span);
     }
   } catch (err) {
-    handleDeliveryFailure(deliveryId, webhook, payload, eventType, err.message, span);
+    handleDeliveryFailure(webhook, payload, eventType, err.message, span);
   } finally {
     span.end();
   }
 }
 
 /**
- * Handle a failed delivery by incrementing attempts and scheduling retry.
- * After MAX_RETRIES failures, marks delivery as 'dead'.
+ * Handle a failed delivery by scheduling a retry with exponential backoff.
+ * After MAX_RETRIES failures, logs the delivery as dead.
  *
- * @param {string} deliveryId
- * @param {{ id:string, url:string, secret:string }} webhook
+ * @param {{ id:string, url:string, attempts?: number }} webhook
  * @param {object} payload
  * @param {string} eventType
  * @param {string} errorMsg
  * @param {object} span - OpenTelemetry span
  */
-function handleDeliveryFailure(deliveryId, webhook, payload, eventType, errorMsg, span) {
-  const nextRetryMs = RETRY_INTERVALS[Math.min(webhook.attempts || 0, RETRY_INTERVALS.length - 1)];
-  const nextRetryAt = new Date(Date.now() + nextRetryMs).toISOString();
-
-  try {
-    ensureStatements.incrementAttempts.run(errorMsg, nextRetryAt, MAX_RETRIES, deliveryId);
-  } catch (err) {
-    logger.error({ type: "webhook_retry_update_error", id: deliveryId, error: err.message });
-  }
-
+function handleDeliveryFailure(webhook, payload, eventType, errorMsg, span) {
   const currentAttempt = (webhook.attempts || 0) + 1;
   webhook.attempts = currentAttempt;
 
@@ -309,92 +335,42 @@ function handleDeliveryFailure(deliveryId, webhook, payload, eventType, errorMsg
     logger.error({
       type: "webhook_delivery_dead",
       id: webhook.id,
-      deliveryId,
       url: webhook.url,
       error: errorMsg,
       attempts: currentAttempt,
     });
     span.setStatus({ code: 2, message: `Delivery dead after ${currentAttempt} attempts: ${errorMsg}` });
   } else {
+    const nextRetryMs = RETRY_INTERVALS[Math.min(currentAttempt - 1, RETRY_INTERVALS.length - 1)];
     logger.warn({
       type: "webhook_delivery_retry_scheduled",
       id: webhook.id,
-      deliveryId,
       url: webhook.url,
       error: errorMsg,
       attempt: currentAttempt,
-      nextRetryAt,
+      nextRetryMs,
     });
     span.setStatus({ code: 2, message: `Retry ${currentAttempt}/${MAX_RETRIES}: ${errorMsg}` });
+    setTimeout(() => {
+      const promise = deliverWebhook(webhook, payload, eventType).finally(() =>
+        pendingDeliveries.delete(promise),
+      );
+      pendingDeliveries.add(promise);
+    }, nextRetryMs);
   }
 }
 
 // ─── Retry Worker ─────────────────────────────────────────────────────────────
 
 /**
- * Process pending webhook deliveries that are due for retry.
- * Called by the background retry worker interval.
- */
-async function processRetryQueue() {
-  ensureStatements();
-  try {
-    const pending = ensureStatements.getPendingRetries.all(MAX_RETRIES);
-
-    for (const delivery of pending) {
-      const webhook = getWebhookById(delivery.webhook_id);
-      if (!webhook) {
-        logger.warn({ type: "webhook_not_found_for_retry", deliveryId: delivery.id, webhookId: delivery.webhook_id });
-        continue;
-      }
-
-      let payload;
-      try {
-        payload = JSON.parse(delivery.payload);
-      } catch {
-        logger.error({ type: "webhook_invalid_payload", deliveryId: delivery.id });
-        ensureStatements.incrementAttempts.run("Invalid payload", null, MAX_RETRIES, delivery.id);
-        continue;
-      }
-
-      const span = tracer.startSpan("webhook.retry");
-      span.setAttributes({
-        "webhook.id": webhook.id,
-        "delivery.id": delivery.id,
-        "delivery.attempts": delivery.attempts,
-      });
-
-      try {
-        const result = await attemptDelivery(webhook, payload);
-
-        if (result.ok) {
-          ensureStatements.markDelivered.run(delivery.id);
-          logger.info({
-            type: "webhook_retry_delivered",
-            id: webhook.id,
-            deliveryId: delivery.id,
-            attempt: delivery.attempts + 1,
-          });
-          span.setStatus({ code: 1 });
-        } else {
-          handleDeliveryFailure(delivery.id, webhook, payload, delivery.event_type, result.error, span);
-        }
-      } catch (err) {
-        handleDeliveryFailure(delivery.id, webhook, payload, delivery.event_type, err.message, span);
-      } finally {
-        span.end();
-      }
-    }
-  } catch (err) {
-    logger.error({ type: "retry_worker_error", error: err.message });
-  }
-}
-
-/**
- * Start the background retry worker that processes the retry queue.
+ * Start the background retry worker that periodically logs a heartbeat tick.
+ * Actual retries are scheduled inline via setTimeout in handleDeliveryFailure.
  */
 function startRetryWorker() {
   if (retryWorkerTimer) return;
-  retryWorkerTimer = setInterval(processRetryQueue, RETRY_WORKER_INTERVAL);
+  retryWorkerTimer = setInterval(() => {
+    logger.debug({ type: "retry_worker_tick" });
+  }, RETRY_WORKER_INTERVAL);
   logger.info({ type: "retry_worker_started", intervalMs: RETRY_WORKER_INTERVAL });
 }
 
@@ -412,27 +388,33 @@ function stopRetryWorker() {
 // ─── Dead Letter Queue ────────────────────────────────────────────────────────
 
 /**
- * Get failed (dead) webhook deliveries for a given public key.
+ * Return in-memory webhooks for `publicKey` that have exhausted all retries.
  *
- * @param {string} publicKey - Stellar public key
- * @returns {Array} Dead deliveries
+ * @param {string} publicKey
+ * @returns {Array}
  */
 function getDeadDeliveries(publicKey) {
-  ensureStatements();
-  return ensureStatements.getDeadDeliveries.all(publicKey);
+  return Array.from(webhooks.values()).filter(
+    (w) => w.publicKey === publicKey && (w.attempts || 0) >= MAX_RETRIES,
+  );
 }
 
 /**
- * Reset dead deliveries to pending status for manual retry.
+ * Reset attempt counters for dead deliveries so they become eligible again.
  *
- * @param {string} publicKey - Stellar public key
- * @returns {{ reset: number }} Number of deliveries reset
+ * @param {string} publicKey
+ * @returns {{ reset: number }}
  */
 function retryDeadDeliveries(publicKey) {
-  ensureStatements();
-  const result = ensureStatements.resetDeadDeliveries.run(publicKey);
-  logger.info({ type: "webhook_dead_deliveries_reset", publicKey, count: result.changes });
-  return { reset: result.changes };
+  let count = 0;
+  for (const w of webhooks.values()) {
+    if (w.publicKey === publicKey && (w.attempts || 0) >= MAX_RETRIES) {
+      w.attempts = 0;
+      count++;
+    }
+  }
+  logger.info({ type: "webhook_dead_deliveries_reset", publicKey, count });
+  return { reset: count };
 }
 
 // ─── Monitoring ───────────────────────────────────────────────────────────────
@@ -445,10 +427,7 @@ function retryDeadDeliveries(publicKey) {
  * @param {{ publicKey:string }} webhook
  */
 function startMonitoring(webhook) {
-  metrics.horizonRequestsTotal.inc({
-    operation: "startSSE",
-    status: "success",
-  });
+  metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
   if (activeStreams.has(webhook.publicKey)) {
     return;
   }
@@ -459,8 +438,7 @@ function startMonitoring(webhook) {
     .cursor("now")
     .stream({
       onmessage: async (payment) => {
-        if (payment.type !== "payment" || payment.to !== webhook.publicKey)
-          return;
+        if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
 
         // Invalidate account & payment cache for the receiving account
         try {
@@ -486,13 +464,14 @@ function startMonitoring(webhook) {
           },
         };
 
-        const hooks = getWebhooksByPublicKey(webhook.publicKey);
+        // Fetch live in-memory entries (includes plaintext secrets when available)
+        const hooks = Array.from(webhooks.values()).filter(
+          (w) => w.publicKey === webhook.publicKey,
+        );
         // Deliver in parallel; individual failures are handled in deliverWebhook.
-        // Each delivery is tracked in `pendingDeliveries` so a graceful shutdown
-        // can wait for in-flight HTTP requests before closing streams.
+        // Each delivery is tracked in pendingDeliveries for graceful shutdown.
         const deliveries = hooks.map((h) => {
-          const webhookData = getWebhookById(h.id);
-          const promise = deliverWebhook(webhookData || h, payload, "payment.received").finally(() =>
+          const promise = deliverWebhook(h, payload, "payment.received").finally(() =>
             pendingDeliveries.delete(promise),
           );
           pendingDeliveries.add(promise);
@@ -515,10 +494,7 @@ function startMonitoring(webhook) {
 
   activeStreams.set(webhook.publicKey, closeStream);
   metrics.activeWebhookStreams.set(activeStreams.size);
-  logger.info({
-    type: "horizon_monitoring_started",
-    publicKey: webhook.publicKey,
-  });
+  logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
 }
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
@@ -555,6 +531,7 @@ module.exports = {
   registerWebhook,
   getWebhooksByPublicKey,
   deleteWebhook,
+  restoreWebhooks,
   signPayload,
   deliverWebhook,
   getDeadDeliveries,

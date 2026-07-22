@@ -37,6 +37,7 @@ const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
+const { restoreWebhooks } = require("./services/webhookService");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
@@ -428,6 +429,8 @@ if (require.main === module) {
   🚀 Server running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
+    // Reload persisted webhook registrations and re-establish Horizon SSE streams.
+    restoreWebhooks();
   });
 
   startTurretsServer();

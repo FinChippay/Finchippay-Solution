@@ -2,28 +2,8 @@
 
 const express = require("express");
 const router = express.Router();
-const {
-  registerWebhook,
-  getWebhooksByPublicKey,
-  deleteWebhook,
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-} = require("../services/webhookService");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
-const { validate } = require("../validation/middleware");
-const {
-  registerWebhookSchema,
-  publicKeyParamSchema,
-  idParamSchema,
-} = require("../validation/schemas");
-
-  getDeadDeliveries,
-  retryDeadDeliveries,
-} = require("../services/webhookService");
+const { registerWebhook, getWebhooksByPublicKey, deleteWebhook, getDeadDeliveries, retryDeadDeliveries } = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
- master
 
 /**
  * POST /api/webhooks
@@ -31,16 +11,18 @@ const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes
  *
  * Body: { publicKey: "G...", url: "https://...", secret: "whsec_..." }
  *
- * Validation (registerWebhookSchema):
+ * Validation:
  *   - publicKey must be a valid 56-char Stellar address.
  *   - url must be an HTTPS endpoint (reject http:// in production).
  *   - secret must be at least 8 characters (HMAC-SHA256 signing secret).
+ *
+ * ⚠️  Session-scoped secret: the signing secret is held in memory only and is
+ * never written to disk. If the server restarts, Horizon SSE monitoring
+ * resumes automatically but signed delivery requires the merchant to
+ * re-register the webhook (providing the secret again). The old registration
+ * can then be deleted.
  */
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-router.post("/", validate(registerWebhookSchema), (req, res) => {
-  const { publicKey, url, secret } = req.validated;
-
-router.post("/", async (req, res) => {
+router.post("/", (req, res) => {
   const { publicKey, url, secret } = req.body;
   if (!publicKey || !url || !secret) {
     return res
@@ -76,15 +58,16 @@ router.post("/", async (req, res) => {
       .status(ERROR_CODES.VAL_WEAK_SECRET.httpStatus)
       .json(formatErrorResponse("VAL_WEAK_SECRET"));
   }
- master
 
   try {
-    const webhook = await webhookService.registerWebhook(
-      publicKey,
-      url,
-      secret,
-    );
-    return res.status(201).json({ success: true, webhook });
+    const webhook = registerWebhook(publicKey, url, secret);
+    return res.status(201).json({
+      success: true,
+      webhook,
+      _note:
+        "The signing secret is session-scoped and is not persisted. " +
+        "Re-register this webhook after a server restart to restore signed delivery.",
+    });
   } catch (err) {
     return res
       .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
@@ -96,27 +79,16 @@ router.post("/", async (req, res) => {
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account.
  */
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-router.get(
-  "/:publicKey",
-  validate(publicKeyParamSchema, "params"),
-  (req, res) => {
-    const { publicKey } = req.validated;
-    const hooks = getWebhooksByPublicKey(publicKey);
-    return res.json({ webhooks: hooks });
-  },
-);
-router.get("/:publicKey", async (req, res) => {
+router.get("/:publicKey", (req, res) => {
   const { publicKey } = req.params;
   if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
     return res
       .status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
       .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
   }
-  const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
+  const hooks = getWebhooksByPublicKey(publicKey);
   return res.json({ webhooks: hooks });
 });
- master
 
 /**
  * GET /api/webhooks/:publicKey/failures
@@ -164,22 +136,18 @@ router.post("/:publicKey/retry", (req, res) => {
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-router.delete("/:id", validate(idParamSchema, "params"), (req, res) => {
-  const { id } = req.validated;
-  const deleted = deleteWebhook(id);
-
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", (req, res) => {
   const { id } = req.params;
   if (!id || typeof id !== "string" || id.length === 0) {
     return res
       .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
       .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["id"] }));
   }
-  const deleted = await webhookService.deleteWebhook(id);
- master
+  const deleted = deleteWebhook(id);
   if (!deleted) {
-    return res.status(404).json({ error: "Webhook not found" });
+    return res
+      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "webhook", id }));
   }
   return res.json({ success: true, message: `Webhook ${id} deleted` });
 });
