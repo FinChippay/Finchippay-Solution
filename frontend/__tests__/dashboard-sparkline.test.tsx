@@ -19,6 +19,7 @@ jest.mock("@/components/QRCodeModal", () => () => null);
 jest.mock("@/components/BatchPaymentForm", () => () => <div>Batch Payment</div>);
 jest.mock("@/components/MultiSigFlow", () => () => <div>Multi Sig</div>);
 jest.mock("@/components/CreatorTipsDashboard", () => () => <div>Creator Tips</div>);
+jest.mock("@/components/StreamingPayments", () => () => <div>Streaming Payments</div>);
 jest.mock("@/components/OnboardingTour", () => () => null);
 jest.mock("@/components/AIPaymentAssistant", () => () => null);
 jest.mock("@/components/ExternalPaymentBanner", () => () => null);

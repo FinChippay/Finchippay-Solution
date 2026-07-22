@@ -31,6 +31,7 @@ const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: fa
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const StreamingPayments = dynamic(() => import("../components/StreamingPayments"), { ssr: false });
 
 import {
   ResponsiveContainer,
@@ -1222,8 +1223,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       ))}
 
+      <StreamingPayments publicKey={publicKey} />
+
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard 
+      <CreatorTipsDashboard
         publicKey={publicKey} 
         username={creatorUsername}
         xlmPrice={xlmPrice}
