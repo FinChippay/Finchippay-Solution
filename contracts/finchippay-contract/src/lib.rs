@@ -1644,6 +1644,53 @@ mod tests {
         env.ledger().with_mut(|i| i.sequence_number = to);
     }
 
+    /// Deterministic input generator for property tests. Keeping this local
+    /// avoids adding a test-only dependency to the contract crate while still
+    /// giving each test 10,000 varied inputs.
+    struct PropertyRng(u64);
+
+    impl PropertyRng {
+        fn new(seed: u64) -> Self {
+            Self(seed)
+        }
+
+        fn next(&mut self) -> u64 {
+            let mut value = self.0;
+            value ^= value << 13;
+            value ^= value >> 7;
+            value ^= value << 17;
+            self.0 = value;
+            value
+        }
+
+        fn u32(&mut self) -> u32 {
+            self.next() as u32
+        }
+
+        fn range_u32(&mut self, upper_exclusive: u32) -> u32 {
+            self.u32() % upper_exclusive
+        }
+
+        fn range_i128(&mut self, upper_exclusive: i128) -> i128 {
+            (self.next() as i128) % upper_exclusive
+        }
+    }
+
+    fn stream_for_property(env: &Env, rate: i128, deposited: i128, start_ledger: u32) -> Stream {
+        let address = Address::generate(env);
+        Stream {
+            id: 0,
+            payer: address.clone(),
+            recipient: address.clone(),
+            token: address,
+            rate_per_ledger: rate,
+            deposited,
+            claimed: 0,
+            start_ledger,
+            closed: false,
+        }
+    }
+
     // ── Admin ──────────────────────────────────────────────────────────────────
 
     #[test]
@@ -2065,6 +2112,101 @@ mod tests {
         let claimable = client.get_claimable(&sid);
         let expected = MAX_STREAM_RATE * 1_000_000;
         assert_eq!(claimable, expected);
+    }
+
+    #[test]
+    fn property_stream_claimable_is_monotonic() {
+        let env = Env::default();
+        let mut rng = PropertyRng::new(0x5eed_f00d_cafe_babe);
+
+        for _ in 0..10_000 {
+            let start = rng.range_u32(u32::MAX / 2);
+            let first_elapsed = rng.range_u32(u32::MAX - start);
+            let second_elapsed = first_elapsed
+                .saturating_add(1)
+                .saturating_add(rng.range_u32(u32::MAX - start - first_elapsed));
+            let rate = 1 + rng.range_i128(MAX_STREAM_RATE);
+            let deposited = 1 + rng.range_i128(MAX_STREAM_DEPOSIT);
+            let stream = stream_for_property(&env, rate, deposited, start);
+
+            advance(&env, start + first_elapsed);
+            let first = FinchippayContract::_claimable(&env, &stream);
+            advance(&env, start + second_elapsed);
+            let second = FinchippayContract::_claimable(&env, &stream);
+            assert!(second >= first, "claimable decreased: {first} -> {second}");
+        }
+    }
+
+    #[test]
+    fn property_stream_close_never_claims_above_deposit() {
+        let env = Env::default();
+        let mut rng = PropertyRng::new(0x1234_5678_9abc_def0);
+
+        for _ in 0..10_000 {
+            let start = rng.range_u32(u32::MAX / 2);
+            let elapsed = rng.u32().saturating_sub(start);
+            let rate = 1 + rng.range_i128(MAX_STREAM_RATE);
+            let deposited = 1 + rng.range_i128(MAX_STREAM_DEPOSIT);
+            let stream = stream_for_property(&env, rate, deposited, start);
+
+            advance(&env, start.saturating_add(elapsed));
+            let claimable = FinchippayContract::_claimable(&env, &stream);
+            let total_claimed_at_close = stream.claimed + claimable;
+            assert!(total_claimed_at_close <= deposited);
+        }
+    }
+
+    #[test]
+    fn property_stream_close_preserves_every_deposited_token() {
+        let env = Env::default();
+        let mut rng = PropertyRng::new(0x0ddc_0ffe_e15e_beef);
+
+        for _ in 0..10_000 {
+            let start = rng.range_u32(u32::MAX / 2);
+            let elapsed = rng.u32().saturating_sub(start);
+            let rate = 1 + rng.range_i128(MAX_STREAM_RATE);
+            let deposited = 1 + rng.range_i128(MAX_STREAM_DEPOSIT);
+            let stream = stream_for_property(&env, rate, deposited, start);
+
+            advance(&env, start.saturating_add(elapsed));
+            let claimable = FinchippayContract::_claimable(&env, &stream);
+            let total_claimed_at_close = stream.claimed + claimable;
+            let payer_refund = deposited - total_claimed_at_close;
+            assert_eq!(payer_refund + total_claimed_at_close, deposited);
+        }
+    }
+
+    #[test]
+    fn property_stream_max_rate_is_safe_near_max_ledger() {
+        let env = Env::default();
+        let mut rng = PropertyRng::new(0xa11c_e5af_e123_4567);
+
+        for _ in 0..10_000 {
+            let start = rng.range_u32(1_000);
+            let elapsed = u32::MAX - start - rng.range_u32(1_000);
+            let deposited = 1 + rng.range_i128(MAX_STREAM_DEPOSIT);
+            let stream = stream_for_property(&env, MAX_STREAM_RATE, deposited, start);
+
+            advance(&env, start + elapsed);
+            let claimable = FinchippayContract::_claimable(&env, &stream);
+            assert_eq!(claimable, deposited);
+        }
+    }
+
+    #[test]
+    fn property_stream_zero_elapsed_has_no_claimable_amount() {
+        let env = Env::default();
+        let mut rng = PropertyRng::new(0xface_feed_4242_0001);
+
+        for _ in 0..10_000 {
+            let start = rng.u32();
+            let rate = 1 + rng.range_i128(MAX_STREAM_RATE);
+            let deposited = 1 + rng.range_i128(MAX_STREAM_DEPOSIT);
+            let stream = stream_for_property(&env, rate, deposited, start);
+
+            advance(&env, start);
+            assert_eq!(FinchippayContract::_claimable(&env, &stream), 0);
+        }
     }
 
     // ── Escrow boundary conditions ─────────────────────────────────────────
