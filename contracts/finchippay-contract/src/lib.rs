@@ -308,10 +308,11 @@ fn require_transfer_succeeded(
 
 /// Check that the contract is not paused. Panics with `ContractPaused` if it is.
 fn require_not_paused(env: &Env) {
+    let key = DataKey::Paused;
     let paused: bool = env
         .storage()
         .persistent()
-        .get(&DataKey::Paused)
+        .get(&key)
         .unwrap_or(false);
     if paused {
         panic!("Contract is paused");
@@ -335,6 +336,8 @@ fn require_initialized(env: &Env) {
 pub struct FinchippayContract;
 
 #[contractimpl]
+// TODO(#XX): migrate env.events().publish() calls to #[contractevent] macro
+#[allow(deprecated)]
 impl FinchippayContract {
     // ─── Admin ────────────────────────────────────────────────────────────────
 
@@ -1622,6 +1625,7 @@ impl FinchippayContract {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use soroban_sdk::{
@@ -1631,8 +1635,8 @@ mod tests {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    fn deploy(env: &Env) -> (Address, FinchippayContractClient) {
-        let id = env.register_contract(None, FinchippayContract);
+    fn deploy(env: &Env) -> (Address, FinchippayContractClient<'_>) {
+        let id = env.register(FinchippayContract, ());
         let client = FinchippayContractClient::new(env, &id);
         let admin = Address::generate(env);
         client.initialize(&admin);
@@ -1640,7 +1644,8 @@ mod tests {
     }
 
     fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let sac_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = sac_contract.address();
         let sac = token::StellarAssetClient::new(env, &token_id);
         sac.mint(to, &amount);
         token_id
@@ -1711,7 +1716,7 @@ mod tests {
     #[test]
     fn test_double_initialize_returns_error() {
         let env = Env::default();
-        let id = env.register_contract(None, FinchippayContract);
+        let id = env.register(FinchippayContract, ());
         let client = FinchippayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -2254,7 +2259,7 @@ mod tests {
     #[should_panic(expected = "Contract not initialized")]
     fn test_send_tip_before_initialize_panics() {
         let env = Env::default();
-        let id = env.register_contract(None, FinchippayContract);
+        let id = env.register(FinchippayContract, ());
         let client = FinchippayContractClient::new(&env, &id);
         let from = Address::generate(&env);
         let to = Address::generate(&env);
@@ -2268,7 +2273,7 @@ mod tests {
     #[should_panic(expected = "Contract not initialized")]
     fn test_create_escrow_before_initialize_panics() {
         let env = Env::default();
-        let id = env.register_contract(None, FinchippayContract);
+        let id = env.register(FinchippayContract, ());
         let client = FinchippayContractClient::new(&env, &id);
         let from = Address::generate(&env);
         let to = Address::generate(&env);

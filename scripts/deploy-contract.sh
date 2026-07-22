@@ -22,8 +22,10 @@ set -euo pipefail
 NETWORK="${1:-testnet}"
 IDENTITY="${2:-alice}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONTRACT_DIR="$SCRIPT_DIR/../contracts/finchippay-contract"
-WASM="$CONTRACT_DIR/target/wasm32v1-none/release/finchippay_contract.wasm"
+WORKSPACE_ROOT="$SCRIPT_DIR/.."
+CONTRACT_DIR="$WORKSPACE_ROOT/contracts/finchippay-contract"
+# Workspace builds land in workspace_root/target, not contract_dir/target
+WASM="$WORKSPACE_ROOT/target/wasm32v1-none/release/finchippay_contract.wasm"
 
 echo "╔══════════════════════════════════════════╗"
 echo "║  Finchippay-Solution — Contract Deploy   ║"
