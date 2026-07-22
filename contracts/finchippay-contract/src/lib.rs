@@ -1630,6 +1630,109 @@ impl FinchippayContract {
             (from, recipients.len(), total_amount),
         );
     }
+
+    /// Fan-out multi-token transfers from `from` to multiple `recipients` in
+    /// one transaction. `recipients[i]` receives `amounts[i]` of `tokens[i]` with memo `memos[i]`.
+    ///
+    /// # Errors
+    /// Returns `ContractError::LengthMismatch` if any of the four vectors have different lengths.
+    /// Returns `ContractError::NonPositiveAmount` if any amount is not positive.
+    /// Returns `ContractError::BatchTooLarge` if batch size exceeds MAX_BATCH_SIZE.
+    ///
+    /// # Panics
+    /// - If any recipient is the same as the sender (self-transfer).
+    /// - If the contract is paused.
+    pub fn batch_send_multi(
+        env: Env,
+        from: Address,
+        tokens: Vec<Address>,
+        recipients: Vec<Address>,
+        amounts: Vec<i128>,
+        memos: Vec<Symbol>,
+    ) -> Result<(), ContractError> {
+        require_initialized(&env);
+        require_not_paused(&env);
+        from.require_auth();
+        
+        if recipients.len() == 0 {
+            return Err(ContractError::InvalidState);
+        }
+        if recipients.len() > MAX_BATCH_SIZE {
+            return Err(ContractError::BatchTooLarge);
+        }
+        if tokens.len() != recipients.len() || amounts.len() != recipients.len() || memos.len() != recipients.len() {
+            return Err(ContractError::LengthMismatch);
+        }
+        
+        // Pre-validate: verify all amounts are positive before initiating any transfers
+        for i in 0..amounts.len() {
+            let amount = amounts.get(i).unwrap();
+            if amount <= 0 {
+                return Err(ContractError::NonPositiveAmount);
+            }
+        }
+        
+        // Pre-validate: check for self-transfers
+        for i in 0..recipients.len() {
+            let to = recipients.get(i).unwrap();
+            if from == to {
+                return Err(ContractError::SelfTransfer);
+            }
+        }
+        
+        let mut total_amount: i128 = 0;
+        
+        for i in 0..recipients.len() {
+            let token_address = tokens.get(i).unwrap();
+            let to = recipients.get(i).unwrap();
+            let amount = amounts.get(i).unwrap();
+            let memo = memos.get(i).unwrap();
+            
+            let token = get_token_client(&env, &token_address);
+            require_transfer_succeeded(&env, &token, &from, &to, &amount);
+            total_amount = total_amount.checked_add(amount).expect("overflow");
+
+            let total: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::TipTotal(to.clone()))
+                .unwrap_or(0);
+            let count: u32 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::TipCount(to.clone()))
+                .unwrap_or(0);
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::TipTotal(to.clone()), &(total.checked_add(amount).expect("overflow")));
+            bump(&env, &DataKey::TipTotal(to.clone()));
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::TipCount(to.clone()), &(count + 1));
+            bump(&env, &DataKey::TipCount(to.clone()));
+
+            let record = TipRecord {
+                from: from.clone(),
+                to: to.clone(),
+                amount,
+                ledger: env.ledger().sequence(),
+                memo: memo.clone(),
+            };
+            env.storage()
+                .persistent()
+                .set(&DataKey::TipRecord(to.clone(), count), &record);
+            bump(&env, &DataKey::TipRecord(to.clone(), count));
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "batch_sent_multi"),),
+            (from, recipients.len(), total_amount),
+        );
+        
+        Ok(())
+    }
 }
 
 
@@ -2074,7 +2177,6 @@ mod tests {
         let r1 = Address::generate(&env);
         env.mock_all_auths();
         let token_id = create_token(&env, &admin, &from, 500);
-
         let mut recipients = soroban_sdk::Vec::new(&env);
         recipients.push_back(r1.clone());
         recipients.push_back(r1.clone());
@@ -2082,6 +2184,61 @@ mod tests {
         amounts.push_back(100i128);
         // Only 1 amount for 2 recipients — should panic.
         client.batch_send(&token_id, &from, &recipients, &amounts);
+    }
+
+    #[test]
+    fn test_batch_send_multi_success() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
+        let r3 = Address::generate(&env);
+        env.mock_all_auths();
+        
+        // Create two different tokens
+        let token1_id = create_token(&env, &admin, &from, 1000);
+        let token2_id = create_token(&env, &admin, &from, 1000);
+        
+        let token1 = token::Client::new(&env, &token1_id);
+        let token2 = token::Client::new(&env, &token2_id);
+        
+        // Prepare batch: 3 recipients, 2 different tokens
+        let mut tokens = soroban_sdk::Vec::new(&env);
+        tokens.push_back(token1_id.clone());
+        tokens.push_back(token1_id.clone());
+        tokens.push_back(token2_id.clone());
+        
+        let mut recipients = soroban_sdk::Vec::new(&env);
+        recipients.push_back(r1.clone());
+        recipients.push_back(r2.clone());
+        recipients.push_back(r3.clone());
+        
+        let mut amounts = soroban_sdk::Vec::new(&env);
+        amounts.push_back(300i128);
+        amounts.push_back(400i128);
+        amounts.push_back(500i128);
+        
+        let mut memos = soroban_sdk::Vec::new(&env);
+        memos.push_back(Symbol::new(&env, "payment1"));
+        memos.push_back(Symbol::new(&env, "payment2"));
+        memos.push_back(Symbol::new(&env, "payment3"));
+        
+        client.batch_send_multi(&from, &tokens, &recipients, &amounts, &memos);
+        
+        // Verify balances: r1 and r2 received token1, r3 received token2
+        assert_eq!(token1.balance(&r1), 300);
+        assert_eq!(token1.balance(&r2), 400);
+        assert_eq!(token1.balance(&r3), 0);
+        assert_eq!(token2.balance(&r1), 0);
+        assert_eq!(token2.balance(&r2), 0);
+        assert_eq!(token2.balance(&r3), 500);
+        
+        // Verify tip totals
+        assert_eq!(client.get_tip_total(&r1), 300);
+        assert_eq!(client.get_tip_total(&r2), 400);
+        assert_eq!(client.get_tip_total(&r3), 500);
     }
 
     // ── Self-transfer prevention ───────────────────────────────────────────
