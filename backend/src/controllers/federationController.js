@@ -47,6 +47,9 @@ async function resolveFederation(req, res, next) {
         error: "Not found",
       });
     }
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 }
@@ -143,6 +146,18 @@ async function forwardFederation(query, type) {
   // Make request to external federation server
   const federationUrl = `${federationServer}?q=${encodeURIComponent(query)}&type=${type}`;
   const response = await axios.get(federationUrl, { timeout: 5000 });
+
+  // Validate the returned account_id format per SEP-0002
+  // Stellar public keys start with 'G' followed by 55 base32-compatible chars
+  if (
+    response.data &&
+    response.data.account_id &&
+    !/^G[A-Z0-9]{55}$/.test(response.data.account_id)
+  ) {
+    const error = new Error("Invalid Stellar address returned from federation server");
+    error.status = 502;
+    throw error;
+  }
 
   return response.data;
 }
