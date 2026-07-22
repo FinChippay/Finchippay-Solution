@@ -250,6 +250,8 @@ pub enum DataKey {
     // Receipts
     ReceiptCount(Address),
     ReceiptRecord(Address, u32),
+    TotalReceiptCount,
+    ReceiptByIndex(u32),
     // Escrow
     EscrowCount,
     Escrow(u32),
@@ -652,6 +654,23 @@ impl FinchippayContract {
             .set(&DataKey::ReceiptCount(from.clone()), &(count + 1));
         bump(&env, &DataKey::ReceiptCount(from.clone()));
 
+        // Increment global receipt count and store index mapping
+        let global_count: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalReceiptCount)
+            .unwrap_or(0);
+        
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReceiptByIndex(global_count), &(from.clone(), count));
+        bump(&env, &DataKey::ReceiptByIndex(global_count));
+        
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalReceiptCount, &(global_count + 1));
+        bump(&env, &DataKey::TotalReceiptCount);
+
         env.events()
             .publish((Symbol::new(&env, "receipt"), from), count);
         count
@@ -675,6 +694,28 @@ impl FinchippayContract {
             .persistent()
             .get(&key)
             .expect("Receipt not found");
+        bump(&env, &key);
+        val
+    }
+
+    /// Return the total number of receipts minted across all addresses.
+    pub fn total_receipt_count(env: Env) -> u32 {
+        let key = DataKey::TotalReceiptCount;
+        let val = env.storage().persistent().get(&key).unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            bump(&env, &key);
+        }
+        val
+    }
+
+    /// Return the (from_address, local_index) for a global receipt index.
+    pub fn get_receipt_by_index(env: Env, global_index: u32) -> (Address, u32) {
+        let key = DataKey::ReceiptByIndex(global_index);
+        let val: (Address, u32) = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Receipt index not found");
         bump(&env, &key);
         val
     }
@@ -1780,6 +1821,45 @@ mod tests {
         let r = client.get_receipt(&payer, &0);
         assert_eq!(r.amount, 1000);
         assert_eq!(r.memo, memo);
+    }
+
+    #[test]
+    fn test_global_receipt_count() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let payer1 = Address::generate(&env);
+        let payer2 = Address::generate(&env);
+        let payer3 = Address::generate(&env);
+        let payee = Address::generate(&env);
+        env.mock_all_auths();
+        
+        // Mint 2 receipts from payer1
+        client.mint_receipt(&payer1, &payee, &1000, &Symbol::new(&env, "r1"));
+        client.mint_receipt(&payer1, &payee, &2000, &Symbol::new(&env, "r2"));
+        
+        // Mint 2 receipts from payer2
+        client.mint_receipt(&payer2, &payee, &3000, &Symbol::new(&env, "r3"));
+        client.mint_receipt(&payer2, &payee, &4000, &Symbol::new(&env, "r4"));
+        
+        // Mint 1 receipt from payer3
+        client.mint_receipt(&payer3, &payee, &5000, &Symbol::new(&env, "r5"));
+        
+        // Assert global count is 5
+        assert_eq!(client.total_receipt_count(), 5);
+        
+        // Verify individual counts
+        assert_eq!(client.get_receipt_count(&payer1), 2);
+        assert_eq!(client.get_receipt_count(&payer2), 2);
+        assert_eq!(client.get_receipt_count(&payer3), 1);
+        
+        // Verify receipt by index mapping
+        let (from, local_idx) = client.get_receipt_by_index(&0);
+        assert_eq!(from, payer1);
+        assert_eq!(local_idx, 0);
+        
+        let (from, local_idx) = client.get_receipt_by_index(&4);
+        assert_eq!(from, payer3);
+        assert_eq!(local_idx, 0);
     }
 
     // ── Escrow ─────────────────────────────────────────────────────────────────
