@@ -100,7 +100,7 @@ export default function TipWidget({
     // Record tip in backend
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      await fetch(`${apiBase}/api/tips`, {
+      await fetch(`${apiBase}/api/v1/tips`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -89,7 +89,7 @@ export function FeatureFlagProvider({ children, publicKey }: { children: ReactNo
       return;
     }
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    fetch(`${apiBase}/api/features`)
+    fetch(`${apiBase}/api/v1/features`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch features");
         return res.json();

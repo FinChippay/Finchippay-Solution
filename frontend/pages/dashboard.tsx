@@ -258,7 +258,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     try {
       const response = await fetch(
-        `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
+        `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
       );
       if (response.ok) {
         const payload = await response.json();
@@ -370,7 +370,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       }
 
       const response = await fetch(
-        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
+        `${apiBase}/api/v1/payments/${encodeURIComponent(publicKey)}/stats`,
         { headers }
       );
 
@@ -516,7 +516,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       const token = getJwtToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch(
-        `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
+        `${apiBase}/api/v1/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
         { headers }
       );
       if (res.ok) {
@@ -738,7 +738,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
     // Step 4 — Send the subscription to your server so it can push messages later.
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
-    await fetch(`${apiBase}/api/push/subscribe`, {
+    await fetch(`${apiBase}/api/v1/push/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, publicKey }),

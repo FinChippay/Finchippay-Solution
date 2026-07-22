@@ -48,6 +48,7 @@ const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const { deprecationHeader } = require("./middleware/deprecation");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -184,6 +185,7 @@ app.use(requireJsonContentType);
 // default. body-parser skips re-parsing a request whose body it has already
 // parsed (req._body), so mounting the turrets parser first is sufficient —
 // the global parser below is a no-op for requests it already handled.
+app.use("/api/v1/turrets", express.json({ limit: "512kb" }));
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 app.use(express.json({ limit: "100kb" }));
 
@@ -263,17 +265,28 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
+// Versioned API (v1) plus legacy /api/* aliases with Deprecation header (#83).
 
-app.use("/api/auth", authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/webhooks", webhookRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/turrets", turretsRoutes);
-app.use("/api/tips", tipsRoutes);
-app.use("/api/parse-payment", parsePaymentRoutes);
-app.use("/api/scheduled-txns", scheduledTransactionRoutes);
-app.use("/api/sep24", sep24Routes);
+const apiRouteMounts = [
+  { path: "/auth", router: authRoutes },
+  { path: "/accounts", router: accountRoutes },
+  { path: "/payments", router: paymentRoutes },
+  { path: "/webhooks", router: webhookRoutes },
+  { path: "/analytics", router: analyticsRoutes },
+  { path: "/turrets", router: turretsRoutes },
+  { path: "/tips", router: tipsRoutes },
+  { path: "/parse-payment", router: parsePaymentRoutes },
+  { path: "/scheduled-txns", router: scheduledTransactionRoutes },
+  { path: "/sep24", router: sep24Routes },
+];
+
+for (const { path, router } of apiRouteMounts) {
+  app.use(`/api/v1${path}`, router);
+}
+
+for (const { path, router } of apiRouteMounts) {
+  app.use(`/api${path}`, deprecationHeader, router);
+}
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 

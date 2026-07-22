@@ -77,7 +77,7 @@ export default function SettingsPage({
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
       try {
         const response = await fetch(
-          `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
+          `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
         );
         if (response.ok) {
           const payload = await response.json();
@@ -290,7 +290,7 @@ export default function SettingsPage({
 
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/accounts/register`, {
+      const response = await fetch(`${apiBase}/api/v1/accounts/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -11,8 +11,8 @@ const MOCK_PUBLIC_KEY = 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGV
  *   4. Confirm the parsed intent fills the payment form.
  */
 test('AI payment assistant: parse natural language and fill form', async ({ page }) => {
-  // Mock the backend /api/parse-payment endpoint
-  await page.route('**/api/parse-payment', (route) => {
+  // Mock the backend /api/v1/parse-payment endpoint
+  await page.route('**/api/v1/parse-payment', (route) => {
     const body = JSON.parse(route.request().postData() || '{}');
     if (body.input?.includes('75 XLM')) {
       route.fulfill({
@@ -84,7 +84,7 @@ test('AI payment assistant: parse natural language and fill form', async ({ page
 
 test('AI payment assistant: shows clarification when input is ambiguous', async ({ page }) => {
   // Mock parse-payment to return ambiguous result
-  await page.route('**/api/parse-payment', (route) => {
+  await page.route('**/api/v1/parse-payment', (route) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',

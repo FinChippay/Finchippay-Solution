@@ -12,6 +12,7 @@ router.get("/", (req, res) => {
   res.json({
     status: "ok",
     service: "finchippay-api",
+    API_VERSION: process.env.API_VERSION || "v1",
     network: process.env.STELLAR_NETWORK || "testnet",
     timestamp: new Date().toISOString(),
   });

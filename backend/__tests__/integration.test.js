@@ -25,6 +25,7 @@ describe("API Integration Tests", () => {
       const response = await request(app).get("/health");
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty("status", "ok");
+      expect(response.body).toHaveProperty("API_VERSION", "v1");
     });
 
     it("should include X-Request-ID header", async () => {
@@ -139,6 +140,26 @@ describe("API Integration Tests", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.data.length).toBeGreaterThan(0);
       expect(response.body.data[0].id).toBe("123");
+    });
+  });
+
+  describe("API versioning (#83)", () => {
+    it("should serve routes under /api/v1 without Deprecation header", async () => {
+      const response = await request(app).get("/api/v1/accounts/resolve/alice");
+      expect(response.status).toBe(501);
+      expect(response.headers.deprecation).toBeUndefined();
+    });
+
+    it("should serve legacy /api routes with Deprecation header", async () => {
+      const response = await request(app).get("/api/accounts/resolve/alice");
+      expect(response.status).toBe(501);
+      expect(response.headers.deprecation).toBe("true");
+    });
+
+    it("should not add Deprecation header to /api/docs", async () => {
+      const response = await request(app).get("/api/docs.json");
+      expect(response.status).toBe(200);
+      expect(response.headers.deprecation).toBeUndefined();
     });
   });
 });

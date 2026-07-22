@@ -454,7 +454,7 @@ function SendPaymentForm({
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
+    const response = await fetch(`${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
