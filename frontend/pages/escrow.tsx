@@ -31,8 +31,21 @@ type LookupState =
   | { kind: "found"; escrow: EscrowRecord; currentLedger: number }
   | { kind: "missing" };
 
-export default function EscrowPage() {
-  const { publicKey } = useWallet();
+interface EscrowPageProps {
+  walletPublicKey?: string | null;
+  services?: {
+    getXLMBalance?: typeof getXLMBalance;
+    getCurrentLedger?: typeof getCurrentLedger;
+    getEscrow?: typeof getEscrow;
+  };
+}
+
+export default function EscrowPage({ walletPublicKey, services }: EscrowPageProps) {
+  const { publicKey: connectedPublicKey } = useWallet();
+  const publicKey = walletPublicKey === undefined ? connectedPublicKey : walletPublicKey;
+  const loadXLMBalance = services?.getXLMBalance ?? getXLMBalance;
+  const loadCurrentLedger = services?.getCurrentLedger ?? getCurrentLedger;
+  const loadEscrow = services?.getEscrow ?? getEscrow;
 
   // Create-escrow form state.
   const [recipient, setRecipient] = useState("");
@@ -56,8 +69,8 @@ export default function EscrowPage() {
       if (!publicKey) return;
       try {
         const [bal, ledger] = await Promise.all([
-          getXLMBalance(publicKey),
-          getCurrentLedger(),
+          loadXLMBalance(publicKey),
+          loadCurrentLedger(),
         ]);
         if (cancelled) return;
         setXlmBalance(bal);
@@ -70,7 +83,7 @@ export default function EscrowPage() {
     return () => {
       cancelled = true;
     };
-  }, [publicKey]);
+  }, [loadCurrentLedger, loadXLMBalance, publicKey]);
 
   const isSelfTransfer = Boolean(publicKey && recipient === publicKey);
   const isInvalidAmount = amount !== "" && (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0);
@@ -133,8 +146,8 @@ export default function EscrowPage() {
     setActionError(null);
     try {
       const [escrow, ledger] = await Promise.all([
-        getEscrow(publicKey, id),
-        getCurrentLedger(),
+        loadEscrow(publicKey, id),
+        loadCurrentLedger(),
       ]);
       if (!escrow) {
         setLookup({ kind: "missing" });
@@ -287,7 +300,7 @@ export default function EscrowPage() {
                 disabled={lookup.kind === "loading"}
                 className="rounded bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200 disabled:opacity-50"
               >
-                Look up
+                {lookup.kind === "loading" ? "Looking up…" : "Look up"}
               </button>
             </div>
 
