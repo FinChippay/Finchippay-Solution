@@ -4,7 +4,7 @@
  */
 
 import type { AppProps } from "next/app";
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
@@ -12,6 +12,7 @@ import { ToastContainer } from "@/components/Toast";
 import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import { FeatureFlagProvider } from "@/lib/FeatureFlags";
+import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import {
   getStellarURIFromURL,
@@ -100,18 +101,6 @@ function InstallBanner() {
   );
 }
 
-interface ThemeContextType {
-  theme: "dark" | "light";
-  toggleTheme: () => void;
-}
-
-export const ThemeContext = createContext<ThemeContextType>({
-  theme: "dark",
-  toggleTheme: () => {},
-});
-
-export const useTheme = () => useContext(ThemeContext);
-
 function AppShell({
   Component,
   pageProps,
@@ -180,22 +169,8 @@ function AppShellInner({
 }
 
 export default function App({ Component, pageProps }: AppProps) {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("finchippay:theme") as
-      | "dark"
-      | "light"
-      | null;
-    const preferred =
-      saved ??
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-
-    setTheme(preferred);
-    document.documentElement.classList.toggle("dark", preferred === "dark");
-  }, []);
 
   useEffect(() => {
     const uriResult = getStellarURIFromURL();
@@ -226,16 +201,9 @@ export default function App({ Component, pageProps }: AppProps) {
     return () => window.removeEventListener("load", registerWorker);
   }, []);
 
-  const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    localStorage.setItem("finchippay:theme", nextTheme);
-  };
-
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <ThemeProvider>
       <ToastProvider>
       <WalletProvider>
         <Head>
@@ -286,7 +254,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <ToastContainer />
       </WalletProvider>
       </ToastProvider>
-    </ThemeContext.Provider>
+    </ThemeProvider>
     </I18nextProvider>
   );
 }

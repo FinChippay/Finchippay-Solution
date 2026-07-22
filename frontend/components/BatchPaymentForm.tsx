@@ -207,14 +207,14 @@ export default function BatchPaymentForm({
     <div className="card animate-fade-in border-stellar-400/20">
       <div className="flex items-center justify-between mb-6 gap-3">
         <div>
-          <h2 className="font-display text-lg font-semibold text-white">
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
             Batch Send
           </h2>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             Send XLM to up to {MAX_RECIPIENTS} recipients sequentially.
           </p>
         </div>
-        <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">
+        <div className="rounded-full bg-slate-50 dark:bg-white/5 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
           {recipientCount} / {MAX_RECIPIENTS}
         </div>
       </div>
@@ -223,7 +223,7 @@ export default function BatchPaymentForm({
         {recipients.map((recipient, index) => (
           <div
             key={recipient.id}
-            className="rounded-3xl border border-white/10 bg-white/5 p-4"
+            className="rounded-3xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4"
           >
             <div className="flex flex-col gap-3">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -279,13 +279,13 @@ export default function BatchPaymentForm({
               </label>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-300">
+                <div className="text-sm text-slate-700 dark:text-slate-300">
                   Status: 
                   {recipient.status === "idle" && (
-                    <span className="text-slate-400">Waiting</span>
+                    <span className="text-slate-600 dark:text-slate-400">Waiting</span>
                   )}
                   {recipient.status === "pending" && (
-                    <span className="text-amber-300">Processing</span>
+                    <span className="text-amber-700 dark:text-amber-300">Processing</span>
                   )}
                   {recipient.status === "success" && (
                     <span className="text-emerald-400">Sent ✓</span>
@@ -299,7 +299,7 @@ export default function BatchPaymentForm({
                     type="button"
                     onClick={() => handleRemoveRecipient(recipient.id)}
                     disabled={isProcessing || recipients.length <= 1}
-                    className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -324,8 +324,8 @@ export default function BatchPaymentForm({
           >
             Add recipient
           </button>
-          <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-            Total: <span className="font-semibold text-white">{totalXLM.toFixed(7)} XLM</span>
+          <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+            Total: <span className="font-semibold text-slate-900 dark:text-white">{totalXLM.toFixed(7)} XLM</span>
           </div>
         </div>
 

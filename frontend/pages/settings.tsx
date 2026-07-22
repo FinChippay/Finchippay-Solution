@@ -608,7 +608,7 @@ export default function SettingsPage({
             {publicKey ? (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                  <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 text-stellar-700 dark:text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                   {t("settings.creatorUsername")}
@@ -622,12 +622,12 @@ export default function SettingsPage({
                       </svg>
                       <div>
                         <p className="text-emerald-400 font-medium">@{registeredUsername}</p>
-                        <p className="text-xs text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
                       </div>
                     </div>
                     <Link
                       href={`/tip/${registeredUsername}`}
-                      className="inline-flex items-center gap-2 text-sm text-stellar-400 hover:text-stellar-300"
+                      className="inline-flex items-center gap-2 text-sm text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
                     >
                       View your tip page →
                     </Link>
@@ -640,7 +640,7 @@ export default function SettingsPage({
                       </label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">@</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400">@</span>
                           <input
                             type="text"
                             value={username}
@@ -689,7 +689,7 @@ export default function SettingsPage({
             ) : (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <div className="text-center py-4">
-                  <svg className="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-12 h-12 mx-auto text-slate-600 dark:text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                   <p className="text-slate-600 dark:text-slate-400">

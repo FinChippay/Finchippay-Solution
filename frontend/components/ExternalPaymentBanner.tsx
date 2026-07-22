@@ -19,19 +19,19 @@ export default function ExternalPaymentBanner({
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
           <div className="w-8 h-8 rounded-full bg-stellar-500/20 flex items-center justify-center">
-            <ExternalLinkIcon className="w-4 h-4 text-stellar-400" />
+            <ExternalLinkIcon className="w-4 h-4 text-stellar-700 dark:text-stellar-400" />
           </div>
         </div>
         
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-stellar-300 mb-1">
+          <h3 className="text-sm font-medium text-stellar-700 dark:text-stellar-300 mb-1">
             Payment request from external app
           </h3>
-          <p className="text-xs text-slate-400 mb-2">
+          <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
             {message || 'Send a payment using the pre-filled form below.'}
           </p>
           {originDomain && (
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
               Origin: <span className="font-mono">{originDomain}</span>
             </p>
           )}
@@ -39,7 +39,7 @@ export default function ExternalPaymentBanner({
         
         <button
           onClick={onDismiss}
-          className="flex-shrink-0 p-1 rounded-md text-slate-400 hover:text-slate-300 hover:bg-white/5 transition-colors"
+          className="flex-shrink-0 p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors"
           aria-label="Dismiss"
         >
           <CloseIcon className="w-4 h-4" />

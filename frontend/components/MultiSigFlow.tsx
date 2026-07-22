@@ -237,8 +237,8 @@ export default function MultiSigFlow({
 
   return (
     <div className="card animate-fade-in border-stellar-400/20">
-      <h2 className="font-display text-lg font-semibold text-white mb-1 flex items-center gap-2">
-        <MultiSigIcon className="w-5 h-5 text-stellar-400" />
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+        <MultiSigIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
         Multi-Signature Payment
       </h2>
       <p className="text-xs text-slate-500 mb-5">
@@ -261,7 +261,7 @@ export default function MultiSigFlow({
                   ? "bg-stellar-500 text-black"
                   : i === stepIndex
                   ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
-                  : "bg-white/10 text-slate-500"
+                  : "bg-slate-100 dark:bg-white/10 text-slate-500"
               )}
             >
               {i < stepIndex ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
@@ -354,13 +354,13 @@ export default function MultiSigFlow({
       {/* ── Step: Sign (initiator) ── */}
       {step === "sign" && (
         <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2 text-sm">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 space-y-2 text-sm">
             <Row label="To" value={destination} mono />
             <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
             {memo && <Row label="Memo" value={memo} />}
             <Row label="Threshold" value={`${threshold} signatures`} />
           </div>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             Sign first with your own Freighter wallet. Co-signers will add their signatures next.
           </p>
           <button
@@ -371,7 +371,7 @@ export default function MultiSigFlow({
             {loading ? <Spinner /> : <FreighterIcon className="w-4 h-4" />}
             {loading ? "Waiting for Freighter..." : "Sign with Freighter"}
           </button>
-          <button onClick={handleReset} className="text-xs text-slate-500 hover:text-slate-300 w-full text-center transition-colors">
+          <button onClick={handleReset} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 w-full text-center transition-colors">
             ← Start over
           </button>
         </div>
@@ -380,18 +380,18 @@ export default function MultiSigFlow({
       {/* ── Step: Share ── */}
       {step === "share" && (
         <div className="space-y-4">
-          <p className="text-slate-300 text-sm">
+          <p className="text-slate-700 dark:text-slate-300 text-sm">
             Your signature has been added. Share this link with your co-signers so they can sign in their own browser.
           </p>
-          <div className="rounded-xl bg-white/5 border border-white/10 p-3">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-3">
             <p className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Co-signer URL</p>
-            <p className="font-mono text-xs text-slate-300 break-all">{shareableUrl}</p>
+            <p className="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{shareableUrl}</p>
           </div>
           <button
             onClick={handleCopyUrl}
             className="btn-secondary w-full py-2.5 flex items-center justify-center gap-2"
           >
-            {copied ? <CheckSmallIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4" />}
+            {copied ? <CheckSmallIcon className="w-4 h-4 text-green-700 dark:text-green-400" /> : <CopyIcon className="w-4 h-4" />}
             {copied ? "Copied!" : "Copy Link"}
           </button>
           <button
@@ -407,24 +407,24 @@ export default function MultiSigFlow({
       {step === "collect" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-slate-300 text-sm">
-              Signatures: <span className="font-bold text-white">{signaturesCollected}</span> / {threshold}
+            <p className="text-slate-700 dark:text-slate-300 text-sm">
+              Signatures: <span className="font-bold text-slate-900 dark:text-white">{signaturesCollected}</span> / {threshold}
             </p>
             {thresholdMet && (
-              <span className="text-xs text-green-400 font-medium">Threshold met ✓</span>
+              <span className="text-xs text-green-700 dark:text-green-400 font-medium">Threshold met ✓</span>
             )}
           </div>
 
           {/* Signature hints */}
           {allSignedXDRs.length > 0 && (
-            <div className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-1">
+            <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-3 space-y-1">
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Collected Signatures</p>
               {extractHints(allSignedXDRs).map((hint, i) => (
                 <div key={i} className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
                     {i === 0 ? "You (initiator)" : `Co-signer ${i}`}
                   </span>
-                  <code className="text-xs text-stellar-300 font-mono">{hint}</code>
+                  <code className="text-xs text-stellar-700 dark:text-stellar-300 font-mono">{hint}</code>
                   {i > 0 && (
                     <button
                       onClick={() => handleRemoveCosignerXDR(i - 1)}
@@ -473,13 +473,13 @@ export default function MultiSigFlow({
       {/* ── Step: Submit ── */}
       {step === "submit" && (
         <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2 text-sm">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 space-y-2 text-sm">
             <Row label="To" value={destination} mono />
             <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
             {memo && <Row label="Memo" value={memo} />}
             <Row label="Signatures" value={`${signaturesCollected} / ${threshold}`} />
           </div>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             All required signatures have been collected. Submit the transaction to the Stellar network.
           </p>
           <button
@@ -490,7 +490,7 @@ export default function MultiSigFlow({
             {loading ? <Spinner /> : null}
             {loading ? "Submitting..." : "Submit to Stellar Network"}
           </button>
-          <button onClick={() => setStep("collect")} className="text-xs text-slate-500 hover:text-slate-300 w-full text-center transition-colors">
+          <button onClick={() => setStep("collect")} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 w-full text-center transition-colors">
             ← Back to signatures
           </button>
         </div>
@@ -500,10 +500,10 @@ export default function MultiSigFlow({
       {step === "success" && txHash && (
         <div className="text-center space-y-4">
           <div className="mx-auto w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
-            <CheckSmallIcon className="w-7 h-7 text-green-400" />
+            <CheckSmallIcon className="w-7 h-7 text-green-700 dark:text-green-400" />
           </div>
-          <p className="font-display text-lg font-semibold text-white">Transaction submitted!</p>
-          <p className="text-slate-400 text-sm">
+          <p className="font-display text-lg font-semibold text-slate-900 dark:text-white">Transaction submitted!</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             The multi-signature payment has been confirmed on the Stellar network.
           </p>
           <a
@@ -535,8 +535,8 @@ export default function MultiSigFlow({
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <span className="text-slate-400 flex-shrink-0">{label}</span>
-      <span className={clsx("text-slate-200 text-right break-all", mono && "font-mono text-xs")}>
+      <span className="text-slate-600 dark:text-slate-400 flex-shrink-0">{label}</span>
+      <span className={clsx("text-slate-800 dark:text-slate-200 text-right break-all", mono && "font-mono text-xs")}>
         {value}
       </span>
     </div>

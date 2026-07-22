@@ -122,24 +122,24 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
           <PuzzleIcon className="w-7 h-7 text-amber-400" />
         </div>
 
-        <h2 className="font-display text-xl font-semibold text-white mb-2 text-center">
+        <h2 className="font-display text-xl font-semibold text-slate-900 dark:text-white mb-2 text-center">
           Freighter not detected
         </h2>
-        <p className="text-slate-400 text-sm mb-5 leading-relaxed text-center">
+        <p className="text-slate-600 dark:text-slate-400 text-sm mb-5 leading-relaxed text-center">
           Freighter is a free browser extension that lets you sign Stellar transactions securely.
         </p>
 
         {/* Steps */}
-        <ol className="space-y-3 mb-6 text-sm text-slate-300">
+        <ol className="space-y-3 mb-6 text-sm text-slate-700 dark:text-slate-300">
           <li className="flex items-start gap-3">
-            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-700 dark:text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
             <span>
               Install Freighter from the{" "}
               <a
                 href={extensionUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-stellar-400 hover:text-stellar-300 underline underline-offset-2 inline-flex items-center gap-1"
+                className="text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 underline underline-offset-2 inline-flex items-center gap-1"
               >
                 {storeName}
                 <ExternalLinkIcon className="w-3 h-3" />
@@ -147,11 +147,11 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
             </span>
           </li>
           <li className="flex items-start gap-3">
-            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-700 dark:text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
             <span>Create or import your Stellar wallet in the extension</span>
           </li>
           <li className="flex items-start gap-3">
-            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-700 dark:text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
             <span>Come back here and click the button below</span>
           </li>
         </ol>
@@ -188,13 +188,13 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
     <div className="card max-w-md mx-auto text-center animate-slide-up">
       {/* Icon */}
       <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-stellar-500/10 border border-stellar-500/20 flex items-center justify-center">
-        <WalletIcon className="w-8 h-8 text-stellar-400" />
+        <WalletIcon className="w-8 h-8 text-stellar-700 dark:text-stellar-400" />
       </div>
 
-      <h2 className="font-display text-xl font-semibold text-white mb-2">
+      <h2 className="font-display text-xl font-semibold text-slate-900 dark:text-white mb-2">
         Connect your wallet
       </h2>
-      <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+      <p className="text-slate-600 dark:text-slate-400 text-sm mb-6 leading-relaxed">
         Choose your preferred wallet to connect to the Stellar network and start sending payments.
       </p>
 
@@ -236,14 +236,14 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
       </div>
 
       {/* Help Text */}
-      <div className="space-y-3 text-xs text-slate-400">
+      <div className="space-y-3 text-xs text-slate-600 dark:text-slate-400">
         <div>
           Don&apos;t have Freighter?{" "}
           <a
             href={extensionUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-stellar-400 hover:underline"
+            className="text-stellar-700 dark:text-stellar-400 hover:underline"
           >
             Install the extension →
           </a>
@@ -261,10 +261,10 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
       </div>
 
       {/* Network indicator */}
-      <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-400">
+      <div className="mt-6 pt-4 border-t border-slate-200 dark:border-white/5 flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
         Connected to{" "}
-        <span className="font-mono text-slate-400">
+        <span className="font-mono text-slate-600 dark:text-slate-400">
           {process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet"}
         </span>
       </div>
@@ -275,4 +275,3 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
 export default withErrorBoundary(WalletConnect, "WalletConnect");
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
-

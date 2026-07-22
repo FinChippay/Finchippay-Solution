@@ -358,10 +358,10 @@ function TransactionList({
     return (
       <div ref={containerRef} className="card">
         <div className="text-center py-12">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
-            <HistoryIcon className="w-6 h-6 text-slate-400" />
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-50 dark:bg-white/5 flex items-center justify-center">
+            <HistoryIcon className="w-6 h-6 text-slate-600 dark:text-slate-400" />
           </div>
-          <p className="text-slate-400 text-sm">{t("transactions.noTransactions")}</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">{t("transactions.noTransactions")}</p>
           <p className="text-slate-600 text-xs mt-1">
             {t("transactions.startMessage")}
           </p>
@@ -372,7 +372,7 @@ function TransactionList({
                 href={`https://friendbot.stellar.org/?addr=${publicKey}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-stellar-400 hover:underline"
+                className="text-stellar-700 dark:text-stellar-400 hover:underline"
               >
                 {t("transactions.fundWithFriendbot")}
               </a>
@@ -387,14 +387,14 @@ function TransactionList({
     <div ref={containerRef} className={compact ? "" : "card"}>
           {!compact && (
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-                <HistoryIcon className="w-5 h-5 text-stellar-400" />
+              <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <HistoryIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
                 {t("transactions.title")}
               </h2>
               <div className="flex items-center gap-4">
                 {/* Premium Infinite Scroll Toggle */}
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-400 select-none">
-                  <span className={clsx("transition-colors", infiniteScroll ? "text-stellar-400 font-medium" : "")}>
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 dark:text-slate-400 select-none">
+                  <span className={clsx("transition-colors", infiniteScroll ? "text-stellar-700 dark:text-stellar-400 font-medium" : "")}>
                     {t("transactions.infiniteScroll")}
                   </span>
                   <div className="relative">
@@ -417,7 +417,7 @@ function TransactionList({
                 </label>
                 <button
                   onClick={() => fetchPayments()}
-                  className="text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1"
+                  className="text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors flex items-center gap-1"
                 >
                   <RefreshIcon className="w-3.5 h-3.5" />
                   {t("transactions.refresh")}
@@ -432,7 +432,7 @@ function TransactionList({
             </div>
           )}
           
-          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-400">
+          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-700 dark:text-stellar-400">
             <span className="w-1 h-1 rounded-full bg-stellar-400 flex-shrink-0" />
             <span>{t("transactions.keyboardNav")}</span>
           </div>
@@ -465,7 +465,7 @@ function TransactionList({
             onBlur={() => setFocusedIndex(-1)}
             onFocus={() => setFocusedIndex(index)}
             className={clsx(
-              "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group relative",
+              "flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-white/3 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group relative",
               focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
             )}
             aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
@@ -508,7 +508,7 @@ function TransactionList({
                 </button>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-600 dark:text-slate-400">
                   {timeAgo(tx.createdAt)}
                 </span>
                 {tx.memo && (
@@ -533,7 +533,7 @@ function TransactionList({
 
               <button
                 onClick={() => handleSaveContact(tx.type === "sent" ? tx.to : tx.from)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-600 dark:hover:text-stellar-300 font-medium whitespace-nowrap"
                 title={t("transactions.saveAddressToContacts")}
                 aria-label={`Save ${tx.type === "sent" ? "recipient" : "sender"} to contacts`}
               >
@@ -546,7 +546,7 @@ function TransactionList({
                   onClick={() =>
                     router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
                   }
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 font-medium whitespace-nowrap"
                   title={t("transactions.prefillSendForm")}
                   aria-label={t("transactions.sendAgainToRecipient")}
                 >
@@ -558,7 +558,7 @@ function TransactionList({
                 href={explorerUrl(tx.transactionHash) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-stellar-400"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 dark:text-slate-400 hover:text-stellar-700 dark:hover:text-stellar-400"
                 title={t("transactions.viewOnExpert")}
                 aria-label={t("transactions.viewOnExpert")}
               >
@@ -572,7 +572,7 @@ function TransactionList({
         {infiniteScroll && (
           <div ref={loadMoreRef} className="flex justify-center mt-4 py-2">
             {loadingMore && (
-              <div className="flex items-center gap-2 text-slate-400">
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                 <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm">{t("transactions.loadingMore")}</span>
               </div>
@@ -605,4 +605,3 @@ function TransactionList({
 }
 
 export default withErrorBoundary(TransactionList, "TransactionList");
-

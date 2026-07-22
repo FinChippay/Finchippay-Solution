@@ -104,10 +104,10 @@ export default function CreatorTipsDashboard({
           <div className="mx-auto w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-4">
             <UserIcon className="w-6 h-6 text-amber-400" />
           </div>
-          <h3 className="font-display text-lg font-semibold text-white mb-2">
+          <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-2">
             Set Up Your Creator Profile
           </h3>
-          <p className="text-sm text-slate-400 mb-4">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
             Register a username to enable public tip pages and track tips received.
           </p>
           <Link
@@ -127,21 +127,21 @@ export default function CreatorTipsDashboard({
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="card bg-gradient-to-br from-stellar-500/10 to-transparent border-stellar-500/20">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400 mb-1">
             Total Tips Received
           </p>
-          <p className="font-display text-2xl font-bold text-white">
+          <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
             {stats?.totalTips ?? 0}
           </p>
         </div>
 
         <div className="card bg-gradient-to-br from-emerald-500/10 to-transparent border-emerald-500/20">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400 mb-1">
             Total XLM Received
           </p>
-          <p className="font-display text-2xl font-bold text-white">
+          <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
             {getTotalXLMReceived()}
-            <span className="text-stellar-400 text-lg ml-1">XLM</span>
+            <span className="text-stellar-700 dark:text-stellar-400 text-lg ml-1">XLM</span>
           </p>
           {xlmPrice && parseFloat(getTotalXLMReceived()) > 0 && (
             <p className="text-xs text-emerald-400 mt-1">
@@ -151,12 +151,12 @@ export default function CreatorTipsDashboard({
         </div>
 
         <div className="card bg-gradient-to-br from-violet-500/10 to-transparent border-violet-500/20">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400 mb-1">
             Average Tip
           </p>
-          <p className="font-display text-2xl font-bold text-white">
+          <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
             {stats?.averageTip ? parseFloat(stats.averageTip).toFixed(2) : "0"}
-            <span className="text-stellar-400 text-lg ml-1">XLM</span>
+            <span className="text-stellar-700 dark:text-stellar-400 text-lg ml-1">XLM</span>
           </p>
         </div>
       </div>
@@ -165,10 +165,10 @@ export default function CreatorTipsDashboard({
       <div className="card border-stellar-500/20 bg-stellar-500/5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h3 className="font-display text-lg font-semibold text-white">
+            <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
               Your Public Tip Page
             </h3>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               Share this link with your fans to receive tips
             </p>
           </div>
@@ -181,7 +181,7 @@ export default function CreatorTipsDashboard({
                 const url = `${window.location.origin}/tip/${username}`;
                 navigator.clipboard.writeText(url);
               }}
-              className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+              className="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors rounded-lg hover:bg-slate-50 dark:hover:bg-white/5"
               title="Copy link"
             >
               <CopyIcon className="w-4 h-4" />
@@ -193,12 +193,12 @@ export default function CreatorTipsDashboard({
       {/* Tips History */}
       <div className="card">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="font-display text-lg font-semibold text-white">
+          <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
             Tips Received
           </h3>
           <button
             onClick={fetchTips}
-            className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1"
+            className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 transition-colors flex items-center gap-1"
           >
             <RefreshIcon className="w-3 h-3" />
             Refresh
@@ -208,7 +208,7 @@ export default function CreatorTipsDashboard({
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 bg-white/5 rounded-lg animate-pulse" />
+              <div key={i} className="h-16 bg-slate-50 dark:bg-white/5 rounded-lg animate-pulse" />
             ))}
           </div>
         ) : error ? (
@@ -217,11 +217,11 @@ export default function CreatorTipsDashboard({
           </div>
         ) : tips.length === 0 ? (
           <div className="text-center py-8">
-            <div className="mx-auto w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mb-3">
-              <GiftIcon className="w-6 h-6 text-slate-400" />
+            <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+              <GiftIcon className="w-6 h-6 text-slate-600 dark:text-slate-400" />
             </div>
-            <p className="text-slate-400 text-sm">No tips received yet</p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-slate-600 dark:text-slate-400 text-sm">No tips received yet</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
               Share your tip page to start receiving tips!
             </p>
           </div>
@@ -231,27 +231,27 @@ export default function CreatorTipsDashboard({
               {tips.map((tip) => (
                 <div
                   key={tip.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/5 hover:border-stellar-500/20 transition-colors"
+                  className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 hover:border-stellar-500/20 transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-stellar-500/10 border border-stellar-500/20 flex items-center justify-center">
-                      <GiftIcon className="w-5 h-5 text-stellar-400" />
+                      <GiftIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
                     </div>
                     <div>
-                      <p className="text-sm text-white font-medium">
+                      <p className="text-sm text-slate-900 dark:text-white font-medium">
                         {tip.amount} {tip.asset}
                       </p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
                         From: {shortenAddress(tip.senderPublicKey)}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
                       {formatTimestamp(tip.timestamp)}
                     </p>
                     {tip.memo && (
-                      <p className="text-xs text-slate-400 mt-1 max-w-[200px] truncate">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-[200px] truncate">
                         &quot;{tip.memo}&quot;
                       </p>
                     )}
@@ -262,21 +262,21 @@ export default function CreatorTipsDashboard({
 
             {/* Pagination */}
             {stats && stats.totalTips > pageSize && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200 dark:border-white/5">
                 <button
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
-                  className="text-sm text-stellar-400 hover:text-stellar-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+                  className="text-sm text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
                 >
                   ← Previous
                 </button>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-600 dark:text-slate-400">
                   Page {page + 1} of {Math.ceil(stats.totalTips / pageSize)}
                 </span>
                 <button
                   onClick={() => setPage((p) => p + 1)}
                   disabled={(page + 1) * pageSize >= stats.totalTips}
-                  className="text-sm text-stellar-400 hover:text-stellar-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+                  className="text-sm text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
                 >
                   Next →
                 </button>
