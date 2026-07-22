@@ -191,6 +191,12 @@ jobs:
             contracts/finchippay-contract/target
           key: ${{ runner.os }}-cargo-${{ matrix.rust-channel }}-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit
+
       - name: Check
         run: cargo check --target wasm32v1-none
 
