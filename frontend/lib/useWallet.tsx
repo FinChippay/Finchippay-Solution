@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/router";
 import {
   disconnectWallet as clearWalletConnection,
   getConnectedPublicKey,
@@ -47,6 +48,7 @@ function saveLastPublicKey(publicKey: string | null) {
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [publicKey, setPublicKey] = useState<string | null>(() => loadLastPublicKey());
   const [isWalletReady, setIsWalletReady] = useState(false);
 
@@ -82,9 +84,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         clearWalletConnection();
         saveLastPublicKey(null);
         setPublicKey(null);
+        router.push("/");
       },
     }),
-    [publicKey, isWalletReady]
+    [publicKey, isWalletReady, router]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

@@ -2,12 +2,13 @@
 # Continuous Integration for Finchippay-Solution
 #
 # Runs on every push to main/develop and on every pull-request targeting main.
-# Five parallel jobs:
+# Six parallel jobs:
 #   1. frontend  — lint, type-check, unit tests, Next.js build
-#   2. backend   — lint, unit tests
-#   3. contracts — cargo check, cargo test, WASM build
-#   4. compose   — validate Docker Compose configurations
-#   5. e2e       — Playwright end-to-end tests
+#   2. visual-regression — build and compare Storybook snapshots in Chromatic
+#   3. backend   — lint, unit tests
+#   4. contracts — cargo check, cargo test, WASM build
+#   5. compose   — validate Docker Compose configurations
+#   6. e2e       — Playwright end-to-end tests
 
 name: CI
 
@@ -52,12 +53,47 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Build Storybook
+        run: npm run build-storybook
+
       - name: Build
         run: npm run build
         env:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+
+  # ─── Storybook Visual Regression ───────────────────────────────────────────
+  visual-regression:
+    name: Storybook Visual Regression (Chromatic)
+    runs-on: ubuntu-latest
+    env:
+      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Chromatic visual tests
+        if: ${{ env.CHROMATIC_PROJECT_TOKEN != '' }}
+        uses: chromaui/action@latest
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          workingDir: frontend
+          exitZeroOnChanges: false
+          autoAcceptChanges: main
 
   # ─── Backend ───────────────────────────────────────────────────────────────
   backend:

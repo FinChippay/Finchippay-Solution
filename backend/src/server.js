@@ -38,8 +38,7 @@ const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
-const { trackHttpMetrics } = require("./middleware/metrics");
-const metricsRoutes = require("./routes/metrics");
+const { requireJsonContentType } = require("./middleware/bodyParsing");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -151,12 +150,28 @@ app.use(trackHttpMetrics);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 app.use(pinoHttp({ logger }));
-app.use(express.json({ limit: "10kb" }));
 
-// JSON parsing error handler
+// Content-Type enforcement (#81) — reject POST/PUT requests whose body isn't
+// application/json before the JSON parser below gets a chance to silently
+// skip it.
+app.use(requireJsonContentType);
+
+// JSON body size limits (#81).
+// /api/turrets may receive larger txFunction payloads, so it gets its own
+// parser with a higher limit; every other route falls through to the 100kb
+// default. body-parser skips re-parsing a request whose body it has already
+// parsed (req._body), so mounting the turrets parser first is sufficient —
+// the global parser below is a no-op for requests it already handled.
+app.use("/api/turrets", express.json({ limit: "512kb" }));
+app.use(express.json({ limit: "100kb" }));
+
+// JSON body parsing error handler
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
     return res.status(400).json({ error: "Invalid JSON body" });
+  }
+  if (err.type === "entity.too.large" || err.status === 413) {
+    return res.status(413).json({ error: "Request body too large" });
   }
   next();
 });
