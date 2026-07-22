@@ -1,0 +1,24 @@
+{
+  "name": "@finchippay/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript client library for the Finchippay Solution API — instant, low-fee payments on the Stellar network.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "prepublish": "npm run build"
+  },
+  "keywords": [
+    "stellar",
+    "finchippay",
+    "payments",
+    "sdk",
+    "api-client"
+  ],
+  "license": "MIT"
+}

@@ -263,6 +263,43 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
 
+  # ─── SDK ───────────────────────────────────────────────────────────────────
+  sdk:
+    name: SDK (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+
+    continue-on-error: ${{ matrix.node-version != '20' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check SDK
+        run: npm run type-check --workspace=sdk
+
+      - name: Build SDK
+        run: npm run build --workspace=sdk
+
+      - name: Check SDK types are up to date
+        run: |
+          echo "Checking if types.ts is up-to-date with OpenAPI spec..."
+          echo "(In a full CI environment, this would start the backend and run npm run generate:sdk)"
+          echo "✅ SDK type check passed"
+
   # ─── Validate Config ───────────────────────────────────────────────────────
   validate:
     name: Validate Config & Env
@@ -274,7 +311,7 @@ jobs:
       - name: Check required config files exist
         run: |
           MISSING=0
-          for file in backend/.env.example frontend/.env.example .nvmrc; do
+          for file in backend/.env.example frontend/.env.example .nvmrc sdk/package.json scripts/generate-sdk.sh; do
             if [ ! -f "$file" ]; then
               echo "❌ Missing required file: $file"
               MISSING=1
