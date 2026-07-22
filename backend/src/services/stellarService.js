@@ -183,6 +183,7 @@ async function getAccount(publicKey) {
     cacheSet(publicKey, result);
     return result;
   } catch (err) {
+    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "error" });
     if (err?.response?.status === 404) {
       const error = new Error(
         "Account not found. It may not be funded yet. Use Friendbot on testnet.",

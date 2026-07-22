@@ -127,4 +127,5 @@ Key components:
 | Upgradability | Admin `upgrade()` replaces contract WASM; version tracked on-chain |
 | Bounded inputs | Deposit caps, rate limits, timelock maximums prevent griefing |
 | Top-up enforcement | Cumulative stream deposit checked against `MAX_STREAM_DEPOSIT` |
+| Token balance verification | `require_transfer_succeeded()` checks recipient balance before & after every token transfer; panics with `TransferFailed` (error code 17) if the balance did not increase by at least the expected amount — guards against malicious/fake token contracts (phantom deposit attack) |
 | Overflow safety | Checked arithmetic throughout the Soroban contract |
