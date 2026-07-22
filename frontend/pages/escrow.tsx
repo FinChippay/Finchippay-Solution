@@ -14,6 +14,7 @@ import {
   buildCreateEscrowTransaction,
   buildClaimEscrowTransaction,
   buildCancelEscrowTransaction,
+  buildClaimEscrowPartialTransaction,
   getEscrow,
   getCurrentLedger,
   submitTransaction,
@@ -21,6 +22,7 @@ import {
   getXLMBalance,
   CONTRACT_ID,
   EscrowRecord,
+  STELLAR_STROOPS_PER_XLM,
 } from "@/lib/stellar";
 import { Horizon } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
@@ -61,7 +63,8 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const [lookupId, setLookupId] = useState("");
   const [lookup, setLookup] = useState<LookupState>({ kind: "idle" });
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState<null | "claim" | "cancel">(null);
+  const [actionPending, setActionPending] = useState<null | "claim" | "cancel" | "partialClaim">(null);
+  const [partialClaimAmount, setPartialClaimAmount] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +164,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     }
   }
 
-  async function handleAction(action: "claim" | "cancel") {
+  async function handleAction(action: "claim" | "cancel" | "partialClaim") {
     if (!publicKey || lookup.kind !== "found") return;
     if (action === "cancel" && typeof window !== "undefined" && window.confirm && !window.confirm("Are you sure you want to cancel this escrow?")) {
       return;
@@ -169,10 +172,23 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     setActionPending(action);
     setActionError(null);
     try {
-      const builder = action === "claim"
-        ? buildClaimEscrowTransaction
-        : buildCancelEscrowTransaction;
-      const tx = await builder(publicKey, lookup.escrow.id);
+      let tx: Awaited<ReturnType<typeof buildClaimEscrowTransaction>>;
+      if (action === "partialClaim") {
+        const partialStroops = Math.round(parseFloat(partialClaimAmount) * STELLAR_STROOPS_PER_XLM);
+        if (!Number.isFinite(partialStroops) || partialStroops <= 0) {
+          throw new Error("Partial claim amount must be a positive number.");
+        }
+        const escrowStroops = BigInt(lookup.escrow.amount);
+        if (BigInt(partialStroops) > escrowStroops) {
+          throw new Error("Partial claim amount exceeds escrow balance.");
+        }
+        tx = await buildClaimEscrowPartialTransaction(publicKey, lookup.escrow.id, BigInt(partialStroops));
+      } else {
+        const builder = action === "claim"
+          ? buildClaimEscrowTransaction
+          : buildCancelEscrowTransaction;
+        tx = await builder(publicKey, lookup.escrow.id);
+      }
       const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
       if (signError || !signedXDR) {
         throw new Error(signError || "Transaction signing was rejected.");
@@ -328,45 +344,88 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                 </dl>
 
                 {lookup.escrow.status === "Pending" && (
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleAction("claim")}
-                      disabled={
-                        actionPending !== null ||
-                        lookup.currentLedger < lookup.escrow.releaseLedger ||
-                        publicKey !== lookup.escrow.to
-                      }
-                      title={
-                        publicKey !== lookup.escrow.to
-                          ? "Only the recipient can claim"
-                          : lookup.currentLedger < lookup.escrow.releaseLedger
-                            ? "Release ledger not reached"
-                            : ""
-                      }
-                      className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
-                    >
-                      {actionPending === "claim" ? "Claiming…" : "Claim"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAction("cancel")}
-                      disabled={
-                        actionPending !== null ||
-                        lookup.currentLedger >= lookup.escrow.releaseLedger ||
-                        publicKey !== lookup.escrow.from
-                      }
-                      title={
-                        publicKey !== lookup.escrow.from
-                          ? "Only the sender can cancel"
-                          : lookup.currentLedger >= lookup.escrow.releaseLedger
-                            ? "Release ledger already reached"
-                            : ""
-                      }
-                      className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
-                    >
-                      {actionPending === "cancel" ? "Cancelling…" : "Cancel"}
-                    </button>
+                  <div className="mt-3 space-y-3">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAction("claim")}
+                        disabled={
+                          actionPending !== null ||
+                          lookup.currentLedger < lookup.escrow.releaseLedger ||
+                          publicKey !== lookup.escrow.to
+                        }
+                        title={
+                          publicKey !== lookup.escrow.to
+                            ? "Only the recipient can claim"
+                            : lookup.currentLedger < lookup.escrow.releaseLedger
+                              ? "Release ledger not reached"
+                              : ""
+                        }
+                        className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
+                      >
+                        {actionPending === "claim" ? "Claiming…" : "Claim"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAction("cancel")}
+                        disabled={
+                          actionPending !== null ||
+                          lookup.currentLedger >= lookup.escrow.releaseLedger ||
+                          publicKey !== lookup.escrow.from
+                        }
+                        title={
+                          publicKey !== lookup.escrow.from
+                            ? "Only the sender can cancel"
+                            : lookup.currentLedger >= lookup.escrow.releaseLedger
+                              ? "Release ledger already reached"
+                              : ""
+                        }
+                        className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
+                      >
+                        {actionPending === "cancel" ? "Cancelling…" : "Cancel"}
+                      </button>
+                    </div>
+
+                    {/* Partial claim */}
+                    <div className="border-t border-gray-200 pt-3">
+                      <p className="mb-2 text-xs text-gray-500">
+                        Or claim a partial amount (XLM):
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0000001"
+                          placeholder="Partial amount (XLM)"
+                          value={partialClaimAmount}
+                          onChange={(e) => setPartialClaimAmount(e.target.value)}
+                          className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAction("partialClaim")}
+                          disabled={
+                            actionPending !== null ||
+                            lookup.currentLedger < lookup.escrow.releaseLedger ||
+                            publicKey !== lookup.escrow.to ||
+                            !partialClaimAmount ||
+                            parseFloat(partialClaimAmount) <= 0
+                          }
+                          title={
+                            publicKey !== lookup.escrow.to
+                              ? "Only the recipient can claim"
+                              : lookup.currentLedger < lookup.escrow.releaseLedger
+                                ? "Release ledger not reached"
+                                : !partialClaimAmount || parseFloat(partialClaimAmount) <= 0
+                                  ? "Enter a positive amount"
+                                  : ""
+                          }
+                          className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
+                        >
+                          {actionPending === "partialClaim" ? "Claiming…" : "Partial claim"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

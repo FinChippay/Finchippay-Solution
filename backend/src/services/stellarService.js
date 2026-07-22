@@ -8,13 +8,19 @@
 
 const { server, HORIZON_URL } = require("../config/stellar");
 const logger = require("../utils/logger");
+const metrics = require("./metricsService");
 const { trace } = require("@opentelemetry/api");
 
 const tracer = trace.getTracer("finchippay-stellar-service");
 
-// ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
-const ACCOUNT_CACHE_TTL_MS = 5_000;
-const ACCOUNT_CACHE_MAX = 256;
+// Lazy-loaded cache service (avoids circular dependency at parse time)
+function getCache() {
+  return require("./cacheService");
+}
+
+// ─── Cache TTLs ──────────────────────────────────────────────────────────────
+const ACCOUNT_CACHE_TTL_SEC = 30;
+const PAYMENTS_CACHE_TTL_SEC = 60;
 
 // ─── Timeout + retry ──────────────────────────────────────────────────────────
 
@@ -112,47 +118,22 @@ async function withTracedSpan(operation, description, fn) {
   }
 }
 
-/** @type {Map<string, { value: object, expiresAt: number }>} */
-const accountCache = new Map();
-
-function cacheGet(key) {
-  const entry = accountCache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    accountCache.delete(key);
-    return null;
-  }
-  // LRU: re-insert to move to end
-  accountCache.delete(key);
-  accountCache.set(key, entry);
-  return entry.value;
-}
-
-function cacheSet(key, value) {
-  if (accountCache.size >= ACCOUNT_CACHE_MAX) {
-    // Evict the oldest entry (first key in insertion order)
-    accountCache.delete(accountCache.keys().next().value);
-  }
-  accountCache.set(key, {
-    value,
-    expiresAt: Date.now() + ACCOUNT_CACHE_TTL_MS,
-  });
-}
-
-function clearAccountCache() {
-  accountCache.clear();
-}
-
 // ─── Account ──────────────────────────────────────────────────────────────────
 
 /**
  * Load a Stellar account and return its balances.
+ * Cached with 30s TTL via Redis+LRU.
  */
 async function getAccount(publicKey) {
   validatePublicKey(publicKey);
 
-  const cached = cacheGet(publicKey);
-  if (cached) return cached;
+  const cache = getCache();
+  const cacheKey = `account:${publicKey}`;
+  const cached = await cache.get(cacheKey);
+  if (cached) {
+    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "cache_hit" });
+    return cached;
+  }
 
   try {
     const account = await withTracedSpan(
@@ -180,7 +161,7 @@ async function getAccount(publicKey) {
       subentryCount: account.subentry_count,
     };
 
-    cacheSet(publicKey, result);
+    await cache.set(cacheKey, result, ACCOUNT_CACHE_TTL_SEC);
     return result;
   } catch (err) {
     metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "error" });
@@ -216,12 +197,26 @@ async function getXLMBalance(publicKey) {
 
 /**
  * Fetch payment history for an account from Horizon.
+ * Cached with 60s TTL via Redis+LRU. Only caches the default (no-cursor) query.
  *
  * @param {string} publicKey
  * @param {{ limit?: number, cursor?: string }} options
  */
 async function getPayments(publicKey, { limit = 20, cursor } = {}) {
   validatePublicKey(publicKey);
+
+  // Only cache the default (non-paginated) query — cursor-based pagination is dynamic.
+  const shouldCache = !cursor && limit === 20;
+  const cache = getCache();
+  const paymentsCacheKey = `payments:${publicKey}:${limit}`;
+
+  if (shouldCache) {
+    const cached = await cache.get(paymentsCacheKey);
+    if (cached) {
+      metrics.horizonRequestsTotal.inc({ operation: "getPayments", status: "cache_hit" });
+      return cached;
+    }
+  }
 
   let query = server
     .payments()
@@ -299,6 +294,15 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     });
   }
 
+  // Cache the result if this was the default query
+  if (shouldCache) {
+    try {
+      await cache.set(paymentsCacheKey, payments, PAYMENTS_CACHE_TTL_SEC);
+    } catch (err) {
+      logger.warn({ err }, "Failed to cache payment history");
+    }
+  }
+
   return payments;
 }
 
@@ -317,5 +321,4 @@ module.exports = {
   getXLMBalance,
   getPayments,
   validatePublicKey,
-  clearAccountCache,
 };
