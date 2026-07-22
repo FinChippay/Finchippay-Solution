@@ -10,6 +10,22 @@ const config: Config = {
   setupFiles: ["<rootDir>/jest.setup.ts"],
   setupFilesAfterEnv: ["@testing-library/jest-dom"],
   testPathIgnorePatterns: ["<rootDir>/e2e/"],
+  collectCoverageFrom: [
+    "components/RecurringPayments.tsx",
+    "pages/escrow.tsx",
+    "components/TradeForm.tsx",
+  ],
+  coverageThreshold: {
+    "./components/RecurringPayments.tsx": {
+      lines: 70,
+    },
+    "./pages/escrow.tsx": {
+      lines: 70,
+    },
+    "./components/TradeForm.tsx": {
+      lines: 70,
+    },
+  },
 };
 
 export default config;

@@ -27,6 +27,9 @@ interface BatchPaymentFormProps {
   publicKey: string;
   xlmBalance: string;
   onBatchSuccess?: () => void;
+  services?: {
+    buildPaymentTransaction?: typeof buildPaymentTransaction;
+  };
 }
 
 function createRecipient(): BatchRecipient {
@@ -43,6 +46,7 @@ export default function BatchPaymentForm({
   publicKey,
   xlmBalance,
   onBatchSuccess,
+  services,
 }: BatchPaymentFormProps) {
   const [recipients, setRecipients] = useState<BatchRecipient[]>([
     createRecipient(),
@@ -142,7 +146,7 @@ export default function BatchPaymentForm({
       setRecipients([...nextRecipients]);
 
       try {
-        const tx = await buildPaymentTransaction({
+        const tx = await (services?.buildPaymentTransaction ?? buildPaymentTransaction)({
           fromPublicKey: publicKey,
           toPublicKey: recipient.address,
           amount: parseFloat(recipient.amount).toFixed(7),

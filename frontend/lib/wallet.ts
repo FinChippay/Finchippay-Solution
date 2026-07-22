@@ -18,6 +18,10 @@ import {
 } from "@stellar/freighter-api";
 
 import { getNetworkPassphrase } from "./stellar";
+import {
+  setJwtToken as persistAuthToken,
+  clearJwtToken as clearAuthToken,
+} from "./auth";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -202,6 +206,7 @@ export async function performSEP0010Auth(
     }
     const token = await verifyAuthChallenge(signedXDR);
     setJwtToken(token);
+    persistAuthToken(token);
     return { token, error: null };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -254,6 +259,7 @@ export function disconnectWallet(): void {
   // Freighter doesn't expose an explicit disconnect API, so the app clears
   // any local auth state and lets React own the connected wallet lifecycle.
   setJwtToken(null);
+  clearAuthToken();
 }
 
 /**

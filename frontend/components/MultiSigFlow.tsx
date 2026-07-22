@@ -46,6 +46,9 @@ interface MultiSigFlowProps {
   /** Pre-fill from SendPaymentForm when amount exceeds threshold. */
   prefill?: { destination: string; amount: string; memo?: string } | null;
   onSuccess?: () => void;
+  services?: {
+    buildPaymentTransaction?: typeof buildPaymentTransaction;
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,6 +76,7 @@ export default function MultiSigFlow({
   xlmBalance,
   prefill,
   onSuccess,
+  services,
 }: MultiSigFlowProps) {
   const [step, setStep] = useState<Step>("build");
 
@@ -115,7 +119,7 @@ export default function MultiSigFlow({
     setLoading(true);
     setError(null);
     try {
-      const tx = await buildPaymentTransaction({
+      const tx = await (services?.buildPaymentTransaction ?? buildPaymentTransaction)({
         fromPublicKey: publicKey,
         toPublicKey: destination,
         amount: amountNum.toFixed(7),
