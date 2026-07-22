@@ -11,6 +11,7 @@ import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";
 import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
+import { FeatureFlagProvider } from "@/lib/FeatureFlags";
 import OfflineBanner from "@/components/OfflineBanner";
 import {
   getStellarURIFromURL,
@@ -112,6 +113,34 @@ export const ThemeContext = createContext<ThemeContextType>({
 export const useTheme = () => useContext(ThemeContext);
 
 function AppShell({
+  Component,
+  pageProps,
+  stellarURI,
+  isQuickSendOpen,
+  setIsQuickSendOpen,
+}: {
+  Component: AppProps["Component"];
+  pageProps: AppProps["pageProps"];
+  stellarURI: URIParseResult | null;
+  isQuickSendOpen: boolean;
+  setIsQuickSendOpen: (isOpen: boolean) => void;
+}) {
+  const { publicKey } = useWallet();
+
+  return (
+    <FeatureFlagProvider publicKey={publicKey}>
+      <AppShellInner
+        Component={Component}
+        pageProps={pageProps}
+        stellarURI={stellarURI}
+        isQuickSendOpen={isQuickSendOpen}
+        setIsQuickSendOpen={setIsQuickSendOpen}
+      />
+    </FeatureFlagProvider>
+  );
+}
+
+function AppShellInner({
   Component,
   pageProps,
   stellarURI,

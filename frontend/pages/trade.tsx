@@ -22,6 +22,7 @@ import TradeForm from "@/components/TradeForm";
 import Toast from "@/components/Toast";
 import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
+import { FeatureGate } from "@/lib/FeatureFlags";
 import { format } from "date-fns";
 
 export default function Trade() {
@@ -132,9 +133,9 @@ export default function Trade() {
 
   if (!publicKey) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
-        <div className="mb-10 text-center">
-          <h1 className="mb-3 font-display text-3xl font-bold text-white">
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="text-center max-w-md">
+          <h1 className="font-display text-3xl font-bold text-white mb-4">
             Stellar DEX Trading
           </h1>
           <p className="text-slate-400">
@@ -152,6 +153,16 @@ export default function Trade() {
         <title>Trade | Finchippay-Solution</title>
         <meta name="description" content="Trade XLM and USDC on the Stellar decentralised exchange." />
       </Head>
+      <FeatureGate flag="trading_page" fallback={
+        <div className="text-center py-20">
+          <h1 className="font-display text-3xl font-bold text-white mb-4">
+            Trading
+          </h1>
+          <p className="text-slate-400">
+            Trading is not available right now. Please check back later.
+          </p>
+        </div>
+      }>
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-display text-3xl font-bold text-white mb-2">
@@ -371,6 +382,7 @@ export default function Trade() {
           onClose={() => setToast(null)}
         />
       )}
+      </FeatureGate>
     </div>
   );
 }

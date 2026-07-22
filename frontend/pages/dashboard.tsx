@@ -44,6 +44,7 @@ import {
 } from "recharts";
 
 
+import { FeatureGate } from "@/lib/FeatureFlags";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
@@ -1223,7 +1224,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       ))}
 
-      <StreamingPayments publicKey={publicKey} />
+      <FeatureGate flag="streaming_payments">
+        <StreamingPayments publicKey={publicKey} />
+      </FeatureGate>
 
       {/* Creator Tips Dashboard */}
       <CreatorTipsDashboard
@@ -1299,11 +1302,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           <RecurringPayments onPayNow={handleRecurringPayNow} />
           <PaymentRequestGenerator />
           <div className="mt-6">
-            <MultiSigFlow
-              publicKey={publicKey}
-              xlmBalance={xlmBalance || "0"}
-              onSuccess={handlePaymentSuccess}
-            />
+            <FeatureGate flag="multi_sig_payments">
+              <MultiSigFlow
+                publicKey={publicKey}
+                xlmBalance={xlmBalance || "0"}
+                onSuccess={handlePaymentSuccess}
+              />
+            </FeatureGate>
           </div>
         </div>
 
