@@ -7,6 +7,7 @@
 
 const axios = require("axios");
 const usernameService = require("../services/usernameService");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * GET /federation?q=<query>&type=<type>
@@ -17,15 +18,17 @@ async function resolveFederation(req, res, next) {
     const { q, type } = req.query;
 
     if (!q || !type) {
-      return res.status(400).json({
-        error: "Missing required parameters: q and type",
-      });
+      return res
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["q", "type"] }));
     }
 
     if (typeof q !== "string" || typeof type !== "string") {
-      return res.status(400).json({
-        error: "Invalid required parameters: q and type must be strings",
-      });
+      return res
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", {
+          reason: "q and type must be strings",
+        }));
     }
 
     if (type === "name") {
@@ -37,18 +40,18 @@ async function resolveFederation(req, res, next) {
       const result = await resolveAccountId(q);
       return res.json(result);
     } else {
-      return res.status(400).json({
-        error: "Invalid type parameter. Must be 'name' or 'id'",
-      });
+      return res
+        .status(ERROR_CODES.VAL_INVALID_FEDERATION_TYPE.httpStatus)
+        .json(formatErrorResponse("VAL_INVALID_FEDERATION_TYPE"));
     }
   } catch (err) {
     if (err.response && err.response.status === 404) {
-      return res.status(404).json({
-        error: "Not found",
-      });
+      return res
+        .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+        .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "federation" }));
     }
     if (err.status) {
-      return res.status(err.status).json({ error: err.message });
+      return res.status(err.status).json(formatErrorResponse(err.errorCode || "SRV_INTERNAL", { reason: err.message }));
     }
     next(err);
   }
@@ -65,6 +68,7 @@ async function resolveStellarAddress(stellarAddress, req) {
   if (parts.length !== 2) {
     const error = new Error("Invalid stellar address format");
     error.status = 400;
+    error.errorCode = "VAL_INVALID_STELLAR_ADDRESS";
     throw error;
   }
 
@@ -75,6 +79,7 @@ async function resolveStellarAddress(stellarAddress, req) {
   if (!username || !domain) {
     const error = new Error("Invalid stellar address format");
     error.status = 400;
+    error.errorCode = "VAL_INVALID_STELLAR_ADDRESS";
     throw error;
   }
 
@@ -114,6 +119,7 @@ async function resolveAccountId(accountId) {
   // per SEP-0002, reverse federation is optional
   const error = new Error("Account ID not found");
   error.status = 404;
+  error.errorCode = "RES_NOT_FOUND";
   throw error;
 }
 
@@ -140,7 +146,10 @@ async function forwardFederation(query, type) {
   // Parse TOML to find FEDERATION_SERVER
   const federationServer = parseFederationServer(tomlContent);
   if (!federationServer) {
-    throw new Error("No federation server found in stellar.toml");
+    const error = new Error("No federation server found in stellar.toml");
+    error.status = 502;
+    error.errorCode = "SRV_FEDERATION_FAILED";
+    throw error;
   }
 
   // Make request to external federation server
@@ -156,6 +165,7 @@ async function forwardFederation(query, type) {
   ) {
     const error = new Error("Invalid Stellar address returned from federation server");
     error.status = 502;
+    error.errorCode = "SRV_FEDERATION_FAILED";
     throw error;
   }
 

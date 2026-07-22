@@ -12,6 +12,7 @@
 "use strict";
 
 const metrics = require("../services/metricsService");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 // ─── Route normalisation ──────────────────────────────────────────────────────
 
@@ -96,12 +97,16 @@ function requireMetricsToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     res.setHeader("WWW-Authenticate", 'Bearer realm="metrics"');
-    return res.status(401).json({ error: "Unauthorized: missing or invalid Authorization header. Expected 'Bearer <token>'." });
+    return res
+      .status(ERROR_CODES.AUTH_MISSING_HEADER.httpStatus)
+      .json(formatErrorResponse("AUTH_MISSING_HEADER"));
   }
 
   const token = authHeader.split(" ")[1];
   if (token !== expectedToken) {
-    return res.status(401).json({ error: "Unauthorized: invalid metrics token." });
+    return res
+      .status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus)
+      .json(formatErrorResponse("AUTH_INVALID_TOKEN", { reason: "Invalid metrics token." }));
   }
 
   next();

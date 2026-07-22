@@ -201,7 +201,8 @@ pub struct MultiSigProposal {
     pub approvals: Vec<Address>,
     pub status: MultiSigStatus,
     /// Ledger sequence number after which this proposal expires.
-    /// 0 means no expiration (legacy).
+    /// Always strictly greater than the ledger at creation time — see
+    /// `MAX_MULTISIG_TTL` for the enforced upper bound.
     pub expiration_ledger: u32,
 }
 
@@ -223,6 +224,10 @@ const MIN_ESCROW_AMOUNT: i128 = 1_000;
 const MIN_MULTISIG_AMOUNT: i128 = 1_000;
 /// Maximum signers allowed in a multi-sig proposal.
 const MAX_MULTISIG_SIGNERS: u32 = 20;
+/// Maximum ledgers into the future a multi-sig proposal's expiration may be
+/// set (≈ 30 days at 5 s/ledger). Prevents proposals from outliving the
+/// security assumptions (e.g. signer key rotation) made at creation time.
+const MAX_MULTISIG_TTL: u32 = 518_400;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
@@ -1297,6 +1302,12 @@ impl FinchippayContract {
         if amount < MIN_MULTISIG_AMOUNT {
             panic!("amount below minimum multi-sig size");
         }
+        if expiration_ledger <= env.ledger().sequence() {
+            panic!("expiration_ledger must be in the future");
+        }
+        if expiration_ledger > env.ledger().sequence() + MAX_MULTISIG_TTL {
+            panic!("expiration_ledger exceeds maximum multi-sig TTL");
+        }
         if threshold == 0 || threshold > signers.len() {
             panic!("threshold must be between 1 and signers.len()");
         }
@@ -1371,10 +1382,10 @@ impl FinchippayContract {
             panic!("proposal is not pending");
         }
 
-        // Check if the proposal has expired.
-        if proposal.expiration_ledger != 0
-            && env.ledger().sequence() > proposal.expiration_ledger
-        {
+        // Check if the proposal has expired. Every proposal is required to
+        // carry a positive, bounded expiration (see `create_multisig`), so
+        // there is no "no expiration" bypass here.
+        if env.ledger().sequence() > proposal.expiration_ledger {
             panic!("proposal has expired");
         }
 
@@ -1944,7 +1955,8 @@ mod tests {
         signers.push_back(s3.clone());
 
         // 2-of-3 threshold.
-        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &expiry);
         assert_eq!(client.get_multisig(&pid).status, MultiSigStatus::Pending);
 
         client.approve_multisig(&pid, &s1);
@@ -1970,7 +1982,8 @@ mod tests {
 
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
-        let pid = client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let pid = client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &expiry);
         client.cancel_multisig(&pid, &proposer);
         assert_eq!(client.get_multisig(&pid).status, MultiSigStatus::Cancelled);
         assert_eq!(token.balance(&proposer), 2000);
@@ -2313,6 +2326,60 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "expiration_ledger must be in the future")]
+    fn test_multisig_zero_expiration_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 2000);
+
+        let mut signers = soroban_sdk::Vec::new(&env);
+        signers.push_back(s1);
+        // expiration_ledger = 0 must no longer be accepted as "no expiration".
+        client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &0);
+    }
+
+    #[test]
+    #[should_panic(expected = "expiration_ledger must be in the future")]
+    fn test_multisig_past_expiration_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 2000);
+
+        let mut signers = soroban_sdk::Vec::new(&env);
+        signers.push_back(s1);
+        let past = env.ledger().sequence();
+        client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &past);
+    }
+
+    #[test]
+    #[should_panic(expected = "expiration_ledger exceeds maximum multi-sig TTL")]
+    fn test_multisig_ttl_exceeds_maximum_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 2000);
+
+        let mut signers = soroban_sdk::Vec::new(&env);
+        signers.push_back(s1);
+        let too_far = env.ledger().sequence() + MAX_MULTISIG_TTL + 1;
+        client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &too_far);
+    }
+
+    #[test]
     #[should_panic(expected = "duplicate signer in signers list")]
     fn test_multisig_duplicate_signer_panics() {
         let env = Env::default();
@@ -2327,8 +2394,9 @@ mod tests {
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
         signers.push_back(s1.clone()); // duplicate
+        let expiry = env.ledger().sequence() + 1000;
         let _pid = client.create_multisig(
-            &token_id, &proposer, &recipient, &2000, &1, &signers, &0,
+            &token_id, &proposer, &recipient, &2000, &1, &signers, &expiry,
         );
     }
 
@@ -2424,7 +2492,8 @@ mod tests {
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
         // MIN_MULTISIG_AMOUNT is 1000, so 500 should panic.
-        client.create_multisig(&token_id, &proposer, &recipient, &500, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        client.create_multisig(&token_id, &proposer, &recipient, &500, &1, &signers, &expiry);
     }
 
     #[test]
@@ -2443,7 +2512,8 @@ mod tests {
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
         signers.push_back(s2.clone());
-        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &expiry);
         client.approve_multisig(&pid, &s1);
         client.approve_multisig(&pid, &s1); // duplicate — should panic
     }
@@ -2518,7 +2588,8 @@ mod tests {
         let signers = Vec::from_array(&env, [signer.clone()]);
         env.mock_all_auths();
         let fake_token_id = env.register_contract(None, MaliciousToken);
-        client.create_multisig(&fake_token_id, &proposer, &recipient, &1_000, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        client.create_multisig(&fake_token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
     }
 
     #[test]
@@ -2668,7 +2739,8 @@ mod tests {
         let token_id = create_token(&env, &admin, &proposer, 5_000);
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(signer);
-        let id = client.create_multisig(&token_id, &proposer, &recipient, &2_000, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let id = client.create_multisig(&token_id, &proposer, &recipient, &2_000, &1, &signers, &expiry);
         client.cancel_multisig(&id, &proposer);
 
         let events = env.events().all().filter_by_contract(&contract_id);

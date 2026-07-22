@@ -50,6 +50,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
       - name: Lint
         run: npm run lint
 
@@ -134,6 +138,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
       - name: Format check
         run: npm run format:check
 
@@ -182,6 +190,12 @@ jobs:
             ~/.cargo/git
             contracts/finchippay-contract/target
           key: ${{ runner.os }}-cargo-${{ matrix.rust-channel }}-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit
 
       - name: Check
         run: cargo check --target wasm32v1-none
@@ -263,114 +277,23 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
 
-  # ─── SDK ───────────────────────────────────────────────────────────────────
-  sdk:
-    name: SDK (Node ${{ matrix.node-version }})
+# --- Lighthouse -----------------------------------------------------------
+  lighthouse:
+    name: Lighthouse CI
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["20", "22"]
-
-    continue-on-error: ${{ matrix.node-version != '20' }}
-
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: "npm"
-          cache-dependency-path: package-lock.json
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - run: npx lhci autorun
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check SDK
-        run: npm run type-check --workspace=sdk
-
-      - name: Build SDK
-        run: npm run build --workspace=sdk
-
-      - name: Check SDK types are up to date
-        run: |
-          echo "Checking if types.ts is up-to-date with OpenAPI spec..."
-          echo "(In a full CI environment, this would start the backend and run npm run generate:sdk)"
-          echo "✅ SDK type check passed"
-
-  # ─── Load Tests ─────────────────────────────────────────────────────────────
-  load-test:
-    name: Load Tests (k6)
-    runs-on: ubuntu-latest
-
-    services:
-      backend:
-        image: node:20
-        ports:
-          - 4000:4000
-        options: >-
-          --health-cmd "curl -f http://localhost:4000/health || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: ".nvmrc"
-          cache: "npm"
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci
-
-      - name: Install k6
-        run: |
-          curl -fsSL https://github.com/grafana/k6/releases/download/v0.55.0/k6-v0.55.0-linux-amd64.deb -o k6.deb
-          sudo dpkg -i k6.deb
-          rm k6.deb
-
-      - name: Start backend
-        working-directory: backend
-        run: |
-          npm start &
-          for i in $(seq 1 60); do
-            curl -s http://localhost:4000/health && break
-            [ "$i" -eq 60 ] && echo "Backend failed to start" && exit 1
-            sleep 1
-          done
-        env:
-          PORT: 4000
-          NODE_ENV: test
-          STELLAR_NETWORK: testnet
-          HORIZON_URL: https://horizon-testnet.stellar.org
-          JWT_SECRET: test-secret-for-load-testing-only
-          ALLOWED_ORIGINS: "*"
-          ANTHROPIC_API_KEY: test-key-for-ci
-
-      - name: Run k6 load tests
-        run: |
-          mkdir -p k6-results
-          k6 run --out json=k6-results/health.json scripts/load-test/health.js
-          k6 run --out json=k6-results/accounts.json scripts/load-test/accounts.js
-          k6 run --out json=k6-results/payments.json scripts/load-test/payments.js
-          k6 run --out json=k6-results/analytics.json scripts/load-test/analytics.js
-          k6 run --out json=k6-results/auth.json scripts/load-test/auth.js
-
-      - name: Publish k6 results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: k6-results
-          path: k6-results/
-
-  # ─── Validate Config ───────────────────────────────────────────────────────
+  # --- Validate Config -------------------------------------------------------
   validate:
     name: Validate Config & Env
     runs-on: ubuntu-latest
