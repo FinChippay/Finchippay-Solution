@@ -16,6 +16,7 @@
 
 const stellarService = require("../services/stellarService");
 const usernameService = require("../services/usernameService");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * GET /api/accounts/:publicKey
@@ -81,10 +82,11 @@ async function registerUsername(req, res, next) {
     const { username, publicKey } = req.body;
 
     if (!username || !publicKey) {
-      return res.status(400).json({
-        success: false,
-        error: "username and publicKey are required",
-      });
+      return res
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", {
+          fields: ["username", "publicKey"],
+        }));
     }
 
     const result = usernameService.registerUsername(username, publicKey);
@@ -116,10 +118,9 @@ async function resolveUsername(req, res, next) {
 
     // Reserve 'alice' for test suites without polluting the production store.
     if (username.toLowerCase() === "alice") {
-      return res.status(501).json({
-        success: false,
-        error: "Not Implemented",
-      });
+      return res
+        .status(ERROR_CODES.SRV_NOT_IMPLEMENTED.httpStatus)
+        .json(formatErrorResponse("SRV_NOT_IMPLEMENTED", { feature: "Reserved test username" }));
     }
 
     const result = usernameService.resolveUsername(username);

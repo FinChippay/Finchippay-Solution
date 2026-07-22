@@ -13,6 +13,7 @@
 "use strict";
 
 const stellarService = require("../services/stellarService");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * GET /api/payments/:publicKey
@@ -40,7 +41,9 @@ async function getPayments(req, res, next) {
     if (rawLimit !== undefined) {
       const parsed = parseInt(rawLimit, 10);
       if (isNaN(parsed) || !Number.isSafeInteger(parsed) || parsed < 1) {
-        return res.status(400).json({ error: "limit must be a positive integer" });
+        return res
+          .status(ERROR_CODES.VAL_INVALID_LIMIT.httpStatus)
+          .json(formatErrorResponse("VAL_INVALID_LIMIT"));
       }
       limit = Math.min(parsed, 100);
     }

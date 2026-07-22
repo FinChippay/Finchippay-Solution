@@ -12,6 +12,7 @@
 const express = require("express");
 const router = express.Router();
 const sep24Service = require("../services/sep/sep24Service");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * POST /api/sep24/transactions/deposit/interactive
@@ -34,8 +35,8 @@ router.post("/transactions/deposit/interactive", (req, res) => {
 
     if (!asset_code || !account) {
       return res
-        .status(400)
-        .json({ error: "asset_code and account are required" });
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["asset_code", "account"] }));
     }
 
     const record = sep24Service.initiateDeposit({
@@ -53,7 +54,8 @@ router.post("/transactions/deposit/interactive", (req, res) => {
     });
   } catch (err) {
     const status = err.status || 500;
-    res.status(status).json({ error: err.message });
+    const errorCode = err.errorCode || "SRV_INTERNAL";
+    res.status(status).json(formatErrorResponse(errorCode, { reason: err.message }));
   }
 });
 
@@ -78,8 +80,8 @@ router.post("/transactions/withdraw/interactive", (req, res) => {
 
     if (!asset_code || !account) {
       return res
-        .status(400)
-        .json({ error: "asset_code and account are required" });
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["asset_code", "account"] }));
     }
 
     const record = sep24Service.initiateWithdrawal({
@@ -97,7 +99,8 @@ router.post("/transactions/withdraw/interactive", (req, res) => {
     });
   } catch (err) {
     const status = err.status || 500;
-    res.status(status).json({ error: err.message });
+    const errorCode = err.errorCode || "SRV_INTERNAL";
+    res.status(status).json(formatErrorResponse(errorCode, { reason: err.message }));
   }
 });
 
@@ -134,13 +137,15 @@ router.get("/transaction", (req, res) => {
 
   if (!id) {
     return res
-      .status(400)
-      .json({ error: "Missing required query parameter: id" });
+      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["id"] }));
   }
 
   const record = sep24Service.getTransaction(id);
   if (!record) {
-    return res.status(404).json({ error: "Transaction not found" });
+    return res
+      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "transaction" }));
   }
 
   // Build the SEP-0024 compliant transaction response
