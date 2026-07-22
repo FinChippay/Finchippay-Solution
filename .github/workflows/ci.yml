@@ -300,6 +300,76 @@ jobs:
           echo "(In a full CI environment, this would start the backend and run npm run generate:sdk)"
           echo "✅ SDK type check passed"
 
+  # ─── Load Tests ─────────────────────────────────────────────────────────────
+  load-test:
+    name: Load Tests (k6)
+    runs-on: ubuntu-latest
+
+    services:
+      backend:
+        image: node:20
+        ports:
+          - 4000:4000
+        options: >-
+          --health-cmd "curl -f http://localhost:4000/health || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://github.com/grafana/k6/releases/download/v0.55.0/k6-v0.55.0-linux-amd64.deb -o k6.deb
+          sudo dpkg -i k6.deb
+          rm k6.deb
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          npm start &
+          for i in $(seq 1 60); do
+            curl -s http://localhost:4000/health && break
+            [ "$i" -eq 60 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+        env:
+          PORT: 4000
+          NODE_ENV: test
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          JWT_SECRET: test-secret-for-load-testing-only
+          ALLOWED_ORIGINS: "*"
+          ANTHROPIC_API_KEY: test-key-for-ci
+
+      - name: Run k6 load tests
+        run: |
+          mkdir -p k6-results
+          k6 run --out json=k6-results/health.json scripts/load-test/health.js
+          k6 run --out json=k6-results/accounts.json scripts/load-test/accounts.js
+          k6 run --out json=k6-results/payments.json scripts/load-test/payments.js
+          k6 run --out json=k6-results/analytics.json scripts/load-test/analytics.js
+          k6 run --out json=k6-results/auth.json scripts/load-test/auth.js
+
+      - name: Publish k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: k6-results/
+
   # ─── Validate Config ───────────────────────────────────────────────────────
   validate:
     name: Validate Config & Env
