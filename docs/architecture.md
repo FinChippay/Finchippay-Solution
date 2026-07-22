@@ -105,7 +105,8 @@ Key components:
 - `middleware/auth.js` — SEP-0010 JWT verification.
 - `middleware/rateLimit.js` — 100 req/15 min globally; 20 req/min on sensitive routes.
 - `middleware/sanitization.js` — strips HTML/script injection from all user inputs.
-- `utils/logger.js` — Pino structured JSON logger; Stellar secret keys are redacted before any output.
+- `utils/logger.js` — Pino structured JSON logger; Stellar secret keys are redacted before any output. Request-scoped `requestId` / `sessionId` are mixed in automatically (see [logging.md](./logging.md)).
+- `middleware/requestId.js` — adopts/generates `X-Request-ID`, attaches `req.log`, propagates correlation via AsyncLocalStorage.
 - `swagger.js` — OpenAPI 3.0 spec auto-generated from JSDoc annotations.
 
 ### Frontend (`frontend/`)

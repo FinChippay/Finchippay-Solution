@@ -11,10 +11,24 @@
  */
 
 import { FinchippayClient } from "@finchippay/sdk";
+import { installCorrelationFetch, withCorrelation } from "@/lib/correlation";
 
 /** Base URL for the Finchippay API */
 const API_URL =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+
+// Install the global fetch wrapper as early as this module loads on the client
+// so both raw fetch and the SDK see X-Request-ID / X-Session-ID.
+if (typeof window !== "undefined") {
+  installCorrelationFetch();
+}
+
+const correlatedFetch: typeof fetch =
+  typeof window !== "undefined"
+    ? ((input, init) => window.fetch(input, init)) as typeof fetch
+    : typeof globalThis.fetch === "function"
+      ? withCorrelation(globalThis.fetch.bind(globalThis))
+      : (globalThis.fetch as typeof fetch);
 
 /** Singleton SDK instance shared across the frontend. */
 export const sdk = new FinchippayClient({
@@ -25,6 +39,8 @@ export const sdk = new FinchippayClient({
    * automatically attaches the Authorization header to subsequent requests.
    */
   cacheToken: false,
+  // Always delegate to the current global fetch (post-correlation wrap).
+  fetch: correlatedFetch,
 });
 
 /**

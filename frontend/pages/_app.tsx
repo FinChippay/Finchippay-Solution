@@ -21,6 +21,7 @@ import {
 import { I18nextProvider } from "react-i18next";
 import i18n from "@/lib/i18n";
 import { initSdkAuth } from "@/lib/sdk-instance";
+import { installCorrelationFetch } from "@/lib/correlation";
 import "@/styles/globals.css";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -186,6 +187,8 @@ export default function App({ Component, pageProps }: AppProps) {
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
 
   useEffect(() => {
+    // Correlation IDs on every fetch (#172) — install before SDK auth / API traffic
+    installCorrelationFetch();
     // Initialize SDK auth from stored token
     initSdkAuth();
   }, []);

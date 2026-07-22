@@ -48,7 +48,8 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const { requestIdMiddleware } = require("./middleware/requestId");
+const { getRequestId } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
 
 const app = express();
@@ -80,6 +81,12 @@ Sentry.init({
         ...v,
         value: sanitizeMessage(v.value),
       }));
+    }
+    // Attach correlation ID so Sentry events can be cross-referenced with logs.
+    const requestId = getRequestId();
+    if (requestId) {
+      event.tags = { ...event.tags, correlationId: requestId };
+      event.extra = { ...event.extra, correlationId: requestId };
     }
     return event;
   },
@@ -158,20 +165,19 @@ app.use(helmet(helmetOptions));
 // Mounted before routes so the "finish" event captures the resolved
 // route pattern (e.g. "GET /api/payments/:id") rather than raw paths.
 app.use(trackHttpMetrics);
-// Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
+// Request ID middleware (#172) — generates/adopts X-Request-ID, attaches
+// req.log child logger, stores context in ALS, tags Sentry.
 // Mounted before pino-http so the requestId appears in every log line.
-app.use(correlationMiddleware);
+app.use(requestIdMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-// req.id is set by correlationMiddleware above.
+// req.id / req.log are set by requestIdMiddleware above.
 app.use(
   pinoHttp({
     logger,
     genReqId: (req) => req.id || crypto.randomUUID(),
-    customProps: () => {
-      const requestId = getRequestId();
-      return requestId ? { requestId } : {};
-    },
+    // requestId / sessionId come from the logger mixin (ALS) — avoid duplicating
+    // them here via customProps.
   }),
 );
 
@@ -223,7 +229,13 @@ app.use(
       }
     },
     methods: ["GET", "POST", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Request-ID",
+      "X-Session-ID",
+    ],
+    exposedHeaders: ["X-Request-ID", "X-Session-ID"],
     credentials: true,
   }),
 );
@@ -304,7 +316,8 @@ app.get("/api/docs.json", (req, res) => {
 
 app.use((req, res) => {
   const sanitizedPath = req.path.replace(/[\r\n]/g, "");
-  logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
+  const log = req.log || logger;
+  log.warn({ method: req.method, path: sanitizedPath }, "Route not found");
   res
     .status(ERROR_CODES.RES_ROUTE_NOT_FOUND.httpStatus)
     .json(formatErrorResponse("RES_ROUTE_NOT_FOUND"));
@@ -317,17 +330,18 @@ Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   void next;
+  const log = req.log || logger;
   // If the error already has a code from our registry, use it directly.
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
-    logger.error({ status, errorCode: err.errorCode, details: err.details }, "Request error");
+    log.error({ status, errorCode: err.errorCode, details: err.details }, "Request error");
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  logger.error({ status, message }, "Request error");
+  log.error({ status, message }, "Request error");
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),

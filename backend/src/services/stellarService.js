@@ -9,6 +9,7 @@
 const { server, HORIZON_URL } = require("../config/stellar");
 const logger = require("../utils/logger");
 const metrics = require("./metricsService");
+const { getRequestId, getRequestIdHeader } = require("../utils/correlationId");
 const { trace } = require("@opentelemetry/api");
 
 const tracer = trace.getTracer("finchippay-stellar-service");
@@ -95,10 +96,25 @@ async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
  * @returns {Promise<any>}
  */
 async function withTracedSpan(operation, description, fn) {
+  const requestId = getRequestId();
+  // Horizon's public API does not accept custom client headers via the
+  // Stellar SDK Server, so we log the correlation ID alongside every call
+  // and attach it to the OTel span for cross-system joins.
+  logger.info(
+    {
+      requestId,
+      correlationHeaders: getRequestIdHeader(),
+      horizonUrl: HORIZON_URL,
+      horizonOperation: operation,
+    },
+    "Horizon API call",
+  );
+
   const span = tracer.startSpan(description, {
     attributes: {
       "horizon.url": HORIZON_URL,
       "horizon.operation": operation,
+      ...(requestId ? { "request.id": requestId } : {}),
     },
   });
 

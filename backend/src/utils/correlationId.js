@@ -2,40 +2,37 @@
  * src/utils/correlationId.js
  * AsyncLocalStorage-based correlation ID for distributed tracing.
  *
- * Usage:
- *   const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
- *   app.use(correlationMiddleware);  // mount first — before pino-http
+ * The Express middleware lives in `middleware/requestId.js`. This module
+ * exposes helpers for reading the active request context anywhere in the
+ * async call chain (services, axios interceptors, webhooks).
  *
- *   // Anywhere in the async call chain:
- *   const requestId = getRequestId();  // returns the current requestId or undefined
+ * Usage:
+ *   const { getRequestId, getRequestIdHeader } = require("./utils/correlationId");
+ *   const requestId = getRequestId();
+ *   fetch(url, { headers: { ...getRequestIdHeader() } });
  */
 
 "use strict";
 
-const crypto = require("crypto");
 const { AsyncLocalStorage } = require("async_hooks");
 
 const als = new AsyncLocalStorage();
 
 /**
- * Express middleware that generates or adopts a correlation ID:
- *  - Uses `X-Request-ID` request header if present
- *  - Otherwise generates a UUID v4
- *  - Sets `X-Request-ID` response header
- *  - Stores the ID in AsyncLocalStorage for downstream propagation
- *  - Sets `req.id` so pino-http picks it up as the log-gen ID
+ * Run `fn` inside a request correlation context.
+ * Used by `middleware/requestId.js`.
+ *
+ * @param {{ requestId: string, sessionId?: string }} context
+ * @param {() => void} fn
  */
-function correlationMiddleware(req, res, next) {
-  const requestId = req.headers["x-request-id"] || crypto.randomUUID();
-  req.id = requestId;
-  res.setHeader("X-Request-ID", requestId);
-  als.run({ requestId }, next);
+function runWithRequestContext(context, fn) {
+  return als.run(context, fn);
 }
 
 /**
  * Retrieve the current request's correlation ID from AsyncLocalStorage.
  * Returns `undefined` when called outside of an active request context
- * (e.g. startup code, background cron-like processes).
+ * (e.g. startup code, background jobs).
  */
 function getRequestId() {
   const store = als.getStore();
@@ -43,17 +40,30 @@ function getRequestId() {
 }
 
 /**
+ * Retrieve the frontend session ID when present.
+ */
+function getSessionId() {
+  const store = als.getStore();
+  return store?.sessionId;
+}
+
+/**
  * Return an object suitable for spreading into outbound request headers.
  *
- * @returns {{ "X-Request-ID"?: string }}  Empty object when no context.
+ * @returns {{ "X-Request-ID"?: string, "X-Session-ID"?: string }}
  */
 function getRequestIdHeader() {
-  const id = getRequestId();
-  return id ? { "X-Request-ID": id } : {};
+  const requestId = getRequestId();
+  const sessionId = getSessionId();
+  const headers = {};
+  if (requestId) headers["X-Request-ID"] = requestId;
+  if (sessionId) headers["X-Session-ID"] = sessionId;
+  return headers;
 }
 
 module.exports = {
-  correlationMiddleware,
+  runWithRequestContext,
   getRequestId,
+  getSessionId,
   getRequestIdHeader,
 };
