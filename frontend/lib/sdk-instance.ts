@@ -1,16 +1,10 @@
 /**
  * lib/sdk-instance.ts
  * Shared FinchippayClient instance for the frontend.
- *
- * This module creates and exports a singeton SDK client pre-configured
- * with the API base URL from environment variables. The frontend uses
- * this instance for all backend API calls.
- *
- * This is part of "dogfooding" — using our own SDK in production to
- * ensure it stays correct as the API evolves.
  */
 
 import { FinchippayClient } from "@finchippay/sdk";
+import { withAuth } from "./auth";
 
 /** Base URL for the Finchippay API */
 const API_URL =
@@ -19,23 +13,13 @@ const API_URL =
 /** Singleton SDK instance shared across the frontend. */
 export const sdk = new FinchippayClient({
   baseUrl: API_URL,
-  /**
-   * The frontend manages auth tokens separately via wallet.ts (SEP-0010).
-   * We pass the token via setToken() after authentication so the SDK
-   * automatically attaches the Authorization header to subsequent requests.
-   */
   cacheToken: false,
+  fetch: typeof window !== "undefined" ? withAuth(window.fetch.bind(window)) : undefined,
 });
 
 /**
- * Initialize the SDK with the JWT token from local storage (if any).
- * Call this once on app startup.
+ * Initialize the SDK auth. Called once on app startup.
  */
 export function initSdkAuth(): void {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("finchippay_auth_token");
-    if (token) {
-      sdk.setToken(token);
-    }
-  }
+  // Using two-token rotation; withAuth will fetch and refresh as needed.
 }

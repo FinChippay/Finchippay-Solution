@@ -172,6 +172,93 @@ docker compose -f docker-compose.prod.yml logs -f backend
 docker compose -f docker-compose.prod.yml logs backend | grep -v REDACTED
 ```
 
+## Kubernetes Health Probes
+
+The backend exposes two health endpoints for Kubernetes:
+
+| Endpoint | Purpose | External calls |
+|---|---|---|
+| `GET /health` | **Liveness** — is the process alive? | None |
+| `GET /health/ready` | **Readiness** — can it serve traffic? | Horizon, Soroban RPC (optional) |
+
+### Liveness probe
+
+Returns `200 { "status": "ok", "uptime": <seconds> }` immediately with no
+external I/O. If this fails the container is restarted.
+
+### Readiness probe
+
+Probes Horizon (and Soroban RPC when `SOROBAN_RPC_URL` is set). Returns `200`
+when all configured dependencies respond within `HEALTH_TIMEOUT_MS`
+(default 5 000 ms); returns `503` if any dependency is unreachable.
+
+Pod is removed from the Service endpoints until the probe passes again — no
+traffic is routed to a pod that cannot reach Horizon.
+
+Example response (healthy):
+
+```json
+{
+  "status": "ok",
+  "dependencies": {
+    "horizon": { "status": "ok", "latencyMs": 45 },
+    "soroban_rpc": { "status": "ok", "latencyMs": 120 }
+  }
+}
+```
+
+Example response (Horizon down):
+
+```json
+{
+  "status": "error",
+  "dependencies": {
+    "horizon": {
+      "status": "error",
+      "latencyMs": 5001,
+      "error": "timed out after 5000 ms"
+    }
+  }
+}
+```
+
+### Kubernetes Deployment manifest snippet
+
+```yaml
+containers:
+  - name: finchippay-backend
+    image: ghcr.io/finchippay/finchippay-backend:latest
+    ports:
+      - containerPort: 4000
+    env:
+      - name: HORIZON_URL
+        value: "https://horizon.stellar.org"
+      # Optional — omit if no Soroban RPC is needed:
+      # - name: SOROBAN_RPC_URL
+      #   value: "https://soroban-testnet.stellar.org"
+      - name: HEALTH_TIMEOUT_MS
+        value: "5000"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 4000
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health/ready
+        port: 4000
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 6
+      failureThreshold: 2
+```
+
+Tune `HEALTH_TIMEOUT_MS` to be slightly lower than `timeoutSeconds` so the
+probe response always arrives before Kubernetes declares a timeout.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

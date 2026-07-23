@@ -7,24 +7,34 @@ import { Html, Head, Main, NextScript } from "next/document";
 
 export default function Document() {
   return (
-    <Html lang="en">
+    <Html lang="en" suppressHydrationWarning>
       <Head>
-        {/* Prevent theme flash on page load (#217) */}
+        {/* Resolve the saved theme before React loads to prevent a flash. */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
                 try {
                   const saved = localStorage.getItem('finchippay:theme');
-                  const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                  const theme = saved || preferred;
-                  if (theme === 'dark') {
-                    document.documentElement.classList.add('dark');
-                  } else {
-                    document.documentElement.classList.remove('dark');
-                  }
+                  const theme =
+                    saved === 'light' || saved === 'dark' || saved === 'system'
+                      ? saved
+                      : 'system';
+                  const resolved =
+                    theme === 'system'
+                      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                        ? 'dark'
+                        : 'light'
+                      : theme;
+
+                  document.documentElement.classList.toggle(
+                    'dark',
+                    resolved === 'dark'
+                  );
+                  document.documentElement.dataset.theme = theme;
+                  document.documentElement.style.colorScheme = resolved;
                 } catch (e) {}
-              })()
+              })();
             `,
           }}
         />

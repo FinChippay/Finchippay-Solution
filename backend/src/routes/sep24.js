@@ -170,4 +170,89 @@ router.get("/transaction", (req, res) => {
   res.json({ transaction: txn });
 });
 
+/**
+ * POST /api/sep24/deposit
+ * Initiates a REAL interactive deposit against a configured Stellar anchor.
+ * Body: { assetCode, assetIssuer, amount, anchorName, account, token }
+ */
+router.post("/deposit", async (req, res) => {
+  try {
+    const { assetCode, assetIssuer, amount, anchorName, account, token } = req.body;
+    if (!assetCode || !account) {
+      return res
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["assetCode", "account"] }));
+    }
+    const result = await sep24Service.callAnchorDeposit({
+      account,
+      assetCode,
+      assetIssuer,
+      amount,
+      anchorName,
+      token,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json(formatErrorResponse(err.errorCode || "SRV_INTERNAL", { reason: err.message }));
+  }
+});
+
+/**
+ * POST /api/sep24/withdraw
+ * Initiates a REAL interactive withdrawal against a configured Stellar anchor.
+ * Body: { assetCode, assetIssuer, amount, destAccount, anchorName, account, token }
+ */
+router.post("/withdraw", async (req, res) => {
+  try {
+    const { assetCode, assetIssuer, amount, destAccount, anchorName, account, token } = req.body;
+    if (!assetCode || !account || !destAccount) {
+      return res
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["assetCode", "account", "destAccount"] }));
+    }
+    const result = await sep24Service.callAnchorWithdraw({
+      account,
+      assetCode,
+      assetIssuer,
+      amount,
+      destAccount,
+      anchorName,
+      token,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json(formatErrorResponse(err.errorCode || "SRV_INTERNAL", { reason: err.message }));
+  }
+});
+
+/**
+ * GET /api/sep24/transactions/:txId
+ * Returns the current status of an anchor-backed transaction.
+ */
+router.get("/transactions/:txId", (req, res) => {
+  const record = sep24Service.getAnchorTransaction(req.params.txId);
+  if (!record) {
+    return res
+      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "transaction" }));
+  }
+  res.json({ transaction: record });
+});
+
+/**
+ * POST /api/sep24/callback
+ * Webhook endpoint for the anchor to POST transaction status updates.
+ */
+router.post("/callback", (req, res) => {
+  try {
+    sep24Service.handleAnchorCallback(req.body);
+    res.status(200).json({ received: true });
+  } catch (err) {
+    const status = err.status || 400;
+    res.status(status).json(formatErrorResponse(err.errorCode || "VAL_INVALID_JSON", { reason: err.message }));
+  }
+});
+
 module.exports = router;

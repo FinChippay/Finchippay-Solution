@@ -157,7 +157,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
               orderType === "market"
                 ? "bg-stellar-500 text-white"
-                : "text-slate-400 hover:text-white"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
             Market Order
@@ -168,7 +168,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
               orderType === "limit"
                 ? "bg-stellar-500 text-white"
-                : "text-slate-400 hover:text-white"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
             Limit Order
@@ -178,7 +178,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
         {/* Asset Selection */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
               You Pay
             </label>
             <div className="flex gap-2">
@@ -186,7 +186,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 aria-label="Selling asset"
                 value={sellingAsset}
                 onChange={(e) => setSellingAsset(e.target.value as "XLM" | "USDC")}
-                className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white focus:outline-none focus:border-stellar-400"
+                className="flex-1 px-3 py-2 bg-white dark:bg-cosmos-800 border border-slate-300 dark:border-stellar-500/20 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-stellar-400"
               >
                 <option value="XLM">XLM</option>
                 <option value="USDC">USDC</option>
@@ -198,7 +198,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
-                className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400"
+                className="flex-1 px-3 py-2 bg-white dark:bg-cosmos-800 border border-slate-300 dark:border-stellar-500/20 rounded-lg text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400"
               />
             </div>
           </div>
@@ -212,12 +212,12 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
               aria-label="Swap assets"
               className="p-2 rounded-lg bg-stellar-500/20 hover:bg-stellar-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <SwapIcon className="w-5 h-5 text-stellar-400" />
+              <SwapIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             </button>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
               You Receive
             </label>
             <div className="flex gap-2">
@@ -225,7 +225,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 aria-label="Buying asset"
                 value={buyingAsset}
                 onChange={(e) => setBuyingAsset(e.target.value as "XLM" | "USDC")}
-                className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white focus:outline-none focus:border-stellar-400"
+                className="flex-1 px-3 py-2 bg-white dark:bg-cosmos-800 border border-slate-300 dark:border-stellar-500/20 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-stellar-400"
               >
                 <option value="XLM">XLM</option>
                 <option value="USDC">USDC</option>
@@ -238,10 +238,10 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="Price"
-                  className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400"
+                  className="flex-1 px-3 py-2 bg-white dark:bg-cosmos-800 border border-slate-300 dark:border-stellar-500/20 rounded-lg text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400"
                 />
               ) : (
-                <div className="flex-1 px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-slate-400">
+                <div className="flex-1 px-3 py-2 bg-slate-100 dark:bg-cosmos-800 border border-slate-300 dark:border-stellar-500/20 rounded-lg text-slate-600 dark:text-slate-400">
                   Market Price
                 </div>
               )}
@@ -251,7 +251,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
 
         {/* Slippage Tolerance Input */}
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             Slippage Tolerance (%)
           </label>
           <input
@@ -260,7 +260,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             value={slippage}
             onChange={(e) => setSlippage(e.target.value)}
             placeholder="0.5"
-            className="w-full px-3 py-2 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400 text-sm"
+            className="w-full px-3 py-2 bg-white dark:bg-cosmos-800 border border-slate-300 dark:border-stellar-500/20 rounded-lg text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400 text-sm"
           />
           {isSlippageInvalid && (
             <p className="text-xs text-red-400 mt-1">
@@ -286,7 +286,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
                   side === "buy"
                     ? "bg-emerald-500 text-white"
-                    : "text-slate-400 hover:text-white"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
                 Buy Order
@@ -297,7 +297,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
                   side === "sell"
                     ? "bg-red-500 text-white"
-                    : "text-slate-400 hover:text-white"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
                 Sell Order

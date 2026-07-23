@@ -9,7 +9,6 @@ import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 import {
-  shortenAddress,
   getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
@@ -19,15 +18,15 @@ import {
   performSEP0010Auth,
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
-import { useTheme } from "@/pages/_app";
-import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
+import ThemeToggle from "@/components/ThemeToggle";
+import AccountSwitcher from "@/components/AccountSwitcher";
+import { NavStarIcon } from "@/components/icons";
 
 export default function Navbar() {
   const router = useRouter();
-  const { publicKey, connectWallet, disconnectWallet } = useWallet();
-  const { theme, toggleTheme } = useTheme();
+  const { publicKey, connectWallet } = useWallet();
   const { t } = useTranslation("common");
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const config = getNetworkConfig();
   const isMainnet = config.network === "mainnet";
@@ -44,10 +43,10 @@ export default function Navbar() {
   ];
   const networkBadgeClassName =
     config.network === "custom"
-      ? "border-purple-400/35 bg-purple-400/10 text-purple-300"
+      ? "border-purple-500/35 bg-purple-100 text-purple-700 dark:border-purple-400/35 dark:bg-purple-400/10 dark:text-purple-300"
       : isMainnet
-        ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300"
-        : "border-amber-400/35 bg-amber-400/10 text-amber-300";
+        ? "border-emerald-500/35 bg-emerald-100 text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-400/10 dark:text-emerald-300"
+        : "border-amber-500/35 bg-amber-100 text-amber-800 dark:border-amber-400/35 dark:bg-amber-400/10 dark:text-amber-300";
 
   useEffect(() => {
     let cancelled = false;
@@ -71,16 +70,6 @@ export default function Navbar() {
       window.clearInterval(intervalId);
     };
   }, []);
-
-  useEffect(() => {
-    if (!showDisconnectConfirm) return;
-
-    const timeoutId = window.setTimeout(() => {
-      setShowDisconnectConfirm(false);
-    }, 5000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [showDisconnectConfirm]);
 
   const handleConnectClick = async () => {
     const { publicKey: nextPublicKey, error: walletError } =
@@ -145,8 +134,8 @@ export default function Navbar() {
                 className={clsx(
                   "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
                   router.pathname === link.href
-                    ? "bg-stellar-500/15 text-stellar-300"
-                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+                    ? "bg-stellar-100 text-stellar-700 dark:bg-stellar-500/15 dark:text-stellar-300"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
                 )}
               >
                 {link.label}
@@ -156,65 +145,64 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={toggleTheme}
-            aria-label={
-              theme === "dark" ? t("nav.switchToLight") : t("nav.switchToDark")
-            }
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90"
-          >
-            {theme === "dark" ? <MoonIcon /> : <SunIcon />}
-          </button>
+          <ThemeToggle />
 
           {publicKey ? (
             <div className="flex items-center gap-2">
               <kbd
-                title={t("nav.quickSend")}
-                className="hidden select-none items-center gap-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 px-2 py-1 font-mono text-xs text-stellar-400 md:inline-flex"
+                title={t("nav.switchAccountShortcut")}
+                className="hidden select-none items-center gap-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 px-2 py-1 font-mono text-xs text-stellar-700 dark:text-stellar-400 md:inline-flex"
               >
                 {t("nav.quickSend")}
               </kbd>
 
-              <div className="address-pill flex items-center gap-2">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                <span>{shortenAddress(publicKey)}</span>
-              </div>
-              <button
-                onClick={() => setShowDisconnectConfirm(true)}
-                aria-label="Show disconnect confirmation"
-                className="px-2 py-1 text-xs text-slate-400 transition-colors hover:text-slate-300"
-              >
-                {t("nav.disconnect")}
-              </button>
-              {showDisconnectConfirm && (
-                <div className="flex items-center gap-1 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-1">
-                  <span className="text-[11px] text-amber-300">{t("nav.disconnectConfirm")}</span>
-                  <button
-                    onClick={() => {
-                      setShowDisconnectConfirm(false);
-                      disconnectWallet();
-                    }}
-                    className="rounded px-1.5 py-0.5 text-[11px] text-red-300 hover:bg-red-500/20"
-                  >
-                    {t("nav.confirm")}
-                  </button>
-                  <button
-                    onClick={() => setShowDisconnectConfirm(false)}
-                    className="rounded px-1.5 py-0.5 text-[11px] text-slate-200 hover:bg-white/10"
-                  >
-                    {t("nav.cancel")}
-                  </button>
-                </div>
-              )}
+              <AccountSwitcher />
             </div>
           ) : (
             <button onClick={handleConnectClick} className="btn-primary px-4 py-2 text-sm">
               {t("nav.connectWallet")}
             </button>
           )}
+
+          {/* Hamburger Menu Toggle */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-cosmos-800 dark:hover:text-slate-200 md:hidden"
+            aria-label="Toggle mobile menu"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {isMobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* Mobile Menu Dropdown */}
+      {isMobileMenuOpen && (
+        <div className="absolute left-0 right-0 top-full border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
+          <div className="flex flex-col gap-2">
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block min-h-[44px] rounded-lg px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-cosmos-800"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <div className="mt-4 border-t border-slate-200 pt-4 dark:border-cosmos-800">
+              <div className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Network: {networkLabel}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
-
