@@ -11,6 +11,9 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
+const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
+// Registers the correlation-ID provider for error bodies built in this process.
+require("./utils/errorResponse");
 
 const TURRETS_PORT = Number(process.env.TURRETS_PORT || 4100);
 
@@ -48,8 +51,15 @@ function createTurretsApp() {
 
   app.use((err, req, res, next) => {
     void next;
+    // Use standardized error shape when available
+    if (err.errorCode) {
+      const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
+      return res.status(status).json(formatErrorResponse(err.errorCode, err.details));
+    }
     const status = err.status || 500;
-    res.status(status).json({ error: err.message || "Internal Server Error" });
+    res
+      .status(status)
+      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message || "Internal Server Error" }));
   });
 
   return app;

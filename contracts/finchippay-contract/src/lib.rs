@@ -130,6 +130,8 @@ pub enum EscrowStatus {
 
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
 const MAX_USER_ESCROWS: u32 = 100;
+const MAX_USER_STREAMS: u32 = 100;
+const MAX_PAGE_SIZE: u32 = 50;
 
 // ─── Streaming payments ───────────────────────────────────────────────────────
 
@@ -201,7 +203,8 @@ pub struct MultiSigProposal {
     pub approvals: Vec<Address>,
     pub status: MultiSigStatus,
     /// Ledger sequence number after which this proposal expires.
-    /// 0 means no expiration (legacy).
+    /// Always strictly greater than the ledger at creation time — see
+    /// `MAX_MULTISIG_TTL` for the enforced upper bound.
     pub expiration_ledger: u32,
 }
 
@@ -223,6 +226,10 @@ const MIN_ESCROW_AMOUNT: i128 = 1_000;
 const MIN_MULTISIG_AMOUNT: i128 = 1_000;
 /// Maximum signers allowed in a multi-sig proposal.
 const MAX_MULTISIG_SIGNERS: u32 = 20;
+/// Maximum ledgers into the future a multi-sig proposal's expiration may be
+/// set (≈ 30 days at 5 s/ledger). Prevents proposals from outliving the
+/// security assumptions (e.g. signer key rotation) made at creation time.
+const MAX_MULTISIG_TTL: u32 = 518_400;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
@@ -256,6 +263,7 @@ pub enum DataKey {
     // Multi-sig
     MultiSigCount,
     MultiSig(u32),
+    StreamByPayer(Address),
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -588,6 +596,13 @@ impl FinchippayContract {
         val
     }
 
+    /// Stable alias for `get_tip_total`. The dashboard and analytics pages
+    /// call this instead of the backend analytics endpoint so that tip data
+    /// is always read from the canonical on-chain source.
+    pub fn tip_total(env: Env, address: Address) -> i128 {
+        Self::get_tip_total(env, address)
+    }
+
     /// Return the number of tips received by `recipient`.
     pub fn get_tip_count(env: Env, recipient: Address) -> u32 {
         let key = DataKey::TipCount(recipient);
@@ -596,6 +611,13 @@ impl FinchippayContract {
             bump(&env, &key);
         }
         val
+    }
+
+    /// Stable alias for `get_tip_count`. The dashboard and analytics pages
+    /// call this instead of the backend analytics endpoint so that tip data
+    /// is always read from the canonical on-chain source.
+    pub fn tip_count(env: Env, address: Address) -> u32 {
+        Self::get_tip_count(env, address)
     }
 
     /// Return the tip record at `index` for `recipient`.
@@ -898,6 +920,12 @@ impl FinchippayContract {
             .unwrap_or(0)
     }
 
+    /// Stable alias for `get_escrow_count`. Provides a consistent SDK
+    /// binding for dashboard and analytics consumers.
+    pub fn escrow_count(env: Env) -> u32 {
+        Self::get_escrow_count(env)
+    }
+
 
     // ─── Streaming payments ───────────────────────────────────────────────────
 
@@ -960,6 +988,18 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::StreamCount, &(id + 1));
         bump(&env, &DataKey::StreamCount);
+
+        let s_key = DataKey::StreamByPayer(payer.clone());
+        let mut p_streams: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&s_key)
+            .unwrap_or(Vec::new(&env));
+        if p_streams.len() < MAX_USER_STREAMS {
+            p_streams.push_back(id);
+            env.storage().persistent().set(&s_key, &p_streams);
+            bump(&env, &s_key);
+        }
 
         env.events().publish(
             (Symbol::new(&env, "stream_open"), id),
@@ -1101,9 +1141,26 @@ impl FinchippayContract {
             .set(&DataKey::Stream(stream_id), &stream);
         bump(&env, &DataKey::Stream(stream_id));
 
+        let s_key = DataKey::StreamByPayer(payer.clone());
+        let p_streams: Vec<u32> = env.storage().persistent().get(&s_key).unwrap_or(Vec::new(&env));
+        let mut new_streams = Vec::new(&env);
+        for s_id in p_streams.iter() {
+            if s_id != stream_id {
+                new_streams.push_back(s_id);
+            }
+        }
+        env.storage().persistent().set(&s_key, &new_streams);
+        bump(&env, &s_key);
+
         env.events().publish(
             (Symbol::new(&env, "stream_close"), stream_id),
             (payer, refund),
+        );
+
+        // Emit final close event for indexing/UI.
+        env.events().publish(
+            (Symbol::new(&env, "stream_closed"), stream_id),
+            (refund, claimable),
         );
         refund
     }
@@ -1249,6 +1306,61 @@ impl FinchippayContract {
             .unwrap_or(0)
     }
 
+    /// Stable alias for `get_stream_count`. Generates a consistent SDK
+    /// binding name that will not change across contract upgrades, making
+    /// dashboard and analytics integrations resilient to internal refactors.
+    pub fn stream_count(env: Env) -> u32 {
+        Self::get_stream_count(env)
+    }
+
+    pub fn list_streams_by_payer(env: Env, payer: Address, offset: u32, limit: u32) -> Vec<Stream> {
+        let s_key = DataKey::StreamByPayer(payer);
+        let p_streams: Vec<u32> = env.storage().persistent().get(&s_key).unwrap_or(Vec::new(&env));
+        if env.storage().persistent().has(&s_key) {
+            bump(&env, &s_key);
+        }
+        let total = p_streams.len();
+        if offset >= total {
+            return Vec::new(&env);
+        }
+        let max_limit = limit.min(MAX_PAGE_SIZE);
+        let mut end = offset.saturating_add(max_limit);
+        if end > total {
+            end = total;
+        }
+        let mut result = Vec::new(&env);
+        for i in offset..end {
+            let id = p_streams.get(i).unwrap();
+            let stream: Stream = env.storage().persistent().get(&DataKey::Stream(id)).unwrap();
+            result.push_back(stream);
+        }
+        result
+    }
+
+    pub fn list_escrows_by_recipient(env: Env, recipient: Address, offset: u32, limit: u32) -> Vec<Escrow> {
+        let e_key = DataKey::EscrowByRecipient(recipient);
+        let r_escrows: Vec<u32> = env.storage().persistent().get(&e_key).unwrap_or(Vec::new(&env));
+        if env.storage().persistent().has(&e_key) {
+            bump(&env, &e_key);
+        }
+        let total = r_escrows.len();
+        if offset >= total {
+            return Vec::new(&env);
+        }
+        let max_limit = limit.min(MAX_PAGE_SIZE);
+        let mut end = offset.saturating_add(max_limit);
+        if end > total {
+            end = total;
+        }
+        let mut result = Vec::new(&env);
+        for i in offset..end {
+            let id = r_escrows.get(i).unwrap();
+            let escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).unwrap();
+            result.push_back(escrow);
+        }
+        result
+    }
+
     // Internal: compute claimable amount for a stream at the current ledger.
     fn _claimable(env: &Env, stream: &Stream) -> i128 {
         if stream.closed {
@@ -1296,6 +1408,12 @@ impl FinchippayContract {
         }
         if amount < MIN_MULTISIG_AMOUNT {
             panic!("amount below minimum multi-sig size");
+        }
+        if expiration_ledger <= env.ledger().sequence() {
+            panic!("expiration_ledger must be in the future");
+        }
+        if expiration_ledger > env.ledger().sequence() + MAX_MULTISIG_TTL {
+            panic!("expiration_ledger exceeds maximum multi-sig TTL");
         }
         if threshold == 0 || threshold > signers.len() {
             panic!("threshold must be between 1 and signers.len()");
@@ -1371,10 +1489,10 @@ impl FinchippayContract {
             panic!("proposal is not pending");
         }
 
-        // Check if the proposal has expired.
-        if proposal.expiration_ledger != 0
-            && env.ledger().sequence() > proposal.expiration_ledger
-        {
+        // Check if the proposal has expired. Every proposal is required to
+        // carry a positive, bounded expiration (see `create_multisig`), so
+        // there is no "no expiration" bypass here.
+        if env.ledger().sequence() > proposal.expiration_ledger {
             panic!("proposal has expired");
         }
 
@@ -1513,6 +1631,12 @@ impl FinchippayContract {
             .unwrap_or(0)
     }
 
+    /// Stable alias for `get_multisig_count`. Provides a consistent SDK
+    /// binding for dashboard and analytics consumers.
+    pub fn multisig_count(env: Env) -> u32 {
+        Self::get_multisig_count(env)
+    }
+
     // ─── Diagnostic helpers ───────────────────────────────────────────────────
 
     /// Return aggregate counts of all active contract state for off-chain
@@ -1540,10 +1664,14 @@ impl FinchippayContract {
     // ─── Batch send ───────────────────────────────────────────────────────────
 
     /// Fan-out a single token transfer from `from` to multiple `recipients` in
-    /// one transaction. `recipients[i]` receives `amounts[i]`.
+    /// one transaction. `recipients[i]` receives `amounts[i]` with optional `memos[i]`.
+    ///
+    /// # Errors
+    /// - Returns `ContractError::LengthMismatch` if `recipients.len() != amounts.len()` or `recipients.len() != memos.len()`.
+    /// - Returns `ContractError::BatchTooLarge` if `recipients.len() > MAX_BATCH_SIZE`.
     ///
     /// # Panics
-    /// - If `recipients.len() != amounts.len()`.
+    /// - If `recipients.len() == 0`.
     /// - If any amount is not positive.
     pub fn batch_send(
         env: Env,
@@ -1551,7 +1679,8 @@ impl FinchippayContract {
         from: Address,
         recipients: Vec<Address>,
         amounts: Vec<i128>,
-    ) {
+        memos: Vec<Symbol>,
+    ) -> Result<(), ContractError> {
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
@@ -1559,10 +1688,10 @@ impl FinchippayContract {
             panic!("batch must have at least one recipient");
         }
         if recipients.len() > MAX_BATCH_SIZE {
-            panic!("batch size exceeds maximum");
+            return Err(ContractError::BatchTooLarge);
         }
-        if recipients.len() != amounts.len() {
-            panic!("arrays must have equal length");
+        if recipients.len() != amounts.len() || recipients.len() != memos.len() {
+            return Err(ContractError::LengthMismatch);
         }
         // Pre-validate: verify all amounts are positive before initiating
         // any transfers, ensuring atomicity.
@@ -1606,12 +1735,15 @@ impl FinchippayContract {
                 to: to.clone(),
                 amount,
                 ledger: env.ledger().sequence(),
-                memo: Symbol::new(&env, "batch"),
+                memo: memo.clone(),
             };
             env.storage()
                 .persistent()
                 .set(&DataKey::TipRecord(to.clone(), count), &record);
             bump(&env, &DataKey::TipRecord(to.clone(), count));
+
+            env.events()
+                .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), (amount, memo));
         }
 
         env.events().publish(
@@ -1922,6 +2054,31 @@ mod tests {
         assert!(client.get_stream(&sid).closed);
     }
 
+    #[test]
+    fn test_close_stream_at_halfway_ledger_pays_claimable_to_recipient() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 1_000);
+        let token = token::Client::new(&env, &token_id);
+
+        let start = env.ledger().sequence();
+        let sid = client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+
+        // Close after 50 ledgers -> 500 streamed, 500 refund.
+        advance(&env, start + 50);
+        client.close_stream(&sid, &payer);
+
+        // Recipient should receive every token they earned.
+        assert_eq!(token.balance(&recipient), 500);
+        // Payer should receive only the truly unearned remainder.
+        assert_eq!(token.balance(&payer), 500);
+        assert!(client.get_stream(&sid).closed);
+    }
+
     // ── Multi-sig ──────────────────────────────────────────────────────────────
 
     #[test]
@@ -1944,7 +2101,8 @@ mod tests {
         signers.push_back(s3.clone());
 
         // 2-of-3 threshold.
-        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &expiry);
         assert_eq!(client.get_multisig(&pid).status, MultiSigStatus::Pending);
 
         client.approve_multisig(&pid, &s1);
@@ -1970,7 +2128,8 @@ mod tests {
 
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
-        let pid = client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let pid = client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &expiry);
         client.cancel_multisig(&pid, &proposer);
         assert_eq!(client.get_multisig(&pid).status, MultiSigStatus::Cancelled);
         assert_eq!(token.balance(&proposer), 2000);
@@ -2043,32 +2202,71 @@ mod tests {
         let mut amounts = soroban_sdk::Vec::new(&env);
         amounts.push_back(300i128);
         amounts.push_back(700i128);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        let memo1 = Symbol::new(&env, "inv_101");
+        let memo2 = Symbol::new(&env, "");
+        memos.push_back(memo1.clone());
+        memos.push_back(memo2.clone());
 
-        client.batch_send(&token_id, &from, &recipients, &amounts);
+        let res = client.batch_send(&token_id, &from, &recipients, &amounts, &memos);
+        assert_eq!(res, ());
         assert_eq!(token.balance(&r1), 300);
         assert_eq!(token.balance(&r2), 700);
         assert_eq!(client.get_tip_total(&r1), 300);
         assert_eq!(client.get_tip_total(&r2), 700);
+
+        let rec1 = client.get_tip_record(&r1, &0);
+        assert_eq!(rec1.memo, memo1);
+
+        let rec2 = client.get_tip_record(&r2, &0);
+        assert_eq!(rec2.memo, memo2);
     }
 
     #[test]
-    #[should_panic(expected = "arrays must have equal length")]
-    fn test_batch_send_mismatched_lengths_panics() {
+    fn test_batch_send_mismatched_lengths_returns_error() {
         let env = Env::default();
         let (_, client) = deploy(&env);
         let admin = client.get_admin();
         let from = Address::generate(&env);
         let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
         env.mock_all_auths();
         let token_id = create_token(&env, &admin, &from, 500);
 
         let mut recipients = soroban_sdk::Vec::new(&env);
         recipients.push_back(r1.clone());
-        recipients.push_back(r1.clone());
+        recipients.push_back(r2.clone());
         let mut amounts = soroban_sdk::Vec::new(&env);
         amounts.push_back(100i128);
-        // Only 1 amount for 2 recipients — should panic.
-        client.batch_send(&token_id, &from, &recipients, &amounts);
+        amounts.push_back(200i128);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        memos.push_back(Symbol::new(&env, "memo1"));
+        // Only 1 memo for 2 recipients — should return LengthMismatch error.
+
+        let res = client.try_batch_send(&token_id, &from, &recipients, &amounts, &memos);
+        assert_eq!(res.unwrap_err().unwrap(), ContractError::LengthMismatch);
+    }
+
+    #[test]
+    fn test_batch_send_oversized_batch_returns_error() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10000);
+
+        let mut recipients = soroban_sdk::Vec::new(&env);
+        let mut amounts = soroban_sdk::Vec::new(&env);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        for _ in 0..51 {
+            recipients.push_back(Address::generate(&env));
+            amounts.push_back(1i128);
+            memos.push_back(Symbol::new(&env, "test"));
+        }
+
+        let res = client.try_batch_send(&token_id, &from, &recipients, &amounts, &memos);
+        assert_eq!(res.unwrap_err().unwrap(), ContractError::BatchTooLarge);
     }
 
     // ── Self-transfer prevention ───────────────────────────────────────────
@@ -2313,6 +2511,60 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "expiration_ledger must be in the future")]
+    fn test_multisig_zero_expiration_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 2000);
+
+        let mut signers = soroban_sdk::Vec::new(&env);
+        signers.push_back(s1);
+        // expiration_ledger = 0 must no longer be accepted as "no expiration".
+        client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &0);
+    }
+
+    #[test]
+    #[should_panic(expected = "expiration_ledger must be in the future")]
+    fn test_multisig_past_expiration_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 2000);
+
+        let mut signers = soroban_sdk::Vec::new(&env);
+        signers.push_back(s1);
+        let past = env.ledger().sequence();
+        client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &past);
+    }
+
+    #[test]
+    #[should_panic(expected = "expiration_ledger exceeds maximum multi-sig TTL")]
+    fn test_multisig_ttl_exceeds_maximum_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 2000);
+
+        let mut signers = soroban_sdk::Vec::new(&env);
+        signers.push_back(s1);
+        let too_far = env.ledger().sequence() + MAX_MULTISIG_TTL + 1;
+        client.create_multisig(&token_id, &proposer, &recipient, &2000, &1, &signers, &too_far);
+    }
+
+    #[test]
     #[should_panic(expected = "duplicate signer in signers list")]
     fn test_multisig_duplicate_signer_panics() {
         let env = Env::default();
@@ -2327,8 +2579,9 @@ mod tests {
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
         signers.push_back(s1.clone()); // duplicate
+        let expiry = env.ledger().sequence() + 1000;
         let _pid = client.create_multisig(
-            &token_id, &proposer, &recipient, &2000, &1, &signers, &0,
+            &token_id, &proposer, &recipient, &2000, &1, &signers, &expiry,
         );
     }
 
@@ -2408,6 +2661,114 @@ mod tests {
         assert_eq!((e1, s1, m1), (1, 1, 0));
     }
 
+    // ── Dashboard view-function aliases ───────────────────────────────────
+    // These tests cover the five stable short-name aliases introduced in #62.
+    // Each alias simply delegates to its `get_*` counterpart; the tests verify
+    // that counts increment correctly after creating records and that the
+    // per-address tip functions return the same values as the originals.
+
+    #[test]
+    fn test_stream_count_alias_increments_after_open() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 5_000);
+
+        assert_eq!(client.stream_count(), 0);
+        client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+        assert_eq!(client.stream_count(), 1);
+        client.open_stream(&token_id, &payer, &recipient, &5, &500);
+        assert_eq!(client.stream_count(), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.stream_count(), client.get_stream_count());
+    }
+
+    #[test]
+    fn test_escrow_count_alias_increments_after_create() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        assert_eq!(client.escrow_count(), 0);
+        let release = env.ledger().sequence() + 10;
+        let memo = Symbol::new(&env, "e");
+        client.create_escrow(&token_id, &from, &to, &2_000, &release, &memo);
+        assert_eq!(client.escrow_count(), 1);
+        client.create_escrow(&token_id, &from, &to, &2_000, &release, &memo);
+        assert_eq!(client.escrow_count(), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.escrow_count(), client.get_escrow_count());
+    }
+
+    #[test]
+    fn test_multisig_count_alias_increments_after_create() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 5_000);
+
+        assert_eq!(client.multisig_count(), 0);
+        let expiry = env.ledger().sequence() + 1_000;
+        let signers = soroban_sdk::Vec::from_array(&env, [s1.clone()]);
+        client.create_multisig(&token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
+        assert_eq!(client.multisig_count(), 1);
+        client.create_multisig(&token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
+        assert_eq!(client.multisig_count(), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.multisig_count(), client.get_multisig_count());
+    }
+
+    #[test]
+    fn test_tip_count_alias_matches_get_tip_count() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 2_000);
+
+        // Before any tips.
+        assert_eq!(client.tip_count(&to), 0);
+        client.send_tip(&token_id, &from, &to, &300, &Symbol::new(&env, "t1"));
+        assert_eq!(client.tip_count(&to), 1);
+        client.send_tip(&token_id, &from, &to, &500, &Symbol::new(&env, "t2"));
+        assert_eq!(client.tip_count(&to), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.tip_count(&to), client.get_tip_count(&to));
+    }
+
+    #[test]
+    fn test_tip_total_alias_matches_get_tip_total() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 3_000);
+
+        // Before any tips.
+        assert_eq!(client.tip_total(&to), 0);
+        client.send_tip(&token_id, &from, &to, &400, &Symbol::new(&env, "a"));
+        assert_eq!(client.tip_total(&to), 400);
+        client.send_tip(&token_id, &from, &to, &600, &Symbol::new(&env, "b"));
+        assert_eq!(client.tip_total(&to), 1_000);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.tip_total(&to), client.get_tip_total(&to));
+    }
+
     // ── Minimum amount enforcement ────────────────────────────────────────
 
     #[test]
@@ -2424,7 +2785,8 @@ mod tests {
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
         // MIN_MULTISIG_AMOUNT is 1000, so 500 should panic.
-        client.create_multisig(&token_id, &proposer, &recipient, &500, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        client.create_multisig(&token_id, &proposer, &recipient, &500, &1, &signers, &expiry);
     }
 
     #[test]
@@ -2443,7 +2805,8 @@ mod tests {
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(s1.clone());
         signers.push_back(s2.clone());
-        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let pid = client.create_multisig(&token_id, &proposer, &recipient, &1_000, &2, &signers, &expiry);
         client.approve_multisig(&pid, &s1);
         client.approve_multisig(&pid, &s1); // duplicate — should panic
     }
@@ -2518,7 +2881,8 @@ mod tests {
         let signers = Vec::from_array(&env, [signer.clone()]);
         env.mock_all_auths();
         let fake_token_id = env.register_contract(None, MaliciousToken);
-        client.create_multisig(&fake_token_id, &proposer, &recipient, &1_000, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        client.create_multisig(&fake_token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
     }
 
     #[test]
@@ -2668,7 +3032,8 @@ mod tests {
         let token_id = create_token(&env, &admin, &proposer, 5_000);
         let mut signers = soroban_sdk::Vec::new(&env);
         signers.push_back(signer);
-        let id = client.create_multisig(&token_id, &proposer, &recipient, &2_000, &1, &signers, &0);
+        let expiry = env.ledger().sequence() + 1000;
+        let id = client.create_multisig(&token_id, &proposer, &recipient, &2_000, &1, &signers, &expiry);
         client.cancel_multisig(&id, &proposer);
 
         let events = env.events().all().filter_by_contract(&contract_id);
@@ -2759,5 +3124,32 @@ mod tests {
                 ),
             ]
         );
+    }
+    #[test]
+    fn test_pagination_bounds() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 100_000);
+
+        // Open 3 streams
+        for _ in 0..3 {
+            client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+        }
+
+        // Test list_streams_by_payer completely full response sequence
+        let all = client.list_streams_by_payer(&payer, &0, &10);
+        assert_eq!(all.len(), 3);
+
+        // Test partially filled tracking bounds
+        let part = client.list_streams_by_payer(&payer, &1, &1);
+        assert_eq!(part.len(), 1);
+
+        // Test empty arrays (out of bounds)
+        let empty = client.list_streams_by_payer(&payer, &5, &10);
+        assert_eq!(empty.len(), 0);
     }
 }

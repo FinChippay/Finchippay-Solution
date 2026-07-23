@@ -147,3 +147,16 @@ export function subscribeToAddressBookContacts(callback: (contacts: AddressBookC
 export function getAddressBookStorageKey() {
   return ADDRESS_BOOK_STORAGE_KEY;
 }
+
+export function clearAddressBook() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(ADDRESS_BOOK_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_CONTACTS_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_FAVOURITES_STORAGE_KEY);
+    window.dispatchEvent(new CustomEvent(CONTACTS_UPDATED_EVENT, { detail: [] }));
+  } catch {
+    // Ignore storage failures (private browsing, full quota, etc.).
+  }
+}

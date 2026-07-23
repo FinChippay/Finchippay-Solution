@@ -2,37 +2,34 @@
  * src/services/analyticsService.js
  * Business logic for transaction volume analytics.
  * Fetches payment data from Horizon and computes aggregated insights.
- * Includes in-memory caching with 5-minute TTL.
+ * Uses CacheService (Redis+LRU) with 5-minute TTL.
  */
 
 "use strict";
 
 const stellarService = require("./stellarService");
 
+// Lazy-loaded cache service (avoids circular dependency at parse time)
+function getCache() {
+  return require("./cacheService");
+}
+
 // ─── Cache Configuration ──────────────────────────────────────────────────────
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
-const cache = new Map();
+const ANALYTICS_TTL_SECONDS = 5 * 60; // 5 minutes
 
 /**
- * Cache wrapper function.
+ * Cache wrapper function using CacheService.
  * @param {string} key
  * @param {Function} fn - async function that returns the data
  */
 async function withCache(key, fn) {
-  const cached = cache.get(key);
+  const cache = getCache();
+  const cached = await cache.get(key);
+  if (cached) return cached;
 
-  // Return cached data if still fresh
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
-  }
-
-  // Fetch fresh data
   const data = await fn();
-
-  // Update cache
-  cache.set(key, { data, timestamp: Date.now() });
-
+  await cache.set(key, data, ANALYTICS_TTL_SECONDS);
   return data;
 }
 
@@ -43,10 +40,8 @@ async function withCache(key, fn) {
  * Returns: total sent, total received, unique counterparties, avg transaction size.
  */
 async function getSummary(publicKey) {
-  return withCache(`summary:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, {
-      limit: 200,
-    });
+  return withCache(`analytics:summary:${publicKey}`, async () => {
+    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
 
     let totalSent = 0;
     let totalReceived = 0;
@@ -85,10 +80,8 @@ async function getSummary(publicKey) {
  * Get top 5 recipients by total XLM sent.
  */
 async function getTopRecipients(publicKey) {
-  return withCache(`top-recipients:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, {
-      limit: 200,
-    });
+  return withCache(`analytics:top-recipients:${publicKey}`, async () => {
+    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
 
     // Map to track total sent per recipient
     const recipientTotals = new Map();
@@ -132,10 +125,8 @@ async function getTopRecipients(publicKey) {
  * Returns counts for all 7 days (Sunday = 0, ... Saturday = 6).
  */
 async function getActivityByDay(publicKey) {
-  return withCache(`activity:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, {
-      limit: 200,
-    });
+  return withCache(`analytics:activity:${publicKey}`, async () => {
+    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
 
     // Initialize counters for all 7 days
     const dayActivity = {
@@ -179,13 +170,15 @@ async function getActivityByDay(publicKey) {
 }
 
 /**
- * Clear cache for a specific public key (optional helper).
- * Useful for manual cache invalidation if needed.
+ * Clear cached analytics for a specific public key.
+ * Used primarily for testing.
+ * @param {string} publicKey
  */
-function clearCache(publicKey) {
-  cache.delete(`summary:${publicKey}`);
-  cache.delete(`top-recipients:${publicKey}`);
-  cache.delete(`activity:${publicKey}`);
+async function clearCache(publicKey) {
+  const cache = getCache();
+  await cache.del(`analytics:summary:${publicKey}`);
+  await cache.del(`analytics:top-recipients:${publicKey}`);
+  await cache.del(`analytics:activity:${publicKey}`);
 }
 
 module.exports = {

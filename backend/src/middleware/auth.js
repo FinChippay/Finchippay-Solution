@@ -12,6 +12,7 @@
 "use strict";
 
 const jwt = require("jsonwebtoken");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
 
@@ -36,34 +37,41 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({
-      error:
-        "Unauthorized: missing or invalid Authorization header. Expected 'Bearer <token>'.",
-    });
+    return res
+      .status(ERROR_CODES.AUTH_MISSING_HEADER.httpStatus)
+      .json(formatErrorResponse("AUTH_MISSING_HEADER"));
   }
 
   const token = authHeader.split(" ")[1];
   if (!token || token.length < 10) {
     return res
-      .status(401)
-      .json({ error: "Unauthorized: token is missing or too short." });
+      .status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus)
+      .json(formatErrorResponse("AUTH_INVALID_TOKEN"));
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded.publicKey || !/^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
       return res
-        .status(401)
-        .json({ error: "Unauthorized: token payload is malformed." });
+        .status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus)
+        .json(formatErrorResponse("AUTH_INVALID_TOKEN", { reason: "Token payload is malformed." }));
     }
     req.user = decoded; // { publicKey: "G...", iat, exp }
     next();
   } catch (err) {
-    const message =
-      err.name === "TokenExpiredError"
-        ? "Unauthorized: token has expired. Re-authenticate via SEP-0010."
-        : "Unauthorized: invalid or malformed token.";
-    return res.status(401).json({ error: message });
+    if (err.name === "TokenExpiredError") {
+      // Emits the legacy TOKEN_EXPIRED code rather than AUTH_EXPIRED_TOKEN:
+      // it is documented and asserted by existing consumers. It is registered
+      // in the catalogue as a deprecated alias so it still resolves and still
+      // carries a correlation ID (#270).
+      return res
+        .status(ERROR_CODES.TOKEN_EXPIRED.httpStatus)
+        .json(formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }));
+    }
+    const errorCode = "AUTH_INVALID_TOKEN";
+    return res
+      .status(ERROR_CODES[errorCode].httpStatus)
+      .json(formatErrorResponse(errorCode, { reason: err.message }));
   }
 }
 
