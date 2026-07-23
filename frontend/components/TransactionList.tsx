@@ -25,6 +25,7 @@ import {
   PrinterIcon,
 } from "@/components/icons";
 import clsx from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
 
@@ -495,9 +496,15 @@ function TransactionList({
             aria-label={t("transactions.paymentHistory")}
             className="space-y-2"
           >
+        <AnimatePresence initial={false}>
         {visiblePayments.map((tx, index) => (
-          <div
+          <motion.div
             key={tx.id}
+            layout
+            initial={{ opacity: 0, height: 0, scale: 0.95 }}
+            animate={{ opacity: 1, height: "auto", scale: 1 }}
+            exit={{ opacity: 0, height: 0, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
             role="listitem"
             tabIndex={focusedIndex === index ? 0 : -1}
             onKeyDown={(e) => {
@@ -618,8 +625,9 @@ function TransactionList({
                 <ExternalLinkIcon className="w-3.5 h-3.5" />
               </a>
             </div>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
 
         {/* Infinite Scroll Sentinel / Loading Indicator */}
         {infiniteScroll && (

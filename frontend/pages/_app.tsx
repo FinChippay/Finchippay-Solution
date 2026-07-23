@@ -7,6 +7,8 @@ import "@/lib/api";
 import type { AppProps } from "next/app";
 import { useState, useEffect } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";
@@ -146,14 +148,25 @@ function AppShellInner({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
+  const router = useRouter();
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
         <OfflineBanner />
         <Navbar />
         <main className="pb-20 md:pb-0">
-          <Component {...pageProps} stellarURI={stellarURI} />
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={router.route}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Component {...pageProps} stellarURI={stellarURI} />
+            </motion.div>
+          </AnimatePresence>
         </main>
         <InstallBanner />
         <MobileBottomNav />
@@ -168,7 +181,7 @@ function AppShellInner({
           usdcBalance={null}
         />
       )}
-    </>
+    </MotionConfig>
   );
 }
 
