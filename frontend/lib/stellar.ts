@@ -1169,6 +1169,79 @@ export async function buildSorobanTipTransaction({
 }
 
 /**
+ * Build a Soroban contract invocation transaction to call `batch_send()`.
+ *
+ * @param params - Batch send parameters.
+ * @param params.fromPublicKey - Sender's public key (G...).
+ * @param params.recipients - List of recipient public keys (G...).
+ * @param params.amounts - List of XLM amounts as strings.
+ * @param params.memos - List of memo strings.
+ * @returns A promise resolving to a built and preflighted {@link Transaction}.
+ */
+export async function buildSorobanBatchSendTransaction({
+  fromPublicKey,
+  recipients,
+  amounts,
+  memos,
+}: {
+  fromPublicKey: string;
+  recipients: string[];
+  amounts: string[];
+  memos: string[];
+}): Promise<Transaction> {
+  if (!CONTRACT_ID) {
+    throw new Error("Contract ID is not configured.");
+  }
+  if (
+    recipients.length !== amounts.length ||
+    recipients.length !== memos.length
+  ) {
+    throw new Error("Recipients, amounts, and memos length mismatch.");
+  }
+
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+  const contract = new Contract(CONTRACT_ID);
+  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+
+  const recipientScVals = recipients.map((r) =>
+    nativeToScVal(r, { type: "address" })
+  );
+  const amountScVals = amounts.map((a) =>
+    nativeToScVal(
+      BigInt(Math.round(parseFloat(a) * STELLAR_STROOPS_PER_XLM)),
+      { type: "i128" }
+    )
+  );
+  const memoScVals = memos.map((m) =>
+    nativeToScVal(m || "", { type: "symbol" })
+  );
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "batch_send",
+        nativeToScVal(xlmContractId, { type: "address" }),
+        nativeToScVal(fromPublicKey, { type: "address" }),
+        xdr.ScVal.scvVec(recipientScVals),
+        xdr.ScVal.scvVec(amountScVals),
+        xdr.ScVal.scvVec(memoScVals)
+      )
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+
+  const simulated = await sorobanServer.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error(`Simulation failed: ${simulated.error}`);
+  }
+
+  return sorobanServer.prepareTransaction(tx);
+}
+
+/**
  * Query the total tips recorded on-chain for a specific recipient.
  *
  * @param recipient - The Stellar public key of the recipient.
