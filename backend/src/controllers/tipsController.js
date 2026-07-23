@@ -48,15 +48,17 @@ function getCache() {
  */
 async function recordTip(req, res, next) {
   try {
-    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } = req.body;
-
-    tipsService.validateTipInput({ senderPublicKey, creatorPublicKey, amount });
+    // Input has already been validated by `tipSchema` (see validate()
+    // middleware) — asset defaults to "XLM", amount is a positive decimal
+    // string, both keys are valid Stellar addresses.
+    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } =
+      req.validated;
 
     const tip = tipsService.recordTip({
       senderPublicKey,
       creatorPublicKey,
       amount,
-      asset: asset || "XLM",
+      asset,
       memo: memo || "",
       txHash: txHash || "",
     });
@@ -98,11 +100,12 @@ async function recordTip(req, res, next) {
  */
 async function getTipsReceived(req, res, next) {
   try {
-    const { creatorPublicKey } = req.params;
-    const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
-    const offset = req.query.offset ? parseInt(req.query.offset, 10) : undefined;
+    const { creatorPublicKey, limit, offset } = req.validated;
 
-    const result = tipsService.getTipsReceived(creatorPublicKey, { limit, offset });
+    const result = tipsService.getTipsReceived(creatorPublicKey, {
+      limit,
+      offset,
+    });
     const stats = tipsService.getTipsStats(creatorPublicKey);
 
     return res.json({ success: true, data: { ...result, stats } });
@@ -124,7 +127,7 @@ async function getTipsReceived(req, res, next) {
  */
 async function getTipsStats(req, res, next) {
   try {
-    const { creatorPublicKey } = req.params;
+    const { creatorPublicKey } = req.validated;
     const stats = tipsService.getTipsStats(creatorPublicKey);
     return res.json({ success: true, data: stats });
   } catch (err) {
@@ -149,9 +152,7 @@ async function getTipsStats(req, res, next) {
  */
 async function getTipsSent(req, res, next) {
   try {
-    const { senderPublicKey } = req.params;
-    const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
-    const offset = req.query.offset ? parseInt(req.query.offset, 10) : undefined;
+    const { senderPublicKey, limit, offset } = req.validated;
 
     const result = tipsService.getTipsSent(senderPublicKey, { limit, offset });
     return res.json({ success: true, data: result });

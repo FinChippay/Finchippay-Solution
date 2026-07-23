@@ -29,8 +29,12 @@ const turretsService = require("../services/turretsService");
  */
 async function createChallenge(req, res, next) {
   try {
-    const { ownerPublicKey, type, config } = req.body;
-    const data = await turretsService.createSigningChallenge({ ownerPublicKey, type, config });
+    const { ownerPublicKey, type, config } = req.validated;
+    const data = await turretsService.createSigningChallenge({
+      ownerPublicKey,
+      type,
+      config,
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -50,7 +54,8 @@ async function createChallenge(req, res, next) {
  */
 function deploy(req, res, next) {
   try {
-    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } = req.body;
+    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } =
+      req.validated;
     const data = turretsService.deployTxFunction({
       ownerPublicKey,
       type,
@@ -77,7 +82,7 @@ function deploy(req, res, next) {
  */
 function list(req, res, next) {
   try {
-    const { ownerPublicKey } = req.query;
+    const { ownerPublicKey } = req.validated;
     const data = turretsService.listDeployments(ownerPublicKey);
     res.json({ success: true, data });
   } catch (err) {
@@ -97,7 +102,7 @@ function list(req, res, next) {
  */
 function getOne(req, res, next) {
   try {
-    const { id } = req.params;
+    const { id } = req.validated;
     const data = turretsService.getDeployment(id);
     res.json({ success: true, data });
   } catch (err) {
@@ -117,7 +122,7 @@ function getOne(req, res, next) {
  */
 function getHistory(req, res, next) {
   try {
-    const { id } = req.params;
+    const { id } = req.validated;
     turretsService.getDeployment(id); // throws 404 if not found
     const data = turretsService.getExecutionHistory(id);
     res.json({ success: true, data });
@@ -138,7 +143,7 @@ function getHistory(req, res, next) {
  */
 function pause(req, res, next) {
   try {
-    const { id } = req.params;
+    const { id } = req.validated;
     const data = turretsService.setDeploymentStatus(id, "paused");
     res.json({ success: true, data });
   } catch (err) {
@@ -158,7 +163,7 @@ function pause(req, res, next) {
  */
 function resume(req, res, next) {
   try {
-    const { id } = req.params;
+    const { id } = req.validated;
     const data = turretsService.setDeploymentStatus(id, "active");
     res.json({ success: true, data });
   } catch (err) {

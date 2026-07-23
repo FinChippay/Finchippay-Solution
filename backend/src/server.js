@@ -48,8 +48,12 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const {
+  correlationMiddleware,
+  getRequestId,
+} = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
+const { zodErrorHandler } = require("./validation/middleware");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -189,17 +193,13 @@ app.use(requireJsonContentType);
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 app.use(express.json({ limit: "100kb" }));
 
-// JSON body parsing error handler — uses standardized error codes
+// JSON body parsing error handler
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res
-      .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
-      .json(formatErrorResponse("VAL_INVALID_JSON"));
+    return res.status(400).json({ error: "Invalid JSON body" });
   }
   if (err.type === "entity.too.large" || err.status === 413) {
-    return res
-      .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
-      .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
+    return res.status(413).json({ error: "Request body too large" });
   }
   next();
 });
@@ -315,18 +315,26 @@ app.use((req, res) => {
 // Sentry must capture errors before the generic handler responds
 Sentry.setupExpressErrorHandler(app);
 
+// Convert any stray ZodError (thrown outside the validate() middleware, e.g.
+// a schema.parse() inside a controller) into the standard 400 payload.
+app.use(zodErrorHandler);
+
 app.use((err, req, res, next) => {
   void next;
   // If the error already has a code from our registry, use it directly.
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
-    logger.error({ status, errorCode: err.errorCode, details: err.details }, "Request error");
+    logger.error(
+      { status, errorCode: err.errorCode, details: err.details },
+      "Request error",
+    );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
-  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
+  const message =
+    sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ status, message }, "Request error");
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {

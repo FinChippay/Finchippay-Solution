@@ -8,10 +8,18 @@
 "use strict";
 
 const express = require("express");
-const jwt     = require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const { JWT_SECRET } = require("../middleware/auth");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const {
+  formatErrorResponse,
+  ERROR_CODES,
+} = require("../../../shared/errorCodes");
+const { validate } = require("../validation/middleware");
+const {
+  authChallengeQuerySchema,
+  authTokenBodySchema,
+} = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -32,64 +40,60 @@ function getServerKeypair() {
 }
 
 // GET /api/auth?account=G... — issue a SEP-0010 challenge transaction
-router.get("/", (req, res) => {
-  const { account } = req.query;
-  if (!account) {
-    return res
-      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["account"] }));
-  }
+router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
+  const { account } = req.validated;
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
       keypair,
       account,
       HOME_DOMAIN,
       300, // 5-minute validity window
-      NETWORK_PASSPHRASE
+      NETWORK_PASSPHRASE,
     );
     res.json({ transaction: challenge, networkPassphrase: NETWORK_PASSPHRASE });
   } catch (e) {
     res
       .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
-      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
+      .json(
+        formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }),
+      );
   }
 });
 
 // POST /api/auth — verify signed challenge and issue JWT
-router.post("/", (req, res) => {
-  const { transaction } = req.body;
-  if (!transaction) {
-    return res
-      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["transaction"] }));
-  }
+router.post("/", validate(authTokenBodySchema), (req, res) => {
+  const { transaction } = req.validated;
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       keypair.publicKey(),
       NETWORK_PASSPHRASE,
       HOME_DOMAIN,
-      ""
+      "",
     );
 
-    const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, { expiresIn: "24h" });
+    const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, {
+      expiresIn: "24h",
+    });
 
     res.cookie("jwt", token, {
       httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge:   24 * 60 * 60 * 1000,
+      maxAge: 24 * 60 * 60 * 1000,
     });
 
     res.json({ success: true, token });
   } catch (e) {
     res
       .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
-      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
+      .json(
+        formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }),
+      );
   }
 });
 
