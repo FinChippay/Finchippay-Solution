@@ -130,6 +130,8 @@ pub enum EscrowStatus {
 
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
 const MAX_USER_ESCROWS: u32 = 100;
+const MAX_USER_STREAMS: u32 = 100;
+const MAX_PAGE_SIZE: u32 = 50;
 
 // ─── Streaming payments ───────────────────────────────────────────────────────
 
@@ -261,6 +263,7 @@ pub enum DataKey {
     // Multi-sig
     MultiSigCount,
     MultiSig(u32),
+    StreamByPayer(Address),
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -986,6 +989,18 @@ impl FinchippayContract {
             .set(&DataKey::StreamCount, &(id + 1));
         bump(&env, &DataKey::StreamCount);
 
+        let s_key = DataKey::StreamByPayer(payer.clone());
+        let mut p_streams: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&s_key)
+            .unwrap_or(Vec::new(&env));
+        if p_streams.len() < MAX_USER_STREAMS {
+            p_streams.push_back(id);
+            env.storage().persistent().set(&s_key, &p_streams);
+            bump(&env, &s_key);
+        }
+
         env.events().publish(
             (Symbol::new(&env, "stream_open"), id),
             (payer, recipient, rate_per_ledger, deposit),
@@ -1125,6 +1140,17 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::Stream(stream_id), &stream);
         bump(&env, &DataKey::Stream(stream_id));
+
+        let s_key = DataKey::StreamByPayer(payer.clone());
+        let p_streams: Vec<u32> = env.storage().persistent().get(&s_key).unwrap_or(Vec::new(&env));
+        let mut new_streams = Vec::new(&env);
+        for s_id in p_streams.iter() {
+            if s_id != stream_id {
+                new_streams.push_back(s_id);
+            }
+        }
+        env.storage().persistent().set(&s_key, &new_streams);
+        bump(&env, &s_key);
 
         env.events().publish(
             (Symbol::new(&env, "stream_close"), stream_id),
@@ -1279,6 +1305,54 @@ impl FinchippayContract {
     /// dashboard and analytics integrations resilient to internal refactors.
     pub fn stream_count(env: Env) -> u32 {
         Self::get_stream_count(env)
+    }
+
+    pub fn list_streams_by_payer(env: Env, payer: Address, offset: u32, limit: u32) -> Vec<Stream> {
+        let s_key = DataKey::StreamByPayer(payer);
+        let p_streams: Vec<u32> = env.storage().persistent().get(&s_key).unwrap_or(Vec::new(&env));
+        if env.storage().persistent().has(&s_key) {
+            bump(&env, &s_key);
+        }
+        let total = p_streams.len();
+        if offset >= total {
+            return Vec::new(&env);
+        }
+        let max_limit = limit.min(MAX_PAGE_SIZE);
+        let mut end = offset.saturating_add(max_limit);
+        if end > total {
+            end = total;
+        }
+        let mut result = Vec::new(&env);
+        for i in offset..end {
+            let id = p_streams.get(i).unwrap();
+            let stream: Stream = env.storage().persistent().get(&DataKey::Stream(id)).unwrap();
+            result.push_back(stream);
+        }
+        result
+    }
+
+    pub fn list_escrows_by_recipient(env: Env, recipient: Address, offset: u32, limit: u32) -> Vec<Escrow> {
+        let e_key = DataKey::EscrowByRecipient(recipient);
+        let r_escrows: Vec<u32> = env.storage().persistent().get(&e_key).unwrap_or(Vec::new(&env));
+        if env.storage().persistent().has(&e_key) {
+            bump(&env, &e_key);
+        }
+        let total = r_escrows.len();
+        if offset >= total {
+            return Vec::new(&env);
+        }
+        let max_limit = limit.min(MAX_PAGE_SIZE);
+        let mut end = offset.saturating_add(max_limit);
+        if end > total {
+            end = total;
+        }
+        let mut result = Vec::new(&env);
+        for i in offset..end {
+            let id = r_escrows.get(i).unwrap();
+            let escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).unwrap();
+            result.push_back(escrow);
+        }
+        result
     }
 
     // Internal: compute claimable amount for a stream at the current ledger.
@@ -3019,5 +3093,32 @@ mod tests {
                 ),
             ]
         );
+    }
+    #[test]
+    fn test_pagination_bounds() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 100_000);
+
+        // Open 3 streams
+        for _ in 0..3 {
+            client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+        }
+
+        // Test list_streams_by_payer completely full response sequence
+        let all = client.list_streams_by_payer(&payer, &0, &10);
+        assert_eq!(all.len(), 3);
+
+        // Test partially filled tracking bounds
+        let part = client.list_streams_by_payer(&payer, &1, &1);
+        assert_eq!(part.len(), 1);
+
+        // Test empty arrays (out of bounds)
+        let empty = client.list_streams_by_payer(&payer, &5, &10);
+        assert_eq!(empty.len(), 0);
     }
 }
