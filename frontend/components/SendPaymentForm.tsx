@@ -153,6 +153,7 @@ function SendPaymentForm({
   const [mintingReceipt, setMintingReceipt] = useState(false);
   const [receiptMinted, setReceiptMinted] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [autoMintReceipt, setAutoMintReceipt] = useState(false);
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -614,8 +615,8 @@ function SendPaymentForm({
     setStatus("idle");
   };
 
-  const mintNftReceipt = async () => {
-    if (!txHash) return;
+  const mintNftReceipt = async (forceMint = false) => {
+    if (!forceMint && !txHash) return;
     setMintingReceipt(true);
     setReceiptError(null);
     try {
@@ -698,6 +699,12 @@ function SendPaymentForm({
       setStatus("success");
       saveRecipient(trimmedDestination);
       addToast(`Payment sent! Tx: ${result.hash.slice(0, 8)}…`, "success");
+      
+      if (autoMintReceipt) {
+        // Run in background without awaiting, so UI doesn't block
+        mintNftReceipt(true).catch(console.error);
+      }
+
       onSuccess?.(result.hash);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "An unexpected error occurred";
@@ -996,10 +1003,29 @@ function SendPaymentForm({
           </div>
         )}
 
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4">
+          <input
+            type="checkbox"
+            id="autoMintReceipt"
+            checked={autoMintReceipt}
+            onChange={(e) => setAutoMintReceipt(e.target.checked)}
+            disabled={status !== "idle"}
+            className="h-5 w-5 rounded border-slate-300 text-stellar-600 focus:ring-stellar-500"
+          />
+          <div className="flex flex-col">
+            <label htmlFor="autoMintReceipt" className="text-sm font-medium text-slate-900 dark:text-white cursor-pointer">
+              {t("sendPayment.mintNftReceipt")}
+            </label>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Generate a shareable on-chain receipt for this transaction.
+            </span>
+          </div>
+        </div>
+
         <button
           onClick={openConfirmation}
           disabled={!canSubmit || status !== "idle"}
-          className="btn-primary w-full flex items-center justify-center gap-2"
+          className="btn-primary w-full min-h-[44px] flex items-center justify-center gap-2"
         >
           {status === "idle" ? `${t("sendPayment.send")} ${amount || ""} ${selectedAsset}` : t("sendPayment.processing")}
         </button>

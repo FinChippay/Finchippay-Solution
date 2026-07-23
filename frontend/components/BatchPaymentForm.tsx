@@ -226,8 +226,8 @@ export default function BatchPaymentForm({
             className="rounded-3xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4"
           >
             <div className="flex flex-col gap-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <label className="block flex-1">
                   <span className="label">Recipient address</span>
                   <input
                     type="text"
@@ -242,7 +242,7 @@ export default function BatchPaymentForm({
                     placeholder="G..."
                   />
                 </label>
-                <label className="block">
+                <label className="block flex-1">
                   <span className="label">Amount (XLM)</span>
                   <input
                     type="number"

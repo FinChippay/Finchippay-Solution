@@ -47,6 +47,23 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
   };
 
   scheduledTransactions.set(id, scheduledTx);
+
+  const delay = submitAt.getTime() - Date.now();
+  if (delay > 0) {
+    setTimeout(async () => {
+      // Only notify if transaction is still pending
+      const tx = scheduledTransactions.get(id);
+      if (tx && tx.attempts === 0) {
+        try {
+          const pushService = require("./pushService");
+          await pushService.notifyScheduledDue(publicKey, id);
+        } catch (err) {
+          console.error("Failed to send scheduled push notification", err);
+        }
+      }
+    }, delay);
+  }
+
   return scheduledTx;
 }
 

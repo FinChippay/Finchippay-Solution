@@ -82,6 +82,7 @@ import { useToastContext } from "@/lib/ToastContext";
 import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
+import { subscribeToPush, unsubscribePush } from "@/lib/notifications";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
@@ -702,71 +703,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     }, 2000);
   };
 
-  /**
-   * Subscribe to the Push API using the correct MDN-documented flow:
-   *  1. Register (or retrieve) the service worker.
-   *  2. Request notification permission on the user gesture.
-   *  3. Call PushManager.subscribe() with userVisibleOnly + VAPID key.
-   *  4. Send the PushSubscription endpoint to the server for future pushes.
-   *
-   * Reference: https://developer.mozilla.org/en-US/docs/Web/API/Push_API
-   */
-  const subscribeToPush = async (): Promise<boolean> => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      showToast('Push notifications are not supported in this browser.');
-      return false;
-    }
-
-    // Step 1 — Register the service worker (idempotent: returns existing if already registered).
-    const registration = await navigator.serviceWorker.register('/sw.js');
-
-    // Step 2 — Request notification permission. Must be called directly inside
-    // a user-gesture handler; async chains that break the gesture context will
-    // be silently rejected by some browsers.
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
-
-    if (permission !== 'granted') {
-      showToast('Notification permission was not granted.');
-      return false;
-    }
-
-    // Step 3 — Subscribe via PushManager.
-    // userVisibleOnly: true is required by Chrome/Edge.
-    // applicationServerKey is the VAPID public key from the environment.
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey) {
-      // No VAPID key configured — fall back to permission-only mode (no
-      // server-pushed messages, but in-app bubble notifications still work).
-      console.warn('NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.');
-      return true;
-    }
-
-    const existingSubscription = await registration.pushManager.getSubscription();
-    const subscription =
-      existingSubscription ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-      }));
-
-    // Step 4 — Send the subscription to your server so it can push messages later.
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
-    await fetch(`${apiBase}/api/push/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription, publicKey }),
-    }).catch((err) => {
-      // Non-fatal: subscription still works for same-session in-app notifications.
-      console.warn('Could not register push subscription with server:', err);
-    });
-
-    return true;
-  };
-
   const handleToggleNotifications = async () => {
     // --- Disable ---
     if (notificationEnabled) {
+      if (publicKey) {
+        await unsubscribePush(publicKey);
+      }
       localStorage.setItem('notificationOptIn', 'false');
       setNotificationEnabled(false);
       showToast('Payment notifications disabled');
@@ -785,25 +727,22 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     }
 
     try {
-      const subscribed = await subscribeToPush();
+      if (!publicKey) return;
+      const subscribed = await subscribeToPush(publicKey);
       if (!subscribed) return;
 
       localStorage.setItem('notificationOptIn', 'true');
       setNotificationEnabled(true);
       showToast('Payment notifications enabled');
 
-      // Confirm with an immediate notification so the user sees it working.
-      // Use showNotification() via the service worker registration —
-      // this is the Push API-correct method, not new Notification().
       const registration = await navigator.serviceWorker.ready;
-      await registration.showNotification('Stellar Pay', {
+      await registration.showNotification('Finchippay', {
         body: 'You will now receive notifications for incoming payments.',
         icon: '/favicon.svg',
         badge: '/favicon.svg',
       });
     } catch (err) {
-      console.error('Failed to enable push notifications:', err);
-      showToast('Could not enable notifications. Please try again.');
+      showToast('Error enabling notifications');
     }
   };
 
@@ -1470,7 +1409,7 @@ function MonthlySpendingChart({
       <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6">
         {t("dashboard.monthlySpending")}
       </h2>
-      <div className="h-[250px] w-full">
+      <div className="h-[250px] w-[calc(100%+3rem)] -mx-6 sm:w-full sm:mx-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
@@ -1520,7 +1459,7 @@ function ThirtyDayVolumeChart({ data, loading, t }: { data: ChartDayData[]; load
   return (
     <div className="card mb-6 overflow-hidden">
       <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6">{t("dashboard.thirtyDayVolume")}</h2>
-      <div className="h-[220px] w-full">
+      <div className="h-[220px] w-[calc(100%+3rem)] -mx-6 sm:w-full sm:mx-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />

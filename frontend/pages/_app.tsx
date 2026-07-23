@@ -14,6 +14,7 @@ import { WalletProvider, useWallet } from "@/lib/useWallet";
 import { FeatureFlagProvider } from "@/lib/FeatureFlags";
 import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
+import MobileBottomNav from "@/components/MobileBottomNav";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
@@ -150,10 +151,11 @@ function AppShellInner({
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
         <OfflineBanner />
         <Navbar />
-        <main>
+        <main className="pb-20 md:pb-0">
           <Component {...pageProps} stellarURI={stellarURI} />
         </main>
         <InstallBanner />
+        <MobileBottomNav />
       </div>
 
       {publicKey && (
@@ -227,7 +229,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <WalletProvider>
         <Head>
           <title>Finchippay-Solution | Instant Stellar Payments</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
           <meta
             name="description"
             content="Send instant, low-fee payments globally using the Stellar network — streaming, escrow, multi-sig, and tips. Non-custodial, secure, and transparent."

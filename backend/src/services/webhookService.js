@@ -72,7 +72,7 @@ function registerWebhook(publicKey, url, secret) {
     createdAt: new Date().toISOString(),
   };
   webhooks.set(id, webhook);
-  startMonitoring(webhook);
+  startMonitoring(publicKey);
   logger.info({ type: "webhook_registered", id, publicKey, url });
   return { id, publicKey, url, createdAt: webhook.createdAt };
 }
@@ -167,32 +167,32 @@ async function deliverWebhook(webhook, payload) {
 // ─── Monitoring ───────────────────────────────────────────────────────────────
 
 /**
- * Start a Horizon SSE stream for `webhook.publicKey` if one is not already
+ * Start a Horizon SSE stream for `publicKey` if one is not already
  * active. Incoming `payment` operations trigger delivery to all registered
- * URLs for that account.
+ * URLs for that account and also trigger push notifications.
  *
- * @param {{ publicKey:string }} webhook
+ * @param {string} publicKey
  */
-function startMonitoring(webhook) {
+function startMonitoring(publicKey) {
   metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
-  if (activeStreams.has(webhook.publicKey)) {
+  if (activeStreams.has(publicKey)) {
     return;
   }
 
   const closeStream = server
     .payments()
-    .forAccount(webhook.publicKey)
+    .forAccount(publicKey)
     .cursor("now")
     .stream({
       onmessage: async (payment) => {
-        if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
+        if (payment.type !== "payment" || payment.to !== publicKey) return;
 
         // Invalidate account & payment cache for the receiving account
         try {
           const cache = getCache();
           if (cache) {
-            await cache.del(`account:${webhook.publicKey}`);
-            await cache.delPattern(`payments:${webhook.publicKey}:*`);
+            await cache.del(`account:${publicKey}`);
+            await cache.delPattern(`payments:${publicKey}:*`);
           }
         } catch {
           // cache invalidation is best-effort
@@ -200,7 +200,7 @@ function startMonitoring(webhook) {
 
         const payload = {
           event: "payment.received",
-          publicKey: webhook.publicKey,
+          publicKey: publicKey,
           payment: {
             id: payment.id,
             from: payment.from,
@@ -212,26 +212,33 @@ function startMonitoring(webhook) {
           },
         };
 
-        const hooks = getWebhooksByPublicKey(webhook.publicKey);
+        const hooks = getWebhooksByPublicKey(publicKey);
         // Deliver in parallel; individual failures are swallowed in deliverWebhook.
         await Promise.allSettled(hooks.map((h) => deliverWebhook(h, payload)));
+        
+        try {
+          const pushService = require("./pushService");
+          await pushService.notifyPaymentReceived(publicKey, payload.payment);
+        } catch (err) {
+          logger.error({ err }, "Failed to send push notification");
+        }
       },
       onerror: (err) => {
         logger.error({
           type: "horizon_sse_error",
-          publicKey: webhook.publicKey,
+          publicKey: publicKey,
           error: err.message,
         });
         metrics.horizonRequestsTotal.inc({ operation: "sse", status: "error" });
         // Remove so a fresh stream can be created on the next registration.
-        activeStreams.delete(webhook.publicKey);
+        activeStreams.delete(publicKey);
         metrics.activeWebhookStreams.set(activeStreams.size);
       },
     });
 
-  activeStreams.set(webhook.publicKey, closeStream);
+  activeStreams.set(publicKey, closeStream);
   metrics.activeWebhookStreams.set(activeStreams.size);
-  logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
+  logger.info({ type: "horizon_monitoring_started", publicKey: publicKey });
 }
 
-module.exports = { registerWebhook, getWebhooksByPublicKey, deleteWebhook, signPayload };
+module.exports = { registerWebhook, getWebhooksByPublicKey, deleteWebhook, signPayload, startMonitoring };

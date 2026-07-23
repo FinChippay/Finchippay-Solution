@@ -143,6 +143,13 @@ function TransactionList({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
+  
+  // Pull-to-refresh state
+  const [pullStartY, setPullStartY] = useState(0);
+  const [pullMoveY, setPullMoveY] = useState(0);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const router = useRouter();
 
   const lastPagingTokenRef = useRef<string | undefined>(undefined);
@@ -289,6 +296,38 @@ function TransactionList({
     upsertAddressBookContact({ nickname, address });
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (window.scrollY === 0) {
+      setPullStartY(e.touches[0].clientY);
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isPulling) return;
+    const y = e.touches[0].clientY;
+    const delta = y - pullStartY;
+    if (delta > 0 && window.scrollY === 0) {
+      setPullMoveY(delta);
+    } else {
+      setPullMoveY(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isPulling && pullMoveY > 60) {
+      setIsRefreshing(true);
+      fetchPayments().finally(() => {
+        setIsRefreshing(false);
+        setPullMoveY(0);
+        setIsPulling(false);
+      });
+    } else {
+      setPullMoveY(0);
+      setIsPulling(false);
+    }
+  };
+
   // Prepend a newly streamed payment if it doesn't already exist
   useEffect(() => {
     if (!incomingPayment) return;
@@ -384,7 +423,21 @@ function TransactionList({
   }
 
   return (
-    <div ref={containerRef} className={compact ? "" : "card"}>
+    <div 
+      ref={containerRef} 
+      className={compact ? "" : "card"}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div 
+        className="overflow-hidden transition-all duration-200 flex justify-center items-center"
+        style={{ height: isRefreshing ? '40px' : isPulling ? `${Math.min(pullMoveY / 2, 40)}px` : '0px' }}
+      >
+        <div className={clsx("text-stellar-500", isRefreshing ? "animate-spin" : "")}>
+          <RefreshIcon className="w-5 h-5" />
+        </div>
+      </div>
           {!compact && (
             <div className="flex items-center justify-between mb-6">
               <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">

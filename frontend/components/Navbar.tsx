@@ -27,6 +27,7 @@ export default function Navbar() {
   const { publicKey, connectWallet, disconnectWallet } = useWallet();
   const { t } = useTranslation("common");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const config = getNetworkConfig();
   const isMainnet = config.network === "mainnet";
@@ -205,8 +206,46 @@ export default function Navbar() {
               {t("nav.connectWallet")}
             </button>
           )}
+
+          {/* Hamburger Menu Toggle */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-cosmos-800 dark:hover:text-slate-200 md:hidden"
+            aria-label="Toggle mobile menu"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {isMobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* Mobile Menu Dropdown */}
+      {isMobileMenuOpen && (
+        <div className="absolute left-0 right-0 top-full border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
+          <div className="flex flex-col gap-2">
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block min-h-[44px] rounded-lg px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-cosmos-800"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <div className="mt-4 border-t border-slate-200 pt-4 dark:border-cosmos-800">
+              <div className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Network: {networkLabel}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
