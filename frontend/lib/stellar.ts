@@ -1287,6 +1287,63 @@ export async function getReceiptCount(payer: string): Promise<number> {
   }
 }
 
+export interface ReceiptMetadata {
+  from: string;
+  to: string;
+  amount: string; // Stored as string to handle i128
+  timestamp: number;
+  memo: string;
+  ledger: number;
+}
+
+/**
+ * Get receipt metadata for a specific receipt index.
+ */
+export async function getReceipt(payer: string, index: number): Promise<ReceiptMetadata | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(
+      new Account(payer, "0"),
+      { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+    )
+      .addOperation(
+        contract.call(
+          "get_receipt",
+          nativeToScVal(payer, { type: "address" }),
+          nativeToScVal(index, { type: "u32" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+      const rawValue = scValToNative(sim.result.retval);
+      
+      // Since it's returning a custom struct, it comes back as an array or object
+      // rawValue typically is an object matching the struct fields if we use nativeToScVal/scValToNative on maps/structs.
+      // But the Soroban JS SDK scValToNative on a map/struct with symbols as keys returns a JS object or array of entries depending on exact SDK version.
+      // Soroban struct properties return as an array of key-value maps: {from: ..., to: ...} or similar if we use scValToNative on an SCMap.
+      // Assuming typical object structure:
+      
+      const res = rawValue as any;
+      return {
+        from: res.from ? res.from.toString() : "",
+        to: res.to ? res.to.toString() : "",
+        amount: res.amount ? res.amount.toString() : "0",
+        timestamp: res.timestamp ? Number(res.timestamp) : 0,
+        memo: res.memo ? res.memo.toString() : "",
+        ledger: res.ledger ? Number(res.ledger) : 0,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Failed to get receipt:", error);
+    return null;
+  }
+}
+
 export async function getRecentPaymentsForSparkline(
   publicKey: string,
   limit = 10
