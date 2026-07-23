@@ -4,6 +4,18 @@ All notable changes to the Finchippay-Solution smart contract will be documented
 
 ## [Unreleased]
 
+### Accessibility Fixes
+
+- Improved screen reader support in the `MultiSigFlow` component by replacing generic `div` elements with semantic `<ol>`/`<li>` lists and adding `aria-current="step"`.
+- Added `role="alert"` and `aria-live="polite"` to `MultiSigFlow` error containers to ensure validation messages are announced immediately.
+- Added programmatic accessibility testing using `jest-axe` to the `MultiSigFlow` test suite.
+
+### Bug Fixes
+
+- Fixed `unused variable` clippy warnings in the `finchippay-contract` by correctly prefixing `env` parameters in `require_transfer_succeeded`.
+- Fixed contract compilation issues in the `batch_send` unit tests by injecting the newly required `memos` parameter.
+- Restored missing implementation logic in the contract's administrative `pause` function.
+
 ### Security Fixes
 
 - **#54: Mandatory multi-sig expiration** — `create_multisig` now requires `expiration_ledger` to be strictly greater than the current ledger sequence, and rejects a TTL longer than the new `MAX_MULTISIG_TTL` (518,400 ledgers, ≈ 30 days). The `expiration_ledger == 0` escape hatch ("no expiration") has been removed from `approve_multisig`, so every proposal now has a bounded lifetime and can no longer accumulate approvals indefinitely from signers whose keys may have since been rotated or compromised.

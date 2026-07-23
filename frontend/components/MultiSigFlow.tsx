@@ -251,40 +251,42 @@ export default function MultiSigFlow({
       </p>
 
       {/* Step indicator */}
-      <div className="flex items-center mb-6 overflow-x-auto pb-1">
-        {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center flex-shrink-0">
-            <div
-              className={clsx(
-                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
-                i < stepIndex
-                  ? "bg-stellar-500 text-black"
-                  : i === stepIndex
-                  ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
-                  : "bg-slate-100 dark:bg-white/10 text-slate-500"
-              )}
-            >
-              {i < stepIndex ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
-            </div>
-            <span
-              className={clsx(
-                "ml-1 text-xs hidden sm:block",
-                i === stepIndex ? "text-stellar-300" : "text-slate-500"
-              )}
-            >
-              {stepLabels[s]}
-            </span>
-            {i < STEPS.length - 1 && (
+      <nav aria-label="Progress" className="flex items-center mb-6 overflow-x-auto pb-1">
+        <ol className="flex items-center">
+          {STEPS.map((s, i) => (
+            <li key={s} className="flex items-center flex-shrink-0" aria-current={i === stepIndex ? "step" : undefined}>
               <div
                 className={clsx(
-                  "w-6 h-px mx-2",
-                  i < stepIndex ? "bg-stellar-500" : "bg-white/10"
+                  "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
+                  i < stepIndex
+                    ? "bg-stellar-500 text-black"
+                    : i === stepIndex
+                    ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
+                    : "bg-slate-100 dark:bg-white/10 text-slate-500"
                 )}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+              >
+                {i < stepIndex ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
+              </div>
+              <span
+                className={clsx(
+                  "ml-1 text-xs hidden sm:block",
+                  i === stepIndex ? "text-stellar-300" : "text-slate-500"
+                )}
+              >
+                {stepLabels[s]}
+              </span>
+              {i < STEPS.length - 1 && (
+                <div
+                  className={clsx(
+                    "w-6 h-px mx-2",
+                    i < stepIndex ? "bg-stellar-500" : "bg-white/10"
+                  )}
+                />
+              )}
+            </li>
+          ))}
+        </ol>
+      </nav>
 
       {/* ── Step: Build ── */}
       {step === "build" && (
@@ -522,7 +524,7 @@ export default function MultiSigFlow({
       )}
 
       {error && (
-        <p className="text-red-400 text-sm mt-4 flex items-start gap-1.5">
+        <p role="alert" aria-live="polite" className="text-red-400 text-sm mt-4 flex items-start gap-1.5">
           <WarnIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
           {error}
         </p>
