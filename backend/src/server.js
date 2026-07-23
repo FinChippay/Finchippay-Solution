@@ -45,6 +45,7 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const eventIndexer = require("./services/eventIndexer");
+const { startRetryWorker, closeAllStreams } = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
@@ -400,6 +401,7 @@ if (require.main === module) {
 
   startTurretsServer();
   eventIndexer.start();
+  startRetryWorker();
 
   process.on("SIGTERM", () => {
     eventIndexer.stop();
