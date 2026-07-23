@@ -27,6 +27,8 @@ const crypto = require("crypto");
 const { Horizon } = require("@stellar/stellar-sdk");
 const logger = require("../utils/logger");
 const metrics = require("./metricsService");
+const tracer = require("../config/tracing").getTracer("webhook-service");
+const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 require("dotenv").config();
 
@@ -133,17 +135,31 @@ function signPayload(secret, payload) {
  * @returns {Promise<void>}
  */
 async function deliverWebhook(webhook, payload) {
+  const span = tracer.startSpan("webhook.delivery");
+  span.setAttributes({
+    "webhook.id": webhook.id,
+    "webhook.url": webhook.url,
+  });
+
   const signature = signPayload(webhook.secret, payload);
   try {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Webhook-Signature": signature,
+      ...getRequestIdHeader(),
+    };
+
+    // Inject trace parent headers into outgoing request
+    propagation.inject(context.active(), headers);
+
     const res = await fetch(webhook.url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Webhook-Signature": signature,
-        ...getRequestIdHeader(),
-      },
+      headers,
       body: JSON.stringify(payload),
     });
+
+    span.setAttribute("http.status_code", res.status);
+
     if (!res.ok) {
       logger.error({
         type: "webhook_delivery_failed",
@@ -151,8 +167,10 @@ async function deliverWebhook(webhook, payload) {
         status: res.status,
         url: webhook.url,
       });
+      span.setStatus({ code: 2, message: `Delivery failed with status ${res.status}` });
     } else {
       logger.info({ type: "webhook_delivered", id: webhook.id, url: webhook.url });
+      span.setStatus({ code: 1 });
     }
   } catch (err) {
     logger.error({
@@ -161,6 +179,10 @@ async function deliverWebhook(webhook, payload) {
       url: webhook.url,
       error: err.message,
     });
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+  } finally {
+    span.end();
   }
 }
 

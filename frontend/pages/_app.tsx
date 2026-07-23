@@ -3,6 +3,7 @@
  * Global app wrapper for theme, wallet, navigation, and shared overlays.
  */
 
+import "@/lib/api";
 import type { AppProps } from "next/app";
 import { useState, useEffect } from "react";
 import Head from "next/head";

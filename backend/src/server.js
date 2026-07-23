@@ -50,6 +50,7 @@ const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
+const traceContextMiddleware = require("./middleware/tracing");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -161,6 +162,7 @@ app.use(trackHttpMetrics);
 // Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
 // Mounted before pino-http so the requestId appears in every log line.
 app.use(correlationMiddleware);
+app.use(traceContextMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 // req.id is set by correlationMiddleware above.

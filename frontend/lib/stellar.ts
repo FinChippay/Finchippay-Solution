@@ -7,6 +7,7 @@
 * @see {@link https://stellar.github.io/js-stellar-sdk/ | stellar-sdk Reference}
 */
 
+import "./api";
 import {
   Horizon,
   Account,

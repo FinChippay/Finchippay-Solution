@@ -161,8 +161,21 @@ async function getActivityByDay(publicKey) {
   });
 }
 
+/**
+ * Clear cached analytics for a specific public key.
+ * Used primarily for testing.
+ * @param {string} publicKey
+ */
+async function clearCache(publicKey) {
+  const cache = getCache();
+  await cache.del(`analytics:summary:${publicKey}`);
+  await cache.del(`analytics:top-recipients:${publicKey}`);
+  await cache.del(`analytics:activity:${publicKey}`);
+}
+
 module.exports = {
   getSummary,
   getTopRecipients,
   getActivityByDay,
+  clearCache,
 };
