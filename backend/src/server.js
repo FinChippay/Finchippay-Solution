@@ -47,7 +47,10 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const {
+  correlationMiddleware,
+  getRequestId,
+} = require("./utils/correlationId");
 
 const app = express();
 const PORT = process.env.PORT || 4000;

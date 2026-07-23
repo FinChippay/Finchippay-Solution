@@ -40,13 +40,18 @@ async function getPayments(req, res, next) {
     if (rawLimit !== undefined) {
       const parsed = parseInt(rawLimit, 10);
       if (isNaN(parsed) || !Number.isSafeInteger(parsed) || parsed < 1) {
-        return res.status(400).json({ error: "limit must be a positive integer" });
+        return res
+          .status(400)
+          .json({ error: "limit must be a positive integer" });
       }
       limit = Math.min(parsed, 100);
     }
 
     const cursor = req.query.cursor || undefined;
-    const payments = await stellarService.getPayments(publicKey, { limit, cursor });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit,
+      cursor,
+    });
     res.json({ success: true, data: payments });
   } catch (err) {
     next(err);
@@ -72,7 +77,9 @@ async function getPayments(req, res, next) {
 async function getStats(req, res, next) {
   try {
     const { publicKey } = req.params;
-    const payments = await stellarService.getPayments(publicKey, { limit: 100 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 100,
+    });
 
     let totalSent = 0;
     let totalReceived = 0;

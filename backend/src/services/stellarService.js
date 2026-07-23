@@ -8,6 +8,7 @@
 
 const { server, HORIZON_URL } = require("../config/stellar");
 const logger = require("../utils/logger");
+const metrics = require("./metricsService");
 const { trace } = require("@opentelemetry/api");
 
 const tracer = trace.getTracer("finchippay-stellar-service");
@@ -183,7 +184,10 @@ async function getAccount(publicKey) {
     cacheSet(publicKey, result);
     return result;
   } catch (err) {
-    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "error" });
+    metrics.horizonRequestsTotal.inc({
+      operation: "loadAccount",
+      status: "error",
+    });
     if (err?.response?.status === 404) {
       const error = new Error(
         "Account not found. It may not be funded yet. Use Friendbot on testnet.",

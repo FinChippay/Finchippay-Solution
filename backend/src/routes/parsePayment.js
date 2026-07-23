@@ -100,7 +100,8 @@ const safeParse = (text) => {
       recipient: "",
       memo: "",
       isValid: false,
-      clarification: "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
+      clarification:
+        "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
     };
   }
 };
@@ -129,7 +130,8 @@ router.post("/", async (req, res) => {
         recipient: "",
         memo: "",
         isValid: false,
-        clarification: "AI payment parsing is not configured. Set ANTHROPIC_API_KEY.",
+        clarification:
+          "AI payment parsing is not configured. Set ANTHROPIC_API_KEY.",
       });
     }
 
@@ -161,7 +163,7 @@ ${MULTI_INTENT_GUARD}
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
         },
-      }
+      },
     );
 
     const text = response.data?.content?.[0]?.text || "{}";

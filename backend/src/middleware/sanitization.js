@@ -36,14 +36,16 @@ function sanitizePublicKey(req, res, next) {
   // 2. Return 400 if obviously invalid — length or prefix mismatch
   if (sanitized.length !== 56 || !sanitized.startsWith("G")) {
     return res.status(400).json({
-      error: "Invalid Stellar public key format — must be 56 characters starting with 'G'",
+      error:
+        "Invalid Stellar public key format — must be 56 characters starting with 'G'",
     });
   }
 
   // 3. Reject base-32–invalid characters (Stellar keys use A-Z, 2-7 only)
   if (!/^G[A-Z2-7]{55}$/.test(sanitized)) {
     return res.status(400).json({
-      error: "Invalid Stellar public key — contains characters outside the base-32 alphabet (A-Z, 2-7)",
+      error:
+        "Invalid Stellar public key — contains characters outside the base-32 alphabet (A-Z, 2-7)",
     });
   }
 
@@ -69,11 +71,15 @@ function sanitizeUsername(req, res, next) {
     return next();
   }
 
-  const sanitized = username.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const sanitized = username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 
   if (!sanitized || sanitized.length < 3 || sanitized.length > 20) {
     return res.status(400).json({
-      error: "Username must be 3–20 characters and contain only letters and numbers",
+      error:
+        "Username must be 3–20 characters and contain only letters and numbers",
     });
   }
 

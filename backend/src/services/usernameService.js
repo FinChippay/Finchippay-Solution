@@ -2,8 +2,7 @@
  * src/services/usernameService.js
  * Business logic for username ↔ Stellar public-key mapping (SEP-0002 federation layer).
  *
- * Uses in-memory storage for v1. To persist registrations across restarts,
- * replace the `usernameMap` with a database-backed store.
+ * Uses Knex-backed SQLite/PostgreSQL for persistent storage.
  *
  * Constraints:
  *   - Usernames: 3–20 alphanumeric characters, case-sensitive.
@@ -13,8 +12,7 @@
 
 "use strict";
 
-/** @type {Map<string, string>} username → Stellar public key */
-const usernameMap = new Map();
+const knex = require("../db/connection");
 
 // ─── Validation helpers ───────────────────────────────────────────────────────
 
@@ -34,7 +32,7 @@ function validateUsername(username) {
   }
   if (!/^[a-zA-Z0-9]{3,20}$/.test(username)) {
     const err = new Error(
-      "Username must be 3–20 characters and contain only letters and numbers"
+      "Username must be 3–20 characters and contain only letters and numbers",
     );
     err.status = 400;
     throw err;
@@ -69,28 +67,39 @@ function validatePublicKey(publicKey) {
  *
  * @param {string} username - Must satisfy `validateUsername`.
  * @param {string} publicKey - Must satisfy `validatePublicKey`.
- * @returns {{ username: string, publicKey: string }}
+ * @returns {Promise<{ username: string, publicKey: string }>}
  * @throws {{ message: string, status: 409 }} if username or public key already registered.
  */
-function registerUsername(username, publicKey) {
+async function registerUsername(username, publicKey) {
   validateUsername(username);
   validatePublicKey(publicKey);
 
-  if (usernameMap.has(username)) {
+  // Check for existing username
+  const existingUsername = await knex("usernames")
+    .where("username", username)
+    .first();
+  if (existingUsername) {
     const err = new Error("Username already registered");
     err.status = 409;
     throw err;
   }
 
-  for (const existingKey of usernameMap.values()) {
-    if (existingKey === publicKey) {
-      const err = new Error("Public key already registered to another username");
-      err.status = 409;
-      throw err;
-    }
+  // Check for existing public key
+  const existingKey = await knex("usernames")
+    .where("public_key", publicKey)
+    .first();
+  if (existingKey) {
+    const err = new Error("Public key already registered to another username");
+    err.status = 409;
+    throw err;
   }
 
-  usernameMap.set(username, publicKey);
+  await knex("usernames").insert({
+    username,
+    public_key: publicKey,
+    registered_at: new Date().toISOString(),
+  });
+
   return { username, publicKey };
 }
 
@@ -98,39 +107,39 @@ function registerUsername(username, publicKey) {
  * Resolve a username to its associated Stellar public key.
  *
  * @param {string} username
- * @returns {{ username: string, publicKey: string }}
+ * @returns {Promise<{ username: string, publicKey: string }>}
  * @throws {{ message: string, status: 404 }} if username is not registered.
  */
-function resolveUsername(username) {
+async function resolveUsername(username) {
   validateUsername(username);
 
-  const publicKey = usernameMap.get(username);
-  if (!publicKey) {
+  const row = await knex("usernames").where("username", username).first();
+  if (!row) {
     const err = new Error("Username not found");
     err.status = 404;
     throw err;
   }
 
-  return { username, publicKey };
+  return { username: row.username, publicKey: row.public_key };
 }
 
 /**
  * Unregister a username.
  *
  * @param {string} username
- * @returns {{ username: string }}
+ * @returns {Promise<{ username: string }>}
  * @throws {{ message: string, status: 404 }} if username is not registered.
  */
-function removeUsername(username) {
+async function removeUsername(username) {
   validateUsername(username);
 
-  if (!usernameMap.has(username)) {
+  const deleted = await knex("usernames").where("username", username).del();
+  if (!deleted) {
     const err = new Error("Username not found");
     err.status = 404;
     throw err;
   }
 
-  usernameMap.delete(username);
   return { username };
 }
 
@@ -138,12 +147,13 @@ function removeUsername(username) {
  * Return all registered username ↔ public-key pairs.
  * Intended for admin / debugging purposes only.
  *
- * @returns {Array<{ username: string, publicKey: string }>}
+ * @returns {Promise<Array<{ username: string, publicKey: string }>>}
  */
-function getAllUsernames() {
-  return Array.from(usernameMap.entries()).map(([username, publicKey]) => ({
-    username,
-    publicKey,
+async function getAllUsernames() {
+  const rows = await knex("usernames").select("username", "public_key");
+  return rows.map((row) => ({
+    username: row.username,
+    publicKey: row.public_key,
   }));
 }
 

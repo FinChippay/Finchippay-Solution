@@ -66,6 +66,27 @@ function parseAllowedOrigins(raw) {
 function collectErrors(env) {
   const errors = [];
 
+  // Database provider validation
+  const dbProvider = (env.DB_PROVIDER || "sqlite").toLowerCase();
+  if (!["sqlite", "postgres"].includes(dbProvider)) {
+    errors.push(
+      `DB_PROVIDER must be "sqlite" or "postgres", got "${dbProvider}"`,
+    );
+  }
+
+  if (dbProvider === "postgres") {
+    const dbUrl = env.DATABASE_URL || env.DATABASE_URL_PROD;
+    if (!dbUrl || !dbUrl.trim()) {
+      errors.push("DATABASE_URL is required when DB_PROVIDER=postgres");
+    } else {
+      try {
+        new URL(dbUrl);
+      } catch {
+        errors.push(`DATABASE_URL must be a valid URL, got "${dbUrl}"`);
+      }
+    }
+  }
+
   const stellarNetwork = env.STELLAR_NETWORK?.trim();
   if (!stellarNetwork) {
     errors.push('STELLAR_NETWORK is required (e.g. "testnet" or "mainnet")');

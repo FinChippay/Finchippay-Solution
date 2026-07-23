@@ -19,7 +19,9 @@ const strictLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests to sensitive routes, please wait 1 minute." },
+  message: {
+    error: "Too many requests to sensitive routes, please wait 1 minute.",
+  },
 });
 
 /**
@@ -32,7 +34,9 @@ const sensitiveLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests to this endpoint, please wait 1 minute." },
+  message: {
+    error: "Too many requests to this endpoint, please wait 1 minute.",
+  },
 });
 
 module.exports = { strictLimiter, sensitiveLimiter };

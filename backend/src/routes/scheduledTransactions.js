@@ -19,18 +19,22 @@ router.post("/", (req, res, next) => {
     const { signedXDR, submitAt, publicKey } = req.body;
 
     if (!signedXDR || !submitAt || !publicKey) {
-      return res.status(400).json({ error: "Missing signedXDR, submitAt, or publicKey" });
+      return res
+        .status(400)
+        .json({ error: "Missing signedXDR, submitAt, or publicKey" });
     }
 
     const submitDate = new Date(submitAt);
     if (isNaN(submitDate.getTime())) {
-      return res.status(400).json({ error: "submitAt must be a valid ISO 8601 date string" });
+      return res
+        .status(400)
+        .json({ error: "submitAt must be a valid ISO 8601 date string" });
     }
 
     const scheduledTx = scheduledTransactionService.scheduleTransaction(
       signedXDR,
       submitDate,
-      publicKey
+      publicKey,
     );
     res.status(201).json({
       message: "Transaction scheduled successfully",
@@ -50,9 +54,8 @@ router.post("/", (req, res, next) => {
 router.get("/:publicKey", (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const transactions = scheduledTransactionService.getPendingTransactions(
-      publicKey
-    );
+    const transactions =
+      scheduledTransactionService.getPendingTransactions(publicKey);
     res.json(transactions);
   } catch (error) {
     next(error);
@@ -70,7 +73,9 @@ router.delete("/:id", (req, res, next) => {
     if (cancelled) {
       res.json({ message: `Transaction ${id} cancelled successfully.` });
     } else {
-      res.status(404).json({ error: `Transaction ${id} not found or not pending.` });
+      res
+        .status(404)
+        .json({ error: `Transaction ${id} not found or not pending.` });
     }
   } catch (error) {
     next(error);

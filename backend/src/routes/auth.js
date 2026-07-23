@@ -8,7 +8,7 @@
 "use strict";
 
 const express = require("express");
-const jwt     = require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const { JWT_SECRET } = require("../middleware/auth");
 
@@ -38,13 +38,13 @@ router.get("/", (req, res) => {
   }
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
       keypair,
       account,
       HOME_DOMAIN,
       300, // 5-minute validity window
-      NETWORK_PASSPHRASE
+      NETWORK_PASSPHRASE,
     );
     res.json({ transaction: challenge, networkPassphrase: NETWORK_PASSPHRASE });
   } catch (e) {
@@ -56,26 +56,30 @@ router.get("/", (req, res) => {
 router.post("/", (req, res) => {
   const { transaction } = req.body;
   if (!transaction) {
-    return res.status(400).json({ error: "Missing transaction in request body" });
+    return res
+      .status(400)
+      .json({ error: "Missing transaction in request body" });
   }
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       keypair.publicKey(),
       NETWORK_PASSPHRASE,
       HOME_DOMAIN,
-      ""
+      "",
     );
 
-    const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, { expiresIn: "24h" });
+    const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, {
+      expiresIn: "24h",
+    });
 
     res.cookie("jwt", token, {
       httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge:   24 * 60 * 60 * 1000,
+      maxAge: 24 * 60 * 60 * 1000,
     });
 
     res.json({ success: true, token });

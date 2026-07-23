@@ -44,7 +44,9 @@ async function withCache(key, fn) {
  */
 async function getSummary(publicKey) {
   return withCache(`summary:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 200,
+    });
 
     let totalSent = 0;
     let totalReceived = 0;
@@ -84,7 +86,9 @@ async function getSummary(publicKey) {
  */
 async function getTopRecipients(publicKey) {
   return withCache(`top-recipients:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 200,
+    });
 
     // Map to track total sent per recipient
     const recipientTotals = new Map();
@@ -98,7 +102,7 @@ async function getTopRecipients(publicKey) {
         if (recipientTotals.has(recipient)) {
           recipientTotals.set(
             recipient,
-            recipientTotals.get(recipient) + amount
+            recipientTotals.get(recipient) + amount,
           );
         } else {
           recipientTotals.set(recipient, amount);
@@ -129,7 +133,9 @@ async function getTopRecipients(publicKey) {
  */
 async function getActivityByDay(publicKey) {
   return withCache(`activity:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 200,
+    });
 
     // Initialize counters for all 7 days
     const dayActivity = {
@@ -150,7 +156,15 @@ async function getActivityByDay(publicKey) {
     }
 
     // Convert to array format
-    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
     const activity = days.map((dayName, index) => ({
       day: dayName,
       dayIndex: index,

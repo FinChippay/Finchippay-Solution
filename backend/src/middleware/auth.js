@@ -19,7 +19,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
 if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
   console.warn(
     "⚠️  JWT_SECRET is not set — using insecure default. " +
-      "Generate a production secret: openssl rand -hex 32"
+      "Generate a production secret: openssl rand -hex 32",
   );
 }
 
@@ -37,19 +37,24 @@ function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({
-      error: "Unauthorized: missing or invalid Authorization header. Expected 'Bearer <token>'.",
+      error:
+        "Unauthorized: missing or invalid Authorization header. Expected 'Bearer <token>'.",
     });
   }
 
   const token = authHeader.split(" ")[1];
   if (!token || token.length < 10) {
-    return res.status(401).json({ error: "Unauthorized: token is missing or too short." });
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: token is missing or too short." });
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded.publicKey || !/^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
-      return res.status(401).json({ error: "Unauthorized: token payload is malformed." });
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: token payload is malformed." });
     }
     req.user = decoded; // { publicKey: "G...", iat, exp }
     next();
