@@ -41,7 +41,9 @@ async function withCache(key, fn) {
  */
 async function getSummary(publicKey) {
   return withCache(`analytics:summary:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 200,
+    });
 
     let totalSent = 0;
     let totalReceived = 0;
@@ -81,7 +83,9 @@ async function getSummary(publicKey) {
  */
 async function getTopRecipients(publicKey) {
   return withCache(`analytics:top-recipients:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 200,
+    });
 
     // Map to track total sent per recipient
     const recipientTotals = new Map();
@@ -121,12 +125,33 @@ async function getTopRecipients(publicKey) {
 }
 
 /**
+ * Clear all cached analytics entries for a public key.
+ *
+ * Used by tests and by internal callers that need to force a refresh after
+ * on-chain activity they know about (e.g. a newly recorded tip).
+ *
+ * @param {string} publicKey
+ */
+function clearCache(publicKey) {
+  const cache = getCache();
+  // cache.del() resolves synchronously from the in-process LRU store when
+  // Redis is unavailable, so fire-and-forget is safe here.
+  return Promise.all([
+    cache.del(`analytics:summary:${publicKey}`),
+    cache.del(`analytics:top-recipients:${publicKey}`),
+    cache.del(`analytics:activity:${publicKey}`),
+  ]);
+}
+
+/**
  * Get payment activity by day of week.
  * Returns counts for all 7 days (Sunday = 0, ... Saturday = 6).
  */
 async function getActivityByDay(publicKey) {
   return withCache(`analytics:activity:${publicKey}`, async () => {
-    const payments = await stellarService.getPayments(publicKey, { limit: 200 });
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 200,
+    });
 
     // Initialize counters for all 7 days
     const dayActivity = {

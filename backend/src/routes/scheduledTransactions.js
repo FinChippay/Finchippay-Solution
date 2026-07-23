@@ -6,7 +6,23 @@
 const express = require("express");
 const router = express.Router();
 const scheduledTransactionService = require("../services/scheduledTransactionService");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { validate } = require("../validation/middleware");
+const {
+  scheduleTransactionSchema,
+  loosePublicKeyParamSchema,
+  idParamSchema,
+} = require("../validation/schemas");
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+/**
+ * POST /api/scheduled-txns
+ * Schedules a new transaction for future submission.
+ * Body: { signedXDR: string, submitAt: string (ISO 8601), publicKey: string }
+ */
+router.post("/", validate(scheduleTransactionSchema), (req, res, next) => {
+  try {
+    // submitAt is already confirmed to parse to a valid date by the schema.
+    const { signedXDR, submitAt, publicKey } = req.validated;
 
 // POST /api/scheduled-transactions
 router.post("/", (req, res, next) => {
@@ -30,6 +46,7 @@ router.post("/", (req, res, next) => {
     next(error);
   }
 });
+ master
 
 // POST /api/scheduled-transactions/pending/:id/submit
 router.post("/pending/:id/submit", async (req, res, next) => {
@@ -43,12 +60,52 @@ router.post("/pending/:id/submit", async (req, res, next) => {
     const result = await scheduledTransactionService.submitPendingExecution(
       req.params.id,
       signedXDR,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+      new Date(submitAt),
+      publicKey,
+
+ master
     );
     res.json(result);
   } catch (error) {
     next(error);
   }
 });
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+/**
+ * GET /api/scheduled-txns/:publicKey
+ * Lists all pending scheduled transactions for a given public key.
+ */
+router.get(
+  "/:publicKey",
+  validate(loosePublicKeyParamSchema, "params"),
+  (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const transactions =
+        scheduledTransactionService.getPendingTransactions(publicKey);
+      res.json(transactions);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * DELETE /api/scheduled-txns/:id
+ * Cancels a scheduled transaction.
+ */
+router.delete("/:id", validate(idParamSchema, "params"), (req, res, next) => {
+  try {
+    const { id } = req.validated;
+    const cancelled = scheduledTransactionService.cancelTransaction(id);
+    if (cancelled) {
+      res.json({ message: `Transaction ${id} cancelled successfully.` });
+    } else {
+      res
+        .status(404)
+        .json({ error: `Transaction ${id} not found or not pending.` });
 
 // GET /api/scheduled-transactions/:publicKey/pending
 router.get("/:publicKey/pending", (req, res, next) => {
@@ -95,6 +152,7 @@ router.delete("/:id", (req, res, next) => {
             id: req.params.id,
           }),
         );
+ master
     }
   } catch (error) {
     next(error);

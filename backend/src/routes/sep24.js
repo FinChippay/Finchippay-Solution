@@ -12,7 +12,11 @@
 const express = require("express");
 const router = express.Router();
 const sep24Service = require("../services/sep/sep24Service");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { validate } = require("../validation/middleware");
+const {
+  sep24InteractiveSchema,
+  sep24TransactionQuerySchema,
+} = require("../validation/schemas");
 
 /**
  * POST /api/sep24/transactions/deposit/interactive
@@ -29,35 +33,33 @@ const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes
  * Response 200:
  *   { type: "interactive_customer_info_needed", url: string, id: string }
  */
-router.post("/transactions/deposit/interactive", (req, res) => {
-  try {
-    const { asset_code, account, memo, memo_type, anchor_url } = req.body;
+router.post(
+  "/transactions/deposit/interactive",
+  validate(sep24InteractiveSchema),
+  (req, res) => {
+    try {
+      const { asset_code, account, memo, memo_type, anchor_url } =
+        req.validated;
 
-    if (!asset_code || !account) {
-      return res
-        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["asset_code", "account"] }));
+      const record = sep24Service.initiateDeposit({
+        assetCode: asset_code,
+        account,
+        memo,
+        memoType: memo_type,
+        anchorBaseUrl: anchor_url,
+      });
+
+      res.json({
+        type: "interactive_customer_info_needed",
+        url: record.url,
+        id: record.id,
+      });
+    } catch (err) {
+      const status = err.status || 500;
+      res.status(status).json({ error: err.message });
     }
-
-    const record = sep24Service.initiateDeposit({
-      assetCode: asset_code,
-      account,
-      memo,
-      memoType: memo_type,
-      anchorBaseUrl: anchor_url,
-    });
-
-    res.json({
-      type: "interactive_customer_info_needed",
-      url: record.url,
-      id: record.id,
-    });
-  } catch (err) {
-    const status = err.status || 500;
-    const errorCode = err.errorCode || "SRV_INTERNAL";
-    res.status(status).json(formatErrorResponse(errorCode, { reason: err.message }));
-  }
-});
+  },
+);
 
 /**
  * POST /api/sep24/transactions/withdraw/interactive
@@ -74,35 +76,33 @@ router.post("/transactions/deposit/interactive", (req, res) => {
  * Response 200:
  *   { type: "interactive_customer_info_needed", url: string, id: string }
  */
-router.post("/transactions/withdraw/interactive", (req, res) => {
-  try {
-    const { asset_code, account, memo, memo_type, anchor_url } = req.body;
+router.post(
+  "/transactions/withdraw/interactive",
+  validate(sep24InteractiveSchema),
+  (req, res) => {
+    try {
+      const { asset_code, account, memo, memo_type, anchor_url } =
+        req.validated;
 
-    if (!asset_code || !account) {
-      return res
-        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["asset_code", "account"] }));
+      const record = sep24Service.initiateWithdrawal({
+        assetCode: asset_code,
+        account,
+        memo,
+        memoType: memo_type,
+        anchorBaseUrl: anchor_url,
+      });
+
+      res.json({
+        type: "interactive_customer_info_needed",
+        url: record.url,
+        id: record.id,
+      });
+    } catch (err) {
+      const status = err.status || 500;
+      res.status(status).json({ error: err.message });
     }
-
-    const record = sep24Service.initiateWithdrawal({
-      assetCode: asset_code,
-      account,
-      memo,
-      memoType: memo_type,
-      anchorBaseUrl: anchor_url,
-    });
-
-    res.json({
-      type: "interactive_customer_info_needed",
-      url: record.url,
-      id: record.id,
-    });
-  } catch (err) {
-    const status = err.status || 500;
-    const errorCode = err.errorCode || "SRV_INTERNAL";
-    res.status(status).json(formatErrorResponse(errorCode, { reason: err.message }));
-  }
-});
+  },
+);
 
 /**
  * GET /api/sep24/transaction?id=<uuid>
@@ -132,43 +132,39 @@ router.post("/transactions/withdraw/interactive", (req, res) => {
  * Response 404:
  *   { error: "Transaction not found" }
  */
-router.get("/transaction", (req, res) => {
-  const { id } = req.query;
+router.get(
+  "/transaction",
+  validate(sep24TransactionQuerySchema, "query"),
+  (req, res) => {
+    const { id } = req.validated;
 
-  if (!id) {
-    return res
-      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["id"] }));
-  }
+    const record = sep24Service.getTransaction(id);
+    if (!record) {
+      return res.status(404).json({ error: "Transaction not found" });
+    }
 
-  const record = sep24Service.getTransaction(id);
-  if (!record) {
-    return res
-      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
-      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "transaction" }));
-  }
+    // Build the SEP-0024 compliant transaction response
+    const txn = {
+      id: record.id,
+      kind: record.kind,
+      status: record.status,
+      status_eta: null,
+      more_info_url: record.url,
+      amount_in: null,
+      amount_out: null,
+      amount_fee: null,
+      started_at: record.createdAt.toISOString(),
+      updated_at: record.updatedAt.toISOString(),
+      completed_at:
+        record.status === "completed" ? record.updatedAt.toISOString() : null,
+      stellar_transaction_id: null,
+      external_transaction_id: null,
+      message: record.errorReason || null,
+    };
 
-  // Build the SEP-0024 compliant transaction response
-  const txn = {
-    id: record.id,
-    kind: record.kind,
-    status: record.status,
-    status_eta: null,
-    more_info_url: record.url,
-    amount_in: null,
-    amount_out: null,
-    amount_fee: null,
-    started_at: record.createdAt.toISOString(),
-    updated_at: record.updatedAt.toISOString(),
-    completed_at:
-      record.status === "completed" ? record.updatedAt.toISOString() : null,
-    stellar_transaction_id: null,
-    external_transaction_id: null,
-    message: record.errorReason || null,
-  };
-
-  res.json({ transaction: txn });
-});
+    res.json({ transaction: txn });
+  },
+);
 
 /**
  * POST /api/sep24/deposit

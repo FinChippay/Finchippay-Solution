@@ -575,7 +575,11 @@ function TransactionList({
             onBlur={() => setFocusedIndex(-1)}
             onFocus={() => setFocusedIndex(index)}
             className={clsx(
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+              "flex items-center gap-3 p-3 rounded-xl bg-slate-50 rtl:flex-row-reverse dark:bg-white/3 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group relative",
+
               "flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-white/3 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group relative",
+ master
               focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
             )}
             aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
@@ -590,9 +594,9 @@ function TransactionList({
               )}
             >
               {tx.type === "sent" ? (
-                <ArrowUpIcon className="w-4 h-4 text-red-400" />
+                <ArrowUpIcon className="w-4 h-4 text-red-400 rtl:rotate-180" />
               ) : (
-                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
+                <ArrowDownIcon className="w-4 h-4 text-emerald-400 rtl:rotate-180" />
               )}
             </div>
 
@@ -639,7 +643,7 @@ function TransactionList({
             <div className="flex items-center gap-2 flex-shrink-0">
               <span
                 className={clsx(
-                  "text-sm font-mono font-medium",
+                  "text-sm font-mono font-medium bidi-ltr",
                   tx.type === "sent" ? "text-red-400" : "text-emerald-400"
                 )}
               >

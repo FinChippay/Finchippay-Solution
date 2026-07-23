@@ -13,6 +13,12 @@ const {
   sanitizeUsername,
 } = require("../middleware/sanitization");
 const { verifyJWT } = require("../middleware/auth");
+const { validate } = require("../validation/middleware");
+const {
+  publicKeyParamSchema,
+  usernameParamSchema,
+  registerUsernameSchema,
+} = require("../validation/schemas");
 const accountController = require("../controllers/accountController");
 const { sendError } = require("../utils/errorResponse");
 
@@ -51,6 +57,10 @@ router.get(
   "/resolve/:username",
   sensitiveLimiter,
   sanitizeUsername,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(usernameParamSchema, "params"),
+
+ master
   accountController.resolveUsername,
 );
 
@@ -63,6 +73,9 @@ router.get(
   sensitiveLimiter,
   verifyJWT,
   sanitizePublicKey,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+ master
   requireOwnAccount,
   accountController.getAccount,
 );
@@ -76,6 +89,12 @@ router.get(
   sensitiveLimiter,
   verifyJWT,
   sanitizePublicKey,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+  requireOwnAccount,
+  accountController.getBalance,
+);
+
   requireOwnAccount,
   accountController.getBalance,
 );
@@ -96,11 +115,17 @@ router.get(
   requireOwnAccount,
   accountController.streamBalance,
 );
+ master
 
 /**
  * POST /api/accounts/register
  * Register a new username with a public key.
  */
-router.post("/register", strictLimiter, accountController.registerUsername);
+router.post(
+  "/register",
+  strictLimiter,
+  validate(registerUsernameSchema),
+  accountController.registerUsername,
+);
 
 module.exports = router;

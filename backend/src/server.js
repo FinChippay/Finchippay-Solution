@@ -51,6 +51,14 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+const {
+  correlationMiddleware,
+  getRequestId,
+} = require("./utils/correlationId");
+const { initRedis, closeRedis } = require("./services/cacheService");
+const { zodErrorHandler } = require("./validation/middleware");
+
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 // Requiring errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider, so every error body the API returns — including the
@@ -60,6 +68,7 @@ const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
 const traceContextMiddleware = require("./middleware/tracing");
+ master
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -200,17 +209,13 @@ app.use(requireJsonContentType);
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 app.use(express.json({ limit: "100kb" }));
 
-// JSON body parsing error handler — uses standardized error codes
+// JSON body parsing error handler
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res
-      .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
-      .json(formatErrorResponse("VAL_INVALID_JSON"));
+    return res.status(400).json({ error: "Invalid JSON body" });
   }
   if (err.type === "entity.too.large" || err.status === 413) {
-    return res
-      .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
-      .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
+    return res.status(413).json({ error: "Request body too large" });
   }
   next();
 });
@@ -327,24 +332,39 @@ app.use((req, res) => {
 // Sentry must capture errors before the generic handler responds
 Sentry.setupExpressErrorHandler(app);
 
+// Convert any stray ZodError (thrown outside the validate() middleware, e.g.
+// a schema.parse() inside a controller) into the standard 400 payload.
+app.use(zodErrorHandler);
+
 app.use((err, req, res, next) => {
   void next;
   // If the error already has a code from our registry, use it directly.
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    logger.error(
+      { status, errorCode: err.errorCode, details: err.details },
+
     // The logged correlationId is the same one returned in the response body,
     // which is what makes a user-quoted ID searchable in the logs.
     logger.error(
       { ...errorLogFields(err.errorCode, { details: err.details }), status },
+ master
       "Request error",
     );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  const message =
+    sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
+  logger.error({ status, message }, "Request error");
+
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
+ master
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
