@@ -2,6 +2,16 @@
 
 All notable changes to the Finchippay-Solution smart contract will be documented in this file.
 
+## [Unreleased]
+
+### Security Fixes
+
+- **#54: Mandatory multi-sig expiration** — `create_multisig` now requires `expiration_ledger` to be strictly greater than the current ledger sequence, and rejects a TTL longer than the new `MAX_MULTISIG_TTL` (518,400 ledgers, ≈ 30 days). The `expiration_ledger == 0` escape hatch ("no expiration") has been removed from `approve_multisig`, so every proposal now has a bounded lifetime and can no longer accumulate approvals indefinitely from signers whose keys may have since been rotated or compromised.
+
+### Breaking Changes
+
+- Callers of `create_multisig` that previously passed `expiration_ledger = 0` to mean "never expires" must now pass an explicit ledger sequence in the future, no more than `MAX_MULTISIG_TTL` (518,400) ledgers out. Passing `0`, a past/current ledger, or a value beyond the cap now panics.
+
 ## [v3.1.0] - 2026-07-26
 
 ### Dependency Upgrades

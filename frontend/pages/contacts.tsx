@@ -1,6 +1,8 @@
 /**
  * pages/contacts.tsx
  * Contacts page: save names mapped to Stellar addresses, lookup federation addresses.
+ *
+ * Updated for Issue #36 — adds CSV/vCard import and export.
  */
 
 import { useState, useEffect } from "react";
@@ -18,6 +20,12 @@ import {
   subscribeToAddressBookContacts,
   upsertAddressBookContact,
 } from "@/lib/addressBook";
+import {
+  exportContactsCSV,
+  exportContactsVCard,
+  downloadFile,
+} from "@/lib/contactImportExport";
+import ContactImportModal from "@/components/ContactImportModal";
 import { copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import Head from "next/head";
@@ -32,6 +40,9 @@ export default function Contacts() {
 
   // Contact management state
   const [contacts, setContacts] = useState<AddressBookContact[]>(loadAddressBookContacts);
+
+  // Import modal
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -152,6 +163,78 @@ export default function Contacts() {
     showToast("Address copied");
   };
 
+  // Export all contacts as CSV
+  const handleExportCSV = () => {
+    if (contacts.length === 0) {
+      showToast("No contacts to export");
+      return;
+    }
+    const csv = exportContactsCSV(
+      contacts.map((c) => ({ name: c.nickname, address: c.address }))
+    );
+    downloadFile(csv, "finchippay-contacts.csv", "text/csv");
+    showToast(`Exported ${contacts.length} contact${contacts.length !== 1 ? "s" : ""}`);
+  };
+
+  // Export all contacts as vCard (.vcf)
+  const handleExportVCard = () => {
+    if (contacts.length === 0) {
+      showToast("No contacts to export");
+      return;
+    }
+    const vcf = exportContactsVCard(
+      contacts.map((c) => ({ name: c.nickname, address: c.address }))
+    );
+    downloadFile(vcf, "finchippay-contacts.vcf", "text/vcard");
+    showToast(`Exported ${contacts.length} contact${contacts.length !== 1 ? "s" : ""}`);
+  };
+
+  // Handle confirmed import from modal
+  const handleImportContacts = (
+    imported: Array<{ name: string; address: string; federation?: string }>,
+    overwriteDuplicates: boolean
+  ) => {
+    const existing = loadAddressBookContacts();
+    const existingByAddress = new Map(existing.map((c) => [c.address, c]));
+    const timestamp = Date.now();
+    let added = 0;
+    let updated = 0;
+
+    for (const row of imported) {
+      const existing_contact = existingByAddress.get(row.address);
+      if (existing_contact) {
+        if (overwriteDuplicates) {
+          existingByAddress.set(row.address, {
+            ...existing_contact,
+            nickname: row.name,
+            updatedAt: timestamp,
+          });
+          updated++;
+        }
+        // else skip
+      } else {
+        existingByAddress.set(row.address, {
+          id: `${row.address}:${timestamp + added}`,
+          nickname: row.name,
+          address: row.address,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        added++;
+      }
+    }
+
+    const merged = Array.from(existingByAddress.values());
+    saveAddressBookContacts(merged);
+    setContacts(merged);
+    setShowImportModal(false);
+
+    const parts: string[] = [];
+    if (added > 0) parts.push(`${added} added`);
+    if (updated > 0) parts.push(`${updated} updated`);
+    showToast(parts.length > 0 ? `Contacts imported: ${parts.join(", ")}` : "No new contacts imported");
+  };
+
   if (!publicKey) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
@@ -160,10 +243,10 @@ export default function Contacts() {
           <meta name="description" content="Manage your Stellar address book and federation contacts on Finchippay." />
         </Head>
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">
             {`Contacts`}
           </h1>
-          <p className="text-slate-400">{`Connect your wallet to manage contacts`}</p>
+          <p className="text-slate-600 dark:text-slate-400">{`Connect your wallet to manage contacts`}</p>
         </div>
         <WalletConnect />
       </div>
@@ -178,19 +261,70 @@ export default function Contacts() {
       </Head>
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-white mb-1">
+        <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-1">
           {`Contacts`}
         </h1>
-        <p className="text-slate-400">{`Save and manage Stellar addresses`}</p>
+        <p className="text-slate-600 dark:text-slate-400">{`Save and manage Stellar addresses`}</p>
+        
+        {/* Warning banner */}
+        <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <div className="flex items-start gap-2">
+            <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              Your contacts are stored locally on this device. They will be cleared when you disconnect your wallet. Avoid using this feature on shared or public computers.
+            </p>
+          </div>
+        </div>
+
+        {/* Import / Export toolbar */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-stellar-700 dark:text-stellar-300 bg-stellar-50 dark:bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
+            aria-label="Import contacts from CSV"
+          >
+            <ImportIcon className="w-4 h-4" />
+            Import
+          </button>
+          <button
+            onClick={handleExportCSV}
+            disabled={contacts.length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Export contacts as CSV"
+          >
+            <ExportIcon className="w-4 h-4" />
+            Export CSV
+          </button>
+          <button
+            onClick={handleExportVCard}
+            disabled={contacts.length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Export contacts as vCard"
+          >
+            <CardIcon className="w-4 h-4" />
+            Export vCard
+          </button>
+        </div>
       </div>
+
+      {/* Import modal */}
+      {showImportModal && (
+        <ContactImportModal
+          existingContacts={contacts}
+          onImport={handleImportContacts}
+          onClose={() => setShowImportModal(false)}
+        />
+      )}
 
       {/* Toast notifications are handled by the global ToastContainer in _app.tsx */}
 
       <div className="space-y-8">
         {/* Add/Edit Contact Form */}
         <div className="card">
-          <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <PlusIcon className="w-5 h-5 text-stellar-400" />
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <PlusIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             {editingId ? "Edit Contact" : "Add Contact"}
           </h2>
 
@@ -242,8 +376,8 @@ export default function Contacts() {
 
         {/* Federation Lookup */}
         <div className="card">
-          <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <SearchIcon className="w-5 h-5 text-stellar-400" />
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <SearchIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             {`Federation Lookup`}
           </h2>
 
@@ -260,16 +394,16 @@ export default function Contacts() {
                   if (e.key === "Enter") handleFederationLookup();
                 }}
               />
-              <p className="mt-1 text-xs text-slate-400">{`Resolve Stellar Federation addresses to public keys`}</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{`Resolve Stellar Federation addresses to public keys`}</p>
             </div>
 
             {federationResult && (
               <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                <p className="text-sm text-slate-300 mb-2">
+                <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">
                   {`Resolved address:`}
                 </p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-slate-950/50 p-2 rounded font-mono text-slate-300 break-all">
+                  <code className="flex-1 text-xs bg-slate-950/50 p-2 rounded font-mono text-slate-200 break-all">
                     {federationResult.address}
                   </code>
                   <button
@@ -305,30 +439,30 @@ export default function Contacts() {
 
         {/* Contacts List */}
         <div>
-          <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <ContactsIcon className="w-5 h-5 text-stellar-400" />
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <ContactsIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             {`Saved Contacts`}
-            <span className="ml-auto text-sm font-normal text-slate-400">
+            <span className="ml-auto text-sm font-normal text-slate-600 dark:text-slate-400">
               {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
             </span>
           </h2>
 
           {contacts.length === 0 ? (
             <div className="card text-center py-12">
-              <ContactsIcon className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-              <p className="text-slate-400">{`No contacts yet. Add one to get started.`}</p>
+              <ContactsIcon className="w-12 h-12 mx-auto mb-3 text-slate-500 dark:text-slate-600" />
+              <p className="text-slate-600 dark:text-slate-400">{`No contacts yet. Add one to get started.`}</p>
             </div>
           ) : (
             <div className="space-y-3">
               {contacts.map((contact) => (
                 <div
                   key={contact.id}
-                  className="card-hover p-4 rounded-xl border border-slate-700/50 bg-slate-800/30 transition-all"
+                  className="card-hover p-4 rounded-xl border border-slate-200 dark:border-slate-700/50 bg-white dark:bg-slate-800/30 transition-all"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white">{contact.nickname}</h3>
-                      <p className="text-xs text-slate-400 font-mono mt-1 break-all">
+                      <h3 className="font-semibold text-slate-900 dark:text-white">{contact.nickname}</h3>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 font-mono mt-1 break-all">
                         {contact.address}
                       </p>
                     </div>
@@ -338,7 +472,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleCopyAddress(contact.address)}
                         title="Copy address"
-                        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                        className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50 transition-colors"
                       >
                         <CopyIcon className="w-4 h-4" />
                       </button>
@@ -347,7 +481,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleSendXLM(contact)}
                         title="Send XLM to this contact"
-                        className="px-3 py-2 rounded-lg text-sm font-medium text-stellar-300 bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
+                        className="px-3 py-2 rounded-lg text-sm font-medium text-stellar-700 dark:text-stellar-300 bg-stellar-50 dark:bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
                       >
                         {`Send`}
                       </button>
@@ -356,7 +490,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleEditContact(contact)}
                         title="Edit contact"
-                        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                        className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50 transition-colors"
                       >
                         <EditIcon className="w-4 h-4" />
                       </button>
@@ -365,7 +499,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleDeleteContact(contact.id)}
                         title="Delete contact"
-                        className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="p-2 rounded-lg text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         <TrashIcon className="w-4 h-4" />
                       </button>
@@ -380,7 +514,7 @@ export default function Contacts() {
         {/* Back to Dashboard */}
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
+          className="inline-flex items-center gap-2 text-sm text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 transition-colors"
         >
           <ArrowLeftIcon className="w-4 h-4" />
           {`Back to dashboard`}
@@ -461,6 +595,30 @@ function Spinner() {
     <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
+function ImportIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  );
+}
+
+function ExportIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+    </svg>
+  );
+}
+
+function CardIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
     </svg>
   );
 }

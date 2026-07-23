@@ -84,7 +84,7 @@ describe("Federation API", () => {
           .query({ q: stellarAddress, type: "name" })
           .expect(404);
 
-        expect(response.body).toHaveProperty("error", "Username not found");
+        expect(response.body.error.details.reason).toBe("Username not found");
       });
 
       it("should return 400 for invalid stellar address format", async () => {
@@ -120,8 +120,7 @@ describe("Federation API", () => {
           .query({ q: externalAddress, type: "name" })
           .expect(502);
 
-        expect(response.body).toHaveProperty(
-          "error",
+        expect(response.body.error.details.reason).toBe(
           "Invalid Stellar address returned from federation server"
         );
       });
@@ -146,7 +145,7 @@ describe("Federation API", () => {
           .query({ q: unknownPublicKey, type: "id" })
           .expect(404);
 
-        expect(response.body).toHaveProperty("error", "Account ID not found");
+        expect(response.body.error.details.reason).toBe("Account ID not found");
       });
     });
 
@@ -155,7 +154,7 @@ describe("Federation API", () => {
         .get("/federation")
         .expect(400);
 
-      expect(response.body).toHaveProperty("error", "Missing required parameters: q and type");
+      expect(response.body.error.code).toBe("VAL_MISSING_FIELD");
     });
 
     it("should return 400 for invalid type", async () => {
@@ -164,7 +163,7 @@ describe("Federation API", () => {
         .query({ q: "test", type: "invalid" })
         .expect(400);
 
-      expect(response.body).toHaveProperty("error", "Invalid type parameter. Must be 'name' or 'id'");
+      expect(response.body.error.code).toBe("VAL_INVALID_FEDERATION_TYPE");
     });
   });
 });

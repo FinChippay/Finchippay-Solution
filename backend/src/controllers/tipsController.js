@@ -17,6 +17,15 @@
 
 const tipsService = require("../services/tipsService");
 
+// Lazy-loaded to avoid circular dependency at parse time
+function getCache() {
+  try {
+    return require("../services/cacheService");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * POST /api/tips
  * Record a new tip after the on-chain transaction has been confirmed.
@@ -51,6 +60,16 @@ async function recordTip(req, res, next) {
       memo: memo || "",
       txHash: txHash || "",
     });
+
+    // Invalidate analytics cache on new tip
+    try {
+      const cache = getCache();
+      if (cache) {
+        await cache.delPattern("analytics:*");
+      }
+    } catch {
+      // cache invalidation is best-effort
+    }
 
     return res.status(201).json({
       success: true,

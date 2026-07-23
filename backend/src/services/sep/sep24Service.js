@@ -16,6 +16,8 @@
 "use strict";
 
 const { randomUUID } = require("crypto");
+const axios = require("axios");
+const { getAnchor } = require("../../config/anchors");
 
 /** @type {Map<string, TransactionRecord>} */
 const transactions = new Map();
@@ -234,6 +236,154 @@ function clearStore() {
   transactions.clear();
 }
 
+// ─── Real anchor integration (SEP-24 proxy) ────────────────────────────────
+
+/** @type {Map<string, Object>} Locally cached anchor-backed transaction records */
+const anchorTransactions = new Map();
+
+function _buildForm(fields) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && value !== null) form.append(key, String(value));
+  }
+  return form;
+}
+
+async function callAnchorDeposit({ account, assetCode, assetIssuer, amount, anchorName, token }) {
+  _validateInput({ assetCode, account });
+  const anchor = getAnchor(anchorName);
+
+  const form = _buildForm({ asset_code: assetCode, account, asset_issuer: assetIssuer, amount });
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+  let response;
+  try {
+    response = await axios.post(
+      `${anchor.sep24Url}/transactions/deposit/interactive`,
+      form,
+      { headers, timeout: 10_000 },
+    );
+  } catch (err) {
+    const upstreamStatus = err.response?.status;
+    const wrapped = new Error(
+      `Anchor "${anchor.name}" deposit request failed: ${err.response?.data?.error || err.message}`,
+    );
+    wrapped.status = upstreamStatus === 401 || upstreamStatus === 403 ? upstreamStatus : 502;
+    throw wrapped;
+  }
+
+  const { type, url, id } = response.data;
+  anchorTransactions.set(id, {
+    id,
+    kind: "deposit",
+    anchorName: anchor.name,
+    assetCode,
+    account,
+    status: "pending_external",
+    url,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  return { type: type || "interactive_customer_info_needed", url, id };
+}
+
+async function callAnchorWithdraw({
+  account,
+  assetCode,
+  assetIssuer,
+  amount,
+  destAccount,
+  anchorName,
+  token,
+}) {
+  _validateInput({ assetCode, account });
+  const anchor = getAnchor(anchorName);
+
+  const form = _buildForm({
+    asset_code: assetCode,
+    account,
+    asset_issuer: assetIssuer,
+    amount,
+    dest: destAccount,
+  });
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+  let response;
+  try {
+    response = await axios.post(
+      `${anchor.sep24Url}/transactions/withdraw/interactive`,
+      form,
+      { headers, timeout: 10_000 },
+    );
+  } catch (err) {
+    const upstreamStatus = err.response?.status;
+    const wrapped = new Error(
+      `Anchor "${anchor.name}" withdraw request failed: ${err.response?.data?.error || err.message}`,
+    );
+    wrapped.status = upstreamStatus === 401 || upstreamStatus === 403 ? upstreamStatus : 502;
+    throw wrapped;
+  }
+
+  const { type, url, id } = response.data;
+  anchorTransactions.set(id, {
+    id,
+    kind: "withdrawal",
+    anchorName: anchor.name,
+    assetCode,
+    account,
+    destAccount,
+    status: "pending_external",
+    url,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  return { type: type || "interactive_customer_info_needed", url, id };
+}
+
+/**
+ * Look up a locally-tracked anchor-backed transaction by id.
+ * Kept fresh via /callback pushes from the anchor.
+ */
+function getAnchorTransaction(id) {
+  return anchorTransactions.get(id) || null;
+}
+
+/**
+ * Handle an anchor's callback POST with an updated transaction status.
+ * Accepts either `{ transaction: {...} }` or a flat transaction object.
+ */
+function handleAnchorCallback(body) {
+  const incoming = body?.transaction || body;
+  if (!incoming?.id) {
+    const err = new Error("Callback payload missing transaction.id");
+    err.status = 400;
+    throw err;
+  }
+
+  const existing = anchorTransactions.get(incoming.id) || {
+    id: incoming.id,
+    kind: incoming.kind || "deposit",
+    createdAt: new Date(),
+  };
+
+  anchorTransactions.set(incoming.id, {
+    ...existing,
+    status: incoming.status || existing.status,
+    amount_in: incoming.amount_in ?? existing.amount_in ?? null,
+    amount_out: incoming.amount_out ?? existing.amount_out ?? null,
+    message: incoming.message ?? existing.message ?? null,
+    updatedAt: new Date(),
+  });
+
+  return anchorTransactions.get(incoming.id);
+}
+
+function clearAnchorStore() {
+  anchorTransactions.clear();
+}
+
 module.exports = {
   initiateDeposit,
   initiateWithdrawal,
@@ -241,4 +391,9 @@ module.exports = {
   updateTransactionStatus,
   listTransactions,
   clearStore,
+  callAnchorDeposit,
+  callAnchorWithdraw,
+  getAnchorTransaction,
+  handleAnchorCallback,
+  clearAnchorStore,
 };

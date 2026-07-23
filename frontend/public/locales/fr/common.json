@@ -139,7 +139,9 @@
     "upwardTrend": "▲ Tendance à la hausse",
     "downwardTrend": "▼ Tendance à la baisse",
     "balanceTrendUpward": "Tendance du solde : à la hausse",
-    "balanceTrendDownward": "Tendance du solde : à la baisse"
+    "balanceTrendDownward": "Tendance du solde : à la baisse",
+    "balanceLive": "En direct",
+    "balancePolling": "Mise a jour toutes les 30 s"
   },
   "sendPayment": {
     "title": "Envoyer un Paiement",

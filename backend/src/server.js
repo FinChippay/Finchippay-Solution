@@ -26,6 +26,7 @@ const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
 const Sentry = require("@sentry/node");
+const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
@@ -39,15 +40,21 @@ const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
+const sep12Routes = require("./routes/sep12");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const eventIndexer = require("./services/eventIndexer");
+const { startRetryWorker, closeAllStreams } = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const { initRedis, closeRedis } = require("./services/cacheService");
+const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
+const traceContextMiddleware = require("./middleware/tracing");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -159,6 +166,7 @@ app.use(trackHttpMetrics);
 // Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
 // Mounted before pino-http so the requestId appears in every log line.
 app.use(correlationMiddleware);
+app.use(traceContextMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 // req.id is set by correlationMiddleware above.
@@ -187,13 +195,17 @@ app.use(requireJsonContentType);
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 app.use(express.json({ limit: "100kb" }));
 
-// JSON body parsing error handler
+// JSON body parsing error handler — uses standardized error codes
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({ error: "Invalid JSON body" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_JSON"));
   }
   if (err.type === "entity.too.large" || err.status === 413) {
-    return res.status(413).json({ error: "Request body too large" });
+    return res
+      .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
+      .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
   }
   next();
 });
@@ -258,7 +270,7 @@ const limiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
+  message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
 });
 app.use(limiter);
 
@@ -272,8 +284,9 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
-app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
+app.use("/api/sep12", sep12Routes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -299,7 +312,9 @@ app.get("/api/docs.json", (req, res) => {
 app.use((req, res) => {
   const sanitizedPath = req.path.replace(/[\r\n]/g, "");
   logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
-  res.status(404).json({ error: "Route not found" });
+  res
+    .status(ERROR_CODES.RES_ROUTE_NOT_FOUND.httpStatus)
+    .json(formatErrorResponse("RES_ROUTE_NOT_FOUND"));
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
@@ -309,10 +324,22 @@ Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   void next;
+  // If the error already has a code from our registry, use it directly.
+  if (err.errorCode) {
+    const entry = formatErrorResponse(err.errorCode, err.details);
+    const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
+    logger.error({ status, errorCode: err.errorCode, details: err.details }, "Request error");
+    return res.status(status).json(entry);
+  }
+
   const status = err.status || 500;
-  const message = sanitizeMessage(err.message) || "Internal Server Error";
+  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ status, message }, "Request error");
-  res.status(status).json({ error: message });
+  // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
+  const fallback = formatErrorResponse("SRV_INTERNAL", {
+    originalMessage: sanitizeMessage(err.message),
+  });
+  res.status(status).json(fallback);
 });
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
@@ -327,7 +354,18 @@ async function gracefulShutdown(signal, server, otelSdk) {
     if (err) logger.error({ err }, "Error closing HTTP server");
   });
 
-  // 2. Flush OTel spans (time-boxed at 5 s)
+  // 2. Close the Horizon payment streams backing the balance SSE endpoint so
+  //    they don't leak hanging connections on restart (#157).
+  try {
+    closeAllStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing Horizon balance streams");
+  }
+
+  // 3. Close Redis connection
+  await closeRedis();
+
+  // 4. Flush OTel spans (time-boxed at 5 s)
   if (otelSdk) {
     try {
       await Promise.race([
@@ -349,6 +387,11 @@ async function gracefulShutdown(signal, server, otelSdk) {
 
 if (require.main === module) {
   validateEnv();
+  // Initialise Redis connection (non-blocking; degrades gracefully if unavailable)
+  initRedis().catch((err) => {
+    logger.error({ err }, "Redis initialisation failed");
+  });
+  require("./services/scheduledTransactionService").loadActiveSchedules();
   const server = app.listen(PORT, () => {
     console.log(`
   ✨ Finchippay Solution API
@@ -358,9 +401,17 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+  eventIndexer.start();
+  startRetryWorker();
 
-  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server, otelSdk));
-  process.on("SIGINT", () => gracefulShutdown("SIGINT", server, otelSdk));
+  process.on("SIGTERM", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGTERM", server, otelSdk);
+  });
+  process.on("SIGINT", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGINT", server, otelSdk);
+  });
 }
 
 module.exports = app;

@@ -11,6 +11,8 @@
 
 "use strict";
 
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+
 const JSON_BODY_METHODS = new Set(["POST", "PUT"]);
 
 /**
@@ -25,8 +27,8 @@ function requireJsonContentType(req, res, next) {
   const contentType = req.headers["content-type"] || "";
   if (!contentType.toLowerCase().includes("application/json")) {
     return res
-      .status(415)
-      .json({ error: "Content-Type must be application/json" });
+      .status(ERROR_CODES.VAL_CONTENT_TYPE.httpStatus)
+      .json(formatErrorResponse("VAL_CONTENT_TYPE"));
   }
 
   next();

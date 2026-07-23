@@ -37,7 +37,12 @@ describe("stellarService", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    stellarService.clearAccountCache();
+    // Clear the LRU fallback in cacheService (replaces old clearAccountCache)
+    try {
+      require("../src/services/cacheService").clearLRU();
+    } catch {
+      // cacheService may not be loaded in some test environments; ignore
+    }
     mockPaymentsCursor.mockImplementation(() => ({ call: mockPaymentsCall }));
     mockPaymentsOrder.mockImplementation(() => ({ cursor: mockPaymentsCursor, call: mockPaymentsCall }));
     mockPaymentsLimit.mockImplementation(() => ({ order: mockPaymentsOrder }));

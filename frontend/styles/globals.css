@@ -70,19 +70,19 @@
     }
 
     .btn-primary {
-        @apply bg-stellar-500 hover:bg-stellar-400 text-white font-medium px-6 py-3 rounded-xl
+        @apply bg-stellar-500 hover:bg-stellar-400 text-white font-medium px-6 py-3 min-h-[44px] rounded-xl
            transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
            focus:outline-none focus:ring-2 focus:ring-stellar-400 focus:ring-offset-2 dark:focus:ring-offset-cosmos-900 focus:ring-offset-white;
     }
 
     .btn-secondary {
-        @apply border border-stellar-500/40 hover:border-stellar-500/80 text-stellar-400 font-medium px-6 py-3 rounded-xl
+        @apply border border-stellar-500/40 hover:border-stellar-500/80 text-stellar-400 font-medium px-6 py-3 min-h-[44px] rounded-xl
            transition-all duration-200 bg-stellar-500/5 hover:bg-stellar-500/10
            focus:outline-none focus:ring-2 focus:ring-stellar-400 focus:ring-offset-2 dark:focus:ring-offset-cosmos-900 focus:ring-offset-white;
     }
 
     .input-field {
-        @apply w-full dark:bg-cosmos-800 bg-white border border-[rgba(14,165,233,0.2)] rounded-xl px-4 py-3
+        @apply w-full dark:bg-cosmos-800 bg-white border border-[rgba(14,165,233,0.2)] rounded-xl px-4 py-3 min-h-[44px]
            dark:text-slate-200 text-slate-800 placeholder-slate-400 font-mono text-sm
            focus:outline-none focus:border-stellar-500/60 focus:ring-1 focus:ring-stellar-500/40
            transition-all duration-200;

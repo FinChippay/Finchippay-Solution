@@ -22,6 +22,8 @@ import {
   setJwtToken as persistAuthToken,
   clearJwtToken as clearAuthToken,
 } from "./auth";
+import { sdk } from "./sdk-instance";
+import { clearAddressBook } from "./addressBook";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -30,29 +32,17 @@ export function setJwtToken(token: string | null) { jwtToken = token; }
 export function getJwtToken() { return jwtToken; }
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
-  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-  const res  = await fetch(`${base}/api/auth?account=${encodeURIComponent(publicKey)}`, {
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error("Failed to fetch SEP-0010 challenge");
-  const { transaction } = await res.json();
+  const { transaction } = await sdk.getChallenge(publicKey);
   return transaction;
 }
 
-async function verifyAuthChallenge(signedXDR: string): Promise<string> {
-  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-  const res  = await fetch(`${base}/api/auth`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ transaction: signedXDR }),
-  });
-  if (!res.ok) {
-    const { error } = await res.json().catch(() => ({ error: "Auth failed" }));
-    throw new Error(error || "SEP-0010 verification failed");
-  }
-  const { token } = await res.json();
-  return token;
+async function verifyAuthChallenge(signedXDR: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const res = await sdk.verifyChallenge(signedXDR);
+  const data = res as any;
+  const accessToken = data.accessToken || data.token;
+  const refreshToken = data.refreshToken;
+  sdk.setToken(accessToken);
+  return { accessToken, refreshToken };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -204,10 +194,13 @@ export async function performSEP0010Auth(
     if (signError || !signedXDR) {
       return { token: null, error: signError || "Failed to sign challenge transaction" };
     }
-    const token = await verifyAuthChallenge(signedXDR);
-    setJwtToken(token);
-    persistAuthToken(token);
-    return { token, error: null };
+    const { accessToken, refreshToken } = await verifyAuthChallenge(signedXDR);
+    setJwtToken(accessToken);
+    persistAuthToken(accessToken);
+    if (typeof window !== "undefined" && refreshToken) {
+      localStorage.setItem("finchippay_refresh_token", refreshToken);
+    }
+    return { token: accessToken, error: null };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { token: null, error: `Authentication failed: ${msg}` };
@@ -258,8 +251,26 @@ export async function signTransactionWithWallet(
 export function disconnectWallet(): void {
   // Freighter doesn't expose an explicit disconnect API, so the app clears
   // any local auth state and lets React own the connected wallet lifecycle.
+  const rToken = typeof window !== "undefined" ? localStorage.getItem("finchippay_refresh_token") : null;
+  const aToken = getJwtToken();
+
+  if (rToken || aToken) {
+    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+    fetch(`${API_URL}/api/auth/logout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(aToken ? { "Authorization": `Bearer ${aToken}` } : {})
+      },
+      body: JSON.stringify({ refreshToken: rToken }),
+    }).catch((err) => {
+      console.error("Failed to revoke token family on logout:", err);
+    });
+  }
+
   setJwtToken(null);
   clearAuthToken();
+  clearAddressBook();
 }
 
 /**

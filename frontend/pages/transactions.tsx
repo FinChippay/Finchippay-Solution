@@ -11,10 +11,11 @@ import TransactionList, {
   TransactionDirectionFilter,
   TransactionFilters,
 } from "@/components/TransactionList";
-import { fetchAllPayments, NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
-import { exportToCSV, exportToJSON, formatAsset, formatDate } from "@/utils/format";
+import { NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
+import { formatAsset, formatDate } from "@/utils/format";
+import { generateCSV, downloadCSV, generatePDF, downloadPDF, type ExportFormat } from "@/utils/export";
 import { useWallet } from "@/lib/useWallet";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "finchippay:transaction-filters";
 
@@ -35,8 +36,9 @@ export default function Transactions() {
   const { publicKey } = useWallet();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [exporting, setExporting] = useState(false);
-  const [exportCount, setExportCount] = useState(0);
-  const [exportFormat, setExportFormat] = useState<"csv" | "json" | null>(null);
+  const [exportFormat, setExportFormat] = useState<ExportFormat | null>(null);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
   const [directionFilter, setDirectionFilter] =
     useState<TransactionDirectionFilter>("all");
   const [minimumAmount, setMinimumAmount] = useState("");
@@ -63,7 +65,6 @@ export default function Transactions() {
     (minimumAmount.trim() !== "" ? 1 : 0) +
     (memoSearch.trim() !== "" ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
-  const exportPayments = filteredPayments;
   const networkLabel = NETWORK === "mainnet" ? "Mainnet" : "Testnet";
 
   // Receives the latest payments array from the list whenever it changes
@@ -116,29 +117,53 @@ export default function Transactions() {
     setMemoSearch("");
   };
 
-  const handleExport = async (format: "csv" | "json") => {
-    if (!publicKey) return;
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    if (!exportDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target as Node)) {
+        setExportDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [exportDropdownOpen]);
+
+  const handleExport = async (format: ExportFormat) => {
+    if (!publicKey || exporting || filteredPayments.length === 0) return;
     setExporting(true);
     setExportFormat(format);
-    setExportCount(0);
-    try {
-      const allPayments = await fetchAllPayments(publicKey, {
-        onProgress: ({ fetchedRecords }) => setExportCount(fetchedRecords),
-      });
-      if (allPayments.length === 0) return;
+    setExportDropdownOpen(false);
 
-      if (format === "csv") {
-        exportToCSV(allPayments);
-      } else {
-        exportToJSON(allPayments);
-      }
-    } finally {
-      // Small delay so the button flash feels intentional
-      setTimeout(() => {
+    // Use requestAnimationFrame to ensure the loading UI renders before heavy generation
+    const generate = () => {
+      try {
+        const dateStamp = new Date().toISOString().slice(0, 10);
+
+        if (format === "csv") {
+          const csv = generateCSV(filteredPayments);
+          downloadCSV(csv, dateStamp);
+        } else {
+          const dateRangeLabel = hasActiveFilters
+            ? `Filtered view (${filteredPayments.length} of ${payments.length} transactions)`
+            : undefined;
+          const blob = generatePDF(filteredPayments, {
+            accountAddress: publicKey,
+            dateRangeLabel,
+            networkLabel,
+          });
+          downloadPDF(blob, dateStamp);
+        }
+      } catch (err) {
+        console.error(`Failed to export ${format}:`, err);
+      } finally {
         setExporting(false);
         setExportFormat(null);
-      }, 800);
-    }
+      }
+    };
+
+    // Small delay so the loading state renders before blocking work begins
+    setTimeout(generate, 100);
   };
 
   const handlePrintReceipt = useCallback((payment: PaymentRecord) => {
@@ -186,10 +211,10 @@ export default function Transactions() {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">
             {`Transaction History`}
           </h1>
-          <p className="text-slate-400">{`Connect your wallet to view your payments`}</p>
+          <p className="text-slate-600 dark:text-slate-400">{`Connect your wallet to view your payments`}</p>
         </div>
         <WalletConnect />
       </div>
@@ -207,10 +232,10 @@ export default function Transactions() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="font-display text-3xl font-bold text-white mb-1">
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-1">
             {`Transaction History`}
           </h1>
-          <div className="flex items-center gap-2 text-sm text-slate-400">
+          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
             <span>{`Account:`}</span>
             {/* Added select-text and cursor-text so the address pill remains functional */}
             <span className="address-pill select-text cursor-text">{shortenAddress(publicKey)}</span>
@@ -218,86 +243,93 @@ export default function Transactions() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0 pt-1">
-          {/* Download CSV */}
-          <button
-            onClick={() => void handleExport("csv")}
-            disabled={exportPayments.length === 0 || exporting || !publicKey}
-            title={
-              exportPayments.length === 0
-                ? "No transactions to export"
-                : "Export full history as CSV"
-            }
-            className={[
-              "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg",
-              "border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
-              exportPayments.length === 0 || exporting
-                ? "border-white/10 text-slate-600 cursor-not-allowed"
-                : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50 cursor-pointer",
-            ].join(" ")}
-          >
-            {exporting && exportFormat === "csv" ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                {`Exporting…`}
-              </>
-            ) : (
-              <>
-                <svg
-                  className="w-3.5 h-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
-                  />
-                </svg>
-                {`Download CSV`}
-              </>
-            )}
-          </button>
+          {/* Export Dropdown */}
+          <div className="relative" ref={exportDropdownRef}>
+            <button
+              onClick={() => setExportDropdownOpen((prev) => !prev)}
+              disabled={filteredPayments.length === 0 || exporting || !publicKey}
+              title={
+                filteredPayments.length === 0
+                  ? "No transactions to export"
+                  : "Export transaction history"
+              }
+              className={[
+                "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg",
+                "border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
+                filteredPayments.length === 0 || exporting
+                  ? "border-slate-200 dark:border-white/10 text-slate-600 cursor-not-allowed"
+                  : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50 cursor-pointer",
+              ].join(" ")}
+            >
+              {exporting ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                  {`Exporting ${exportFormat?.toUpperCase() ?? ""}…`}
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                    />
+                  </svg>
+                  {`Export`}
+                  <svg
+                    className={`w-3 h-3 transition-transform duration-200 ${exportDropdownOpen ? "rotate-180" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </>
+              )}
+            </button>
 
-          <button
-            onClick={() => void handleExport("json")}
-            disabled={exportPayments.length === 0 || exporting || !publicKey}
-            title={
-              exportPayments.length === 0
-                ? "No transactions to export"
-                : "Export full history as JSON"
-            }
-            className={[
-              "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg",
-              "border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
-              exportPayments.length === 0 || exporting
-                ? "border-white/10 text-slate-600 cursor-not-allowed"
-                : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50 cursor-pointer",
-            ].join(" ")}
-          >
-            {exporting && exportFormat === "json" ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                {`Exporting…`}
-              </>
-            ) : (
-              <>
-                <svg
-                  className="w-3.5 h-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  aria-hidden="true"
+            {/* Dropdown Menu */}
+            {exportDropdownOpen && (
+              <div className="absolute right-0 z-30 mt-1.5 w-52 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-cosmos-900 shadow-xl shadow-black/30 animate-fade-in overflow-hidden">
+                {/* CSV Option */}
+                <button
+                  onClick={() => void handleExport("csv")}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors cursor-pointer"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z" />
-                </svg>
-                {`Download JSON`}
-              </>
+                  <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z" />
+                  </svg>
+                  <div className="text-left">
+                    <div className="font-medium">Export as CSV</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-400">RFC 4180 · Spreadsheet-ready</div>
+                  </div>
+                </button>
+
+                {/* PDF Option */}
+                <button
+                  onClick={() => void handleExport("pdf")}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors cursor-pointer border-t border-slate-200 dark:border-white/5"
+                >
+                  <svg className="w-4 h-4 text-red-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                  </svg>
+                  <div className="text-left">
+                    <div className="font-medium">Export as PDF</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-400">Branded statement · Printer-friendly</div>
+                  </div>
+                </button>
+              </div>
             )}
-          </button>
+          </div>
 
           <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4 cursor-pointer">
             {`← Dashboard`}
@@ -306,35 +338,36 @@ export default function Transactions() {
       </div>
 
       {exporting && (
-        <p className="mb-4 text-xs text-slate-400">
-          {`Preparing full account history export… ${exportCount} records processed.`}
+        <p className="mb-4 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
+          <div className="w-3 h-3 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+          {`Generating ${exportFormat?.toUpperCase() ?? ""} export for ${filteredPayments.length} transaction${filteredPayments.length !== 1 ? "s" : ""}…`}
         </p>
       )}
 
       {/* Export hint */}
       <div className="mb-5 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/15 flex items-center justify-between">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-400">
           {`Showing your transaction history. Click "Load more" to view older transactions.`}
         </p>
         <a
           href={`https://stellar.expert/explorer/testnet/account/${publicKey}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors whitespace-nowrap ml-4 cursor-pointer"
+          className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 transition-colors whitespace-nowrap ml-4 cursor-pointer"
         >
           {`Full history →`}
         </a>
       </div>
 
       {/* Filters */}
-      <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] p-4 select-text">
+      <div className="mb-5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.03] p-4 select-text">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-600 dark:text-slate-400">
                 Filters
               </span>
-              <span className="rounded-full border border-stellar-500/25 bg-stellar-500/10 px-2 py-0.5 text-[11px] font-medium text-stellar-300">
+              <span className="rounded-full border border-stellar-500/25 bg-stellar-500/10 px-2 py-0.5 text-[11px] font-medium text-stellar-700 dark:text-stellar-300">
                 {activeFilterCount} active
               </span>
             </div>
@@ -342,7 +375,7 @@ export default function Transactions() {
             <div
               role="group"
               aria-label="Transaction direction"
-              className="inline-flex rounded-xl border border-white/10 bg-cosmos-900/70 p-1"
+              className="inline-flex rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-cosmos-900/70 p-1"
             >
               {DIRECTION_FILTERS.map((option) => {
                 const isActive = directionFilter === option.value;
@@ -356,8 +389,8 @@ export default function Transactions() {
                     className={[
                       "min-w-20 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
                       isActive
-                        ? "bg-stellar-500/20 text-stellar-200"
-                        : "text-slate-400 hover:text-slate-200",
+                        ? "bg-stellar-100 text-stellar-700 dark:bg-stellar-500/20 dark:text-stellar-200"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200",
                     ].join(" ")}
                   >
                     {option.label}
@@ -383,7 +416,7 @@ export default function Transactions() {
                 placeholder="0.00"
                 className="input-field py-2.5 pr-14"
               />
-              <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-xs font-medium text-slate-400">
+              <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-xs font-medium text-slate-600 dark:text-slate-400">
                 XLM
               </span>
             </div>
@@ -405,8 +438,8 @@ export default function Transactions() {
         </div>
 
         {hasActiveFilters && (
-          <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-400">
+          <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 dark:border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
               {`Showing ${filteredPayments.length} of ${payments.length} loaded transaction${
                 payments.length !== 1 ? "s" : ""
               }`}
@@ -414,7 +447,7 @@ export default function Transactions() {
             <button
               type="button"
               onClick={handleResetFilters}
-              className="self-start text-xs font-medium text-stellar-400 transition-colors hover:text-stellar-300 sm:self-auto"
+              className="self-start text-xs font-medium text-stellar-700 dark:text-stellar-400 transition-colors hover:text-stellar-600 dark:hover:text-stellar-300 sm:self-auto"
             >
               Reset filters
             </button>
@@ -438,22 +471,22 @@ export default function Transactions() {
           <div className="receipt-sheet card">
             <div className="flex items-start justify-between gap-6 border-b border-slate-200 pb-5 mb-6">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-slate-400 mb-2">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-400 mb-2">
                   Finchippay Solution
                 </p>
                 <h2 className="text-2xl font-semibold text-slate-900">
                   Payment Receipt
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                   {formatDate(receiptPayment.createdAt)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
                   Network
                 </p>
                 <p className="text-lg font-semibold text-slate-900">{networkLabel}</p>
-                <p className="text-sm text-slate-400 capitalize">
+                <p className="text-sm text-slate-600 dark:text-slate-400 capitalize">
                   {receiptPayment.type === "sent" ? "Sent" : "Received"}
                 </p>
               </div>
@@ -472,7 +505,7 @@ export default function Transactions() {
               <ReceiptRow label="Network" value={networkLabel} />
             </dl>
 
-            <div className="mt-8 border-t border-slate-200 pt-4 text-xs text-slate-400">
+            <div className="mt-8 border-t border-slate-200 pt-4 text-xs text-slate-600 dark:text-slate-400">
               Generated by Finchippay Solution using browser print-to-PDF.
             </div>
           </div>
@@ -532,7 +565,7 @@ export default function Transactions() {
 function ReceiptRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="grid grid-cols-[1fr_minmax(0,1.8fr)] gap-4 border-b border-slate-200 pb-3">
-      <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400">{label}</dt>
       <dd className={mono ? "font-mono break-all text-slate-900" : "text-slate-900 break-words"}>
         {value}
       </dd>

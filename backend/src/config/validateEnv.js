@@ -97,6 +97,18 @@ function collectErrors(env) {
     errors.push(w);
   }
 
+  // SOROBAN_RPC_URL is optional but if set must be a valid URL.
+  if (env.SOROBAN_RPC_URL) {
+    const rpcUrl = String(env.SOROBAN_RPC_URL).trim();
+    if (rpcUrl.length > 0) {
+      try {
+        new URL(rpcUrl);
+      } catch {
+        errors.push(`SOROBAN_RPC_URL must be a valid URL, got "${rpcUrl}"`);
+      }
+    }
+  }
+
   // OTEL_EXPORTER_OTLP_ENDPOINT is optional but if set must be a valid URL.
   if (env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     const otelEndpoint = String(env.OTEL_EXPORTER_OTLP_ENDPOINT).trim();
@@ -111,6 +123,33 @@ function collectErrors(env) {
     }
   }
 
+  // REDIS_URL is optional but if set must be a valid redis:// URL.
+  if (env.REDIS_URL) {
+    const redisUrl = String(env.REDIS_URL).trim();
+    if (redisUrl.length > 0 && !redisUrl.startsWith("redis://") && !redisUrl.startsWith("rediss://")) {
+      errors.push(
+        `REDIS_URL must start with redis:// or rediss://, got "${redisUrl}"`,
+      );
+    }
+  }
+
+  // REDIS_CACHE_TTL_DEFAULT is optional; default is 60.
+  if (env.REDIS_CACHE_TTL_DEFAULT) {
+    const ttl = parseInt(env.REDIS_CACHE_TTL_DEFAULT, 10);
+    if (isNaN(ttl) || ttl < 1) {
+      errors.push(
+        `REDIS_CACHE_TTL_DEFAULT must be a positive integer, got "${env.REDIS_CACHE_TTL_DEFAULT}"`,
+      );
+    }
+  }
+  // ANCHORS_CONFIG is optional but if set must be valid JSON.
+  if (env.ANCHORS_CONFIG) {
+    try {
+      JSON.parse(env.ANCHORS_CONFIG);
+    } catch (err) {
+      errors.push(`ANCHORS_CONFIG must be valid JSON: ${err.message}`);
+    }
+  }
   return errors;
 }
 
