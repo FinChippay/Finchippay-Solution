@@ -4,7 +4,7 @@
  *
  * Tips are one-shot token transfers from a sender to a creator's Stellar
  * address. This API layer records and queries tips stored in `tipsService`
- * (in-memory v1 store; swap for a database in production).
+ * (Knex-backed SQLite/PostgreSQL).
  *
  * Routes handled:
  *   POST /api/tips                            → record a new tip
@@ -48,11 +48,12 @@ function getCache() {
  */
 async function recordTip(req, res, next) {
   try {
-    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } = req.body;
+    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } =
+      req.body;
 
     tipsService.validateTipInput({ senderPublicKey, creatorPublicKey, amount });
 
-    const tip = tipsService.recordTip({
+    const tip = await tipsService.recordTip({
       senderPublicKey,
       creatorPublicKey,
       amount,
@@ -100,10 +101,15 @@ async function getTipsReceived(req, res, next) {
   try {
     const { creatorPublicKey } = req.params;
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
-    const offset = req.query.offset ? parseInt(req.query.offset, 10) : undefined;
+    const offset = req.query.offset
+      ? parseInt(req.query.offset, 10)
+      : undefined;
 
-    const result = tipsService.getTipsReceived(creatorPublicKey, { limit, offset });
-    const stats = tipsService.getTipsStats(creatorPublicKey);
+    const result = await tipsService.getTipsReceived(creatorPublicKey, {
+      limit,
+      offset,
+    });
+    const stats = await tipsService.getTipsStats(creatorPublicKey);
 
     return res.json({ success: true, data: { ...result, stats } });
   } catch (err) {
@@ -125,7 +131,7 @@ async function getTipsReceived(req, res, next) {
 async function getTipsStats(req, res, next) {
   try {
     const { creatorPublicKey } = req.params;
-    const stats = tipsService.getTipsStats(creatorPublicKey);
+    const stats = await tipsService.getTipsStats(creatorPublicKey);
     return res.json({ success: true, data: stats });
   } catch (err) {
     next(err);
@@ -151,9 +157,14 @@ async function getTipsSent(req, res, next) {
   try {
     const { senderPublicKey } = req.params;
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
-    const offset = req.query.offset ? parseInt(req.query.offset, 10) : undefined;
+    const offset = req.query.offset
+      ? parseInt(req.query.offset, 10)
+      : undefined;
 
-    const result = tipsService.getTipsSent(senderPublicKey, { limit, offset });
+    const result = await tipsService.getTipsSent(senderPublicKey, {
+      limit,
+      offset,
+    });
     return res.json({ success: true, data: result });
   } catch (err) {
     next(err);

@@ -56,7 +56,10 @@ function trackHttpMetrics(req, res, next) {
     const route = normalisedRoute(req);
     const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
 
-    metrics.httpRequestDurationSeconds.observe({ method: req.method, route }, durationSec);
+    metrics.httpRequestDurationSeconds.observe(
+      { method: req.method, route },
+      durationSec,
+    );
     metrics.httpRequestsTotal.inc({
       method: req.method,
       route,
@@ -88,7 +91,7 @@ function requireMetricsToken(req, res, next) {
     if (process.env.NODE_ENV !== "test") {
       console.warn(
         "⚠️  METRICS_TOKEN is not set — /metrics endpoint is unprotected. " +
-          "Set METRICS_TOKEN in production to secure Prometheus scraping."
+          "Set METRICS_TOKEN in production to secure Prometheus scraping.",
       );
     }
     return next();

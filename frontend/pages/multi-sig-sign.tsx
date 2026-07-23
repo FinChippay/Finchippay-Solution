@@ -59,7 +59,7 @@ export default function MultiSigSignPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16">
         <div className="text-center">
-          <p className="text-slate-400">Loading transaction...</p>
+          <p className="text-slate-600 dark:text-slate-400">Loading transaction...</p>
         </div>
       </div>
     );
@@ -81,21 +81,21 @@ export default function MultiSigSignPage() {
         <title>Sign Multi-Sig | Finchippay-Solution</title>
         <meta name="description" content="Approve a multi-signature payment proposal on Finchippay." />
       </Head>
-      <h1 className="font-display text-2xl font-bold text-white mb-6">Sign Multi-Signature Transaction</h1>
+      <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-white mb-6">Sign Multi-Signature Transaction</h1>
 
       {transaction && (
         <div className="card mb-6">
-          <h2 className="font-display text-lg font-semibold text-white mb-4">Transaction Details</h2>
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4">Transaction Details</h2>
           <div className="space-y-2">
-            <p><span className="text-slate-400">From:</span> {transaction.source}</p>
+            <p><span className="text-slate-600 dark:text-slate-400">From:</span> {transaction.source}</p>
             {transaction.operations.map((op, i) => {
               if (op.type === "payment") {
                 const payment = op as unknown as { destination: string; amount: string; asset?: { isNative: () => boolean; code: () => string } };
                 return (
                   <div key={i}>
-                    <p><span className="text-slate-400">To:</span> {payment.destination}</p>
+                    <p><span className="text-slate-600 dark:text-slate-400">To:</span> {payment.destination}</p>
                     <p>
-                      <span className="text-slate-400">Amount:</span>{" "}
+                      <span className="text-slate-600 dark:text-slate-400">Amount:</span>{" "}
                       {formatAsset(
                         payment.amount,
                         payment.asset?.isNative() ? "XLM" : payment.asset?.code()
@@ -107,7 +107,7 @@ export default function MultiSigSignPage() {
               return <p key={i}>Operation {i + 1}: {op.type}</p>;
             })}
             {transaction.memo && transaction.memo.type !== "none" && (
-              <p><span className="text-slate-400">Memo:</span> {transaction.memo.value?.toString()}</p>
+              <p><span className="text-slate-600 dark:text-slate-400">Memo:</span> {transaction.memo.value?.toString()}</p>
             )}
           </div>
         </div>
@@ -120,13 +120,13 @@ export default function MultiSigSignPage() {
       )}
 
       {status === "signing" && (
-        <p className="text-center text-slate-400">Signing...</p>
+        <p className="text-center text-slate-600 dark:text-slate-400">Signing...</p>
       )}
 
       {status === "signed" && signedXDR && (
         <div className="card">
-          <h2 className="font-display text-lg font-semibold text-white mb-4">Signed Transaction XDR</h2>
-          <p className="text-slate-300 mb-4">
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4">Signed Transaction XDR</h2>
+          <p className="text-slate-700 dark:text-slate-300 mb-4">
             Copy this signed XDR and send it back to the transaction initiator.
           </p>
           <textarea

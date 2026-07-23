@@ -9,9 +9,7 @@
 const { server, HORIZON_URL } = require("../config/stellar");
 const logger = require("../utils/logger");
 const metrics = require("./metricsService");
-const { trace } = require("@opentelemetry/api");
-
-const tracer = trace.getTracer("finchippay-stellar-service");
+const tracer = require("../config/tracing").getTracer("stellar-service");
 
 // Lazy-loaded cache service (avoids circular dependency at parse time)
 function getCache() {
@@ -125,62 +123,72 @@ async function withTracedSpan(operation, description, fn) {
  * Cached with 30s TTL via Redis+LRU.
  */
 async function getAccount(publicKey) {
-  validatePublicKey(publicKey);
-
-  const cache = getCache();
-  const cacheKey = `account:${publicKey}`;
-  const cached = await cache.get(cacheKey);
-  if (cached) {
-    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "cache_hit" });
-    return cached;
-  }
-
+  const span = tracer.startSpan("horizon.getAccount");
+  span.setAttribute("stellar.publicKey", publicKey);
   try {
-    const account = await withTracedSpan(
-      "loadAccount",
-      "Horizon.loadAccount",
-      () => withTimeoutAndRetry(() => server.loadAccount(publicKey)),
-    );
+    validatePublicKey(publicKey);
 
-    const balances = account.balances.map((b) => {
-      if (b.asset_type === "native") {
-        return { assetCode: "XLM", balance: b.balance, asset_type: "native" };
-      }
-      return {
-        assetCode: b.asset_code,
-        balance: b.balance,
-        assetIssuer: b.asset_issuer,
-        asset_type: b.asset_type,
-      };
-    });
-
-    const result = {
-      publicKey,
-      sequence: account.sequence,
-      balances,
-      subentryCount: account.subentry_count,
-    };
-
-    await cache.set(cacheKey, result, ACCOUNT_CACHE_TTL_SEC);
-    return result;
-  } catch (err) {
-    metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "error" });
-    if (err?.response?.status === 404) {
-      const error = new Error(
-        "Account not found. It may not be funded yet. Use Friendbot on testnet.",
-      );
-      error.status = 404;
-      logger.error(
-        { err: error, publicKey: publicKey.replace(/[\r\n]/g, "") },
-        "Account not found",
-      );
-      throw error;
+    const cache = getCache();
+    const cacheKey = `account:${publicKey}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "cache_hit" });
+      return cached;
     }
-    logger.error(
-      { err, publicKey: publicKey.replace(/[\r\n]/g, "") },
-      "Error loading account from Horizon",
-    );
+
+    try {
+      const account = await withTracedSpan(
+        "loadAccount",
+        "Horizon.loadAccount",
+        () => withTimeoutAndRetry(() => server.loadAccount(publicKey)),
+      );
+
+      const balances = account.balances.map((b) => {
+        if (b.asset_type === "native") {
+          return { assetCode: "XLM", balance: b.balance, asset_type: "native" };
+        }
+        return {
+          assetCode: b.asset_code,
+          balance: b.balance,
+          assetIssuer: b.asset_issuer,
+          asset_type: b.asset_type,
+        };
+      });
+
+      const result = {
+        publicKey,
+        sequence: account.sequence,
+        balances,
+        subentryCount: account.subentry_count,
+      };
+
+      await cache.set(cacheKey, result, ACCOUNT_CACHE_TTL_SEC);
+      return result;
+    } catch (err) {
+      metrics.horizonRequestsTotal.inc({ operation: "loadAccount", status: "error" });
+      if (err?.response?.status === 404) {
+        const error = new Error(
+          "Account not found. It may not be funded yet. Use Friendbot on testnet.",
+        );
+        error.status = 404;
+        logger.error(
+          { err: error, publicKey: publicKey.replace(/[\r\n]/g, "") },
+          "Account not found",
+        );
+        throw error;
+      }
+      logger.error(
+        { err, publicKey: publicKey.replace(/[\r\n]/g, "") },
+        "Error loading account from Horizon",
+      );
+      throw err;
+    }
+  } catch (err) {
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
     throw err;
+  } finally {
+    span.end();
   }
 }
 

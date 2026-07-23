@@ -15,10 +15,13 @@ describe("Analytics Service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Clear cache for each test
-    analyticsService.clearCache("GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW");
+    analyticsService.clearCache(
+      "GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW",
+    );
   });
 
-  const testPublicKey = "GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW";
+  const testPublicKey =
+    "GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW";
 
   // Mock payment data
   const mockPayments = [
@@ -161,7 +164,9 @@ describe("Analytics Service", () => {
     });
 
     it("should return empty array when no sent payments", async () => {
-      const receivedPayments = mockPayments.filter((p) => p.type === "received");
+      const receivedPayments = mockPayments.filter(
+        (p) => p.type === "received",
+      );
       stellarService.getPayments.mockResolvedValue(receivedPayments);
 
       const result = await analyticsService.getTopRecipients(testPublicKey);
@@ -239,7 +244,7 @@ describe("Analytics Service", () => {
       // Jan 1, 2024 = Monday, Jan 2 = Tuesday, Jan 3 = Wednesday, Jan 4 = Thursday, Jan 10 = Wednesday
       const totalCount = result.activityByDay.reduce(
         (sum, day) => sum + day.transactionCount,
-        0
+        0,
       );
       expect(totalCount).toBe(5); // Total transactions in mockPayments
     });
