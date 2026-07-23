@@ -258,6 +258,7 @@ pub enum DataKey {
     // Streaming
     StreamCount,
     Stream(u32),
+    LockedBalance(Address),
     // Multi-sig
     MultiSigCount,
     MultiSig(u32),
@@ -280,6 +281,74 @@ fn get_admin(env: &Env) -> Address {
         .expect("Contract not initialized");
     bump(env, &key);
     admin
+}
+
+fn locked_balance(env: &Env, token_address: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LockedBalance(token_address.clone()))
+        .unwrap_or(0)
+}
+
+fn increase_locked_balance(env: &Env, token_address: &Address, amount: i128) {
+    let key = DataKey::LockedBalance(token_address.clone());
+    let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&key, &(current.checked_add(amount).expect("overflow")));
+    bump(env, &key);
+}
+
+fn decrease_locked_balance(env: &Env, token_address: &Address, amount: i128) {
+    let key = DataKey::LockedBalance(token_address.clone());
+    let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&key, &(current.checked_sub(amount).expect("underflow")));
+    bump(env, &key);
+}
+
+/// Get a token client for a given token address, avoiding repeated
+/// boilerplate across all token-interacting functions.
+fn get_token_client<'a>(env: &'a Env, token_address: &'a Address) -> token::Client<'a> {
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_default();
+    bump(env, &key);
+    value
+}
+
+fn increase_locked_balance(
+    env: &Env,
+    token: Address,
+    amount: i128,
+) {
+    let key = DataKey::LockedBalance(token);
+    let value: i128 = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_default();
+    let updated = value.checked_add(amount).expect("overflow");
+    env.storage().persistent().set(&key, &updated);
+    bump(env, &key);
+}
+
+fn decrease_locked_balance(
+    env: &Env,
+    token: Address,
+    amount: i128,
+) {
+    let key = DataKey::LockedBalance(token);
+    let value: i128 = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_default();
+    let updated = value.checked_sub(amount).expect("underflow");
+    env.storage().persistent().set(&key, &updated);
+    bump(env, &key);
 }
 
 /// Get a token client for a given token address, avoiding repeated
@@ -517,6 +586,12 @@ impl FinchippayContract {
             panic!("amount must be positive");
         }
         let token = get_token_client(&env, &token_address);
+        let balance = token.balance(&env.current_contract_address());
+        let locked = locked_balance(&env, token_address);
+        let unlocked = balance.checked_sub(locked).expect("overflow");
+        if amount > unlocked {
+            panic!("insufficient unlocked balance");
+        }
         token.transfer(&env.current_contract_address(), &to, &amount);
 
         env.events().publish(
@@ -718,7 +793,7 @@ impl FinchippayContract {
 
         let token = get_token_client(&env, &token_address);
         let contract_address = env.current_contract_address();
-        require_transfer_succeeded(&env, &token, &from, &contract_address, &amount);
+        increase_locked_balance(&env, token_address, amount);
 
         let next_id: u32 = env
             .storage()
@@ -959,6 +1034,7 @@ impl FinchippayContract {
             start_ledger: env.ledger().sequence(),
             closed: false,
         };
+        increase_locked_balance(&env, stream.token, deposit);
         env.storage().persistent().set(&DataKey::Stream(id), &stream);
         bump(&env, &DataKey::Stream(id));
         env.storage()
@@ -1089,6 +1165,7 @@ impl FinchippayContract {
                 &claimable,
             );
             stream.claimed = stream.claimed.checked_add(claimable).expect("overflow");
+            decrease_locked_balance(&env, &stream.token, claimable);
         }
 
         // Refund the remaining deposit to the payer.
@@ -1099,6 +1176,7 @@ impl FinchippayContract {
         if refund > 0 {
             token.transfer(&env.current_contract_address(), &payer, &refund);
         }
+        decrease_locked_balance(&env, &stream.token, refund);
 
         stream.closed = true;
         env.storage()
@@ -1350,6 +1428,7 @@ impl FinchippayContract {
             status: MultiSigStatus::Pending,
             expiration_ledger,
         };
+        increase_locked_balance(&env, proposal.token, amount);
         env.storage()
             .persistent()
             .set(&DataKey::MultiSig(id), &proposal);
@@ -1415,6 +1494,7 @@ impl FinchippayContract {
                 &proposal.recipient,
                 &proposal.amount,
             );
+            decrease_locked_balance(&env, &proposal.token, proposal.amount);
             proposal.status = MultiSigStatus::Executed;
             env.events().publish(
                 (Symbol::new(&env, "multisig_executed"), proposal_id),
@@ -1452,11 +1532,12 @@ impl FinchippayContract {
         let token = get_token_client(&env, &proposal.token);
         token.transfer(
             &env.current_contract_address(),
-            &proposal.proposer,
+            &proposer,
             &proposal.amount,
         );
 
         proposal.status = MultiSigStatus::Cancelled;
+        decrease_locked_balance(&env, &proposal.token, proposal.amount);
         env.storage()
             .persistent()
             .set(&DataKey::MultiSig(proposal_id), &proposal);
@@ -1492,6 +1573,7 @@ impl FinchippayContract {
             &proposer,
             &proposal.amount,
         );
+        decrease_locked_balance(&env, &proposal.token, proposal.amount);
 
         proposal.status = MultiSigStatus::Cancelled;
         env.storage()
