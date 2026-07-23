@@ -4,7 +4,7 @@
  *
  * Tips are one-shot token transfers from a sender to a creator's Stellar
  * address. This API layer records and queries tips stored in `tipsService`
- * (in-memory v1 store; swap for a database in production).
+ * (Knex-backed SQLite/PostgreSQL).
  *
  * Routes handled:
  *   POST /api/tips                            → record a new tip
@@ -48,13 +48,20 @@ function getCache() {
  */
 async function recordTip(req, res, next) {
   try {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
     // Input has already been validated by `tipSchema` (see validate()
     // middleware) — asset defaults to "XLM", amount is a positive decimal
     // string, both keys are valid Stellar addresses.
     const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } =
       req.validated;
 
-    const tip = tipsService.recordTip({
+    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } =
+      req.body;
+
+    tipsService.validateTipInput({ senderPublicKey, creatorPublicKey, amount });
+ master
+
+    const tip = await tipsService.recordTip({
       senderPublicKey,
       creatorPublicKey,
       amount,
@@ -100,6 +107,7 @@ async function recordTip(req, res, next) {
  */
 async function getTipsReceived(req, res, next) {
   try {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
     const { creatorPublicKey, limit, offset } = req.validated;
 
     const result = tipsService.getTipsReceived(creatorPublicKey, {
@@ -107,6 +115,19 @@ async function getTipsReceived(req, res, next) {
       offset,
     });
     const stats = tipsService.getTipsStats(creatorPublicKey);
+
+    const { creatorPublicKey } = req.params;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
+    const offset = req.query.offset
+      ? parseInt(req.query.offset, 10)
+      : undefined;
+
+    const result = await tipsService.getTipsReceived(creatorPublicKey, {
+      limit,
+      offset,
+    });
+    const stats = await tipsService.getTipsStats(creatorPublicKey);
+ master
 
     return res.json({ success: true, data: { ...result, stats } });
   } catch (err) {
@@ -127,8 +148,13 @@ async function getTipsReceived(req, res, next) {
  */
 async function getTipsStats(req, res, next) {
   try {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
     const { creatorPublicKey } = req.validated;
     const stats = tipsService.getTipsStats(creatorPublicKey);
+
+    const { creatorPublicKey } = req.params;
+    const stats = await tipsService.getTipsStats(creatorPublicKey);
+ master
     return res.json({ success: true, data: stats });
   } catch (err) {
     next(err);
@@ -152,9 +178,20 @@ async function getTipsStats(req, res, next) {
  */
 async function getTipsSent(req, res, next) {
   try {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
     const { senderPublicKey, limit, offset } = req.validated;
 
-    const result = tipsService.getTipsSent(senderPublicKey, { limit, offset });
+    const { senderPublicKey } = req.params;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
+    const offset = req.query.offset
+      ? parseInt(req.query.offset, 10)
+      : undefined;
+ master
+
+    const result = await tipsService.getTipsSent(senderPublicKey, {
+      limit,
+      offset,
+    });
     return res.json({ success: true, data: result });
   } catch (err) {
     next(err);

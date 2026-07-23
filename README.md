@@ -144,6 +144,26 @@ cargo build --release --target wasm32v1-none
 bash scripts/deploy-contract.sh
 ```
 
+### Export contract state
+
+The `scripts/export-contract-state.js` tool connects to Soroban RPC and dumps all persistent storage from a deployed `FinchippayContract` into structured JSON — useful for audits, migration planning, and disaster recovery.
+
+```bash
+# Full export
+node scripts/export-contract-state.js \
+  --contract-id CA3QY5Y5F5R5K5B5N5P5T5V5X5Z5B5D5F5H5J5KM5P5R5T5V5X5Z5 \
+  --rpc-url https://soroban-testnet.stellar.org \
+  --output state.json
+
+# Filter by storage type
+node scripts/export-contract-state.js \
+  --contract-id CA3Q... \
+  --filter escrows,streams \
+  --output escrows-and-streams.json
+```
+
+The export includes admin configuration, escrows, streaming payments, and multi-sig proposals with per-section counts in the summary.
+
 ## Freighter Wallet Setup
 
 1. Install the [Freighter extension](https://freighter.app/).

@@ -28,8 +28,11 @@ router.get(
   "/:publicKey",
   strictLimiter,
   sanitizePublicKey,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
+
+ master
   paymentController.getPayments,
 );
 

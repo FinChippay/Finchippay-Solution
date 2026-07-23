@@ -7,7 +7,11 @@ import { Html, Head, Main, NextScript } from "next/document";
 
 export default function Document() {
   return (
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
     <Html lang="en" dir="ltr" suppressHydrationWarning>
+
+    <Html lang="en" suppressHydrationWarning>
+master
       <Head>
         {/* Resolve the saved theme before React loads to prevent a flash. */}
         <script

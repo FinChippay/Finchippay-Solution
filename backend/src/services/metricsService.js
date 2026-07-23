@@ -94,7 +94,9 @@ function getContentType() {
 
 // ─── Boot log ─────────────────────────────────────────────────────────────────
 
-logger.info("Prometheus metrics registered: http_requests_total, http_request_duration_seconds, horizon_requests_total, active_webhook_streams");
+logger.info(
+  "Prometheus metrics registered: http_requests_total, http_request_duration_seconds, horizon_requests_total, active_webhook_streams",
+);
 
 module.exports = {
   register,
