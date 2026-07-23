@@ -17,19 +17,35 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
+import { useTranslation } from "react-i18next";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
+import Skeleton from "@/components/Skeleton";
+
 const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
 const WalletConnect = dynamic(() => import("../components/WalletConnect"), { ssr: false });
 const SendPaymentForm = dynamic(() => import("../components/SendPaymentForm"), { ssr: false });
-const TransactionList = dynamic(() => import("../components/TransactionList"), { ssr: false });
-const MultiSigFlow = dynamic(() => import("../components/MultiSigFlow"), { ssr: false });
+const TransactionList = dynamic(() => import("../components/TransactionList"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-80" />,
+});
+const MultiSigFlow = dynamic(() => import("../components/MultiSigFlow"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-64" />,
+});
 const OnboardingTour = dynamic(() => import("../components/OnboardingTour"), { ssr: false });
-const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"), { ssr: false });
+const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-64" />,
+});
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
-const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
+const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-48" />,
+});
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const StreamingPayments = dynamic(() => import("../components/StreamingPayments"), { ssr: false });
 
 import {
   ResponsiveContainer,
@@ -42,6 +58,7 @@ import {
 } from "recharts";
 
 
+import { FeatureGate } from "@/lib/FeatureFlags";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
@@ -145,6 +162,7 @@ function formatSnapshotTime(savedAt: number) {
 
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
+  const { t } = useTranslation("common");
   const AUTO_REFRESH_SECONDS = 30;
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
@@ -876,8 +894,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">Dashboard</h1>
-          <p className="text-slate-400">Connect your wallet to get started</p>
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">{t("dashboard.title")}</h1>
+          <p className="text-slate-600 dark:text-slate-400">{t("dashboard.connectPrompt")}</p>
         </div>
         <WalletConnect />
       </div>
@@ -897,23 +915,23 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <h1
           ref={dashboardHeadingRef}
           tabIndex={-1}
-          className="font-display text-3xl font-bold text-white mb-1 outline-none"
+          className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-1 outline-none"
         >
-          Dashboard
+          {t("dashboard.title")}
         </h1>
-        <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
+        <p className="text-slate-600 dark:text-slate-400 text-sm">{t("dashboard.subtitle")}</p>
         <div className="mt-4">
           <button
             onClick={handleToggleNotifications}
             disabled={notificationPermission === 'denied'}
-            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-400 hover:text-stellar-300 disabled:bg-white/5 disabled:text-slate-400 disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
+            className="w-full bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 disabled:bg-slate-50 dark:disabled:bg-white/5 disabled:text-slate-600 dark:disabled:text-slate-400 disabled:border-slate-200 dark:disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
           >
             <span>
               {notificationEnabled
-                ? 'Disable payment notifications'
+                ? t("dashboard.disableNotifications")
                 : notificationPermission === 'denied'
-                ? 'Notifications blocked'
-                : 'Enable payment notifications'}
+                ? t("dashboard.notificationsBlocked")
+                : t("dashboard.enableNotifications")}
             </span>
             {notificationEnabled
               ? <BellOffIcon className="w-4 h-4" />
@@ -924,9 +942,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           {process.env.NODE_ENV === 'development' && notificationEnabled && (
             <button
               onClick={handleTestNotification}
-              className="mt-2 text-xs text-slate-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="mt-2 text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-600 dark:hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <TestIcon className="w-3.5 h-3.5" /> Test notification
+              <TestIcon className="w-3.5 h-3.5" /> {t("dashboard.testNotification")}
             </button>
           )}
         </div>
@@ -937,48 +955,50 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         loading={paymentStatsLoading}
         error={paymentStatsError}
         onRetry={fetchPaymentStats}
+        t={t}
       />
 
       <MonthlySpendingChart 
         data={spendingData} 
         loading={spendingLoading}
         onBarClick={setSelectedMonth}
+        t={t}
       />
 
       {selectedMonth && (
         <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
           <div>
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">
-              Selected Period: {selectedMonth.label}
+            <p className="text-xs text-slate-600 dark:text-slate-400 font-medium uppercase tracking-wider mb-1">
+              {t("dashboard.selectedPeriod")}: {selectedMonth.label}
             </p>
             <div className="flex items-center gap-6">
               <div>
-                <span className="text-xs text-slate-400">Total Sent</span>
-                <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+                <span className="text-xs text-slate-600 dark:text-slate-400">{t("dashboard.sent")}</span>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
               </div>
               <div>
-                <span className="text-xs text-slate-400">Total Received</span>
-                <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+                <span className="text-xs text-slate-600 dark:text-slate-400">{t("dashboard.received")}</span>
+                <p className="text-lg font-bold text-stellar-700 dark:text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
               </div>
             </div>
           </div>
           <button
             onClick={() => setSelectedMonth(null)}
-            className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+            className="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors rounded-lg hover:bg-slate-50 dark:hover:bg-white/5"
           >
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
       )}
 
-      <ThirtyDayVolumeChart data={thirtyDayData} loading={thirtyDayLoading} />
+      <ThirtyDayVolumeChart data={thirtyDayData} loading={thirtyDayLoading} t={t} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} />
+        <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} t={t} />
         <div className="card flex flex-col justify-between">
           <div>
-            <h2 className="font-display text-lg font-semibold text-white mb-2">Export Payment History</h2>
-            <p className="text-sm text-slate-400">Download your full transaction history as a CSV file.</p>
+            <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-2">{t("dashboard.exportHistory")}</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400">{t("dashboard.exportDesc")}</p>
           </div>
           <button
             onClick={handleExportCSV}
@@ -988,27 +1008,27 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             {csvExporting ? (
               <>
                 <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                Exporting…
+                {t("dashboard.exporting")}
               </>
             ) : (
               <>
                 <DownloadIcon className="w-4 h-4" />
-                Export CSV
+                {t("dashboard.exportCsv")}
               </>
             )}
           </button>
         </div>
       </div>
 
-      <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
+      <div className="card mb-8 bg-gradient-to-br from-white to-slate-50 dark:from-cosmos-800 dark:to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="label mb-1">Wallet Address</p>
+            <p className="label mb-1">{t("dashboard.walletAddress")}</p>
             <button
               onClick={() => setAddressExpanded((x) => !x)}
-              className="font-mono text-sm text-slate-300 select-text cursor-pointer hover:text-white transition-colors text-left break-all"
-              title={addressExpanded ? "Click to collapse" : "Click to show full address"}
+              className="font-mono text-sm text-slate-700 dark:text-slate-300 select-text cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors text-left break-all"
+              title={addressExpanded ? t("dashboard.clickToCollapse") : t("dashboard.clickToShow")}
             >
               {addressExpanded
                 ? publicKey
@@ -1017,82 +1037,82 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             <div className="mt-2 flex items-center gap-3">
               <button
                 onClick={handleCopyAddress}
-                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+                className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 {copied ? (
                   <>
-                    <CheckIcon className="w-3.5 h-3.5" /> Copied!
+                    <CheckIcon className="w-3.5 h-3.5" /> {t("dashboard.copied")}
                   </>
                 ) : (
                   <>
-                    <CopyIcon className="w-3.5 h-3.5" /> Copy address
+                    <CopyIcon className="w-3.5 h-3.5" /> {t("dashboard.copyAddress")}
                   </>
                 )}
               </button>
               <span className="text-slate-600 text-xs">·</span>
               <button
                 onClick={() => setAddressExpanded((x) => !x)}
-                className="text-xs text-slate-400 hover:text-slate-300 transition-colors cursor-pointer"
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer"
               >
-                {addressExpanded ? "Collapse" : "Show full"}
+                {addressExpanded ? t("dashboard.collapse") : t("dashboard.showFull")}
               </button>
             </div>
           </div>
 
           <div className="sm:text-right flex-shrink-0">
-            <p className="label mb-1">XLM Balance</p>
+            <p className="label mb-1">{t("dashboard.xlmBalance")}</p>
             {balanceLoading ? (
-              <div className="h-8 w-36 bg-white/10 rounded-lg animate-pulse" />
+              <div className="h-8 w-36 bg-slate-100 dark:bg-white/10 rounded-lg animate-pulse" />
             ) : xlmBalance !== null ? (
               <div>
-                <div className={`font-display text-3xl font-bold text-white ${balanceFlash ? "balance-flash" : ""}`}>
+                <div className={`font-display text-3xl font-bold text-slate-900 dark:text-white ${balanceFlash ? "balance-flash" : ""}`}>
                   {parseFloat(xlmBalance).toLocaleString("en-US", {
                     maximumFractionDigits: 4,
                   })}
-                  <span className="text-stellar-400 text-xl ml-2">XLM</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl ml-2">XLM</span>
                 </div>
                 {xlmPrice !== null && (
-                  <p className="text-sm text-slate-400 mt-0.5">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
                     {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
                   </p>
                 )}
                 {staleBalanceAt && (
-                  <p className="mt-1 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-200">
-                    Offline snapshot from {formatSnapshotTime(staleBalanceAt)}
+                  <p className="mt-1 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                    {t("dashboard.offlineSnapshot")} {formatSnapshotTime(staleBalanceAt)}
                   </p>
                 )}
                 {!sparklineLoading && sparklineData.length > 0 && (
                   <div className="mt-3">
-                    <BalanceSparkline data={sparklineData} />
+                    <BalanceSparkline data={sparklineData} t={t} />
                   </div>
                 )}
                 <button
                   onClick={() => void refreshBalance()}
-                  className="mt-1 text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
+                  className="mt-1 text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
                   disabled={balanceLoading}
                 >
                   <RefreshIcon className={`w-3 h-3 ${isRefreshingBalance ? "animate-spin" : ""}`} />
-                  {isRefreshingBalance ? "Refreshing..." : "Refresh"}
+                  {isRefreshingBalance ? t("dashboard.refreshing") : t("dashboard.refresh")}
                 </button>
-                <p className="mt-1 text-[11px] text-slate-400 sm:text-right">
-                  Refreshing in {refreshCountdown}s
+                <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400 sm:text-right">
+                  {t("dashboard.refreshingIn")} {refreshCountdown}s
                 </p>
               </div>
             ) : accountNotFound && isTestnet ? (
               <div className="sm:text-right">
-                <p className="text-amber-400 text-sm mb-2">Account not funded yet</p>
-                <p className="text-xs text-slate-400">
-                  Use the funding card below to credit your wallet on testnet.
+                <p className="text-amber-400 text-sm mb-2">{t("dashboard.accountNotFunded")}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  {t("dashboard.useFundingCard")}
                 </p>
               </div>
             ) : (
               <div>
-                <p className="text-slate-400 text-sm">Failed to load</p>
+                <p className="text-slate-600 dark:text-slate-400 text-sm">{t("dashboard.failedToLoad")}</p>
                 <button
                   onClick={fetchBalance}
-                  className="text-xs text-stellar-400 hover:underline cursor-pointer"
+                  className="text-xs text-stellar-700 dark:text-stellar-400 hover:underline cursor-pointer"
                 >
-                  Retry
+                  {t("dashboard.retry")}
                 </button>
               </div>
             )}
@@ -1104,16 +1124,16 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
 
         {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
-          <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
+          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-            You&apos;re on <strong>Testnet</strong> — funds are not real.{" "}
+            {t("dashboard.testnetWarning")}{" "}
             <a
               href="https://friendbot.stellar.org"
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-amber-300"
             >
-              Get test XLM
+              {t("dashboard.getTestXlm")}
             </a>
           </div>
         )}
@@ -1131,8 +1151,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           ? "border-red-500/40 bg-red-500/5 text-red-200"
           : "border-amber-500/40 bg-amber-500/5 text-amber-200";
         const headline = atOrBelow
-          ? "XLM balance is at or below the minimum reserve"
-          : "XLM balance is close to the minimum reserve";
+          ? t("dashboard.reserveWarningAt")
+          : t("dashboard.reserveWarningNear");
         return (
           <div
             className={`card mb-6 ${tone}`}
@@ -1142,12 +1162,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           >
             <p className="font-semibold mb-1">{headline}</p>
             <p className="text-sm opacity-90">
-              You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account
-              must keep at least{" "}
-              <strong>{min.toFixed(4)} XLM</strong> reserved
-              ({subentryCount} subentries × 0.5 XLM + 2 XLM base). Top up
-              before submitting transactions to avoid{" "}
-              <code className="text-xs opacity-80">tx_insufficient_balance</code>.
+              {t("dashboard.reserveDetail", { balance: bal.toFixed(4), minimum: min.toFixed(4), subentries: subentryCount })}
             </p>
             <p className="text-sm mt-2">
               <a
@@ -1156,7 +1171,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 rel="noopener noreferrer"
                 className="underline hover:opacity-100 opacity-80"
               >
-                Stellar base reserves docs →
+                {t("dashboard.stellarReserveDocs")}
               </a>
             </p>
           </div>
@@ -1167,9 +1182,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <p className="font-semibold text-white mb-1">Fund Testnet Wallet</p>
-              <p className="text-sm text-amber-200/90">
-                Your wallet is not funded yet. Click once to receive 10,000 XLM from Friendbot.
+              <p className="font-semibold text-slate-900 dark:text-white mb-1">{t("dashboard.fundTestnetWallet")}</p>
+              <p className="text-sm text-amber-800 dark:text-amber-200/90">
+                {t("dashboard.fundingDescription")}
               </p>
               {friendbotSuccessMessage && (
                 <p className="text-sm text-emerald-400 mt-2">{friendbotSuccessMessage}</p>
@@ -1183,11 +1198,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             >
               {friendbotLoading ? (
                 <>
-                  <SpinnerIcon className="w-4 h-4 animate-spin" /> Funding...
+                  <SpinnerIcon className="w-4 h-4 animate-spin" /> {t("dashboard.funding")}
                 </>
               ) : (
                 <>
-                  <DropIcon className="w-4 h-4" /> Fund Testnet Wallet
+                  <DropIcon className="w-4 h-4" /> {t("dashboard.fundTestnetWallet")}
                 </>
               )}
             </button>
@@ -1197,12 +1212,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
       {/* USDC balance card — shown only when account has USDC trustline */}
       {usdcBalance !== null && (
-        <div className="card mb-6 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-blue-500/20 relative overflow-hidden">
+        <div className="card mb-6 bg-gradient-to-br from-white to-slate-50 dark:from-cosmos-800 dark:to-cosmos-900 border-blue-500/20 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
           <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <p className="label mb-1">USDC Balance</p>
-              <div className="font-display text-3xl font-bold text-white">
+              <p className="label mb-1">{t("dashboard.usdcBalance")}</p>
+              <div className="font-display text-3xl font-bold text-slate-900 dark:text-white">
                 {formatAsset(usdcBalance, "USDC")}
               </div>
             </div>
@@ -1211,11 +1226,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       )}
 
       {otherBalances.map((b) => (
-        <div key={b.code} className="card mb-4 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-violet-500/20 relative overflow-hidden">
+        <div key={b.code} className="card mb-4 bg-gradient-to-br from-white to-slate-50 dark:from-cosmos-800 dark:to-cosmos-900 border-violet-500/20 relative overflow-hidden">
           <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <p className="label mb-1">{b.code} Balance</p>
-              <div className="font-display text-3xl font-bold text-white">
+              <p className="label mb-1">{b.code} {t("dashboard.balance")}</p>
+              <div className="font-display text-3xl font-bold text-slate-900 dark:text-white">
                 {formatAsset(b.balance, b.code)}
               </div>
             </div>
@@ -1223,8 +1238,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       ))}
 
+      <FeatureGate flag="streaming_payments">
+        <StreamingPayments publicKey={publicKey} />
+      </FeatureGate>
+
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard 
+      <CreatorTipsDashboard
         publicKey={publicKey} 
         username={creatorUsername}
         xlmPrice={xlmPrice}
@@ -1241,15 +1260,15 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 order-1 lg:order-none">
-          <div className="card mb-6 bg-cosmos-950/80 border-white/10">
-            <div className="flex gap-2 p-2 rounded-3xl bg-white/5">
+          <div className="card mb-6 bg-white dark:bg-cosmos-950/80 border-slate-200 dark:border-white/10">
+            <div className="flex gap-2 p-2 rounded-3xl bg-slate-50 dark:bg-white/5">
               <button
                 type="button"
                 onClick={() => setActivePaymentTab("single")}
                 className={`rounded-3xl px-4 py-2 text-sm font-semibold transition ${
                   activePaymentTab === "single"
                     ? "bg-stellar-400 text-black"
-                    : "text-slate-300 hover:bg-white/10"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
                 }`}
               >
                 Send XLM
@@ -1260,10 +1279,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 className={`rounded-3xl px-4 py-2 text-sm font-semibold transition ${
                   activePaymentTab === "batch"
                     ? "bg-stellar-400 text-black"
-                    : "text-slate-300 hover:bg-white/10"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
                 }`}
               >
-                Batch Send
+                {t("dashboard.batchSend")}
               </button>
             </div>
           </div>
@@ -1297,26 +1316,28 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           <RecurringPayments onPayNow={handleRecurringPayNow} />
           <PaymentRequestGenerator />
           <div className="mt-6">
-            <MultiSigFlow
-              publicKey={publicKey}
-              xlmBalance={xlmBalance || "0"}
-              onSuccess={handlePaymentSuccess}
-            />
+            <FeatureGate flag="multi_sig_payments">
+              <MultiSigFlow
+                publicKey={publicKey}
+                xlmBalance={xlmBalance || "0"}
+                onSuccess={handlePaymentSuccess}
+              />
+            </FeatureGate>
           </div>
         </div>
 
         <div className="lg:col-span-1 order-2 lg:order-none">
           <div className="card h-full">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-                <HistoryIcon className="w-5 h-5 text-stellar-400" />
-                Recent Activity
+              <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <HistoryIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
+                {t("dashboard.recentActivity")}
               </h2>
               <Link
                 href="/transactions"
-                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors cursor-pointer"
+                className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 transition-colors cursor-pointer"
               >
-                View all →
+                {t("dashboard.viewAll")}
               </Link>
             </div>
             <TransactionList key={refreshKey} publicKey={publicKey} limit={5} compact />
@@ -1359,11 +1380,13 @@ function PaymentStatsWidget({
   loading,
   error,
   onRetry,
+  t,
 }: {
   stats: PaymentStats | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  t: (key: string, opts?: any) => string;
 }) {
   if (loading) {
     return (
@@ -1375,11 +1398,11 @@ function PaymentStatsWidget({
         {[0, 1, 2].map((index) => (
           <div
             key={index}
-            className="card border-white/10 bg-white/[0.03] animate-pulse"
+            className="card border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.03] animate-pulse"
           >
-            <div className="h-3 w-24 rounded bg-white/10 mb-3" />
-            <div className="h-8 w-32 rounded bg-white/10 mb-2" />
-            <div className="h-3 w-20 rounded bg-white/10" />
+            <div className="h-3 w-24 rounded bg-slate-100 dark:bg-white/10 mb-3" />
+            <div className="h-8 w-32 rounded bg-slate-100 dark:bg-white/10 mb-2" />
+            <div className="h-3 w-20 rounded bg-slate-100 dark:bg-white/10" />
           </div>
         ))}
       </section>
@@ -1391,11 +1414,11 @@ function PaymentStatsWidget({
       <section className="card mb-6 border-red-500/20 bg-red-500/5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-white">Payment summary</p>
-            <p className="text-sm text-red-300">{error}</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">{t("dashboard.paymentSummary")}</p>
+            <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
           </div>
           <button onClick={onRetry} className="btn-secondary text-sm px-4 py-2">
-            Retry
+            {t("dashboard.retry")}
           </button>
         </div>
       </section>
@@ -1407,19 +1430,19 @@ function PaymentStatsWidget({
   return (
     <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
       <StatsCard
-        label="Total Sent"
+        label={t("dashboard.totalSent")}
         value={formatStatsXLM(stats.totalSentXLM)}
-        helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
+        helper={`${stats.sentCount} ${t(`dashboard.${stats.sentCount === 1 ? "outgoingPayment" : "outgoingPayments"}` as any)}`}
       />
       <StatsCard
-        label="Total Received"
+        label={t("dashboard.totalReceived")}
         value={formatStatsXLM(stats.totalReceivedXLM, "received")}
-        helper={`${stats.receivedCount} incoming payment${stats.receivedCount === 1 ? "" : "s"}`}
+        helper={`${stats.receivedCount} ${t(`dashboard.${stats.receivedCount === 1 ? "incomingPayment" : "incomingPayments"}` as any)}`}
       />
       <StatsCard
-        label="Transactions"
+        label={t("dashboard.transactions_count")}
         value={stats.totalTransactions.toLocaleString("en-US")}
-        helper="Across sent and received activity"
+        helper={t("dashboard.acrossActivity")}
       />
     </section>
   );
@@ -1429,21 +1452,23 @@ function MonthlySpendingChart({
   data,
   loading,
   onBarClick,
+  t,
 }: {
   data: ChartMonthData[];
   loading: boolean;
   onBarClick: (data: ChartMonthData) => void;
+  t: (key: string) => string;
 }) {
   if (loading && data.length === 0) {
     return (
-      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+      <div className="card mb-6 h-[350px] animate-pulse bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10" />
     );
   }
 
   return (
     <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-white mb-6">
-        Monthly Spending (XLM)
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6">
+        {t("dashboard.monthlySpending")}
       </h2>
       <div className="h-[250px] w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -1457,17 +1482,17 @@ function MonthlySpendingChart({
             }}
 
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
             <XAxis
               dataKey="month"
               axisLine={false}
               tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tick={{ fill: "var(--color-muted)", fontSize: 12 }}
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tick={{ fill: "var(--color-muted)", fontSize: 12 }}
               tickFormatter={(value: number) => `${value}`}
             />
             <Tooltip
@@ -1487,30 +1512,30 @@ function MonthlySpendingChart({
   );
 }
 
-function ThirtyDayVolumeChart({ data, loading }: { data: ChartDayData[]; loading: boolean }) {
+function ThirtyDayVolumeChart({ data, loading, t }: { data: ChartDayData[]; loading: boolean; t: (key: string) => string }) {
   if (loading && data.length === 0) {
-    return <div className="card mb-6 h-[280px] animate-pulse bg-white/[0.03] border-white/10" />;
+    return <div className="card mb-6 h-[280px] animate-pulse bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10" />;
   }
   const visibleData = data.filter((_, i) => i % 5 === 0 || i === data.length - 1);
   return (
     <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-white mb-6">30-Day Volume (XLM)</h2>
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6">{t("dashboard.thirtyDayVolume")}</h2>
       <div className="h-[220px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
             <XAxis
               dataKey="day"
               axisLine={false}
               tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
+              tick={{ fill: "var(--color-muted)", fontSize: 11 }}
               ticks={visibleData.map((d) => d.day)}
               interval="preserveStartEnd"
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
+              tick={{ fill: "var(--color-muted)", fontSize: 11 }}
             />
             <Tooltip
               cursor={{ fill: "rgba(255,255,255,0.05)" }}
@@ -1529,30 +1554,32 @@ function ThirtyDayVolumeChart({ data, loading }: { data: ChartDayData[]; loading
 function TopRecipientsWidget({
   recipients,
   loading,
+  t,
 }: {
   recipients: Array<{ address: string; totalXLMSent: string }>;
   loading: boolean;
+  t: (key: string) => string;
 }) {
   return (
     <div className="card">
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Top Recipients</h2>
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4">{t("dashboard.topRecipients")}</h2>
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-10 bg-white/5 rounded-lg animate-pulse" />
+            <div key={i} className="h-10 bg-slate-50 dark:bg-white/5 rounded-lg animate-pulse" />
           ))}
         </div>
       ) : recipients.length === 0 ? (
-        <p className="text-sm text-slate-400">No sent payments yet.</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">{t("dashboard.noSentPayments")}</p>
       ) : (
         <ol className="space-y-2">
           {recipients.map((r, idx) => (
-            <li key={r.address} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5">
+            <li key={r.address} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5">
               <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-stellar-400 w-5 text-center">{idx + 1}</span>
-                <span className="font-mono text-sm text-slate-200">{shortenAddress(r.address)}</span>
+                <span className="text-xs font-bold text-stellar-700 dark:text-stellar-400 w-5 text-center">{idx + 1}</span>
+                <span className="font-mono text-sm text-slate-700 dark:text-slate-200">{shortenAddress(r.address)}</span>
               </div>
-              <span className="text-sm font-semibold text-white">{parseFloat(r.totalXLMSent).toFixed(2)} XLM</span>
+              <span className="text-sm font-semibold text-slate-900 dark:text-white">{parseFloat(r.totalXLMSent).toFixed(2)} XLM</span>
             </li>
           ))}
         </ol>
@@ -1579,10 +1606,10 @@ function StatsCard({
   helper: string;
 }) {
   return (
-    <div className="card border-white/10 bg-white/[0.03]">
+    <div className="card border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.03]">
       <p className="label mb-2">{label}</p>
-      <p className="font-display text-2xl font-bold text-white">{value}</p>
-      <p className="text-xs text-slate-400 mt-2">{helper}</p>
+      <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+      <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">{helper}</p>
     </div>
   );
 }
@@ -1605,7 +1632,7 @@ function formatStatsXLM(amount: string, suffix = "sent") {
  * Green when the overall trend is upward, red when downward.
  * Hover tooltip shows the running balance delta at each data point.
  */
-function BalanceSparkline({ data }: { data: number[] }) {
+function BalanceSparkline({ data, t }: { data: number[]; t: (key: string) => string }) {
   const W = 160;
   const H = 40;
   const PAD = 4;
@@ -1639,7 +1666,7 @@ function BalanceSparkline({ data }: { data: number[] }) {
         height={H}
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
+        aria-label={trend ? t("dashboard.balanceTrendUpward") : t("dashboard.balanceTrendDownward")}
       >
         {/* Fill area */}
         <path d={fillPath} fill={fillColor} />
@@ -1689,7 +1716,7 @@ function BalanceSparkline({ data }: { data: number[] }) {
         ))}
       </svg>
       <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
-        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+        {trend ? t("dashboard.upwardTrend") : t("dashboard.downwardTrend")}
       </p>
     </div>
   );

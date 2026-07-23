@@ -4,18 +4,24 @@
  */
 
 import type { AppProps } from "next/app";
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";
 import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
+import { FeatureFlagProvider } from "@/lib/FeatureFlags";
+import { ThemeProvider } from "@/lib/ThemeContext";
+import OfflineBanner from "@/components/OfflineBanner";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
   type URIParseResult,
 } from "@/lib/sep0007";
+import { I18nextProvider } from "react-i18next";
+import i18n from "@/lib/i18n";
+import { initSdkAuth } from "@/lib/sdk-instance";
 import "@/styles/globals.css";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -96,19 +102,35 @@ function InstallBanner() {
   );
 }
 
-interface ThemeContextType {
-  theme: "dark" | "light";
-  toggleTheme: () => void;
+function AppShell({
+  Component,
+  pageProps,
+  stellarURI,
+  isQuickSendOpen,
+  setIsQuickSendOpen,
+}: {
+  Component: AppProps["Component"];
+  pageProps: AppProps["pageProps"];
+  stellarURI: URIParseResult | null;
+  isQuickSendOpen: boolean;
+  setIsQuickSendOpen: (isOpen: boolean) => void;
+}) {
+  const { publicKey } = useWallet();
+
+  return (
+    <FeatureFlagProvider publicKey={publicKey}>
+      <AppShellInner
+        Component={Component}
+        pageProps={pageProps}
+        stellarURI={stellarURI}
+        isQuickSendOpen={isQuickSendOpen}
+        setIsQuickSendOpen={setIsQuickSendOpen}
+      />
+    </FeatureFlagProvider>
+  );
 }
 
-export const ThemeContext = createContext<ThemeContextType>({
-  theme: "dark",
-  toggleTheme: () => {},
-});
-
-export const useTheme = () => useContext(ThemeContext);
-
-function AppShell({
+function AppShellInner({
   Component,
   pageProps,
   stellarURI,
@@ -126,6 +148,7 @@ function AppShell({
   return (
     <>
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
+        <OfflineBanner />
         <Navbar />
         <main>
           <Component {...pageProps} stellarURI={stellarURI} />
@@ -147,9 +170,13 @@ function AppShell({
 }
 
 export default function App({ Component, pageProps }: AppProps) {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
+
+  useEffect(() => {
+    // Initialize SDK auth from stored token
+    initSdkAuth();
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("finchippay:theme") as
@@ -193,15 +220,9 @@ export default function App({ Component, pageProps }: AppProps) {
     return () => window.removeEventListener("load", registerWorker);
   }, []);
 
-  const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    localStorage.setItem("finchippay:theme", nextTheme);
-  };
-
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <I18nextProvider i18n={i18n}>
+      <ThemeProvider>
       <ToastProvider>
       <WalletProvider>
         <Head>
@@ -252,6 +273,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <ToastContainer />
       </WalletProvider>
       </ToastProvider>
-    </ThemeContext.Provider>
+    </ThemeProvider>
+    </I18nextProvider>
   );
 }

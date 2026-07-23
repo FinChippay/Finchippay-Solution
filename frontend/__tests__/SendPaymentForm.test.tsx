@@ -2,7 +2,13 @@ import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-// Define mocks before importing the component
+jest.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: "en", changeLanguage: jest.fn() },
+  }),
+}));
+
 jest.mock("@/lib/stellar", () => ({
   buildPaymentTransaction: jest.fn(),
   buildSorobanTipTransaction: jest.fn(),
@@ -52,7 +58,6 @@ jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
 }));
 
-// Now import the component and get mock references
 import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
@@ -62,6 +67,10 @@ const mockIsValidStellarAddress = stellarModule.isValidStellarAddress as jest.Mo
 const mockSubmitTransaction = stellarModule.submitTransaction as jest.Mock;
 const mockFetchNetworkFeeStats = stellarModule.fetchNetworkFeeStats as jest.Mock;
 const mockSignTransactionWithWallet = walletModule.signTransactionWithWallet as jest.Mock;
+
+function getSubmitButton() {
+  return screen.getByRole("button", { name: /^sendPayment\.send / });
+}
 
 describe("SendPaymentForm", () => {
   const defaultProps = {
@@ -75,7 +84,6 @@ describe("SendPaymentForm", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Reset mocks to return expected values
     mockFetchNetworkFeeStats.mockResolvedValue({ baseFeeXlm: 0.00001, feeLevel: "normal" });
     mockIsValidStellarAddress.mockImplementation((addr) => addr.startsWith("G") && addr.length === 56);
     mockBuildPaymentTransaction.mockResolvedValue({ toXDR: () => "mock-xdr" });
@@ -86,16 +94,16 @@ describe("SendPaymentForm", () => {
   it("renders the form with memo field and send button", () => {
     render(<SendPaymentForm {...defaultProps} />);
 
-    expect(screen.getByText("Memo (optional)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Send/i })).toBeInTheDocument();
+    expect(screen.getByText("sendPayment.memo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sendPayment\.send / })).toBeInTheDocument();
+    expect(screen.getByText(/0\/28/)).toBeInTheDocument();
   });
 
   describe("Submit button disabled state", () => {
     it("disables submit button when destination is empty", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
-      expect(sendButton).toBeDisabled();
+      expect(getSubmitButton()).toBeDisabled();
     });
 
     it("enables submit button when destination and amount are valid", async () => {
@@ -111,8 +119,7 @@ describe("SendPaymentForm", () => {
       await user.type(amountInput, "50");
 
       await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
-        expect(sendButton).toBeEnabled();
+        expect(getSubmitButton()).toBeEnabled();
       });
     });
 
@@ -126,13 +133,10 @@ describe("SendPaymentForm", () => {
       const amountInput = screen.getByPlaceholderText("0.0000000");
 
       await user.type(destinationInput, validDestination);
-      // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable
-      // Try to send 9.5 which exceeds max
       await user.type(amountInput, "9.5");
 
       await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
-        expect(sendButton).toBeDisabled();
+        expect(getSubmitButton()).toBeDisabled();
       });
     });
 
@@ -146,13 +150,109 @@ describe("SendPaymentForm", () => {
       const amountInput = screen.getByPlaceholderText("0.0000000");
 
       await user.type(destinationInput, validDestination);
-      // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable
       await user.type(amountInput, "8.5");
 
       await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
-        expect(sendButton).toBeEnabled();
+        expect(getSubmitButton()).toBeEnabled();
       });
+    });
+  });
+
+  describe("Memo byte-counter validation", () => {
+    it("shows live byte counter starting at 0 / 28", () => {
+      render(<SendPaymentForm {...defaultProps} />);
+      expect(screen.getByText(/^0\/28/)).toBeInTheDocument();
+    });
+
+    it("updates byte counter as the user types ASCII text", async () => {
+      const user = userEvent.setup();
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+      await user.type(memoInput, "hello");
+
+      expect(screen.getByText(/^5\/28/)).toBeInTheDocument();
+    });
+
+    it("disables submit button when memo exceeds 28 bytes", async () => {
+      mockIsValidStellarAddress.mockReturnValue(true);
+      const user = userEvent.setup();
+
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
+      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+
+      await user.type(destinationInput, validDestination);
+      await user.type(amountInput, "50");
+      await user.type(memoInput, "This memo is way too long for Stellar's limit");
+
+      await waitFor(() => {
+        expect(getSubmitButton()).toBeDisabled();
+      });
+    });
+
+    it("shows red error text when memo exceeds 28 bytes", async () => {
+      const user = userEvent.setup();
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+      await user.type(memoInput, "a".repeat(29));
+
+      expect(screen.getByText("sendPayment.memoLimit")).toBeInTheDocument();
+    });
+
+    it("shows red byte counter when memo exceeds 28 bytes", async () => {
+      const user = userEvent.setup();
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+      await user.type(memoInput, "a".repeat(29));
+
+      const byteDisplay = screen.getByText(/^29\/28/);
+      expect(byteDisplay).toBeInTheDocument();
+      expect(byteDisplay.className).toContain("text-red-400");
+    });
+
+    it("counts multi-byte emoji correctly (🚀 = 4 bytes)", async () => {
+      const user = userEvent.setup();
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+      await user.type(memoInput, "🚀");
+
+      expect(screen.getByText(/^4\/28/)).toBeInTheDocument();
+    });
+
+    it("counts multiple emoji correctly", async () => {
+      const user = userEvent.setup();
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+      await user.type(memoInput, "🚀🚀");
+
+      expect(screen.getByText(/^8\/28/)).toBeInTheDocument();
+    });
+
+    it("allows ASCII text up to 28 bytes", async () => {
+      mockIsValidStellarAddress.mockReturnValue(true);
+      const user = userEvent.setup();
+
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
+      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const memoInput = screen.getByPlaceholderText("Payment note...");
+
+      await user.type(destinationInput, validDestination);
+      await user.type(amountInput, "50");
+      await user.type(memoInput, "a".repeat(28));
+
+      await waitFor(() => {
+        expect(getSubmitButton()).toBeEnabled();
+      });
+      expect(screen.getByText(/^28\/28/)).toBeInTheDocument();
     });
   });
 
@@ -170,7 +270,7 @@ describe("SendPaymentForm", () => {
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = getSubmitButton();
 
       await waitFor(() => {
         expect(sendButton).toBeEnabled();
@@ -178,11 +278,9 @@ describe("SendPaymentForm", () => {
 
       await user.click(sendButton);
 
-      // Click confirm on the confirmation modal
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /sendPayment\.confirmAndSign/i });
       await user.click(confirmButton);
 
-      // Wait for error to appear in modal
       await waitFor(() => {
         const errorElement = screen.getByTestId("error-message");
         expect(errorElement).toHaveTextContent("Network error");
@@ -212,7 +310,7 @@ describe("SendPaymentForm", () => {
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = getSubmitButton();
 
       await waitFor(() => {
         expect(sendButton).toBeEnabled();
@@ -220,11 +318,9 @@ describe("SendPaymentForm", () => {
 
       await user.click(sendButton);
 
-      // Click confirm on the confirmation modal
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /sendPayment\.confirmAndSign/i });
       await user.click(confirmButton);
 
-      // In the modal, tx hash should be displayed
       await waitFor(() => {
         expect(screen.getByTestId("tx-hash")).toHaveTextContent(txHash);
       });
@@ -251,7 +347,7 @@ describe("SendPaymentForm", () => {
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = getSubmitButton();
 
       await waitFor(() => {
         expect(sendButton).toBeEnabled();
@@ -259,10 +355,9 @@ describe("SendPaymentForm", () => {
 
       await user.click(sendButton);
 
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /sendPayment\.confirmAndSign/i });
       await user.click(confirmButton);
 
-      // Verify the tx hash appears in the modal
       await waitFor(() => {
         expect(screen.getByTestId("tx-hash")).toBeInTheDocument();
       });

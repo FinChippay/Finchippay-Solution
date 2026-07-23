@@ -12,6 +12,8 @@ import PaymentStatusModal, {
   type PaymentStepId,
   type PaymentStepTiming,
 } from "@/components/PaymentStatusModal";
+import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
+import { parseStellarURI } from "@/lib/sep0007";
 import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
@@ -49,6 +51,7 @@ import {
 } from "@/components/icons";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useToastContext } from "@/lib/ToastContext";
 
 interface SendPaymentFormProps {
@@ -91,14 +94,6 @@ interface CustomAsset {
 
 const ESTIMATED_NETWORK_FEE = `${STELLAR_BASE_FEE_XLM} XLM`;
 
-interface BarcodeDetectorResult {
-  rawValue?: string;
-}
-
-interface BarcodeDetectorLike {
-  detect(source: ImageBitmapSource): Promise<BarcodeDetectorResult[]>;
-}
-
 const RECENT_RECIPIENTS_KEY = "finchippay:recent-recipients";
 const MAX_RECENT = 3;
 
@@ -117,9 +112,9 @@ function SendPaymentForm({
   usdcBalance,
   onSuccess,
   prefill,
-  title = "Send Payment",
+  title,
   submitLabel,
-  successTitle = "Payment sent!",
+  successTitle,
   successMessage,
   assetOptions = ["XLM", "USDC"],
   hideAssetSelector = false,
@@ -129,7 +124,11 @@ function SendPaymentForm({
   hideMemoField = false,
   accountBalances = [],
 }: SendPaymentFormProps) {
+  const { t } = useTranslation("common");
   const { addToast } = useToastContext();
+  const resolvedTitle = title || t("sendPayment.title");
+  const resolvedSuccessTitle = successTitle || t("sendPayment.successTitle");
+  const resolvedSuccessMessage = successMessage || t("sendPayment.successMessage");
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
   const [destination, setDestination] = useState("");
@@ -162,8 +161,7 @@ function SendPaymentForm({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
-  const frameRequestRef = useRef<number | null>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -189,74 +187,92 @@ function SendPaymentForm({
 
   useEffect(() => {
     const checkSupport = async () => {
-      if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+      if (
+        typeof window !== "undefined" &&
+        navigator.mediaDevices &&
+        typeof navigator.mediaDevices.getUserMedia === "function"
+      ) {
         setIsScannerSupported(true);
       }
     };
     checkSupport();
   }, []);
 
-  const openScanner = async () => {
+  const handleDecodedResult = (rawValue: string) => {
+    const sepResult = parseStellarURI(rawValue);
+    if (sepResult.success && sepResult.data) {
+      setDestination(sepResult.data.destination);
+      if (sepResult.data.amount) setAmount(sepResult.data.amount);
+      if (sepResult.data.memo) setMemo(truncateMemoText(sepResult.data.memo));
+      setDestinationResolutionError(null);
+      setResolvedPaymentDestination(null);
+      closeScanner();
+      return;
+    }
+    if (isValidStellarAddress(rawValue)) {
+      setDestination(rawValue);
+      setDestinationResolutionError(null);
+      setResolvedPaymentDestination(null);
+      closeScanner();
+      return;
+    }
+  };
+
+  const handleDecodedResultRef = useRef(handleDecodedResult);
+  handleDecodedResultRef.current = handleDecodedResult;
+
+  useEffect(() => {
+    if (!isScannerOpen || !videoRef.current) return;
+
+    let controls: IScannerControls | null = null;
+    isDetectingRef.current = true;
+
+    const codeReader = new BrowserQRCodeReader();
+    codeReader
+      .decodeFromConstraints(
+        { video: { facingMode: "environment" } },
+        videoRef.current,
+        (result, _error, ctrl) => {
+          if (result && isDetectingRef.current) {
+            isDetectingRef.current = false;
+            handleDecodedResultRef.current(result.getText());
+            ctrl.stop();
+          }
+        },
+      )
+      .then((c) => {
+        controls = c;
+        scannerControlsRef.current = c;
+      })
+      .catch(() => {
+        setScannerError("Camera access denied or not available.");
+        setIsScannerOpen(false);
+      });
+
+    return () => {
+      isDetectingRef.current = false;
+      controls?.stop();
+      scannerControlsRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScannerOpen]);
+
+  const openScanner = () => {
     setIsScannerOpen(true);
     setScannerError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      startDetection();
-    } catch (err) {
-      setScannerError("Camera access denied or not available.");
-      setIsScannerOpen(false);
-    }
   };
 
   const closeScanner = () => {
     setIsScannerOpen(false);
+    isDetectingRef.current = false;
+    if (scannerControlsRef.current) {
+      scannerControlsRef.current.stop();
+      scannerControlsRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    if (frameRequestRef.current) {
-      cancelAnimationFrame(frameRequestRef.current);
-    }
-    isDetectingRef.current = false;
-  };
-
-  const startDetection = () => {
-    if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
-
-    const BarcodeDetectorCtor = (window as Window & { BarcodeDetector: new (opts: { formats: string[] }) => BarcodeDetectorLike }).BarcodeDetector;
-    const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
-    detectorRef.current = detector;
-    isDetectingRef.current = true;
-
-    const detect = async () => {
-      if (!isDetectingRef.current || !videoRef.current) return;
-
-      try {
-        const barcodes = await detector.detect(videoRef.current);
-        if (barcodes.length > 0 && barcodes[0].rawValue) {
-          const result = barcodes[0].rawValue;
-          if (isValidStellarAddress(result)) {
-            setDestination(result);
-            setDestinationResolutionError(null);
-            setResolvedPaymentDestination(null);
-            closeScanner();
-            return;
-          }
-        }
-      } catch (e) {
-        // detection error
-      }
-
-      frameRequestRef.current = requestAnimationFrame(detect);
-    };
-
-    detect();
   };
 
   const [recentRecipients, setRecentRecipients] = useState<string[]>(() => {
@@ -357,6 +373,64 @@ function SendPaymentForm({
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
   }, [prefill]);
+
+  // Debounced federation address resolution on keystroke (#98)
+  useEffect(() => {
+    const trimmed = destination.trim();
+    if (!trimmed || isValidStellarAddress(trimmed)) {
+      setResolvedPaymentDestination(null);
+      setDestinationResolutionError(null);
+      return;
+    }
+    if (!isValidFederationAddress(trimmed) && !trimmed.includes('*')) {
+      setResolvedPaymentDestination(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsResolvingDestination(true);
+      setDestinationResolutionError(null);
+      try {
+        const resolved = await resolveFederationAddress(trimmed);
+        setResolvedPaymentDestination(resolved);
+      } catch (err: unknown) {
+        setDestinationResolutionError(
+          err instanceof Error ? err.message : 'Failed to resolve address'
+        );
+      } finally {
+        setIsResolvingDestination(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [destination]);
+
+  // Debounced federation address resolution on keystroke (#98)
+  useEffect(() => {
+    const trimmed = destination.trim();
+    if (!trimmed || isValidStellarAddress(trimmed)) {
+      setResolvedPaymentDestination(null);
+      setDestinationResolutionError(null);
+      return;
+    }
+    if (!isValidFederationAddress(trimmed) && !trimmed.includes('*')) {
+      setResolvedPaymentDestination(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsResolvingDestination(true);
+      setDestinationResolutionError(null);
+      try {
+        const resolved = await resolveFederationAddress(trimmed);
+        setResolvedPaymentDestination(resolved);
+      } catch (err: unknown) {
+        setDestinationResolutionError(
+          err instanceof Error ? err.message : 'Failed to resolve address'
+        );
+      } finally {
+        setIsResolvingDestination(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [destination]);
 
   // Pre-validate destination account existence on the Stellar network (#294)
   useEffect(() => {
@@ -676,17 +750,17 @@ function SendPaymentForm({
              <div key={i} className="confetti-piece" style={{ left: `${i * 10}%`, animationDelay: `${i * 0.2}s` }} />
           ))}
         </div>
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-400">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-700 dark:text-stellar-400">
           <CheckIcon className="h-8 w-8" />
         </div>
-        <h2 className="mb-2 font-display text-2xl font-bold text-white">{successTitle}</h2>
-        <p className="mb-6 text-slate-400">{successMessage || "Your payment has been confirmed on the Stellar network."}</p>
+        <h2 className="mb-2 font-display text-2xl font-bold text-slate-900 dark:text-white">{resolvedSuccessTitle}</h2>
+        <p className="mb-6 text-slate-600 dark:text-slate-400">{resolvedSuccessMessage}</p>
 
-        <div className="mb-8 rounded-xl border border-white/5 bg-white/5 p-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Transaction Hash</p>
+        <div className="mb-8 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/5 p-4">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">{t("sendPayment.transactionHash")}</p>
           <div className="flex items-center justify-center gap-2">
-            <code className="text-xs text-stellar-300">{truncatedHash}</code>
-            <button onClick={handleCopy} className="text-slate-500 hover:text-white transition-colors">
+            <code className="text-xs text-stellar-700 dark:text-stellar-300">{truncatedHash}</code>
+            <button onClick={handleCopy} className="text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
               {copied ? <CheckIcon className="h-3.5 w-3.5 text-green-400" /> : <CopyIcon className="h-3.5 w-3.5" />}
             </button>
           </div>
@@ -695,7 +769,7 @@ function SendPaymentForm({
 
         <div className="flex flex-col gap-3">
           <a href={explorerUrl(txHash) ?? undefined} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
-            View on Explorer <ExternalLinkIcon className="h-4 w-4" />
+            {t("sendPayment.viewOnExplorer")} <ExternalLinkIcon className="h-4 w-4" />
           </a>
 
           {!receiptMinted ? (
@@ -707,18 +781,18 @@ function SendPaymentForm({
               {mintingReceipt ? (
                 <>
                   <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                  Minting receipt…
+                  {t("sendPayment.mintingReceipt")}
                 </>
               ) : (
                 <>
                   <ReceiptIcon className="h-4 w-4" />
-                  Mint NFT Receipt
+                  {t("sendPayment.mintNftReceipt")}
                 </>
               )}
             </button>
           ) : (
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 text-center">
-              NFT receipt minted successfully!
+              {t("sendPayment.nftReceiptMinted")}
             </div>
           )}
 
@@ -726,8 +800,8 @@ function SendPaymentForm({
             <p className="text-xs text-red-400 text-center">{receiptError}</p>
           )}
 
-          <button onClick={() => setStatus("idle")} className="text-sm text-slate-400 hover:text-white transition-colors">
-            Send another payment
+          <button onClick={() => setStatus("idle")} className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+            {t("sendPayment.sendAnother")}
           </button>
         </div>
       </div>
@@ -737,9 +811,9 @@ function SendPaymentForm({
   return (
     <>
       <div className="card animate-fade-in">
-      <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
-        <SendIcon className="w-5 h-5 text-stellar-400" />
-        {title}
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+        <SendIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
+        {resolvedTitle}
       </h2>
 
       <div className="space-y-5">
@@ -754,8 +828,8 @@ function SendPaymentForm({
                 className={clsx(
                   "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
                   selectedAsset === a
-                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                    : "text-slate-400 border-white/10 hover:border-white/20",
+                    ? "bg-stellar-500/15 text-stellar-700 dark:text-stellar-300 border-stellar-500/30"
+                    : "text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20",
                   a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
                 )}
               >
@@ -770,8 +844,8 @@ function SendPaymentForm({
                 className={clsx(
                   "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
                   selectedAsset === b.code
-                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                    : "text-slate-400 border-white/10 hover:border-white/20"
+                    ? "bg-stellar-500/15 text-stellar-700 dark:text-stellar-300 border-stellar-500/30"
+                    : "text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
                 )}
               >
                 {b.code}
@@ -783,14 +857,14 @@ function SendPaymentForm({
         {!hideDestinationField && (
           <div className="relative" ref={dropdownRef}>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">Destination</label>
+              <label className="label mb-0">{t("sendPayment.destination")}</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsContactsDropdownOpen(!isContactsDropdownOpen)}
-                  className="text-xs text-stellar-400 hover:text-stellar-300"
+                  className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
                 >
-                  {isContactsDropdownOpen ? "Close" : "Contacts"}
+                  {isContactsDropdownOpen ? t("sendPayment.close") : t("sendPayment.contacts")}
                 </button>
                 {isValidDest && (
                   <button
@@ -803,8 +877,8 @@ function SendPaymentForm({
                         if (nickname) setContacts(upsertAddressBookContact({ nickname, address: destination }));
                       }
                     }}
-                    className="text-stellar-400 hover:text-stellar-300"
-                    title={contacts.some((contact) => contact.address === destination) ? "Remove contact" : "Save as contact"}
+                    className="text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
+                    title={contacts.some((contact) => contact.address === destination) ? t("sendPayment.removeContact") : t("sendPayment.saveContact")}
                     aria-label={contacts.some((contact) => contact.address === destination) ? "Remove address from contacts" : "Save address as contact"}
                   >
                     <StarIcon className="h-5 w-5" filled={contacts.some((contact) => contact.address === destination)} />
@@ -814,7 +888,7 @@ function SendPaymentForm({
                   <button
                     type="button"
                     onClick={openScanner}
-                    className="text-slate-400 hover:text-white"
+                    className="md:hidden text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     title="Scan QR Code"
                     aria-label="Scan QR code to fill destination address"
                   >
@@ -854,23 +928,23 @@ function SendPaymentForm({
 
             {/* Destination account existence warning (#294) */}
             {isCheckingDest && isValidDest && (
-              <p className="mt-1 text-xs text-slate-400">Checking account…</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{t("sendPayment.checkingAccount")}</p>
             )}
             {!isCheckingDest && destAccountWarning && (
               <p className="mt-1 text-xs text-amber-400">{destAccountWarning}</p>
             )}
 
             {isContactsDropdownOpen && contactMatches.length > 0 && (
-              <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
+              <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-1 shadow-2xl">
                 {contactMatches.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectContact(item.address)}
-                    className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-white/5"
+                    className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-white/5"
                   >
-                    <span className="text-sm font-medium text-slate-200">{item.nickname}</span>
-                    <span className="text-xs text-slate-400">{shortenAddress(item.address, 8)}</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-200">{item.nickname}</span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400">{shortenAddress(item.address, 8)}</span>
                   </button>
                 ))}
               </div>
@@ -881,9 +955,9 @@ function SendPaymentForm({
         {!hideAmountField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">Amount ({selectedAsset})</label>
-              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
-                Max: {formatXLM(maxSend)}
+              <label className="label mb-0">{t("sendPayment.amount")} ({selectedAsset})</label>
+              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300" disabled={status !== "idle"}>
+                {t("sendPayment.max")}: {formatXLM(maxSend)}
               </button>
             </div>
             <input
@@ -903,9 +977,9 @@ function SendPaymentForm({
         {!hideMemoField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">Memo (optional)</label>
-              <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-400")}>
-                {memoBytes}/28 bytes
+              <label className="label mb-0">{t("sendPayment.memo")}</label>
+              <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-600 dark:text-slate-400")}>
+                {memoBytes}/28 {t("sendPayment.bytes")}
               </span>
             </div>
             <input
@@ -917,7 +991,7 @@ function SendPaymentForm({
               disabled={status !== "idle"}
             />
             {memoBytes > 28 && (
-              <p className="mt-1 text-xs text-red-400">Memo exceeds Stellar&apos;s 28-byte limit.</p>
+              <p className="mt-1 text-xs text-red-400">{t("sendPayment.memoLimit")}</p>
             )}
           </div>
         )}
@@ -927,7 +1001,7 @@ function SendPaymentForm({
           disabled={!canSubmit || status !== "idle"}
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
-          {status === "idle" ? `Send ${amount || ""} ${selectedAsset}` : "Processing..."}
+          {status === "idle" ? `${t("sendPayment.send")} ${amount || ""} ${selectedAsset}` : t("sendPayment.processing")}
         </button>
 
         {/* High-value warning — suggest multi-sig for large payments */}
@@ -937,9 +1011,7 @@ function SendPaymentForm({
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
             <span>
-              High-value payment detected (≥ {MULTISIG_THRESHOLD_XLM} XLM). Consider using the{" "}
-              <strong className="text-amber-200">Multi-Signature</strong> panel below to require
-              multiple approvals before funds are released.
+              {t("sendPayment.highValueWarning", { threshold: MULTISIG_THRESHOLD_XLM })}
             </span>
           </div>
         )}
@@ -954,9 +1026,35 @@ function SendPaymentForm({
         memo={memo}
         estimatedFee={ESTIMATED_NETWORK_FEE}
         isTipOnChain={isTipOnChain}
+        t={t as any}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
       />
+
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="QR code scanner">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/5">
+              <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">Scan QR Code</h3>
+              <button onClick={closeScanner} className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5" aria-label="Close scanner">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="relative aspect-square bg-black">
+              <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-48 h-48 border-2 border-white/30 rounded-2xl" />
+              </div>
+            </div>
+            {scannerError && (
+              <div className="px-4 py-3 text-sm text-red-400 text-center">{scannerError}</div>
+            )}
+            <div className="px-4 py-3 text-center">
+              <p className="text-xs text-slate-600 dark:text-slate-400">Point your camera at a Stellar QR code</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PaymentStatusModal
         isOpen={isStatusModalOpen}
@@ -982,41 +1080,42 @@ interface SendConfirmationModalProps {
   isTipOnChain: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  t: (key: string) => string;
 }
 
-function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
+function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, isTipOnChain, onCancel, onConfirm, t }: SendConfirmationModalProps) {
   if (!isOpen) return null;
   const shortened = shortenAddress(destination, 8);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-payment-title">
-      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
-        <h3 id="confirm-payment-title" className="text-xl font-bold text-white mb-4">Confirm Payment</h3>
+      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 border border-slate-200 dark:border-white/10 shadow-2xl">
+        <h3 id="confirm-payment-title" className="text-xl font-bold text-slate-900 dark:text-white mb-4">{t("sendPayment.confirmPayment")}</h3>
         <div className="space-y-4">
           <div>
-            <p className="text-xs text-slate-400 uppercase font-bold">To</p>
-            <p className="text-base font-semibold text-white">{shortened}</p>
-            <p className="text-xs font-mono text-slate-400 break-all mt-0.5">{destination}</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold">{t("sendPayment.to")}</p>
+            <p className="text-base font-semibold text-slate-900 dark:text-white">{shortened}</p>
+            <p className="text-xs font-mono text-slate-600 dark:text-slate-400 break-all mt-0.5">{destination}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Amount</p>
-              <p className="text-lg font-bold text-white">{amount} {asset}</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">{t("sendPayment.amount")}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{amount} {asset}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase font-bold">Estimated Fee</p>
-              <p className="text-sm text-slate-300">{estimatedFee}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold">{t("sendPayment.estimatedFee")}</p>
+              <p className="text-sm text-slate-700 dark:text-slate-300">{estimatedFee}</p>
             </div>
           </div>
           {memo && (
             <div>
-              <p className="text-xs text-slate-400 uppercase font-bold">Memo</p>
-              <p className="text-sm text-slate-200">{memo}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold">{t("sendPayment.memo")}</p>
+              <p className="text-sm text-slate-800 dark:text-slate-200">{memo}</p>
             </div>
           )}
         </div>
         <div className="mt-8 flex gap-3">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Cancel</button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm & Sign</button>
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-slate-200 dark:border-white/10 py-3 text-sm font-semibold text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-white/5 transition-all">{t("nav.cancel")}</button>
+          <button onClick={onConfirm} className="flex-1 btn-primary py-3">{t("sendPayment.confirmAndSign")}</button>
         </div>
       </div>
     </div>

@@ -193,14 +193,14 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   return (
     <div className="card mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-          <CalendarIcon className="w-5 h-5 text-stellar-400" />
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <CalendarIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
           Recurring Payments
         </h2>
         {!showForm && (
           <button
             onClick={() => { setForm(EMPTY_FORM); setFormError(null); setShowForm(true); }}
-            className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors cursor-pointer"
+            className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 transition-colors cursor-pointer"
           >
             + New schedule
           </button>
@@ -210,18 +210,18 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
       {/* Due-today banner */}
       {dueSchedules.length > 0 && (
         <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-          <p className="text-xs font-semibold text-amber-300 uppercase tracking-wider mb-2">
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wider mb-2">
             Due today — {dueSchedules.length} payment{dueSchedules.length > 1 ? "s" : ""}
           </p>
           <div className="space-y-2">
             {dueSchedules.map((s) => (
               <div key={s.id} className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="text-sm text-slate-200">
-                  <span className="font-mono text-xs text-slate-400 mr-1">
+                <div className="text-sm text-slate-700 dark:text-slate-200">
+                  <span className="font-mono text-xs text-slate-600 dark:text-slate-400 mr-1">
                     {s.recipient.slice(0, 6)}…{s.recipient.slice(-4)}
                   </span>
-                  <span className="font-semibold text-white">{s.amount} XLM</span>
-                  {s.memo && <span className="text-slate-400 text-xs ml-1">· {s.memo}</span>}
+                  <span className="font-semibold text-slate-900 dark:text-white">{s.amount} XLM</span>
+                  {s.memo && <span className="text-slate-600 dark:text-slate-400 text-xs ml-1">· {s.memo}</span>}
                 </div>
                 <button
                   onClick={() => handlePayNow(s)}
@@ -237,8 +237,8 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
 
       {/* Add / Edit form */}
       {showForm && (
-        <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-white">
+        <div className="mb-4 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.03] p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
             {editingId ? "Edit schedule" : "New recurring payment"}
           </h3>
 
@@ -309,7 +309,7 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
             </button>
             <button
               onClick={resetForm}
-              className="text-sm text-slate-400 hover:text-white transition-colors"
+              className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               Cancel
             </button>
@@ -319,33 +319,33 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
 
       {/* Schedule list */}
       {schedules.length === 0 && !showForm ? (
-        <p className="text-sm text-slate-400">No recurring schedules yet.</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">No recurring schedules yet.</p>
       ) : (
         <div className="space-y-2">
           {schedules.map((s) => (
             <div
               key={s.id}
-              className="flex items-start justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3"
+              className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] p-3"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <span className="font-semibold text-sm text-white">{s.amount} XLM</span>
-                  <span className="text-xs text-slate-400 capitalize">{s.frequency}</span>
+                  <span className="font-semibold text-sm text-slate-900 dark:text-white">{s.amount} XLM</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-400 capitalize">{s.frequency}</span>
                   {s.memo && (
                     <span className="text-xs text-slate-500 truncate max-w-[120px]">· {s.memo}</span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 font-mono truncate">
+                <p className="text-xs text-slate-600 dark:text-slate-400 font-mono truncate">
                   {s.recipient.slice(0, 8)}…{s.recipient.slice(-6)}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Next: <span className="text-slate-300">{formatDate(s.nextDueDate)}</span>
+                  Next: <span className="text-slate-700 dark:text-slate-300">{formatDate(s.nextDueDate)}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => handleEdit(s)}
-                  className="text-xs text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
                   aria-label="Edit schedule"
                 >
                   <EditIcon className="w-4 h-4" />

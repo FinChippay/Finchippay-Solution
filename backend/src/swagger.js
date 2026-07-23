@@ -27,7 +27,7 @@ const options = {
         "| `RateLimit-Limit` | Maximum requests allowed in the current window |\n" +
         "| `RateLimit-Remaining` | Requests remaining before the limit is reached |\n" +
         "| `RateLimit-Reset` | Seconds until the window resets |\n\n" +
-        "When the limit is exceeded the server returns **HTTP 429** with `{ \"error\": \"Too many requests, please try again later.\" }`. " +
+        'When the limit is exceeded the server returns **HTTP 429** with `{ "error": "Too many requests, please try again later." }`. ' +
         "Clients should read `RateLimit-Remaining` on each response and add exponential back-off when the value approaches 0.",
       contact: {
         name: "Finchippay Solution",
@@ -168,7 +168,8 @@ const options = {
             },
             config: {
               type: "object",
-              description: "Type-specific configuration — see DcaConfig, StopLossConfig, or EscrowReleaseConfig",
+              description:
+                "Type-specific configuration — see DcaConfig, StopLossConfig, or EscrowReleaseConfig",
             },
           },
         },
@@ -177,11 +178,13 @@ const options = {
           properties: {
             challengeXDR: {
               type: "string",
-              description: "Base64-encoded ManageData transaction XDR the owner must sign",
+              description:
+                "Base64-encoded ManageData transaction XDR the owner must sign",
             },
             deploymentHash: {
               type: "string",
-              description: "SHA-256 hash of the normalised config, included in the challenge",
+              description:
+                "SHA-256 hash of the normalised config, included in the challenge",
             },
             normalizedConfig: { type: "object" },
             networkPassphrase: { type: "string" },
@@ -189,15 +192,25 @@ const options = {
         },
         TxFunctionDeployRequest: {
           type: "object",
-          required: ["ownerPublicKey", "type", "config", "deploymentHash", "signedChallengeXDR"],
+          required: [
+            "ownerPublicKey",
+            "type",
+            "config",
+            "deploymentHash",
+            "signedChallengeXDR",
+          ],
           properties: {
             ownerPublicKey: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
-            type: { type: "string", enum: ["dca", "stop_loss", "escrow_release"] },
+            type: {
+              type: "string",
+              enum: ["dca", "stop_loss", "escrow_release"],
+            },
             config: { type: "object" },
             deploymentHash: { type: "string" },
             signedChallengeXDR: {
               type: "string",
-              description: "The challenge XDR signed by the owner's Freighter (or Ledger) wallet",
+              description:
+                "The challenge XDR signed by the owner's Freighter (or Ledger) wallet",
             },
           },
         },
@@ -206,14 +219,25 @@ const options = {
           properties: {
             id: { type: "string", format: "uuid" },
             ownerPublicKey: { type: "string" },
-            type: { type: "string", enum: ["dca", "stop_loss", "escrow_release"] },
+            type: {
+              type: "string",
+              enum: ["dca", "stop_loss", "escrow_release"],
+            },
             status: { type: "string", enum: ["active", "paused", "completed"] },
             config: { type: "object" },
             deploymentHash: { type: "string" },
             createdAt: { type: "string", format: "date-time" },
             nextRunAt: { type: "string", format: "date-time", nullable: true },
-            lastExecutedAt: { type: "string", format: "date-time", nullable: true },
-            lastCheckedAt: { type: "string", format: "date-time", nullable: true },
+            lastExecutedAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+            lastCheckedAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
             lastObservedPriceUsd: { type: "number", nullable: true },
             lastError: { type: "string", nullable: true },
           },
@@ -226,6 +250,87 @@ const options = {
             publicKey: { type: "string" },
             attempts: { type: "integer" },
             createdAt: { type: "string", format: "date-time" },
+          },
+        },
+        Sep24InitiateRequest: {
+          type: "object",
+          required: ["asset_code", "account"],
+          properties: {
+            asset_code: {
+              type: "string",
+              description: "Stellar asset code (e.g. USDC, XLM)",
+              example: "USDC",
+            },
+            account: {
+              type: "string",
+              pattern: "^G[A-Z0-9]{55}$",
+              description: "User's Stellar public key",
+            },
+            memo: {
+              type: "string",
+              description: "Optional memo for the deposit",
+            },
+            memo_type: {
+              type: "string",
+              enum: ["text", "id", "hash"],
+              description: "Optional memo type",
+            },
+            anchor_url: {
+              type: "string",
+              description:
+                "Optional override for the anchor interactive flow URL",
+            },
+          },
+        },
+        Sep24InteractiveResponse: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["interactive_customer_info_needed"],
+              description: "Response type indicator",
+            },
+            url: {
+              type: "string",
+              description:
+                "Interactive web URL the user must visit to complete KYC",
+            },
+            id: {
+              type: "string",
+              format: "uuid",
+              description: "Transaction ID for status polling",
+            },
+          },
+        },
+        Sep24Transaction: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            kind: { type: "string", enum: ["deposit", "withdrawal"] },
+            status: {
+              type: "string",
+              enum: ["pending_external", "completed", "error"],
+              description: "Current transaction status",
+            },
+            status_eta: { type: "integer", nullable: true },
+            more_info_url: { type: "string", nullable: true },
+            amount_in: { type: "string", nullable: true },
+            amount_out: { type: "string", nullable: true },
+            amount_fee: { type: "string", nullable: true },
+            started_at: { type: "string", format: "date-time" },
+            updated_at: { type: "string", format: "date-time" },
+            completed_at: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+            stellar_transaction_id: { type: "string", nullable: true },
+            external_transaction_id: { type: "string", nullable: true },
+            message: {
+              type: "string",
+              nullable: true,
+              description: "Error message when status is 'error'",
+            },
           },
         },
         ExecutionLogEntry: {
@@ -242,7 +347,8 @@ const options = {
             result: {
               type: "object",
               nullable: true,
-              description: "Operation intent generated by the txFunction evaluator",
+              description:
+                "Operation intent generated by the txFunction evaluator",
             },
             createdAt: { type: "string", format: "date-time" },
           },
@@ -356,7 +462,9 @@ const options = {
             200: {
               description: "Account info",
               headers: {
-                "RateLimit-Limit": { schema: { type: "integer", example: 100 } },
+                "RateLimit-Limit": {
+                  schema: { type: "integer", example: 100 },
+                },
                 "RateLimit-Remaining": { schema: { type: "integer" } },
                 "RateLimit-Reset": { schema: { type: "integer" } },
               },
@@ -373,7 +481,10 @@ const options = {
               },
             },
             404: { description: "Account not found" },
-            429: { description: "Rate limit exceeded — back off and retry after RateLimit-Reset seconds" },
+            429: {
+              description:
+                "Rate limit exceeded — back off and retry after RateLimit-Reset seconds",
+            },
           },
         },
       },
@@ -505,7 +616,9 @@ const options = {
             200: {
               description: "Payment history",
               headers: {
-                "RateLimit-Limit": { schema: { type: "integer", example: 100 } },
+                "RateLimit-Limit": {
+                  schema: { type: "integer", example: 100 },
+                },
                 "RateLimit-Remaining": { schema: { type: "integer" } },
                 "RateLimit-Reset": { schema: { type: "integer" } },
               },
@@ -784,7 +897,8 @@ const options = {
         get: {
           tags: ["Turrets"],
           summary: "List txFunction deployments",
-          description: "Returns all deployments. Filter by owner using `ownerPublicKey` query parameter.",
+          description:
+            "Returns all deployments. Filter by owner using `ownerPublicKey` query parameter.",
           parameters: [
             {
               name: "ownerPublicKey",
@@ -799,7 +913,8 @@ const options = {
               description: "Array of deployments",
               headers: {
                 "RateLimit-Limit": {
-                  description: "Maximum requests allowed in the current window (20 per minute)",
+                  description:
+                    "Maximum requests allowed in the current window (20 per minute)",
                   schema: { type: "integer", example: 20 },
                 },
                 "RateLimit-Remaining": {
@@ -819,7 +934,9 @@ const options = {
                       success: { type: "boolean", example: true },
                       data: {
                         type: "array",
-                        items: { $ref: "#/components/schemas/TxFunctionDeployment" },
+                        items: {
+                          $ref: "#/components/schemas/TxFunctionDeployment",
+                        },
                       },
                     },
                   },
@@ -830,7 +947,9 @@ const options = {
               description: "Rate limit exceeded",
               headers: {
                 "RateLimit-Limit": { schema: { type: "integer" } },
-                "RateLimit-Remaining": { schema: { type: "integer", example: 0 } },
+                "RateLimit-Remaining": {
+                  schema: { type: "integer", example: 0 },
+                },
                 "RateLimit-Reset": { schema: { type: "integer" } },
               },
             },
@@ -841,12 +960,15 @@ const options = {
         post: {
           tags: ["Turrets"],
           summary: "Create a txFunction signing challenge",
-          description: "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/turrets/deploy`.",
+          description:
+            "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/turrets/deploy`.",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/TxFunctionChallengeRequest" },
+                schema: {
+                  $ref: "#/components/schemas/TxFunctionChallengeRequest",
+                },
               },
             },
           },
@@ -864,13 +986,18 @@ const options = {
                     type: "object",
                     properties: {
                       success: { type: "boolean", example: true },
-                      data: { $ref: "#/components/schemas/TxFunctionChallengeResponse" },
+                      data: {
+                        $ref: "#/components/schemas/TxFunctionChallengeResponse",
+                      },
                     },
                   },
                 },
               },
             },
-            400: { description: "Invalid request body (bad public key, unknown type, invalid config)" },
+            400: {
+              description:
+                "Invalid request body (bad public key, unknown type, invalid config)",
+            },
             429: { description: "Rate limit exceeded" },
           },
         },
@@ -879,12 +1006,15 @@ const options = {
         post: {
           tags: ["Turrets"],
           summary: "Deploy a signed txFunction",
-          description: "Verifies the signed challenge and registers the txFunction. The runner begins evaluating the deployment immediately.",
+          description:
+            "Verifies the signed challenge and registers the txFunction. The runner begins evaluating the deployment immediately.",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/TxFunctionDeployRequest" },
+                schema: {
+                  $ref: "#/components/schemas/TxFunctionDeployRequest",
+                },
               },
             },
           },
@@ -902,14 +1032,18 @@ const options = {
                     type: "object",
                     properties: {
                       success: { type: "boolean", example: true },
-                      data: { $ref: "#/components/schemas/TxFunctionDeployment" },
+                      data: {
+                        $ref: "#/components/schemas/TxFunctionDeployment",
+                      },
                     },
                   },
                 },
               },
             },
             400: { description: "Config hash mismatch or invalid asset" },
-            401: { description: "Signed challenge was not signed by the owner" },
+            401: {
+              description: "Signed challenge was not signed by the owner",
+            },
             429: { description: "Rate limit exceeded" },
           },
         },
@@ -940,7 +1074,9 @@ const options = {
                     type: "object",
                     properties: {
                       success: { type: "boolean", example: true },
-                      data: { $ref: "#/components/schemas/TxFunctionDeployment" },
+                      data: {
+                        $ref: "#/components/schemas/TxFunctionDeployment",
+                      },
                     },
                   },
                 },
@@ -979,7 +1115,9 @@ const options = {
                       success: { type: "boolean", example: true },
                       data: {
                         type: "array",
-                        items: { $ref: "#/components/schemas/ExecutionLogEntry" },
+                        items: {
+                          $ref: "#/components/schemas/ExecutionLogEntry",
+                        },
                       },
                     },
                   },
@@ -1054,7 +1192,8 @@ const options = {
                 "application/toml": {
                   schema: {
                     type: "string",
-                    example: 'FEDERATION_SERVER="https://stellarfinchippay.io/federation"',
+                    example:
+                      'FEDERATION_SERVER="https://stellarfinchippay.io/federation"\nTRANSFER_SERVER_SEP0024="https://stellarfinchippay.io"',
                   },
                 },
               },
@@ -1066,7 +1205,8 @@ const options = {
         post: {
           tags: ["AI Parsing"],
           summary: "Parse natural language into payment intent",
-          description: "Uses Anthropic's Claude to extract structured payment details (amount, recipient, memo) from natural language input. Requires `ANTHROPIC_API_KEY` to be set.",
+          description:
+            "Uses Anthropic's Claude to extract structured payment details (amount, recipient, memo) from natural language input. Requires `ANTHROPIC_API_KEY` to be set.",
           requestBody: {
             required: true,
             content: {
@@ -1121,9 +1261,20 @@ const options = {
                   type: "object",
                   required: ["signedXDR", "submitAt", "publicKey"],
                   properties: {
-                    signedXDR: { type: "string", description: "Signed transaction XDR (base64)" },
-                    submitAt: { type: "string", format: "date-time", description: "ISO 8601 timestamp" },
-                    publicKey: { type: "string", pattern: "^G[A-Z0-9]{55}$", description: "Owner public key" },
+                    signedXDR: {
+                      type: "string",
+                      description: "Signed transaction XDR (base64)",
+                    },
+                    submitAt: {
+                      type: "string",
+                      format: "date-time",
+                      description: "ISO 8601 timestamp",
+                    },
+                    publicKey: {
+                      type: "string",
+                      pattern: "^G[A-Z0-9]{55}$",
+                      description: "Owner public key",
+                    },
                   },
                 },
               },
@@ -1154,7 +1305,9 @@ const options = {
                 "application/json": {
                   schema: {
                     type: "array",
-                    items: { $ref: "#/components/schemas/ScheduledTransaction" },
+                    items: {
+                      $ref: "#/components/schemas/ScheduledTransaction",
+                    },
                   },
                 },
               },
@@ -1190,7 +1343,8 @@ const options = {
               in: "query",
               required: true,
               schema: { type: "string" },
-              description: "Federation query. Use user*domain for type=name or a public key for type=id.",
+              description:
+                "Federation query. Use user*domain for type=name or a public key for type=id.",
             },
             {
               name: "type",
@@ -1208,7 +1362,10 @@ const options = {
                   schema: {
                     type: "object",
                     properties: {
-                      stellar_address: { type: "string", example: "alice*stellarfinchippay.io" },
+                      stellar_address: {
+                        type: "string",
+                        example: "alice*stellarfinchippay.io",
+                      },
                       account_id: { type: "string", example: "GABC...XYZ" },
                     },
                   },
@@ -1217,6 +1374,106 @@ const options = {
             },
             400: { description: "Missing or invalid federation query" },
             404: { description: "Federation record not found" },
+          },
+        },
+      },
+      "/api/sep24/transactions/deposit/interactive": {
+        post: {
+          tags: ["SEP-0024"],
+          summary: "Initiate an interactive deposit session",
+          description:
+            "Initiates SEP-0024 interactive deposit flow. Returns a URL the user must visit in a browser to complete KYC and fund the deposit.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Sep24InitiateRequest" },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Interactive session initiated",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/Sep24InteractiveResponse",
+                  },
+                },
+              },
+            },
+            400: {
+              description:
+                "Missing asset_code or account, or invalid public key format",
+            },
+          },
+        },
+      },
+      "/api/sep24/transactions/withdraw/interactive": {
+        post: {
+          tags: ["SEP-0024"],
+          summary: "Initiate an interactive withdrawal session",
+          description:
+            "Initiates SEP-0024 interactive withdrawal flow. Returns a URL the user must visit in a browser to complete KYC and receive funds.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Sep24InitiateRequest" },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Interactive session initiated",
+              content: {
+                "application/json": {
+                  schema: {
+                    $ref: "#/components/schemas/Sep24InteractiveResponse",
+                  },
+                },
+              },
+            },
+            400: {
+              description:
+                "Missing asset_code or account, or invalid public key format",
+            },
+          },
+        },
+      },
+      "/api/sep24/transaction": {
+        get: {
+          tags: ["SEP-0024"],
+          summary: "Poll transaction status",
+          description:
+            "Retrieve the current status of an interactive deposit or withdrawal. Poll this endpoint after the user completes the interactive web flow.",
+          parameters: [
+            {
+              name: "id",
+              in: "query",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+              description: "Transaction ID returned by the initiate endpoint",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Transaction status",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      transaction: {
+                        $ref: "#/components/schemas/Sep24Transaction",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing id query parameter" },
+            404: { description: "Transaction not found" },
           },
         },
       },

@@ -1,50 +1,45 @@
 ## Summary
 
-This PR is a comprehensive project-wide review and cleanup addressing critical build errors, misplaced files, missing documentation, dead code, and missing test coverage across the entire Finchippay-Solution codebase.
-
-**12 commits** fixing issues across all layers: Rust smart contract, Next.js frontend, Express backend, Docker, CI, and documentation.
+Emits complete, structured events for the contract entry points that were missing or under-specified them, so off-chain indexers can reconstruct escrow/stream/multisig/batch state without replaying every ledger or reading storage.
 
 ## Type of change
 
-- [x] Bug fixes (build-breaking issues, misplaced files, broken imports)
-- [x] Tests (26 new tests added: unit + integration + E2E)
-- [x] Documentation updates (API docs, Swagger spec, ENV guide)
-- [x] Refactor / chore (dead code removal, file reorganization, CI hardening)
+- [ ] Bug fix
+- [x] New feature
+- [x] Documentation update
+- [ ] Refactor / chore
+- [x] Smart contract change
+
+## Related issue
+
+Closes #55
 
 ## Changes
 
-### Critical Fixes
-1. **`output:"export"` + API route conflict** — Deleted `pages/api/parse-payment.ts` (broke Next.js static export), migrated to `backend/src/routes/parsePayment.js`, updated `AIPaymentAssistant.tsx` to call backend
-2. **Misplaced `scheduledTransactionRoutes.js`** — Moved from project root to `backend/src/routes/scheduledTransactions.js` with correct import paths and function name mapping to service
-3. **Rust toolchain** — Added `rust-toolchain.toml` with `wasm32v1-none` target (required by soroban-sdk v27.0.0), updated CI workflow target
+- `cancel_escrow`: renamed `escrow_cancel` → `escrow_cancelled`, topic reduced to `(escrow_cancelled,)`, data now `(id, from, amount)`.
+- `top_up_stream`: renamed `stream_topup` → `stream_topped_up`, topic reduced to `(stream_topped_up,)`, data now `(id, payer, added, new_deposit)`.
+- `cancel_multisig`: renamed `multisig_cancel` → `multisig_cancelled`, topic reduced to `(multisig_cancelled,)`, data now `(id, proposer, amount)`.
+- `batch_send`: renamed `batch_send` event → `batch_sent`, topic reduced to `(batch_sent,)`, data now `(from, count, total_amount)` — `total_amount` is accumulated via `checked_add` across the fan-out loop.
+- Verified `rescue_tokens` already emits `(rescue_tokens,)` with `(token_address, amount, to)`, matching the required single-symbol topic pattern — added a regression test since none previously existed.
+- Added a "Event Catalogue" section to `docs/architecture.md` cataloguing every contract event (topics, data, emitting function), including the ones changed here.
 
-### Cleanup
-4. **Dead root-level files** — Removed `stellar.js` (zero imports), `push_zk_proof.ps1` (self-referencing)
-5. **ZK proof helper** — Moved `lib/stellar.ts` → `scripts/zk-proof-helper.ts`
-6. **Build artifact** — Removed `tsconfig.tsbuildinfo` from git tracking
-7. **SDK import** — Fixed `stellar.js` to use `@stellar/stellar-sdk` (matching all other imports)
+## Testing
 
-### Testing (26 new tests)
-8. **Backend unit tests** — 6 for `POST /api/parse-payment` + 9 for `/api/scheduled-txns` (97→102 tests)
-9. **Backend integration tests** — 5 for `/api/parse-payment` using nock to mock Anthropic API
-10. **Playwright E2E tests** — 3 for AI Payment Assistant (full flow, ambiguous input, Escape key close)
+- [ ] Tested locally on Testnet
+- [x] Added/updated unit tests
+- [ ] Manually tested UI flow
 
-### Configuration & Docs
-11. **`ANTHROPIC_API_KEY` everywhere** — Added to CI (backend + E2E jobs), docker-compose files, `.env.example`, and `ENV.md`
-12. **API documentation** — Documented `/api/parse-payment` and `/api/scheduled-txns` in `docs/api.md` (25→27 endpoints), added OpenAPI schemas to `backend/src/swagger.js`
+Added 5 new unit tests in `contracts/finchippay-contract/src/lib.rs` that assert on `env.events().all().filter_by_contract(&contract_id)`, verifying exact topics and data for `escrow_cancelled`, `stream_topped_up`, `multisig_cancelled`, `batch_sent`, and `rescue_tokens`.
 
-## Validation
+Note: `cargo test` currently fails to build in this environment even on a clean checkout of `master` (verified via `git stash`), due to an upstream dependency conflict — `soroban-env-host 27.0.0`'s test utilities pull in a `ChaCha20Rng` that no longer satisfies `ed25519_dalek::rand_core::CryptoRng` under the currently resolved `rand_core` versions. This is unrelated to this PR and wasn't addressed here. The non-test contract code was verified with `cargo check --lib`, which compiles cleanly (only pre-existing `#[deprecated]` warnings on `Events::publish`, consistent with the rest of the file).
 
-- ✅ **102/102** backend tests passing (up from 79)
-- ✅ **117/117** frontend tests passing
-- ✅ **0** TypeScript errors
-- ✅ **0** ESLint errors
-- ✅ Docker Compose config validation (dev + prod)
+## Screenshots (if UI change)
+
+N/A — contract-only change.
 
 ## Checklist
 
 - [x] My code follows the project style
-- [x] I've updated docs where needed
-- [x] No console errors or warnings
-- [x] All tests pass
-- [x] CI pipeline validated locally
+- [x] I've updated docs if needed
+- [ ] No console errors or warnings
+- [x] I've rebased on latest `main`

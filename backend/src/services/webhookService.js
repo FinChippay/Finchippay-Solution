@@ -26,7 +26,18 @@
 const crypto = require("crypto");
 const { Horizon } = require("@stellar/stellar-sdk");
 const logger = require("../utils/logger");
+const metrics = require("./metricsService");
+const { getRequestIdHeader } = require("../utils/correlationId");
 require("dotenv").config();
+
+// Lazy-loaded to avoid circular dependency at parse time
+function getCache() {
+  try {
+    return require("./cacheService");
+  } catch {
+    return null;
+  }
+}
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 const server = new Horizon.Server(HORIZON_URL);
@@ -129,6 +140,7 @@ async function deliverWebhook(webhook, payload) {
       headers: {
         "Content-Type": "application/json",
         "X-Webhook-Signature": signature,
+        ...getRequestIdHeader(),
       },
       body: JSON.stringify(payload),
     });
@@ -162,7 +174,10 @@ async function deliverWebhook(webhook, payload) {
  * @param {{ publicKey:string }} webhook
  */
 function startMonitoring(webhook) {
-  if (activeStreams.has(webhook.publicKey)) return;
+  metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
+  if (activeStreams.has(webhook.publicKey)) {
+    return;
+  }
 
   const closeStream = server
     .payments()
@@ -171,6 +186,17 @@ function startMonitoring(webhook) {
     .stream({
       onmessage: async (payment) => {
         if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
+
+        // Invalidate account & payment cache for the receiving account
+        try {
+          const cache = getCache();
+          if (cache) {
+            await cache.del(`account:${webhook.publicKey}`);
+            await cache.delPattern(`payments:${webhook.publicKey}:*`);
+          }
+        } catch {
+          // cache invalidation is best-effort
+        }
 
         const payload = {
           event: "payment.received",
@@ -196,12 +222,15 @@ function startMonitoring(webhook) {
           publicKey: webhook.publicKey,
           error: err.message,
         });
+        metrics.horizonRequestsTotal.inc({ operation: "sse", status: "error" });
         // Remove so a fresh stream can be created on the next registration.
         activeStreams.delete(webhook.publicKey);
+        metrics.activeWebhookStreams.set(activeStreams.size);
       },
     });
 
   activeStreams.set(webhook.publicKey, closeStream);
+  metrics.activeWebhookStreams.set(activeStreams.size);
   logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
 }
 

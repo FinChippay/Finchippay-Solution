@@ -1,0 +1,51 @@
+# .github/workflows/codeql.yml
+# CodeQL security analysis for Finchippay-Solution.
+# Scans JavaScript/TypeScript code on every push to main and weekly.
+#
+# CodeQL identifies vulnerabilities such as:
+#   - SQL injection, XSS, path traversal
+#   - Hardcoded credentials, insecure cryptography
+#   - Insecure deserialization, prototype pollution
+
+name: CodeQL Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly scan at 2 AM UTC on Monday
+    - cron: "0 2 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

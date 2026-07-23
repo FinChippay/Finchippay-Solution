@@ -1,5 +1,10 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import { validateEnv } from "./scripts/validateEnv.mjs";
+import bundleAnalyzer from "@next/bundle-analyzer";
+
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+});
 
 if (process.env.npm_lifecycle_event !== "lint") {
   validateEnv();
@@ -22,10 +27,12 @@ const nextConfig = {
   },
 };
 
-export default withSentryConfig(nextConfig, {
-  // Suppress Sentry CLI output during builds
-  silent: true,
-  // Disable source map upload unless SENTRY_AUTH_TOKEN is set
-  disableServerWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
-  disableClientWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
-});
+export default withBundleAnalyzer(
+  withSentryConfig(nextConfig, {
+    // Suppress Sentry CLI output during builds
+    silent: true,
+    // Disable source map upload unless SENTRY_AUTH_TOKEN is set
+    disableServerWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+    disableClientWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+  })
+);

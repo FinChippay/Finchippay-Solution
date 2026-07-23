@@ -4,14 +4,29 @@
  */
 
 "use strict";
+const crypto = require("crypto");
+
+// ─── Environment ─────────────────────────────────────────────────────────────
+// dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
+// set in .env is visible when the OpenTelemetry SDK initialises.
+require("dotenv").config();
+
+// ─── OpenTelemetry tracing (must load before Express/HTTP imports) ────────────
+// Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
+// so this must be required before express, http, etc. are imported.
+const { sdk: otelSdk } = require("./config/tracing");
+
+// Must load before any route requiring axios so the global interceptor
+// can forward the correlation ID on every outbound HTTP call.
+require("./config/axiosInterceptors");
 
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
-require("dotenv").config();
 const Sentry = require("@sentry/node");
+const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
@@ -24,11 +39,17 @@ const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
+const sep24Routes = require("./routes/sep24");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const { requireJsonContentType } = require("./middleware/bodyParsing");
+const { trackHttpMetrics } = require("./middleware/metrics");
+const metricsRoutes = require("./routes/metrics");
+const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const { initRedis, closeRedis } = require("./services/cacheService");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -39,7 +60,9 @@ const PORT = process.env.PORT || 4000;
 
 const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
 function sanitizeMessage(msg) {
-  return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
+  return typeof msg === "string"
+    ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]")
+    : msg;
 }
 
 // ─── Sentry ───────────────────────────────────────────────────────────────────
@@ -75,7 +98,7 @@ function getFederationDomain(req) {
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
       req.get("host") ||
-      "stellarfinchippay.io"
+      "stellarfinchippay.io",
   );
 }
 
@@ -87,7 +110,9 @@ function getFederationServerUrl(req) {
   const domain = getFederationDomain(req);
   const protocol =
     process.env.FEDERATION_SERVER_PROTOCOL ||
-    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https");
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
 
   return `${protocol}://${domain}/federation`;
 }
@@ -129,15 +154,52 @@ const helmetOptions = {
 };
 
 app.use(helmet(helmetOptions));
+// Prometheus HTTP metrics — track duration & count for every request.
+// Mounted before routes so the "finish" event captures the resolved
+// route pattern (e.g. "GET /api/payments/:id") rather than raw paths.
+app.use(trackHttpMetrics);
+// Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
+// Mounted before pino-http so the requestId appears in every log line.
+app.use(correlationMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-app.use(pinoHttp({ logger }));
-app.use(express.json({ limit: "10kb" }));
+// req.id is set by correlationMiddleware above.
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => req.id || crypto.randomUUID(),
+    customProps: () => {
+      const requestId = getRequestId();
+      return requestId ? { requestId } : {};
+    },
+  }),
+);
 
-// JSON parsing error handler
+// Content-Type enforcement (#81) — reject POST/PUT requests whose body isn't
+// application/json before the JSON parser below gets a chance to silently
+// skip it.
+app.use(requireJsonContentType);
+
+// JSON body size limits (#81).
+// /api/turrets may receive larger txFunction payloads, so it gets its own
+// parser with a higher limit; every other route falls through to the 100kb
+// default. body-parser skips re-parsing a request whose body it has already
+// parsed (req._body), so mounting the turrets parser first is sufficient —
+// the global parser below is a no-op for requests it already handled.
+app.use("/api/turrets", express.json({ limit: "512kb" }));
+app.use(express.json({ limit: "100kb" }));
+
+// JSON body parsing error handler — uses standardized error codes
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({ error: "Invalid JSON body" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_JSON"));
+  }
+  if (err.type === "entity.too.large" || err.status === 413) {
+    return res
+      .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
+      .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
   }
   next();
 });
@@ -146,7 +208,9 @@ app.use((err, req, res, next) => {
 // parseAllowedOrigins validates format at startup (see validateEnv.js) and
 // returns the trimmed list of origins that are safe to use at runtime.
 // Any malformed entries cause process.exit(1) before this line is reached.
-const { origins: allowedOrigins } = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+const { origins: allowedOrigins } = parseAllowedOrigins(
+  process.env.ALLOWED_ORIGINS,
+);
 
 app.use(
   cors({
@@ -161,7 +225,7 @@ app.use(
     methods: ["GET", "POST", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  })
+  }),
 );
 
 // ─── Health route (exempt from rate limiting) ─────────────────────────────────
@@ -172,9 +236,19 @@ app.use("/api/health", healthRoutes);
 // Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
 // discover the SEP-0002 federation endpoint for `name*domain` addresses.
 app.get("/.well-known/stellar.toml", (req, res) => {
+  const domain = getFederationDomain(req);
+  const protocol =
+    req.get("x-forwarded-proto") ||
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
   const serverUrl = getFederationServerUrl(req);
+  const transferServerUrl =
+    process.env.TRANSFER_SERVER_URL || `${protocol}://${domain}`;
+
   const tomlContent = `# Finchippay Solution federation discovery
 FEDERATION_SERVER="${serverUrl}"
+TRANSFER_SERVER_SEP0024="${transferServerUrl}"
 `;
 
   res.setHeader("Content-Type", "application/toml; charset=utf-8");
@@ -190,7 +264,7 @@ const limiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
+  message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
 });
 app.use(limiter);
 
@@ -205,7 +279,9 @@ app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/sep24", sep24Routes);
 app.use("/federation", federationRoutes);
+app.use("/metrics", metricsRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
 
@@ -216,7 +292,7 @@ app.use(
     customSiteTitle: "Finchippay Solution API Docs",
     customCss: ".swagger-ui .topbar { display: none }",
     swaggerOptions: { url: "/api/docs.json" },
-  })
+  }),
 );
 
 app.get("/api/docs.json", (req, res) => {
@@ -229,7 +305,9 @@ app.get("/api/docs.json", (req, res) => {
 app.use((req, res) => {
   const sanitizedPath = req.path.replace(/[\r\n]/g, "");
   logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
-  res.status(404).json({ error: "Route not found" });
+  res
+    .status(ERROR_CODES.RES_ROUTE_NOT_FOUND.httpStatus)
+    .json(formatErrorResponse("RES_ROUTE_NOT_FOUND"));
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
@@ -239,17 +317,66 @@ Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   void next;
+  // If the error already has a code from our registry, use it directly.
+  if (err.errorCode) {
+    const entry = formatErrorResponse(err.errorCode, err.details);
+    const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
+    logger.error({ status, errorCode: err.errorCode, details: err.details }, "Request error");
+    return res.status(status).json(entry);
+  }
+
   const status = err.status || 500;
-  const message = sanitizeMessage(err.message) || "Internal Server Error";
+  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ status, message }, "Request error");
-  res.status(status).json({ error: message });
+  // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
+  const fallback = formatErrorResponse("SRV_INTERNAL", {
+    originalMessage: sanitizeMessage(err.message),
+  });
+  res.status(status).json(fallback);
 });
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+// On SIGTERM / SIGINT, flush pending OpenTelemetry spans and close the
+// HTTP server before exiting so no traces or in-flight requests are lost.
+
+async function gracefulShutdown(signal, server, otelSdk) {
+  logger.info({ signal }, "Received shutdown signal — draining…");
+
+  // 1. Stop accepting new connections
+  server.close((err) => {
+    if (err) logger.error({ err }, "Error closing HTTP server");
+  });
+
+  // 2. Close Redis connection
+  await closeRedis();
+
+  // 3. Flush OTel spans (time-boxed at 5 s)
+  if (otelSdk) {
+    try {
+      await Promise.race([
+        otelSdk.shutdown(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("OTel shutdown timed out")), 5_000),
+        ),
+      ]);
+      logger.info("OpenTelemetry SDK shut down");
+    } catch (err) {
+      logger.error({ err }, "Error shutting down OpenTelemetry SDK");
+    }
+  }
+
+  process.exit(0);
+}
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
   validateEnv();
-  app.listen(PORT, () => {
+  // Initialise Redis connection (non-blocking; degrades gracefully if unavailable)
+  initRedis().catch((err) => {
+    logger.error({ err }, "Redis initialisation failed");
+  });
+  const server = app.listen(PORT, () => {
     console.log(`
   ✨ Finchippay Solution API
   🚀 Server running at http://localhost:${PORT}
@@ -258,6 +385,9 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server, otelSdk));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT", server, otelSdk));
 }
 
 module.exports = app;

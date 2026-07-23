@@ -7,25 +7,27 @@ import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
 
-const FEATURES = [
-  { icon: "⚡", title: "Instant Settlement", desc: "Stellar transactions confirm in 3–5 seconds. No waiting for bank transfers." },
-  { icon: "🌍", title: "Truly Global", desc: "Send XLM to anyone with a Stellar address, anywhere in the world." },
-  { icon: "💰", title: "Micro Fees", desc: "Each transaction costs ~0.00001 XLM. Send $0.01 or $1,000 for the same fee." },
-  { icon: "🔐", title: "Non-Custodial", desc: "Your keys, your funds. We never touch your private key." },
-];
+const FEATURE_KEYS = [
+  { icon: "⚡", key: "instantSettlement" },
+  { icon: "🌍", key: "trulyGlobal" },
+  { icon: "💰", key: "microFees" },
+  { icon: "🔐", key: "nonCustodial" },
+] as const;
 
-const STATS = [
-  { target: 5, label: "Settlement time", suffix: "s", prefix: "3–" },
-  { target: 0.00001, label: "Average fee", prefix: "$", decimals: 5 },
-  { target: 100, label: "Countries supported", suffix: "+" },
+const STAT_KEYS = [
+  { target: 5, key: "settlementTime", suffix: "s", prefix: "3–" },
+  { target: 0.00001, key: "averageFee", prefix: "$", decimals: 5 },
+  { target: 100, key: "countriesSupported", suffix: "+" },
 ];
 
 export default function Home() {
   const { publicKey } = useWallet();
   const router = useRouter();
+  const { t } = useTranslation("common");
   const [showConnect, setShowConnect] = useState(false);
 
   const handleWalletConnect = (_publicKey: string) => {
@@ -83,28 +85,28 @@ export default function Home() {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-20">
         <div className="text-center mb-20 animate-fade-in">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-400 text-xs font-medium mb-8">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-700 dark:text-stellar-400 text-xs font-medium mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-stellar-400 animate-pulse" />
-            Built on Stellar Testnet · Open Source
+            {t("home.badge")}
           </div>
 
-          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-white leading-tight mb-6">
-            Money moves at the{" "}
-            <span className="text-gradient">speed of light</span>
+          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-slate-950 dark:text-white leading-tight mb-6">
+            {t("home.title")}{" "}
+            <span className="text-gradient">{t("home.titleHighlight")}</span>
           </h1>
 
-          <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
-            Finchippay Solution lets anyone send tiny payments across borders instant — for fractions of a cent. No bank. No borders. No friction.
+          <p className="text-slate-600 dark:text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
+            {t("home.subtitle")}
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             {publicKey ? (
               <Link href="/dashboard" className="btn-primary text-base px-8 py-3.5">
-                Open Dashboard →
+                {t("home.openDashboard")}
               </Link>
             ) : (
             <button onClick={() => setShowConnect(true)} className="btn-primary text-base px-8 py-3.5" aria-label="Connect wallet to start sending payments">
-                Connect Wallet & Start
+                {t("home.connectWallet")}
               </button>
             )}
             <a
@@ -112,16 +114,16 @@ export default function Home() {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="View Finchippay-Solution source code on GitHub"
-              className="btn-secondary text-base px-8 py-3.5 flex items-center gap-2"
+              className="btn-secondary text-stellar-700 dark:text-stellar-400 text-base px-8 py-3.5 flex items-center gap-2"
             >
               <GithubIcon className="w-4 h-4" />
-              View on GitHub
+              {t("home.viewOnGitHub")}
             </a>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-px bg-stellar-500/10 rounded-2xl overflow-hidden mb-24 border border-stellar-500/15 cursor-default">
-          {STATS.map((stat) => {
+          {STAT_KEYS.map((stat) => {
             const formatValue = () => {
               if (stat.decimals !== undefined) {
                 return stat.target.toFixed(stat.decimals);
@@ -129,24 +131,24 @@ export default function Home() {
               return stat.target.toString();
             };
             return (
-              <div key={stat.label} className="bg-cosmos-900 text-center py-8 px-4">
+              <div key={stat.key} className="bg-cosmos-900 text-center py-8 px-4">
                 <div className="font-display text-3xl font-bold text-gradient mb-1">
                   {stat.prefix || ""}{formatValue()}{stat.suffix || ""}
                 </div>
-                <div className="text-slate-400 text-sm">{stat.label}</div>
+                <div className="text-slate-400 text-sm">{t(`home.stats.${stat.key}` as any)}</div>
               </div>
             );
           })}
         </div>
 
         <div className="grid sm:grid-cols-2 gap-5 mb-24">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="card hover:border-stellar-500/30 transition-colors group cursor-default">
+          {FEATURE_KEYS.map((f) => (
+            <div key={f.key} className="card hover:border-stellar-500/30 transition-colors group cursor-default">
               <div className="text-2xl mb-3">{f.icon}</div>
-              <h3 className="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors">
-                {f.title}
+              <h3 className="font-display font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-stellar-700 dark:group-hover:text-stellar-300 transition-colors">
+                {t(`home.features.${f.key}.title` as any)}
               </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">{f.desc}</p>
+              <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{t(`home.features.${f.key}.desc` as any)}</p>
             </div>
           ))}
         </div>
@@ -154,26 +156,26 @@ export default function Home() {
         <section className="mb-24">
           <div className="max-w-3xl mx-auto">
             <div className="text-center mb-8">
-              <h2 className="font-display text-3xl sm:text-4xl font-bold text-white mb-3">What is Stellar?</h2>
-              <p className="text-slate-400 text-sm sm:text-base">
-                A quick explainer for newcomers, with links to the official Stellar docs.
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white mb-3">{t("home.faq.heading")}</h2>
+              <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">
+                {t("home.faq.subheading")}
               </p>
             </div>
 
             <div className="space-y-4">
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
-                  <span>What is Stellar?</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
+                  <span>{t("home.faq.whatIsStellar")}</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
-                    Stellar is an open blockchain network for moving money quickly and with very low fees. It&apos;s designed for payments, remittances, and cross-border transfers that settle faster than traditional bank systems.
+                    {t("home.faq.whatIsStellarAnswer")}
                   </p>
                   <p>
                     Read the official{" "}
-                    <a href="https://developers.stellar.org/docs/learn/overview" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
-                      Stellar overview
+                    <a href="https://developers.stellar.org/docs/learn/overview" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
+                      {t("home.faq.readOverview")}
                     </a>
                     .
                   </p>
@@ -181,18 +183,18 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
-                  <span>What is XLM?</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
+                  <span>{t("home.faq.whatIsXlm")}</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
-                    XLM is Stellar&apos;s native asset. It&apos;s used to pay transaction fees and can also be sent directly like any other digital currency.
+                    {t("home.faq.whatIsXlmAnswer")}
                   </p>
                   <p>
                     See the official{" "}
-                    <a href="https://developers.stellar.org/docs/tokens" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
-                      token docs
+                    <a href="https://developers.stellar.org/docs/tokens" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
+                      {t("home.faq.tokenDocs")}
                     </a>
                     .
                   </p>
@@ -200,18 +202,18 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
-                  <span>How fast is it?</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
+                  <span>{t("home.faq.howFast")}</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
-                    Stellar transactions typically confirm in just a few seconds, which is why it feels much faster than a bank transfer.
+                    {t("home.faq.howFastAnswer")}
                   </p>
                   <p>
                     Read about transaction flow in the{" "}
-                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
-                      official transaction docs
+                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
+                      {t("home.faq.transactionDocs")}
                     </a>
                     .
                   </p>
@@ -219,18 +221,18 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
-                  <span>How much does it cost?</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
+                  <span>{t("home.faq.howMuch")}</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
-                    Fees are tiny—usually a fraction of a cent. That makes Stellar useful for small payments where a bank transfer would be expensive or too slow.
+                    {t("home.faq.howMuchAnswer")}
                   </p>
                   <p>
                     See the official{" "}
-                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
-                      fee and transaction docs
+                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
+                      {t("home.faq.feeDocs")}
                     </a>
                     .
                   </p>
@@ -238,22 +240,22 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
-                  <span>Is it safe?</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
+                  <span>{t("home.faq.isItSafe")}</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
-                    Stellar uses public-key cryptography, so only the owner of a wallet can sign transactions from it. As with any blockchain app, keeping your recovery phrase and private keys secure is essential.
+                    {t("home.faq.isItSafeAnswer")}
                   </p>
                   <p>
                     Learn more about account security and the network in the{" "}
-                    <a href="https://developers.stellar.org/docs/learn/fundamentals/accounts" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
-                      official account docs
+                    <a href="https://developers.stellar.org/docs/learn/fundamentals/accounts" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
+                      {t("home.faq.accountDocs")}
                     </a>
                     {" "}and{" "}
-                    <a href="https://developers.stellar.org/docs/networks" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
-                      network docs
+                    <a href="https://developers.stellar.org/docs/networks" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
+                      {t("home.faq.networkDocs")}
                     </a>
                     .
                   </p>
@@ -268,17 +270,17 @@ export default function Home() {
             <div className="w-full max-w-md">
               <WalletConnect onConnectSuccess={handleWalletConnect} />
               <button onClick={() => setShowConnect(false)} className="mt-4 w-full text-center text-sm text-slate-400 hover:text-slate-300 transition-colors cursor-pointer">
-                Cancel
+                {t("home.cancel")}
               </button>
             </div>
           </div>
         )}
 
-        <div className="text-center pt-12 border-t border-white/5">
-          <p className="text-slate-600 text-sm">
-            Open source · MIT License ·{" "}
-            <a href="https://github.com/FinChippay/Finchippay-Solution" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-400 transition-colors cursor-pointer">
-              Contribute on GitHub
+        <div className="text-center pt-12 border-t border-slate-200 dark:border-white/5">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
+            {t("home.footer")}{" "}
+            <a href="https://github.com/FinChippay/Finchippay-Solution" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors cursor-pointer">
+              {t("home.footerContribute")}
             </a>
           </p>
         </div>

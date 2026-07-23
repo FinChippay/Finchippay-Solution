@@ -18,6 +18,11 @@ import {
 } from "@stellar/freighter-api";
 
 import { getNetworkPassphrase } from "./stellar";
+import {
+  setJwtToken as persistAuthToken,
+  clearJwtToken as clearAuthToken,
+} from "./auth";
+import { sdk } from "./sdk-instance";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -26,28 +31,13 @@ export function setJwtToken(token: string | null) { jwtToken = token; }
 export function getJwtToken() { return jwtToken; }
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
-  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-  const res  = await fetch(`${base}/api/auth?account=${encodeURIComponent(publicKey)}`, {
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error("Failed to fetch SEP-0010 challenge");
-  const { transaction } = await res.json();
+  const { transaction } = await sdk.getChallenge(publicKey);
   return transaction;
 }
 
 async function verifyAuthChallenge(signedXDR: string): Promise<string> {
-  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-  const res  = await fetch(`${base}/api/auth`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ transaction: signedXDR }),
-  });
-  if (!res.ok) {
-    const { error } = await res.json().catch(() => ({ error: "Auth failed" }));
-    throw new Error(error || "SEP-0010 verification failed");
-  }
-  const { token } = await res.json();
+  const { token } = await sdk.verifyChallenge(signedXDR);
+  sdk.setToken(token);
   return token;
 }
 
@@ -202,6 +192,7 @@ export async function performSEP0010Auth(
     }
     const token = await verifyAuthChallenge(signedXDR);
     setJwtToken(token);
+    persistAuthToken(token);
     return { token, error: null };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -254,6 +245,7 @@ export function disconnectWallet(): void {
   // Freighter doesn't expose an explicit disconnect API, so the app clears
   // any local auth state and lets React own the connected wallet lifecycle.
   setJwtToken(null);
+  clearAuthToken();
 }
 
 /**

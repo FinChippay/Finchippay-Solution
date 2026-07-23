@@ -8,6 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const scheduledTransactionService = require("../services/scheduledTransactionService");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * POST /api/scheduled-txns
@@ -19,12 +20,16 @@ router.post("/", (req, res, next) => {
     const { signedXDR, submitAt, publicKey } = req.body;
 
     if (!signedXDR || !submitAt || !publicKey) {
-      return res.status(400).json({ error: "Missing signedXDR, submitAt, or publicKey" });
+      return res
+        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["signedXDR", "submitAt", "publicKey"] }));
     }
 
     const submitDate = new Date(submitAt);
     if (isNaN(submitDate.getTime())) {
-      return res.status(400).json({ error: "submitAt must be a valid ISO 8601 date string" });
+      return res
+        .status(ERROR_CODES.VAL_INVALID_DATE.httpStatus)
+        .json(formatErrorResponse("VAL_INVALID_DATE"));
     }
 
     const scheduledTx = scheduledTransactionService.scheduleTransaction(
@@ -70,7 +75,9 @@ router.delete("/:id", (req, res, next) => {
     if (cancelled) {
       res.json({ message: `Transaction ${id} cancelled successfully.` });
     } else {
-      res.status(404).json({ error: `Transaction ${id} not found or not pending.` });
+      res
+        .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+        .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "scheduledTransaction", id }));
     }
   } catch (error) {
     next(error);
