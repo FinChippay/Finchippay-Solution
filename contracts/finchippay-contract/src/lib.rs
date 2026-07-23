@@ -1110,6 +1110,12 @@ impl FinchippayContract {
             (Symbol::new(&env, "stream_close"), stream_id),
             (payer, refund),
         );
+
+        // Emit final close event for indexing/UI.
+        env.events().publish(
+            (Symbol::new(&env, "stream_closed"), stream_id),
+            (refund, claimable),
+        );
         refund
     }
 
@@ -1938,6 +1944,31 @@ mod tests {
         assert_eq!(refund, 700);
         assert_eq!(token.balance(&payer), 700);
         assert_eq!(token.balance(&recipient), 300);
+        assert!(client.get_stream(&sid).closed);
+    }
+
+    #[test]
+    fn test_close_stream_at_halfway_ledger_pays_claimable_to_recipient() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 1_000);
+        let token = token::Client::new(&env, &token_id);
+
+        let start = env.ledger().sequence();
+        let sid = client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+
+        // Close after 50 ledgers -> 500 streamed, 500 refund.
+        advance(&env, start + 50);
+        client.close_stream(&sid, &payer);
+
+        // Recipient should receive every token they earned.
+        assert_eq!(token.balance(&recipient), 500);
+        // Payer should receive only the truly unearned remainder.
+        assert_eq!(token.balance(&payer), 500);
         assert!(client.get_stream(&sid).closed);
     }
 
