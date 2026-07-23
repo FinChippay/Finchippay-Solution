@@ -500,7 +500,7 @@ function TransactionList({
                     )
                   }
                   aria-label={`Copy ${tx.type === "sent" ? "recipient" : "sender"} address`}
-                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs dark:hover:border-stellar-300/60"
                 >
                   {copiedId === tx.id
                     ? t("transactions.copied")

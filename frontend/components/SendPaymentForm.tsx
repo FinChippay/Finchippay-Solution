@@ -771,7 +771,7 @@ function SendPaymentForm({
                   "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
                   selectedAsset === a
                     ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                    : "text-slate-400 border-white/10 hover:border-white/20",
+                    : "text-slate-400 border-white/10 hover:border-white/20 dark:text-slate-400 dark:border-slate-700/50 dark:hover:border-stellar-500/40",
                   a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
                 )}
               >

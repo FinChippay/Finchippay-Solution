@@ -358,6 +358,7 @@ export default function MultiSigFlow({
             <Row label="To" value={destination} mono />
             <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
             {memo && <Row label="Memo" value={memo} />}
+            {memo && <Row label="Memo" value={memo} />}
             <Row label="Threshold" value={`${threshold} signatures`} />
           </div>
           <p className="text-slate-400 text-sm">
