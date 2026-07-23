@@ -40,6 +40,7 @@ const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
+const sep12Routes = require("./routes/sep12");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -50,7 +51,7 @@ const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
-const { closeAllStreams } = require("./services/webhookService");
+const traceContextMiddleware = require("./middleware/tracing");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -162,6 +163,7 @@ app.use(trackHttpMetrics);
 // Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
 // Mounted before pino-http so the requestId appears in every log line.
 app.use(correlationMiddleware);
+app.use(traceContextMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 // req.id is set by correlationMiddleware above.
@@ -279,8 +281,9 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
-app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
+app.use("/api/sep12", sep12Routes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -385,6 +388,7 @@ if (require.main === module) {
   initRedis().catch((err) => {
     logger.error({ err }, "Redis initialisation failed");
   });
+  require("./services/scheduledTransactionService").loadActiveSchedules();
   const server = app.listen(PORT, () => {
     console.log(`
   ✨ Finchippay Solution API

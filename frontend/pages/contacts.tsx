@@ -243,10 +243,10 @@ export default function Contacts() {
           <meta name="description" content="Manage your Stellar address book and federation contacts on Finchippay." />
         </Head>
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">
             {`Contacts`}
           </h1>
-          <p className="text-slate-400">{`Connect your wallet to manage contacts`}</p>
+          <p className="text-slate-600 dark:text-slate-400">{`Connect your wallet to manage contacts`}</p>
         </div>
         <WalletConnect />
       </div>
@@ -261,15 +261,15 @@ export default function Contacts() {
       </Head>
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-white mb-1">
+        <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-1">
           {`Contacts`}
         </h1>
-        <p className="text-slate-400">{`Save and manage Stellar addresses`}</p>
+        <p className="text-slate-600 dark:text-slate-400">{`Save and manage Stellar addresses`}</p>
         {/* Import / Export toolbar */}
         <div className="flex flex-wrap gap-2 mt-4">
           <button
             onClick={() => setShowImportModal(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-stellar-300 bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-stellar-700 dark:text-stellar-300 bg-stellar-50 dark:bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
             aria-label="Import contacts from CSV"
           >
             <ImportIcon className="w-4 h-4" />
@@ -278,7 +278,7 @@ export default function Contacts() {
           <button
             onClick={handleExportCSV}
             disabled={contacts.length === 0}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 bg-slate-700/50 border border-slate-600/50 hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Export contacts as CSV"
           >
             <ExportIcon className="w-4 h-4" />
@@ -287,7 +287,7 @@ export default function Contacts() {
           <button
             onClick={handleExportVCard}
             disabled={contacts.length === 0}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 bg-slate-700/50 border border-slate-600/50 hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Export contacts as vCard"
           >
             <CardIcon className="w-4 h-4" />
@@ -310,8 +310,8 @@ export default function Contacts() {
       <div className="space-y-8">
         {/* Add/Edit Contact Form */}
         <div className="card">
-          <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <PlusIcon className="w-5 h-5 text-stellar-400" />
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <PlusIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             {editingId ? "Edit Contact" : "Add Contact"}
           </h2>
 
@@ -363,8 +363,8 @@ export default function Contacts() {
 
         {/* Federation Lookup */}
         <div className="card">
-          <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <SearchIcon className="w-5 h-5 text-stellar-400" />
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <SearchIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             {`Federation Lookup`}
           </h2>
 
@@ -381,16 +381,16 @@ export default function Contacts() {
                   if (e.key === "Enter") handleFederationLookup();
                 }}
               />
-              <p className="mt-1 text-xs text-slate-400">{`Resolve Stellar Federation addresses to public keys`}</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{`Resolve Stellar Federation addresses to public keys`}</p>
             </div>
 
             {federationResult && (
               <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                <p className="text-sm text-slate-300 mb-2">
+                <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">
                   {`Resolved address:`}
                 </p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-slate-950/50 p-2 rounded font-mono text-slate-300 break-all">
+                  <code className="flex-1 text-xs bg-slate-950/50 p-2 rounded font-mono text-slate-200 break-all">
                     {federationResult.address}
                   </code>
                   <button
@@ -426,30 +426,30 @@ export default function Contacts() {
 
         {/* Contacts List */}
         <div>
-          <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <ContactsIcon className="w-5 h-5 text-stellar-400" />
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <ContactsIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
             {`Saved Contacts`}
-            <span className="ml-auto text-sm font-normal text-slate-400">
+            <span className="ml-auto text-sm font-normal text-slate-600 dark:text-slate-400">
               {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
             </span>
           </h2>
 
           {contacts.length === 0 ? (
             <div className="card text-center py-12">
-              <ContactsIcon className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-              <p className="text-slate-400">{`No contacts yet. Add one to get started.`}</p>
+              <ContactsIcon className="w-12 h-12 mx-auto mb-3 text-slate-500 dark:text-slate-600" />
+              <p className="text-slate-600 dark:text-slate-400">{`No contacts yet. Add one to get started.`}</p>
             </div>
           ) : (
             <div className="space-y-3">
               {contacts.map((contact) => (
                 <div
                   key={contact.id}
-                  className="card-hover p-4 rounded-xl border border-slate-700/50 bg-slate-800/30 transition-all"
+                  className="card-hover p-4 rounded-xl border border-slate-200 dark:border-slate-700/50 bg-white dark:bg-slate-800/30 transition-all"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white">{contact.nickname}</h3>
-                      <p className="text-xs text-slate-400 font-mono mt-1 break-all">
+                      <h3 className="font-semibold text-slate-900 dark:text-white">{contact.nickname}</h3>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 font-mono mt-1 break-all">
                         {contact.address}
                       </p>
                     </div>
@@ -459,7 +459,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleCopyAddress(contact.address)}
                         title="Copy address"
-                        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                        className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50 transition-colors"
                       >
                         <CopyIcon className="w-4 h-4" />
                       </button>
@@ -468,7 +468,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleSendXLM(contact)}
                         title="Send XLM to this contact"
-                        className="px-3 py-2 rounded-lg text-sm font-medium text-stellar-300 bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
+                        className="px-3 py-2 rounded-lg text-sm font-medium text-stellar-700 dark:text-stellar-300 bg-stellar-50 dark:bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
                       >
                         {`Send`}
                       </button>
@@ -477,7 +477,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleEditContact(contact)}
                         title="Edit contact"
-                        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                        className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50 transition-colors"
                       >
                         <EditIcon className="w-4 h-4" />
                       </button>
@@ -486,7 +486,7 @@ export default function Contacts() {
                       <button
                         onClick={() => handleDeleteContact(contact.id)}
                         title="Delete contact"
-                        className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="p-2 rounded-lg text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         <TrashIcon className="w-4 h-4" />
                       </button>
@@ -501,7 +501,7 @@ export default function Contacts() {
         {/* Back to Dashboard */}
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
+          className="inline-flex items-center gap-2 text-sm text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 transition-colors"
         >
           <ArrowLeftIcon className="w-4 h-4" />
           {`Back to dashboard`}

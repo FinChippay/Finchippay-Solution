@@ -1551,10 +1551,14 @@ impl FinchippayContract {
     // ─── Batch send ───────────────────────────────────────────────────────────
 
     /// Fan-out a single token transfer from `from` to multiple `recipients` in
-    /// one transaction. `recipients[i]` receives `amounts[i]`.
+    /// one transaction. `recipients[i]` receives `amounts[i]` with optional `memos[i]`.
+    ///
+    /// # Errors
+    /// - Returns `ContractError::LengthMismatch` if `recipients.len() != amounts.len()` or `recipients.len() != memos.len()`.
+    /// - Returns `ContractError::BatchTooLarge` if `recipients.len() > MAX_BATCH_SIZE`.
     ///
     /// # Panics
-    /// - If `recipients.len() != amounts.len()`.
+    /// - If `recipients.len() == 0`.
     /// - If any amount is not positive.
     pub fn batch_send(
         env: Env,
@@ -1562,7 +1566,8 @@ impl FinchippayContract {
         from: Address,
         recipients: Vec<Address>,
         amounts: Vec<i128>,
-    ) {
+        memos: Vec<Symbol>,
+    ) -> Result<(), ContractError> {
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
@@ -1570,10 +1575,10 @@ impl FinchippayContract {
             panic!("batch must have at least one recipient");
         }
         if recipients.len() > MAX_BATCH_SIZE {
-            panic!("batch size exceeds maximum");
+            return Err(ContractError::BatchTooLarge);
         }
-        if recipients.len() != amounts.len() {
-            panic!("arrays must have equal length");
+        if recipients.len() != amounts.len() || recipients.len() != memos.len() {
+            return Err(ContractError::LengthMismatch);
         }
         // Pre-validate: verify all amounts are positive before initiating
         // any transfers, ensuring atomicity.
@@ -1617,12 +1622,15 @@ impl FinchippayContract {
                 to: to.clone(),
                 amount,
                 ledger: env.ledger().sequence(),
-                memo: Symbol::new(&env, "batch"),
+                memo: memo.clone(),
             };
             env.storage()
                 .persistent()
                 .set(&DataKey::TipRecord(to.clone(), count), &record);
             bump(&env, &DataKey::TipRecord(to.clone(), count));
+
+            env.events()
+                .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), (amount, memo));
         }
 
         env.events().publish(
@@ -2056,32 +2064,71 @@ mod tests {
         let mut amounts = soroban_sdk::Vec::new(&env);
         amounts.push_back(300i128);
         amounts.push_back(700i128);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        let memo1 = Symbol::new(&env, "inv_101");
+        let memo2 = Symbol::new(&env, "");
+        memos.push_back(memo1.clone());
+        memos.push_back(memo2.clone());
 
-        client.batch_send(&token_id, &from, &recipients, &amounts);
+        let res = client.batch_send(&token_id, &from, &recipients, &amounts, &memos);
+        assert_eq!(res, ());
         assert_eq!(token.balance(&r1), 300);
         assert_eq!(token.balance(&r2), 700);
         assert_eq!(client.get_tip_total(&r1), 300);
         assert_eq!(client.get_tip_total(&r2), 700);
+
+        let rec1 = client.get_tip_record(&r1, &0);
+        assert_eq!(rec1.memo, memo1);
+
+        let rec2 = client.get_tip_record(&r2, &0);
+        assert_eq!(rec2.memo, memo2);
     }
 
     #[test]
-    #[should_panic(expected = "arrays must have equal length")]
-    fn test_batch_send_mismatched_lengths_panics() {
+    fn test_batch_send_mismatched_lengths_returns_error() {
         let env = Env::default();
         let (_, client) = deploy(&env);
         let admin = client.get_admin();
         let from = Address::generate(&env);
         let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
         env.mock_all_auths();
         let token_id = create_token(&env, &admin, &from, 500);
 
         let mut recipients = soroban_sdk::Vec::new(&env);
         recipients.push_back(r1.clone());
-        recipients.push_back(r1.clone());
+        recipients.push_back(r2.clone());
         let mut amounts = soroban_sdk::Vec::new(&env);
         amounts.push_back(100i128);
-        // Only 1 amount for 2 recipients — should panic.
-        client.batch_send(&token_id, &from, &recipients, &amounts);
+        amounts.push_back(200i128);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        memos.push_back(Symbol::new(&env, "memo1"));
+        // Only 1 memo for 2 recipients — should return LengthMismatch error.
+
+        let res = client.try_batch_send(&token_id, &from, &recipients, &amounts, &memos);
+        assert_eq!(res.unwrap_err().unwrap(), ContractError::LengthMismatch);
+    }
+
+    #[test]
+    fn test_batch_send_oversized_batch_returns_error() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10000);
+
+        let mut recipients = soroban_sdk::Vec::new(&env);
+        let mut amounts = soroban_sdk::Vec::new(&env);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        for _ in 0..51 {
+            recipients.push_back(Address::generate(&env));
+            amounts.push_back(1i128);
+            memos.push_back(Symbol::new(&env, "test"));
+        }
+
+        let res = client.try_batch_send(&token_id, &from, &recipients, &amounts, &memos);
+        assert_eq!(res.unwrap_err().unwrap(), ContractError::BatchTooLarge);
     }
 
     // ── Self-transfer prevention ───────────────────────────────────────────

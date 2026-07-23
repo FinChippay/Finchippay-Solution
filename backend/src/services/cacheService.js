@@ -25,6 +25,7 @@
 "use strict";
 
 const logger = require("../utils/logger");
+const tracer = require("../config/tracing").getTracer("cache-service");
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -194,34 +195,51 @@ function patternToRegex(pattern) {
  * @returns {Promise<object|null>}
  */
 async function get(key) {
-  // 1. Try Redis
-  if (redis && redisReady) {
-    try {
-      const raw = await redis.get(key);
-      if (raw) {
-        // Extend TTL on read (refresh)
-        const ttl = await redis.ttl(key);
-        if (ttl > 0 && ttl < 10) {
-          await redis.expire(key, DEFAULT_TTL_SECONDS);
+  const span = tracer.startSpan("db.query.get");
+  span.setAttributes({
+    "db.system": "redis",
+    "db.operation": "get",
+    "db.statement": `GET ${key}`,
+  });
+
+  try {
+    // 1. Try Redis
+    if (redis && redisReady) {
+      try {
+        const raw = await redis.get(key);
+        if (raw) {
+          span.setAttribute("db.cache.hit", true);
+          // Extend TTL on read (refresh)
+          const ttl = await redis.ttl(key);
+          if (ttl > 0 && ttl < 10) {
+            await redis.expire(key, DEFAULT_TTL_SECONDS);
+          }
+          return JSON.parse(raw);
         }
-        return JSON.parse(raw);
+      } catch (err) {
+        logger.warn({ err, key }, "Redis get failed — falling back to LRU");
       }
-    } catch (err) {
-      logger.warn({ err, key }, "Redis get failed — falling back to LRU");
     }
-  }
 
-  // 2. Fall back to LRU
-  const lruVal = lruGet(key);
-  if (lruVal) {
-    try {
-      return JSON.parse(lruVal);
-    } catch {
-      return null;
+    span.setAttribute("db.cache.hit", false);
+    // 2. Fall back to LRU
+    const lruVal = lruGet(key);
+    if (lruVal) {
+      try {
+        return JSON.parse(lruVal);
+      } catch {
+        return null;
+      }
     }
-  }
 
-  return null;
+    return null;
+  } catch (err) {
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+    throw err;
+  } finally {
+    span.end();
+  }
 }
 
 /**
@@ -234,19 +252,34 @@ async function get(key) {
  * @returns {Promise<void>}
  */
 async function set(key, value, ttlSeconds = DEFAULT_TTL_SECONDS) {
-  const serialized = JSON.stringify(value);
+  const span = tracer.startSpan("db.query.set");
+  span.setAttributes({
+    "db.system": "redis",
+    "db.operation": "set",
+    "db.statement": `SET ${key} EX ${ttlSeconds}`,
+  });
 
-  // 1. Write to Redis
-  if (redis && redisReady) {
-    try {
-      await redis.set(key, serialized, "EX", ttlSeconds);
-    } catch (err) {
-      logger.warn({ err, key }, "Redis set failed — value stored in LRU only");
+  try {
+    const serialized = JSON.stringify(value);
+
+    // 1. Write to Redis
+    if (redis && redisReady) {
+      try {
+        await redis.set(key, serialized, "EX", ttlSeconds);
+      } catch (err) {
+        logger.warn({ err, key }, "Redis set failed — value stored in LRU only");
+      }
     }
-  }
 
-  // 2. Always write to LRU
-  lruSet(key, serialized, ttlSeconds);
+    // 2. Always write to LRU
+    lruSet(key, serialized, ttlSeconds);
+  } catch (err) {
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+    throw err;
+  } finally {
+    span.end();
+  }
 }
 
 /**
@@ -256,14 +289,29 @@ async function set(key, value, ttlSeconds = DEFAULT_TTL_SECONDS) {
  * @returns {Promise<void>}
  */
 async function del(key) {
-  if (redis && redisReady) {
-    try {
-      await redis.del(key);
-    } catch (err) {
-      logger.warn({ err, key }, "Redis del failed");
+  const span = tracer.startSpan("db.query.del");
+  span.setAttributes({
+    "db.system": "redis",
+    "db.operation": "del",
+    "db.statement": `DEL ${key}`,
+  });
+
+  try {
+    if (redis && redisReady) {
+      try {
+        await redis.del(key);
+      } catch (err) {
+        logger.warn({ err, key }, "Redis del failed");
+      }
     }
+    lruDel(key);
+  } catch (err) {
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+    throw err;
+  } finally {
+    span.end();
   }
-  lruDel(key);
 }
 
 /**
@@ -277,38 +325,54 @@ async function del(key) {
  * @returns {Promise<number>} Number of keys deleted
  */
 async function delPattern(pattern) {
-  let count = 0;
+  const span = tracer.startSpan("db.query.delPattern");
+  span.setAttributes({
+    "db.system": "redis",
+    "db.operation": "delPattern",
+    "db.statement": `DELPATTERN ${pattern}`,
+  });
 
-  // 1. Redis: SCAN + pipeline DEL
-  if (redis && redisReady) {
-    try {
-      let cursor = "0";
-      do {
-        const [nextCursor, keys] = await redis.scan(
-          cursor,
-          "MATCH",
-          pattern,
-          "COUNT",
-          100,
-        );
-        cursor = nextCursor;
-        if (keys && keys.length > 0) {
-          await redis.del(...keys);
-          count += keys.length;
-        }
-      } while (cursor !== "0");
-    } catch (err) {
-      logger.warn({ err, pattern }, "Redis delPattern failed");
+  try {
+    let count = 0;
+
+    // 1. Redis: SCAN + pipeline DEL
+    if (redis && redisReady) {
+      try {
+        let cursor = "0";
+        do {
+          const [nextCursor, keys] = await redis.scan(
+            cursor,
+            "MATCH",
+            pattern,
+            "COUNT",
+            100,
+          );
+          cursor = nextCursor;
+          if (keys && keys.length > 0) {
+            await redis.del(...keys);
+            count += keys.length;
+          }
+        } while (cursor !== "0");
+      } catch (err) {
+        logger.warn({ err, pattern }, "Redis delPattern failed");
+      }
     }
-  }
 
-  // 2. LRU cleanup
-  count += lruDelPattern(pattern);
+    // 2. LRU cleanup
+    count += lruDelPattern(pattern);
 
-  if (count > 0) {
-    logger.info({ pattern, count }, "Cache entries invalidated");
+    if (count > 0) {
+      logger.info({ pattern, count }, "Cache entries invalidated");
+    }
+    span.setAttribute("db.cache.deleted_keys_count", count);
+    return count;
+  } catch (err) {
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+    throw err;
+  } finally {
+    span.end();
   }
-  return count;
 }
 
 /**

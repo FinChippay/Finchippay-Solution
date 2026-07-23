@@ -59,8 +59,15 @@ function verifyJWT(req, res, next) {
     req.user = decoded; // { publicKey: "G...", iat, exp }
     next();
   } catch (err) {
-    const errorCode =
-      err.name === "TokenExpiredError" ? "AUTH_EXPIRED_TOKEN" : "AUTH_INVALID_TOKEN";
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        error: {
+          code: "TOKEN_EXPIRED",
+          message: "Token has expired. Please refresh or re-authenticate.",
+        },
+      });
+    }
+    const errorCode = "AUTH_INVALID_TOKEN";
     return res
       .status(ERROR_CODES[errorCode].httpStatus)
       .json(formatErrorResponse(errorCode, { reason: err.message }));
