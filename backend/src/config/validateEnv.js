@@ -131,6 +131,13 @@ function collectErrors(env) {
     }
   }
 
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PUBLIC_KEY.trim()) {
+    errors.push('VAPID_PUBLIC_KEY is required for push notifications.');
+  }
+  if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PRIVATE_KEY.trim()) {
+    errors.push('VAPID_PRIVATE_KEY is required for push notifications.');
+  }
+
   return errors;
 }
 

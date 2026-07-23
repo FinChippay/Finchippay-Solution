@@ -19,6 +19,7 @@ import {
 } from "@/lib/turrets";
 import { shortenAddress } from "@/lib/stellar";
 import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
+import { subscribeToPush, unsubscribePush } from "@/lib/notifications";
 
 interface SettingsPageProps {
   publicKey: string | null;
@@ -68,6 +69,73 @@ export default function SettingsPage({
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [usernameSuccess, setUsernameSuccess] = useState<string | null>(null);
   const [registeredUsername, setRegisteredUsername] = useState<string | null>(null);
+
+  // Push Notifications state
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushStatus, setPushStatus] = useState("Checking...");
+  const [pushPrefs, setPushPrefs] = useState({
+    payment: true,
+    scheduled: true,
+    multisig: true,
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "granted") {
+        const optIn = localStorage.getItem("notificationOptIn") === "true";
+        setPushEnabled(optIn);
+        setPushStatus(optIn ? "Subscribed" : "Unsubscribed");
+      } else if (Notification.permission === "denied") {
+        setPushStatus("Blocked by browser");
+      } else {
+        setPushStatus("Not subscribed");
+      }
+
+      const savedPrefs = localStorage.getItem("pushPrefs");
+      if (savedPrefs) {
+        try {
+          setPushPrefs(JSON.parse(savedPrefs));
+        } catch (e) {}
+      }
+    } else {
+      setPushStatus("Not supported");
+    }
+  }, []);
+
+  const handleTogglePush = async () => {
+    if (!publicKey) {
+      alert("Please connect your wallet first.");
+      return;
+    }
+
+    if (pushEnabled) {
+      setPushStatus("Unsubscribing...");
+      const success = await unsubscribePush(publicKey);
+      if (success) {
+        localStorage.setItem("notificationOptIn", "false");
+        setPushEnabled(false);
+        setPushStatus("Unsubscribed");
+      } else {
+        setPushStatus("Failed to unsubscribe");
+      }
+    } else {
+      setPushStatus("Subscribing...");
+      const success = await subscribeToPush(publicKey);
+      if (success) {
+        localStorage.setItem("notificationOptIn", "true");
+        setPushEnabled(true);
+        setPushStatus("Subscribed");
+      } else {
+        setPushStatus("Failed to subscribe (check browser permissions)");
+      }
+    }
+  };
+
+  const handleTogglePref = (key: keyof typeof pushPrefs) => {
+    const newPrefs = { ...pushPrefs, [key]: !pushPrefs[key] };
+    setPushPrefs(newPrefs);
+    localStorage.setItem("pushPrefs", JSON.stringify(newPrefs));
+  };
 
   // Fetch current username on mount
   useEffect(() => {
@@ -698,6 +766,59 @@ export default function SettingsPage({
                 </div>
               </div>
             )}
+
+            {/* Push Notifications Section */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                Push Notifications
+              </h2>
+              <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">
+                Get notified about important events on your Finchippay account. Status: <span className="font-semibold text-stellar-500">{pushStatus}</span>
+              </p>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-900 dark:text-white">Enable push notifications</span>
+                  <button
+                    onClick={handleTogglePush}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${pushEnabled ? 'bg-stellar-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pushEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {pushEnabled && (
+                  <div className="pl-4 space-y-3 border-l-2 border-slate-200 dark:border-slate-700 mt-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-700 dark:text-slate-300">Payment received</span>
+                      <button
+                        onClick={() => handleTogglePref('payment')}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${pushPrefs.payment ? 'bg-stellar-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                      >
+                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${pushPrefs.payment ? 'translate-x-5' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-700 dark:text-slate-300">Scheduled payment due</span>
+                      <button
+                        onClick={() => handleTogglePref('scheduled')}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${pushPrefs.scheduled ? 'bg-stellar-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                      >
+                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${pushPrefs.scheduled ? 'translate-x-5' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-700 dark:text-slate-300">Multi-sig approval needed</span>
+                      <button
+                        onClick={() => handleTogglePref('multisig')}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${pushPrefs.multisig ? 'bg-stellar-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                      >
+                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${pushPrefs.multisig ? 'translate-x-5' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </main>
       </div>
