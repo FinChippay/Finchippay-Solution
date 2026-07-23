@@ -11,10 +11,16 @@
     "load-test": "node scripts/load-test.js",
     "lint": "npm run lint --workspace=frontend",
     "type-check": "npm run type-check --workspace=sdk --workspace=frontend",
-    "test": "npm run test --workspace=frontend"
+    "test": "npm run test --workspace=frontend",
+    "release": "standard-version && git push --follow-tags",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.0.0"
+    "openapi-typescript": "^7.0.0",
+    "@commitlint/cli": "^19.3.0",
+    "@commitlint/config-conventional": "^19.2.2",
+    "husky": "^9.0.11",
+    "standard-version": "^9.5.0"
   },
   "dependencies": {
     "autocannon": "^8.0.0"
