@@ -2,6 +2,30 @@
 
 const rateLimit = require("express-rate-limit");
 const { formatErrorResponse } = require("../../../shared/errorCodes");
+const metrics = require("../services/metricsService");
+
+/**
+ * Build the `handler` a limiter uses when a request is over the limit.
+ *
+ * express-rate-limit only calls this on rejection, so it is the exact point to
+ * count from. `req.route` is undefined here — the limiter runs before the route
+ * matches — so the label uses the mounted path, which keeps cardinality bounded
+ * by the number of routes rather than by the number of distinct URLs.
+ *
+ * @param {string} name - Limiter name used as the `limiter` label.
+ * @param {string} errorCode - Catalogue code to return.
+ */
+function limitHandler(name, errorCode) {
+  return (req, res) => {
+    metrics.rateLimitHitsTotal.inc({
+      limiter: name,
+      route: req.baseUrl || req.path || "unknown",
+    });
+    res
+      .status(429)
+      .json(formatErrorResponse(errorCode));
+  };
+}
 
 let store;
 
@@ -31,6 +55,7 @@ const strictLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+  handler: limitHandler("strict", "RATE_LIMITED_SENSITIVE"),
   ...(store ? { store } : {}),
 });
 
@@ -40,7 +65,8 @@ const sensitiveLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+  handler: limitHandler("sensitive", "RATE_LIMITED_SENSITIVE"),
   ...(store ? { store } : {}),
 });
 
-module.exports = { strictLimiter, sensitiveLimiter };
+module.exports = { strictLimiter, sensitiveLimiter, limitHandler };

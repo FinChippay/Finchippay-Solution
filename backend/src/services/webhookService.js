@@ -145,6 +145,9 @@ async function deliverWebhook(webhook, payload) {
   });
 
   const signature = signPayload(webhook.secret, payload);
+  // Timed around the outbound request only, so receiver latency is not mixed
+  // with our own signing and serialisation cost (#272).
+  const endTimer = metrics.webhookDeliveryDurationSeconds.startTimer();
   try {
     const headers = {
       "Content-Type": "application/json",
@@ -163,6 +166,13 @@ async function deliverWebhook(webhook, payload) {
 
     span.setAttribute("http.status_code", res.status);
 
+    const outcome = res.ok ? "success" : "failed";
+    endTimer({ outcome });
+    metrics.webhookDeliveriesTotal.inc({
+      outcome,
+      status_code: String(res.status),
+    });
+
     if (!res.ok) {
       logger.error({
         type: "webhook_delivery_failed",
@@ -176,6 +186,11 @@ async function deliverWebhook(webhook, payload) {
       span.setStatus({ code: 1 });
     }
   } catch (err) {
+    // No response was received at all — DNS, timeout, connection refused.
+    // Counted separately from `failed` because it points at a different fault.
+    endTimer({ outcome: "error" });
+    metrics.webhookDeliveriesTotal.inc({ outcome: "error", status_code: "none" });
+
     logger.error({
       type: "webhook_delivery_error",
       id: webhook.id,

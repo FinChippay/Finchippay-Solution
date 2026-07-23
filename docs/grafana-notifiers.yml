@@ -1,0 +1,145 @@
+# docs/grafana-notifiers.yml
+# Grafana unified-alerting notification channels for Finchippay Solution (#272).
+#
+# Mounted into the Grafana container at
+# /etc/grafana/provisioning/alerting/notifiers.yml, alongside the datasource
+# provisioning in grafana-datasources.yml:
+#
+#   volumes:
+#     - ./docs/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+#     - ./docs/grafana-notifiers.yml:/etc/grafana/provisioning/alerting/notifiers.yml:ro
+#
+# ─── Required environment variables ──────────────────────────────────────────
+#
+#   ALERT_EMAIL_TO         Comma-separated recipients, e.g. "ops@example.com"
+#   SLACK_WEBHOOK_URL      Slack incoming webhook, e.g. "https://hooks.slack.com/services/T.../B.../..."
+#   SLACK_ALERT_CHANNEL    Channel to post to, e.g. "#finchippay-alerts"
+#
+# Secrets are read from the environment rather than committed. Grafana expands
+# $VAR in provisioning files at load time, so no secret ever lands in git.
+#
+# SMTP itself is configured in grafana.ini or via GF_SMTP_* environment
+# variables; provisioning a contact point does not enable the mail transport:
+#
+#   GF_SMTP_ENABLED=true
+#   GF_SMTP_HOST=smtp.example.com:587
+#   GF_SMTP_USER=...
+#   GF_SMTP_PASSWORD=...
+#   GF_SMTP_FROM_ADDRESS=finchippay-alerts@example.com
+#
+# ─── Verifying ───────────────────────────────────────────────────────────────
+# In Grafana: Alerting > Contact points > (select one) > Test. Both channels
+# should receive a message before you rely on them.
+
+apiVersion: 1
+
+# ─── Contact points ───────────────────────────────────────────────────────────
+
+contactPoints:
+  - orgId: 1
+    name: finchippay-email
+    receivers:
+      - uid: finchippay-email-default
+        type: email
+        settings:
+          addresses: "${ALERT_EMAIL_TO}"
+          singleEmail: false
+          subject: "[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} — Finchippay"
+          message: |
+            {{ len .Alerts.Firing }} firing, {{ len .Alerts.Resolved }} resolved.
+
+            {{ range .Alerts.Firing }}
+            {{ .Annotations.summary }}
+            {{ .Annotations.description }}
+
+            Severity:  {{ .Labels.severity }}
+            Component: {{ .Labels.component }}
+            Runbook:   {{ .Annotations.runbook }}
+            Started:   {{ .StartsAt }}
+            {{ end }}
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: finchippay-slack
+    receivers:
+      - uid: finchippay-slack-default
+        type: slack
+        settings:
+          url: "${SLACK_WEBHOOK_URL}"
+          recipient: "${SLACK_ALERT_CHANNEL}"
+          username: "Finchippay Alerts"
+          title: "[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}"
+          text: |
+            {{ range .Alerts.Firing }}
+            *{{ .Annotations.summary }}*
+            {{ .Annotations.description }}
+            severity `{{ .Labels.severity }}` · component `{{ .Labels.component }}`
+            runbook: {{ .Annotations.runbook }}
+            {{ end }}
+        disableResolveMessage: false
+
+  # Critical alerts go to both channels: Slack for the fastest eyes, email so
+  # there is a record that survives channel history retention.
+  - orgId: 1
+    name: finchippay-critical
+    receivers:
+      - uid: finchippay-critical-slack
+        type: slack
+        settings:
+          url: "${SLACK_WEBHOOK_URL}"
+          recipient: "${SLACK_ALERT_CHANNEL}"
+          username: "Finchippay Alerts"
+          title: "[CRITICAL] {{ .CommonLabels.alertname }}"
+          text: |
+            {{ range .Alerts.Firing }}
+            *{{ .Annotations.summary }}*
+            {{ .Annotations.description }}
+            runbook: {{ .Annotations.runbook }}
+            {{ end }}
+        disableResolveMessage: false
+      - uid: finchippay-critical-email
+        type: email
+        settings:
+          addresses: "${ALERT_EMAIL_TO}"
+          singleEmail: false
+          subject: "[CRITICAL] {{ .CommonLabels.alertname }} — Finchippay"
+        disableResolveMessage: false
+
+# ─── Routing ──────────────────────────────────────────────────────────────────
+# Warnings go to Slack only; criticals go to both. Grouping by alertname and
+# component means a single incident that trips several rules arrives as one
+# notification thread rather than as a burst.
+
+policies:
+  - orgId: 1
+    receiver: finchippay-slack
+    group_by:
+      - alertname
+      - component
+    group_wait: 30s
+    group_interval: 5m
+    # Long enough that an unresolved alert does not become background noise,
+    # short enough that a still-broken system is not forgotten.
+    repeat_interval: 4h
+    routes:
+      - receiver: finchippay-critical
+        object_matchers:
+          - ["severity", "=", "critical"]
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+
+# ─── Mute timings ─────────────────────────────────────────────────────────────
+# Declared but not attached to any route. Attach `mute_time_intervals` on a
+# route only for alerts that genuinely tolerate a delayed response — never for
+# BackendDown or WebhookDeliveryFailure, which lose money while muted.
+
+muteTimes:
+  - orgId: 1
+    name: outside-business-hours
+    time_intervals:
+      - times:
+          - start_time: "00:00"
+            end_time: "07:00"
+        weekdays: ["monday:friday"]
+        location: "UTC"

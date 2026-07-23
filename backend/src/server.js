@@ -25,6 +25,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
+const { limitHandler } = require("./middleware/rateLimit");
 const Sentry = require("@sentry/node");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
@@ -269,6 +270,8 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
+  // Counts rejections into rate_limit_hits_total{limiter="global"} (#272).
+  handler: limitHandler("global", "RATE_LIMITED_GLOBAL"),
 });
 app.use(limiter);
 

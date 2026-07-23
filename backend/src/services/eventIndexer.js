@@ -27,6 +27,7 @@
 
 const logger = require("../utils/logger");
 const { getRequestIdHeader } = require("../utils/correlationId");
+const metrics = require("./metricsService");
 require("dotenv").config();
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -397,6 +398,13 @@ async function pollOnce() {
       return;
     }
 
+    // Backlog signal: how far behind the network we are right now (#272).
+    // Recorded before the early return so a caught-up indexer reports 0 rather
+    // than holding its last non-zero value.
+    metrics.contractEventIndexerLagLedgers.set(
+      lastProcessedLedger > 0 ? Math.max(0, latestLedger - lastProcessedLedger) : 0,
+    );
+
     const startLedger = lastProcessedLedger > 0 ? lastProcessedLedger + 1 : 1;
     if (startLedger > latestLedger) {
       // No new ledgers to process
@@ -414,6 +422,7 @@ async function pollOnce() {
         try {
           parsed.push(parseEvent(raw));
         } catch (parseErr) {
+          metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
           logger.warn(
             { parseErr, eventId: raw.id },
             "Failed to parse individual Soroban event — skipping",
@@ -421,6 +430,7 @@ async function pollOnce() {
         }
       }
       const inserted = await storeEvents(parsed);
+      metrics.contractEventsProcessedTotal.inc({ outcome: "indexed" }, inserted);
       logger.info(
         {
           eventCount: rawEvents.length,
