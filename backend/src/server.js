@@ -41,6 +41,7 @@ const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
 const sep12Routes = require("./routes/sep12");
+const adminRoutes = require("./routes/admin");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -60,6 +61,7 @@ const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
 const traceContextMiddleware = require("./middleware/tracing");
+const { recordAdminError } = require("./services/adminService");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -292,6 +294,7 @@ app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
 app.use("/api/sep12", sep12Routes);
+app.use("/api/admin", adminRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -339,6 +342,7 @@ app.use((err, req, res, next) => {
       { ...errorLogFields(err.errorCode, { details: err.details }), status },
       "Request error",
     );
+    recordAdminError({ code: err.errorCode, message: entry.error.message, correlationId: entry.error.correlationId, details: err.details });
     return res.status(status).json(entry);
   }
 
@@ -349,6 +353,7 @@ app.use((err, req, res, next) => {
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
   });
+  recordAdminError({ code: "SRV_INTERNAL", message, correlationId: fallback.error.correlationId, details: { originalMessage: fallback.error.details.originalMessage } });
   res.status(status).json(fallback);
 });
 
