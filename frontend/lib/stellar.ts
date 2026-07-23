@@ -2280,6 +2280,59 @@ export async function getActiveStreamsForRecipient(
   );
 }
 
+export async function listStreamsByPayer(
+  payerPublicKey: string,
+  offset: number,
+  limit: number,
+): Promise<StreamRecord[]> {
+  if (!CONTRACT_ID) return [];
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const tx = new TransactionBuilder(
+      new Account(payerPublicKey, "0"),
+      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE },
+    )
+      .addOperation(
+        contract.call(
+          "list_streams_by_payer",
+          new Address(payerPublicKey).toScVal(),
+          nativeToScVal(offset, { type: "u32" }),
+          nativeToScVal(limit, { type: "u32" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return [];
+    
+    const decodedArr = scValToNative(sim.result.retval) as Array<{
+      id: number;
+      payer: string;
+      recipient: string;
+      token: string;
+      rate_per_ledger: bigint;
+      deposited: bigint;
+      claimed: bigint;
+      start_ledger: number;
+      closed: boolean;
+    }>;
+    
+    return decodedArr.map(decoded => ({
+      id: Number(decoded.id),
+      payer: decoded.payer,
+      recipient: decoded.recipient,
+      token: decoded.token,
+      ratePerLedger: String(decoded.rate_per_ledger),
+      deposited: String(decoded.deposited),
+      claimed: String(decoded.claimed),
+      startLedger: Number(decoded.start_ledger),
+      closed: Boolean(decoded.closed),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Compute how much of a stream is claimable at `currentLedger`, mirroring the
  * contract's internal `_claimable` calculation. Uses BigInt since deposited/
