@@ -255,7 +255,7 @@ export default function BatchPaymentForm({
                       })
                     }
                     disabled={isProcessing}
-                    className="input-field w-full"
+                    className="input-field w-full border-white/20 focus:border-stellar-500/60 dark:border-slate-700/50"
                     placeholder="0.5"
                   />
                 </label>
