@@ -139,7 +139,9 @@
     "upwardTrend": "▲ Upward trend",
     "downwardTrend": "▼ Downward trend",
     "balanceTrendUpward": "Balance trend: upward",
-    "balanceTrendDownward": "Balance trend: downward"
+    "balanceTrendDownward": "Balance trend: downward",
+    "balanceLive": "Live",
+    "balancePolling": "Updating every 30s"
   },
   "sendPayment": {
     "title": "Send Payment",

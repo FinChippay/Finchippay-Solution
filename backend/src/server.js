@@ -53,6 +53,7 @@ const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
+const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
 const traceContextMiddleware = require("./middleware/tracing");
 
 const app = express();
@@ -353,12 +354,12 @@ async function gracefulShutdown(signal, server, otelSdk) {
     if (err) logger.error({ err }, "Error closing HTTP server");
   });
 
-  // 2. Close Horizon SSE streams and wait for in-flight webhook deliveries
-  //    (bounded at 5s) so hooks don't leak hanging connections on restart.
+  // 2. Close the Horizon payment streams backing the balance SSE endpoint so
+  //    they don't leak hanging connections on restart (#157).
   try {
-    await closeAllStreams();
+    closeAllStreams();
   } catch (err) {
-    logger.error({ err }, "Error closing webhook streams");
+    logger.error({ err }, "Error closing Horizon balance streams");
   }
 
   // 3. Close Redis connection

@@ -16,7 +16,12 @@
 
 const stellarService = require("../services/stellarService");
 const usernameService = require("../services/usernameService");
+const balanceStreamService = require("../services/balanceStreamService");
+const logger = require("../utils/logger");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+
+/** Comment frames keep proxies and load balancers from idling the connection out. */
+const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
  * GET /api/accounts/:publicKey
@@ -130,4 +135,90 @@ async function resolveUsername(req, res, next) {
   }
 }
 
-module.exports = { getAccount, getBalance, registerUsername, resolveUsername };
+/**
+ * GET /api/accounts/:publicKey/stream
+ * Push XLM balance updates to the browser over Server-Sent Events (#157).
+ *
+ * The current balance is sent as soon as the connection opens, then again
+ * every time Horizon reports a payment operation touching the account. A
+ * `: heartbeat` comment frame is written every 30 seconds. Horizon is streamed
+ * once per account regardless of how many clients are connected, and that
+ * stream is closed as soon as the last client disconnects.
+ *
+ * @param {import('express').Request}  req
+ * @param {import('express').Response} res
+ *
+ * @returns {200} `text/event-stream` of `balance` and `stream-error` events.
+ *   Soft failures use the `stream-error` event name rather than `error`, which
+ *   `EventSource` reserves for transport failures.
+ */
+async function streamBalance(req, res) {
+  const { publicKey } = req.params;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    // Tell nginx not to buffer the response (see nginx/nginx.conf).
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+
+  let closed = false;
+
+  const send = (event, data) => {
+    if (closed || res.writableEnded) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  send("open", { publicKey });
+
+  const unsubscribe = balanceStreamService.subscribe(publicKey, {
+    onBalance: (data) => send("balance", data),
+    onError: (data) => send("stream-error", data),
+  });
+
+  const heartbeat = setInterval(() => {
+    if (closed || res.writableEnded) return;
+    res.write(": heartbeat\n\n");
+  }, SSE_HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref?.();
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  };
+
+  req.on("close", cleanup);
+  res.on("close", cleanup);
+  res.on("error", cleanup);
+
+  // Seed the client with the balance as it stands right now, so the dashboard
+  // never has to wait for a payment before it can render a value.
+  try {
+    const xlm = await stellarService.getXLMBalance(publicKey);
+    send("balance", { publicKey, xlm, updatedAt: Date.now() });
+  } catch (err) {
+    logger.error(
+      { err, publicKey: String(publicKey).replace(/[\r\n]/g, "") },
+      "Failed to send initial balance on SSE stream",
+    );
+    send("stream-error", {
+      message:
+        err?.status === 404
+          ? "Account not found. It may not be funded yet."
+          : "Failed to load the current balance.",
+    });
+  }
+}
+
+module.exports = {
+  getAccount,
+  getBalance,
+  registerUsername,
+  resolveUsername,
+  streamBalance,
+};

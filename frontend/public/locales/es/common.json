@@ -139,7 +139,9 @@
     "upwardTrend": "▲ Tendencia al alza",
     "downwardTrend": "▼ Tendencia a la baja",
     "balanceTrendUpward": "Tendencia del saldo: al alza",
-    "balanceTrendDownward": "Tendencia del saldo: a la baja"
+    "balanceTrendDownward": "Tendencia del saldo: a la baja",
+    "balanceLive": "En vivo",
+    "balancePolling": "Actualizando cada 30 s"
   },
   "sendPayment": {
     "title": "Enviar Pago",
