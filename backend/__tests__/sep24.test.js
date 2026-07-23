@@ -106,7 +106,7 @@ describe("SEP-0024 API", () => {
         })
         .expect(400);
 
-      expect(response.body.error).toContain("Invalid Stellar public key");
+      expect(response.body.error.details.reason).toContain("Invalid Stellar public key");
     });
   });
 
@@ -210,10 +210,7 @@ describe("SEP-0024 API", () => {
         .get("/api/sep24/transaction")
         .expect(400);
 
-      expect(response.body).toHaveProperty(
-        "error",
-        "Missing required query parameter: id",
-      );
+      expect(response.body.error.code).toBe("VAL_MISSING_FIELD");
     });
 
     it("should return 404 for non-existent transaction", async () => {
@@ -222,7 +219,7 @@ describe("SEP-0024 API", () => {
         .query({ id: "00000000-0000-0000-0000-000000000000" })
         .expect(404);
 
-      expect(response.body).toHaveProperty("error", "Transaction not found");
+      expect(response.body.error.code).toBe("RES_NOT_FOUND");
     });
 
     it("should return kind=withdrawal for withdrawal transactions", async () => {

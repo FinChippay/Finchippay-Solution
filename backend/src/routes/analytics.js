@@ -21,7 +21,10 @@ router.get(
   "/:publicKey/summary",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
   validate(publicKeyParamSchema, "params"),
+
+ master
   analyticsController.getSummary,
 );
 
@@ -33,7 +36,10 @@ router.get(
   "/:publicKey/top-recipients",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
   validate(publicKeyParamSchema, "params"),
+
+ master
   analyticsController.getTopRecipients,
 );
 
@@ -45,8 +51,19 @@ router.get(
   "/:publicKey/activity",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
   validate(publicKeyParamSchema, "params"),
   analyticsController.getActivityByDay,
+
+  analyticsController.getActivityByDay,
+);
+
+router.get(
+  "/:publicKey/timeseries",
+  strictLimiter,
+  sanitizePublicKey,
+  analyticsController.getTimeseries
+ master
 );
 
 module.exports = router;

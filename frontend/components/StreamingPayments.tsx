@@ -81,7 +81,7 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
 
   if (loading) {
     return (
-      <div className="card mb-8 h-40 animate-pulse bg-white/[0.03] border-white/10" data-testid="streaming-payments-loading" />
+      <div className="card mb-8 h-40 animate-pulse bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10" data-testid="streaming-payments-loading" />
     );
   }
 
@@ -89,7 +89,7 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
     return (
       <section className="card mb-8 border-red-500/20 bg-red-500/5">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-red-300">{error}</p>
+          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
           <button onClick={() => { setLoading(true); fetchStreams(); }} className="btn-secondary text-sm px-4 py-2">
             Retry
           </button>
@@ -100,17 +100,17 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
 
   return (
     <section className="card mb-8" data-testid="streaming-payments" aria-label="Active payment streams">
-      <h2 className="font-display text-lg font-semibold text-white mb-5 flex items-center gap-2">
-        <StreamIcon className="w-5 h-5 text-stellar-400" />
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-5 flex items-center gap-2">
+        <StreamIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
         Active Streams
       </h2>
 
       {streams.length === 0 ? (
         <div className="text-center py-8" data-testid="streaming-payments-empty">
-          <div className="mx-auto w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mb-3">
-            <StreamIcon className="w-6 h-6 text-slate-400" />
+          <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+            <StreamIcon className="w-6 h-6 text-slate-600 dark:text-slate-400" />
           </div>
-          <p className="text-slate-400 text-sm">No active payment streams.</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">No active payment streams.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -156,13 +156,13 @@ function StreamRow({
   const displayClaimableXLM = claimableXLM + animatedDelta;
 
   return (
-    <div ref={elementRef} className="rounded-xl bg-white/[0.02] border border-white/5 p-4" data-testid={`stream-row-${stream.id}`}>
+    <div ref={elementRef} className="rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 p-4" data-testid={`stream-row-${stream.id}`}>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs text-slate-400">From {shortenAddress(stream.payer)}</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400">From {shortenAddress(stream.payer)}</p>
         <p className="text-xs text-slate-500">Stream #{stream.id}</p>
       </div>
 
-      <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden mb-3" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100}>
+      <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-white/10 overflow-hidden mb-3" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100}>
         <div
           className="h-full bg-stellar-400 transition-all duration-500"
           style={{ width: `${progressPct}%` }}
@@ -171,9 +171,9 @@ function StreamRow({
 
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs text-slate-400">Claimable</p>
-          <p className="font-display text-xl font-bold text-white">
-            {displayClaimableXLM.toFixed(4)} <span className="text-stellar-400 text-sm">XLM</span>
+          <p className="text-xs text-slate-600 dark:text-slate-400">Claimable</p>
+          <p className="font-display text-xl font-bold text-slate-900 dark:text-white">
+            {displayClaimableXLM.toFixed(4)} <span className="text-stellar-700 dark:text-stellar-400 text-sm">XLM</span>
           </p>
           <p className="text-xs text-slate-500 mt-0.5">
             {claimedXLM.toFixed(4)} / {depositedXLM.toFixed(4)} XLM claimed

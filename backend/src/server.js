@@ -40,20 +40,35 @@ const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
+const sep12Routes = require("./routes/sep12");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const eventIndexer = require("./services/eventIndexer");
+const { startRetryWorker, closeAllStreams } = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
+ 140-issue-18-input-validation-with-zod-schemas-fix
 const {
   correlationMiddleware,
   getRequestId,
 } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const { zodErrorHandler } = require("./validation/middleware");
+
+const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+// Requiring errorResponse registers getRequestId as the shared registry's
+// correlation-ID provider, so every error body the API returns — including the
+// ones built by direct formatErrorResponse calls — carries the request's
+// X-Request-ID (#270).
+const { errorLogFields } = require("./utils/errorResponse");
+const { initRedis, closeRedis } = require("./services/cacheService");
+const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
+const traceContextMiddleware = require("./middleware/tracing");
+ master
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -165,6 +180,7 @@ app.use(trackHttpMetrics);
 // Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
 // Mounted before pino-http so the requestId appears in every log line.
 app.use(correlationMiddleware);
+app.use(traceContextMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 // req.id is set by correlationMiddleware above.
@@ -278,8 +294,9 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
-app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
+app.use("/api/sep12", sep12Routes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -325,17 +342,29 @@ app.use((err, req, res, next) => {
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
+ 140-issue-18-input-validation-with-zod-schemas-fix
     logger.error(
       { status, errorCode: err.errorCode, details: err.details },
+
+    // The logged correlationId is the same one returned in the response body,
+    // which is what makes a user-quoted ID searchable in the logs.
+    logger.error(
+      { ...errorLogFields(err.errorCode, { details: err.details }), status },
+ master
       "Request error",
     );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
+ 140-issue-18-input-validation-with-zod-schemas-fix
   const message =
     sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ status, message }, "Request error");
+
+  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
+  logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
+master
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
@@ -355,10 +384,18 @@ async function gracefulShutdown(signal, server, otelSdk) {
     if (err) logger.error({ err }, "Error closing HTTP server");
   });
 
-  // 2. Close Redis connection
+  // 2. Close the Horizon payment streams backing the balance SSE endpoint so
+  //    they don't leak hanging connections on restart (#157).
+  try {
+    closeAllStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing Horizon balance streams");
+  }
+
+  // 3. Close Redis connection
   await closeRedis();
 
-  // 3. Flush OTel spans (time-boxed at 5 s)
+  // 4. Flush OTel spans (time-boxed at 5 s)
   if (otelSdk) {
     try {
       await Promise.race([
@@ -384,6 +421,7 @@ if (require.main === module) {
   initRedis().catch((err) => {
     logger.error({ err }, "Redis initialisation failed");
   });
+  require("./services/scheduledTransactionService").loadActiveSchedules();
   const server = app.listen(PORT, () => {
     console.log(`
   ✨ Finchippay Solution API
@@ -393,9 +431,17 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+  eventIndexer.start();
+  startRetryWorker();
 
-  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server, otelSdk));
-  process.on("SIGINT", () => gracefulShutdown("SIGINT", server, otelSdk));
+  process.on("SIGTERM", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGTERM", server, otelSdk);
+  });
+  process.on("SIGINT", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGINT", server, otelSdk);
+  });
 }
 
 module.exports = app;

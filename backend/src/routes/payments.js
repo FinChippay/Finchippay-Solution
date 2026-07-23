@@ -28,8 +28,11 @@ router.get(
   "/:publicKey",
   strictLimiter,
   sanitizePublicKey,
+140-issue-18-input-validation-with-zod-schemas-fix
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
+
+master
   paymentController.getPayments,
 );
 

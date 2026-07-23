@@ -48,12 +48,12 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
       <div className="card max-w-md w-full animate-slide-up">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h3 className="font-display text-xl font-semibold text-white">
+          <h3 className="font-display text-xl font-semibold text-slate-900 dark:text-white">
             Receive Payment QR Code
           </h3>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+            className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5"
           >
             <CloseIcon className="w-5 h-5" />
           </button>
@@ -73,16 +73,16 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
           
           {/* Address Display */}
           <div className="text-center mb-4">
-            <p className="text-xs text-slate-400 mb-1">Your Stellar Address</p>
-            <p className="font-mono text-sm text-slate-300 break-all">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Your Stellar Address</p>
+            <p className="font-mono text-sm text-slate-700 dark:text-slate-300 break-all">
               {publicKey}
             </p>
           </div>
 
           {/* URI Display */}
           <div className="text-center mb-6">
-            <p className="text-xs text-slate-400 mb-1">Payment URI</p>
-            <p className="font-mono text-xs text-slate-400 break-all max-w-full">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Payment URI</p>
+            <p className="font-mono text-xs text-slate-600 dark:text-slate-400 break-all max-w-full">
               {stellarURI}
             </p>
           </div>
@@ -99,15 +99,15 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
           </button>
           <button
             onClick={onClose}
-            className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+            className="flex-1 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-900 dark:text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
           >
             Close
           </button>
         </div>
 
         {/* Instructions */}
-        <div className="mt-4 pt-4 border-t border-white/5">
-          <p className="text-xs text-slate-400 text-center">
+        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/5">
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">
             Scan this QR code with Freighter mobile or any Stellar wallet to receive payments.
           </p>
         </div>
