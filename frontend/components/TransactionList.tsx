@@ -3,7 +3,7 @@
  * Displays paginated payment history for a Stellar account.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useReducer } from "react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
@@ -25,6 +25,7 @@ import {
   PrinterIcon,
 } from "@/components/icons";
 import clsx from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
 
@@ -143,6 +144,63 @@ function TransactionList({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
+  
+  type PendingAction =
+    | { type: "ADD"; payload: PaymentRecord }
+    | { type: "RESOLVE"; payload: { pendingId: string; resolvedTx: PaymentRecord } }
+    | { type: "REMOVE"; payload: string }
+    | { type: "INIT"; payload: PaymentRecord[] };
+
+  const [pendingPayments, dispatchPending] = useReducer((state: PaymentRecord[], action: PendingAction): PaymentRecord[] => {
+    switch (action.type) {
+      case "ADD":
+        return [action.payload, ...state];
+      case "RESOLVE":
+        return state.filter((tx) => tx.id !== action.payload.pendingId);
+      case "REMOVE":
+        return state.filter((tx) => tx.id !== action.payload);
+      case "INIT":
+        return action.payload;
+      default:
+        return state;
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]");
+      dispatchPending({ type: "INIT", payload: stored });
+    } catch {}
+
+    const onPending = (e: any) => dispatchPending({ type: "ADD", payload: e.detail });
+    const onResolved = (e: any) => {
+      dispatchPending({ type: "RESOLVE", payload: e.detail });
+      setPayments((prev) => {
+        if (prev.some(p => p.id === e.detail.resolvedTx.id)) return prev;
+        const next = [e.detail.resolvedTx, ...prev];
+        onPaymentsChange?.(next);
+        return next;
+      });
+    };
+    const onFailed = (e: any) => dispatchPending({ type: "REMOVE", payload: e.detail.pendingId });
+
+    window.addEventListener("finchippay:pending-tx", onPending);
+    window.addEventListener("finchippay:resolved-tx", onResolved);
+    window.addEventListener("finchippay:failed-tx", onFailed);
+
+    return () => {
+      window.removeEventListener("finchippay:pending-tx", onPending);
+      window.removeEventListener("finchippay:resolved-tx", onResolved);
+      window.removeEventListener("finchippay:failed-tx", onFailed);
+    };
+  }, [onPaymentsChange]);
+
+  // Pull-to-refresh state
+  const [pullStartY, setPullStartY] = useState(0);
+  const [pullMoveY, setPullMoveY] = useState(0);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const router = useRouter();
 
   const lastPagingTokenRef = useRef<string | undefined>(undefined);
@@ -289,6 +347,38 @@ function TransactionList({
     upsertAddressBookContact({ nickname, address });
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (window.scrollY === 0) {
+      setPullStartY(e.touches[0].clientY);
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isPulling) return;
+    const y = e.touches[0].clientY;
+    const delta = y - pullStartY;
+    if (delta > 0 && window.scrollY === 0) {
+      setPullMoveY(delta);
+    } else {
+      setPullMoveY(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isPulling && pullMoveY > 60) {
+      setIsRefreshing(true);
+      fetchPayments().finally(() => {
+        setIsRefreshing(false);
+        setPullMoveY(0);
+        setIsPulling(false);
+      });
+    } else {
+      setPullMoveY(0);
+      setIsPulling(false);
+    }
+  };
+
   // Prepend a newly streamed payment if it doesn't already exist
   useEffect(() => {
     if (!incomingPayment) return;
@@ -302,7 +392,7 @@ function TransactionList({
     });
   }, [incomingPayment, onPaymentsChange]);
 
-  const visiblePayments = filterPayments(payments, filters);
+  const visiblePayments = filterPayments([...pendingPayments, ...payments], filters);
   const hasActiveFilters =
     filters.direction !== "all" || filters.minAmount.trim() !== "" || filters.memoSearch.trim() !== "";
 
@@ -358,10 +448,10 @@ function TransactionList({
     return (
       <div ref={containerRef} className="card">
         <div className="text-center py-12">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
-            <HistoryIcon className="w-6 h-6 text-slate-400" />
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-50 dark:bg-white/5 flex items-center justify-center">
+            <HistoryIcon className="w-6 h-6 text-slate-600 dark:text-slate-400" />
           </div>
-          <p className="text-slate-400 text-sm">{t("transactions.noTransactions")}</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">{t("transactions.noTransactions")}</p>
           <p className="text-slate-600 text-xs mt-1">
             {t("transactions.startMessage")}
           </p>
@@ -372,7 +462,7 @@ function TransactionList({
                 href={`https://friendbot.stellar.org/?addr=${publicKey}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-stellar-400 hover:underline"
+                className="text-stellar-700 dark:text-stellar-400 hover:underline"
               >
                 {t("transactions.fundWithFriendbot")}
               </a>
@@ -384,17 +474,31 @@ function TransactionList({
   }
 
   return (
-    <div ref={containerRef} className={compact ? "" : "card"}>
+    <div 
+      ref={containerRef} 
+      className={compact ? "" : "card"}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div 
+        className="overflow-hidden transition-all duration-200 flex justify-center items-center"
+        style={{ height: isRefreshing ? '40px' : isPulling ? `${Math.min(pullMoveY / 2, 40)}px` : '0px' }}
+      >
+        <div className={clsx("text-stellar-500", isRefreshing ? "animate-spin" : "")}>
+          <RefreshIcon className="w-5 h-5" />
+        </div>
+      </div>
           {!compact && (
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-                <HistoryIcon className="w-5 h-5 text-stellar-400" />
+              <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <HistoryIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
                 {t("transactions.title")}
               </h2>
               <div className="flex items-center gap-4">
                 {/* Premium Infinite Scroll Toggle */}
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-400 select-none">
-                  <span className={clsx("transition-colors", infiniteScroll ? "text-stellar-400 font-medium" : "")}>
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600 dark:text-slate-400 select-none">
+                  <span className={clsx("transition-colors", infiniteScroll ? "text-stellar-700 dark:text-stellar-400 font-medium" : "")}>
                     {t("transactions.infiniteScroll")}
                   </span>
                   <div className="relative">
@@ -417,7 +521,7 @@ function TransactionList({
                 </label>
                 <button
                   onClick={() => fetchPayments()}
-                  className="text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1"
+                  className="text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors flex items-center gap-1"
                 >
                   <RefreshIcon className="w-3.5 h-3.5" />
                   {t("transactions.refresh")}
@@ -432,7 +536,7 @@ function TransactionList({
             </div>
           )}
           
-          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-400">
+          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-700 dark:text-stellar-400">
             <span className="w-1 h-1 rounded-full bg-stellar-400 flex-shrink-0" />
             <span>{t("transactions.keyboardNav")}</span>
           </div>
@@ -442,9 +546,15 @@ function TransactionList({
             aria-label={t("transactions.paymentHistory")}
             className="space-y-2"
           >
+        <AnimatePresence initial={false}>
         {visiblePayments.map((tx, index) => (
-          <div
+          <motion.div
             key={tx.id}
+            layout
+            initial={{ opacity: 0, height: 0, scale: 0.95 }}
+            animate={{ opacity: 1, height: "auto", scale: 1 }}
+            exit={{ opacity: 0, height: 0, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
             role="listitem"
             tabIndex={focusedIndex === index ? 0 : -1}
             onKeyDown={(e) => {
@@ -465,7 +575,7 @@ function TransactionList({
             onBlur={() => setFocusedIndex(-1)}
             onFocus={() => setFocusedIndex(index)}
             className={clsx(
-              "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group relative",
+              "flex items-center gap-3 p-3 rounded-xl bg-slate-50 rtl:flex-row-reverse dark:bg-white/3 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group relative",
               focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
             )}
             aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
@@ -480,9 +590,9 @@ function TransactionList({
               )}
             >
               {tx.type === "sent" ? (
-                <ArrowUpIcon className="w-4 h-4 text-red-400" />
+                <ArrowUpIcon className="w-4 h-4 text-red-400 rtl:rotate-180" />
               ) : (
-                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
+                <ArrowDownIcon className="w-4 h-4 text-emerald-400 rtl:rotate-180" />
               )}
             </div>
 
@@ -492,6 +602,12 @@ function TransactionList({
                 <span className="text-sm font-medium text-slate-200 capitalize">
                   {tx.type === "sent" ? t("transactions.sentTo") : t("transactions.receivedFrom")}
                 </span>
+                {tx.isPending && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
+                    <div className="w-2.5 h-2.5 border border-amber-500 border-t-transparent rounded-full animate-spin" />
+                    Pending
+                  </span>
+                )}
                 <button
                   onClick={() =>
                     handleCopy(
@@ -500,7 +616,7 @@ function TransactionList({
                     )
                   }
                   aria-label={`Copy ${tx.type === "sent" ? "recipient" : "sender"} address`}
-                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs dark:hover:border-stellar-300/60"
                 >
                   {copiedId === tx.id
                     ? t("transactions.copied")
@@ -508,7 +624,7 @@ function TransactionList({
                 </button>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-600 dark:text-slate-400">
                   {timeAgo(tx.createdAt)}
                 </span>
                 {tx.memo && (
@@ -523,7 +639,7 @@ function TransactionList({
             <div className="flex items-center gap-2 flex-shrink-0">
               <span
                 className={clsx(
-                  "text-sm font-mono font-medium",
+                  "text-sm font-mono font-medium bidi-ltr",
                   tx.type === "sent" ? "text-red-400" : "text-emerald-400"
                 )}
               >
@@ -533,7 +649,7 @@ function TransactionList({
 
               <button
                 onClick={() => handleSaveContact(tx.type === "sent" ? tx.to : tx.from)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-600 dark:hover:text-stellar-300 font-medium whitespace-nowrap"
                 title={t("transactions.saveAddressToContacts")}
                 aria-label={`Save ${tx.type === "sent" ? "recipient" : "sender"} to contacts`}
               >
@@ -546,7 +662,7 @@ function TransactionList({
                   onClick={() =>
                     router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
                   }
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300 font-medium whitespace-nowrap"
                   title={t("transactions.prefillSendForm")}
                   aria-label={t("transactions.sendAgainToRecipient")}
                 >
@@ -558,21 +674,22 @@ function TransactionList({
                 href={explorerUrl(tx.transactionHash) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-stellar-400"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 dark:text-slate-400 hover:text-stellar-700 dark:hover:text-stellar-400"
                 title={t("transactions.viewOnExpert")}
                 aria-label={t("transactions.viewOnExpert")}
               >
                 <ExternalLinkIcon className="w-3.5 h-3.5" />
               </a>
             </div>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
 
         {/* Infinite Scroll Sentinel / Loading Indicator */}
         {infiniteScroll && (
           <div ref={loadMoreRef} className="flex justify-center mt-4 py-2">
             {loadingMore && (
-              <div className="flex items-center gap-2 text-slate-400">
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                 <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm">{t("transactions.loadingMore")}</span>
               </div>
@@ -605,4 +722,3 @@ function TransactionList({
 }
 
 export default withErrorBoundary(TransactionList, "TransactionList");
-

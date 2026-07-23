@@ -13,7 +13,14 @@
     "cancel": "Cancelar",
     "switchToLight": "Cambiar a modo claro",
     "switchToDark": "Cambiar a modo oscuro",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Cuentas",
+    "addAccount": "Anadir cuenta",
+    "removeAccount": "Eliminar cuenta",
+    "removeLastAccountWarning": "Es tu unica cuenta. Al eliminarla se desconectara tu billetera. Haz clic de nuevo para confirmar.",
+    "switchAccount": "Cambiar de cuenta",
+    "switchAccountShortcut": "Pulsa Ctrl+K (Cmd+K) para cambiar de cuenta",
+    "primary": "Principal"
   },
   "home": {
     "badge": "Construido en Stellar Testnet · Código Abierto",
@@ -139,7 +146,9 @@
     "upwardTrend": "▲ Tendencia al alza",
     "downwardTrend": "▼ Tendencia a la baja",
     "balanceTrendUpward": "Tendencia del saldo: al alza",
-    "balanceTrendDownward": "Tendencia del saldo: a la baja"
+    "balanceTrendDownward": "Tendencia del saldo: a la baja",
+    "balanceLive": "En vivo",
+    "balancePolling": "Actualizando cada 30 s"
   },
   "sendPayment": {
     "title": "Enviar Pago",
@@ -269,6 +278,7 @@
     "yourAddress": "Tu dirección:",
     "registerStellarName": "Registra tu nombre en StellarNames →",
     "languageTitle": "Idioma",
-    "languageDescription": "Selecciona tu idioma preferido para la interfaz de la aplicación."
+    "languageDescription": "Selecciona tu idioma preferido para la interfaz de la aplicación.",
+    "rtlSupportNote": "Compatibilidad RTL: los diseños en árabe y hebreo se muestran en espejo."
   }
 }
