@@ -9,7 +9,6 @@ import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 import {
-  shortenAddress,
   getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
@@ -20,13 +19,13 @@ import {
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
 import ThemeToggle from "@/components/ThemeToggle";
+import AccountSwitcher from "@/components/AccountSwitcher";
 import { NavStarIcon } from "@/components/icons";
 
 export default function Navbar() {
   const router = useRouter();
-  const { publicKey, connectWallet, disconnectWallet } = useWallet();
+  const { publicKey, connectWallet } = useWallet();
   const { t } = useTranslation("common");
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const config = getNetworkConfig();
@@ -71,16 +70,6 @@ export default function Navbar() {
       window.clearInterval(intervalId);
     };
   }, []);
-
-  useEffect(() => {
-    if (!showDisconnectConfirm) return;
-
-    const timeoutId = window.setTimeout(() => {
-      setShowDisconnectConfirm(false);
-    }, 5000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [showDisconnectConfirm]);
 
   const handleConnectClick = async () => {
     const { publicKey: nextPublicKey, error: walletError } =
@@ -161,45 +150,13 @@ export default function Navbar() {
           {publicKey ? (
             <div className="flex items-center gap-2">
               <kbd
-                title={t("nav.quickSend")}
+                title={t("nav.switchAccountShortcut")}
                 className="hidden select-none items-center gap-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 px-2 py-1 font-mono text-xs text-stellar-700 dark:text-stellar-400 md:inline-flex"
               >
                 {t("nav.quickSend")}
               </kbd>
 
-              <div className="address-pill flex items-center gap-2">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                <span>{shortenAddress(publicKey)}</span>
-              </div>
-              <button
-                onClick={() => setShowDisconnectConfirm(true)}
-                aria-label="Show disconnect confirmation"
-                className="px-2 py-1 text-xs text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-300"
-              >
-                {t("nav.disconnect")}
-              </button>
-              {showDisconnectConfirm && (
-                <div className="flex items-center gap-1 rounded-lg border border-amber-400/30 bg-amber-100 px-2 py-1 dark:bg-amber-400/10">
-                  <span className="text-[11px] text-amber-800 dark:text-amber-300">
-                    {t("nav.disconnectConfirm")}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setShowDisconnectConfirm(false);
-                      disconnectWallet();
-                    }}
-                    className="rounded px-1.5 py-0.5 text-[11px] text-red-700 hover:bg-red-500/20 dark:text-red-300"
-                  >
-                    {t("nav.confirm")}
-                  </button>
-                  <button
-                    onClick={() => setShowDisconnectConfirm(false)}
-                    className="rounded px-1.5 py-0.5 text-[11px] text-slate-700 hover:bg-slate-200 dark:text-slate-200 dark:hover:bg-white/10"
-                  >
-                    {t("nav.cancel")}
-                  </button>
-                </div>
-              )}
+              <AccountSwitcher />
             </div>
           ) : (
             <button onClick={handleConnectClick} className="btn-primary px-4 py-2 text-sm">

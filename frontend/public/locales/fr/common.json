@@ -13,7 +13,14 @@
     "cancel": "Annuler",
     "switchToLight": "Passer au mode clair",
     "switchToDark": "Passer au mode sombre",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Comptes",
+    "addAccount": "Ajouter un compte",
+    "removeAccount": "Supprimer le compte",
+    "removeLastAccountWarning": "C'est votre seul compte. Le supprimer deconnectera votre portefeuille. Cliquez a nouveau pour confirmer.",
+    "switchAccount": "Changer de compte",
+    "switchAccountShortcut": "Appuyez sur Ctrl+K (Cmd+K) pour changer de compte",
+    "primary": "Principal"
   },
   "home": {
     "badge": "Construit sur Stellar Testnet · Open Source",

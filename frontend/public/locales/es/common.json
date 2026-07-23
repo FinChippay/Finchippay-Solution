@@ -13,7 +13,14 @@
     "cancel": "Cancelar",
     "switchToLight": "Cambiar a modo claro",
     "switchToDark": "Cambiar a modo oscuro",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Cuentas",
+    "addAccount": "Anadir cuenta",
+    "removeAccount": "Eliminar cuenta",
+    "removeLastAccountWarning": "Es tu unica cuenta. Al eliminarla se desconectara tu billetera. Haz clic de nuevo para confirmar.",
+    "switchAccount": "Cambiar de cuenta",
+    "switchAccountShortcut": "Pulsa Ctrl+K (Cmd+K) para cambiar de cuenta",
+    "primary": "Principal"
   },
   "home": {
     "badge": "Construido en Stellar Testnet · Código Abierto",

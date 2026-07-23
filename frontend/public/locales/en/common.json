@@ -13,7 +13,14 @@
     "cancel": "Cancel",
     "switchToLight": "Switch to light mode",
     "switchToDark": "Switch to dark mode",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Accounts",
+    "addAccount": "Add account",
+    "removeAccount": "Remove account",
+    "removeLastAccountWarning": "This is your only account. Removing it disconnects your wallet. Click again to confirm.",
+    "switchAccount": "Switch account",
+    "switchAccountShortcut": "Press Ctrl+K (Cmd+K) to switch accounts",
+    "primary": "Primary"
   },
   "home": {
     "badge": "Built on Stellar Testnet · Open Source",
