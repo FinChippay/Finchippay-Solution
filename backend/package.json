@@ -12,7 +12,10 @@
     "test": "jest",
     "test:unit": "jest --testPathIgnorePatterns='/(integration|federation)\\.test\\.'",
     "test:integration": "jest --testPathPattern='integration|federation'",
-    "lint": "eslint 'src/**/*.js'"
+    "lint": "eslint 'src/**/*.js'",
+    "migrate": "node src/db/migrate.js",
+    "migrate:rollback": "node src/db/migrate.js rollback",
+    "migrate:seed": "node src/db/migrate.js seed"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
@@ -28,6 +31,8 @@
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
+    "better-sqlite3": "^11.7.0",
+    "knex": "^3.1.0",
     "morgan": "^1.10.0",
     "node-cron": "^4.6.0",
     "pino": "^9.0.0",

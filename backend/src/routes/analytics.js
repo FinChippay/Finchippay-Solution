@@ -19,7 +19,7 @@ router.get(
   "/:publicKey/summary",
   strictLimiter,
   sanitizePublicKey,
-  analyticsController.getSummary
+  analyticsController.getSummary,
 );
 
 /**
@@ -30,7 +30,7 @@ router.get(
   "/:publicKey/top-recipients",
   strictLimiter,
   sanitizePublicKey,
-  analyticsController.getTopRecipients
+  analyticsController.getTopRecipients,
 );
 
 /**
@@ -41,7 +41,7 @@ router.get(
   "/:publicKey/activity",
   strictLimiter,
   sanitizePublicKey,
-  analyticsController.getActivityByDay
+  analyticsController.getActivityByDay,
 );
 
 router.get(

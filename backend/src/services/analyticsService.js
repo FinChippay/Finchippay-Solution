@@ -95,7 +95,7 @@ async function getTopRecipients(publicKey) {
         if (recipientTotals.has(recipient)) {
           recipientTotals.set(
             recipient,
-            recipientTotals.get(recipient) + amount
+            recipientTotals.get(recipient) + amount,
           );
         } else {
           recipientTotals.set(recipient, amount);
@@ -147,7 +147,15 @@ async function getActivityByDay(publicKey) {
     }
 
     // Convert to array format
-    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
     const activity = days.map((dayName, index) => ({
       day: dayName,
       dayIndex: index,

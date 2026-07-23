@@ -47,8 +47,9 @@ describe("API Integration Tests", () => {
 
   describe("GET /api/accounts/:key", () => {
     it("should return 200 for a valid public key", async () => {
-      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
-      
+      const publicKey =
+        "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+
       // Mock Horizon server call
       nock("https://horizon-testnet.stellar.org")
         .get(`/accounts/${publicKey}`)
@@ -59,12 +60,19 @@ describe("API Integration Tests", () => {
           subentry_count: 0,
           balances: [{ balance: "100.0000000", asset_type: "native" }],
           thresholds: { low_threshold: 0, med_threshold: 0, high_threshold: 0 },
-          flags: { auth_required: false, auth_revocable: false, auth_immutable: false, auth_clawback_enabled: false },
+          flags: {
+            auth_required: false,
+            auth_revocable: false,
+            auth_immutable: false,
+            auth_clawback_enabled: false,
+          },
           signers: [{ weight: 1, key: publicKey, type: "ed25519_public_key" }],
           data: {},
           _links: {
-            self: { href: `https://horizon-testnet.stellar.org/accounts/${publicKey}` }
-          }
+            self: {
+              href: `https://horizon-testnet.stellar.org/accounts/${publicKey}`,
+            },
+          },
         });
 
       const response = await request(app).get(`/api/accounts/${publicKey}`);
@@ -94,7 +102,8 @@ describe("API Integration Tests", () => {
 
   describe("GET /api/payments/:key", () => {
     it("should return an array of payments", async () => {
-      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+      const publicKey =
+        "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
       const txHash = "hash123";
 
       // Mock Horizon server call for payments
@@ -114,12 +123,12 @@ describe("API Integration Tests", () => {
                 to: publicKey,
                 _links: {
                   transaction: {
-                    href: `https://horizon-testnet.stellar.org/transactions/${txHash}`
-                  }
-                }
-              }
-            ]
-          }
+                    href: `https://horizon-testnet.stellar.org/transactions/${txHash}`,
+                  },
+                },
+              },
+            ],
+          },
         });
 
       // Mock Horizon server call for the transaction (to fetch memo)
@@ -129,7 +138,7 @@ describe("API Integration Tests", () => {
           id: txHash,
           memo_type: "text",
           memo: "test memo",
-          created_at: "2023-01-01T00:00:00Z"
+          created_at: "2023-01-01T00:00:00Z",
         });
 
       const response = await request(app).get(`/api/payments/${publicKey}`);

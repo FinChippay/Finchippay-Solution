@@ -30,7 +30,11 @@ const turretsService = require("../services/turretsService");
 async function createChallenge(req, res, next) {
   try {
     const { ownerPublicKey, type, config } = req.body;
-    const data = await turretsService.createSigningChallenge({ ownerPublicKey, type, config });
+    const data = await turretsService.createSigningChallenge({
+      ownerPublicKey,
+      type,
+      config,
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -48,10 +52,11 @@ async function createChallenge(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function deploy(req, res, next) {
+async function deploy(req, res, next) {
   try {
-    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } = req.body;
-    const data = turretsService.deployTxFunction({
+    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } =
+      req.body;
+    const data = await turretsService.deployTxFunction({
       ownerPublicKey,
       type,
       config,
@@ -75,10 +80,10 @@ function deploy(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function list(req, res, next) {
+async function list(req, res, next) {
   try {
     const { ownerPublicKey } = req.query;
-    const data = turretsService.listDeployments(ownerPublicKey);
+    const data = await turretsService.listDeployments(ownerPublicKey);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -95,10 +100,10 @@ function list(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function getOne(req, res, next) {
+async function getOne(req, res, next) {
   try {
     const { id } = req.params;
-    const data = turretsService.getDeployment(id);
+    const data = await turretsService.getDeployment(id);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -115,11 +120,11 @@ function getOne(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function getHistory(req, res, next) {
+async function getHistory(req, res, next) {
   try {
     const { id } = req.params;
-    turretsService.getDeployment(id); // throws 404 if not found
-    const data = turretsService.getExecutionHistory(id);
+    await turretsService.getDeployment(id); // throws 404 if not found
+    const data = await turretsService.getExecutionHistory(id);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -136,10 +141,10 @@ function getHistory(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function pause(req, res, next) {
+async function pause(req, res, next) {
   try {
     const { id } = req.params;
-    const data = turretsService.setDeploymentStatus(id, "paused");
+    const data = await turretsService.setDeploymentStatus(id, "paused");
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -156,10 +161,10 @@ function pause(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function resume(req, res, next) {
+async function resume(req, res, next) {
   try {
     const { id } = req.params;
-    const data = turretsService.setDeploymentStatus(id, "active");
+    const data = await turretsService.setDeploymentStatus(id, "active");
     res.json({ success: true, data });
   } catch (err) {
     next(err);

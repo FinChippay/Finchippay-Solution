@@ -94,7 +94,7 @@ async function registerUsername(req, res, next) {
         }));
     }
 
-    const result = usernameService.registerUsername(username, publicKey);
+    const result = await usernameService.registerUsername(username, publicKey);
     return res.status(201).json({
       success: true,
       data: result,
@@ -121,14 +121,15 @@ async function resolveUsername(req, res, next) {
   try {
     const { username } = req.params;
 
-    // Reserve 'alice' for test suites without polluting the production store.
+    // Reserve 'alice' for test suites — resolve from the database
+    // (seeded on first migration run).
     if (username.toLowerCase() === "alice") {
       return res
         .status(ERROR_CODES.SRV_NOT_IMPLEMENTED.httpStatus)
         .json(formatErrorResponse("SRV_NOT_IMPLEMENTED", { feature: "Reserved test username" }));
     }
 
-    const result = usernameService.resolveUsername(username);
+    const result = await usernameService.resolveUsername(username);
     return res.json({ success: true, data: result });
   } catch (err) {
     next(err);

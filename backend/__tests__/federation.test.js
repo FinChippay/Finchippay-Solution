@@ -12,12 +12,13 @@ const usernameService = require("../src/services/usernameService");
 
 describe("Federation API", () => {
   const testUsername = "testuser";
-  const testPublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const testPublicKey =
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
   beforeAll(async () => {
     // Register a test user
     try {
-      usernameService.registerUsername(testUsername, testPublicKey);
+      await usernameService.registerUsername(testUsername, testPublicKey);
     } catch (err) {
       // User might already exist
     }
@@ -27,7 +28,7 @@ describe("Federation API", () => {
     // Clean up
     nock.cleanAll();
     try {
-      usernameService.removeUsername(testUsername);
+      await usernameService.removeUsername(testUsername);
     } catch (err) {
       // User might not exist
     }
@@ -104,7 +105,10 @@ describe("Federation API", () => {
         // Mock stellar.toml fetch
         nock("https://externaldomain.com")
           .get("/.well-known/stellar.toml")
-          .reply(200, 'FEDERATION_SERVER="https://fed.externaldomain.com/federation"');
+          .reply(
+            200,
+            'FEDERATION_SERVER="https://fed.externaldomain.com/federation"',
+          );
 
         // Mock federation server returning a malformed account_id
         nock("https://fed.externaldomain.com")
@@ -133,12 +137,16 @@ describe("Federation API", () => {
           .query({ q: testPublicKey, type: "id" })
           .expect(200);
 
-        expect(response.body).toHaveProperty("stellar_address", `${testUsername}*stellarfinchippay.io`);
+        expect(response.body).toHaveProperty(
+          "stellar_address",
+          `${testUsername}*stellarfinchippay.io`,
+        );
         expect(response.body).toHaveProperty("account_id", testPublicKey);
       });
 
       it("should return 404 for non-existent account ID", async () => {
-        const unknownPublicKey = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        const unknownPublicKey =
+          "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
         const response = await request(app)
           .get("/federation")
@@ -150,9 +158,7 @@ describe("Federation API", () => {
     });
 
     it("should return 400 for missing parameters", async () => {
-      const response = await request(app)
-        .get("/federation")
-        .expect(400);
+      const response = await request(app).get("/federation").expect(400);
 
       expect(response.body.error.code).toBe("VAL_MISSING_FIELD");
     });

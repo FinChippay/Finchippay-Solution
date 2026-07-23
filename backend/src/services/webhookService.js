@@ -17,6 +17,8 @@
  *   - Payloads are signed using HMAC-SHA256; consumers verify via X-Webhook-Signature.
  *   - Secrets should be long random strings (>= 32 bytes); never logged.
  *   - Delivery errors are logged but do not crash the process.
+ *
+ * Storage: Knex-backed SQLite/PostgreSQL (was in-memory Map in v1).
  */
 
 "use strict";
@@ -126,48 +128,54 @@ function ensureStatements() {
  * @param {string} publicKey - Stellar public key to monitor (G...)
  * @param {string} url - HTTPS endpoint that will receive POST payloads
  * @param {string} secret - Shared secret used to compute HMAC-SHA256 signatures
- * @returns {{ id:string, publicKey:string, url:string, createdAt:string }}
+ * @returns {Promise<{ id:string, publicKey:string, url:string, createdAt:string }>}
  */
-function registerWebhook(publicKey, url, secret) {
-  const id = String(nextId++);
-  const webhook = {
+async function registerWebhook(publicKey, url, secret) {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+
+  await knex("webhooks").insert({
     id,
-    publicKey,
+    public_key: publicKey,
     url,
     secret,
-    createdAt: new Date().toISOString(),
-  };
-  webhooks.set(id, webhook);
+    created_at: createdAt,
+  });
+
+  const webhook = { id, publicKey, url, secret, createdAt };
   startMonitoring(webhook);
   logger.info({ type: "webhook_registered", id, publicKey, url });
-  return { id, publicKey, url, createdAt: webhook.createdAt };
+  return { id, publicKey, url, createdAt };
 }
 
 /**
  * Return all webhooks registered for `publicKey`.
  *
  * @param {string} publicKey
- * @returns {Array<{id:string,publicKey:string,url:string,createdAt:string}>}
+ * @returns {Promise<Array<{id:string,publicKey:string,url:string,createdAt:string}>>}
  */
-function getWebhooksByPublicKey(publicKey) {
-  return Array.from(webhooks.values())
-    .filter((w) => w.publicKey === publicKey)
-    .map(({ id, publicKey: pk, url, createdAt }) => ({ id, publicKey: pk, url, createdAt }));
+async function getWebhooksByPublicKey(publicKey) {
+  const rows = await knex("webhooks").where("public_key", publicKey);
+  return rows.map((row) => ({
+    id: row.id,
+    publicKey: row.public_key,
+    url: row.url,
+    createdAt: row.created_at,
+  }));
 }
 
 /**
  * Delete a webhook by ID.
  *
  * @param {string} id - Webhook ID returned by `registerWebhook`
- * @returns {boolean} `true` if the webhook existed and was deleted
+ * @returns {Promise<boolean>} `true` if the webhook existed and was deleted
  */
-function deleteWebhook(id) {
-  const exists = webhooks.has(id);
-  if (exists) {
-    webhooks.delete(id);
+async function deleteWebhook(id) {
+  const deleted = await knex("webhooks").where("id", id).del();
+  if (deleted) {
     logger.info({ type: "webhook_deleted", id });
   }
-  return exists;
+  return deleted > 0;
 }
 
 /**
@@ -437,7 +445,10 @@ function retryDeadDeliveries(publicKey) {
  * @param {{ publicKey:string }} webhook
  */
 function startMonitoring(webhook) {
-  metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
+  metrics.horizonRequestsTotal.inc({
+    operation: "startSSE",
+    status: "success",
+  });
   if (activeStreams.has(webhook.publicKey)) {
     return;
   }
@@ -448,7 +459,8 @@ function startMonitoring(webhook) {
     .cursor("now")
     .stream({
       onmessage: async (payment) => {
-        if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
+        if (payment.type !== "payment" || payment.to !== webhook.publicKey)
+          return;
 
         // Invalidate account & payment cache for the receiving account
         try {
@@ -469,8 +481,7 @@ function startMonitoring(webhook) {
             from: payment.from,
             to: payment.to,
             amount: payment.amount,
-            asset:
-              payment.asset_type === "native" ? "XLM" : payment.asset_code,
+            asset: payment.asset_type === "native" ? "XLM" : payment.asset_code,
             createdAt: payment.created_at,
           },
         };
@@ -504,7 +515,10 @@ function startMonitoring(webhook) {
 
   activeStreams.set(webhook.publicKey, closeStream);
   metrics.activeWebhookStreams.set(activeStreams.size);
-  logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
+  logger.info({
+    type: "horizon_monitoring_started",
+    publicKey: webhook.publicKey,
+  });
 }
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────

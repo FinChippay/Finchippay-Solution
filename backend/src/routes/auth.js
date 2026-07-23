@@ -8,7 +8,7 @@
 "use strict";
 
 const express = require("express");
-const jwt     = require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
@@ -43,13 +43,13 @@ router.get("/", (req, res) => {
   }
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
       keypair,
       account,
       HOME_DOMAIN,
       300, // 5-minute validity window
-      NETWORK_PASSPHRASE
+      NETWORK_PASSPHRASE,
     );
     res.json({ transaction: challenge, networkPassphrase: NETWORK_PASSPHRASE });
   } catch (e) {
@@ -69,20 +69,20 @@ router.post("/", (req, res) => {
   }
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       keypair.publicKey(),
       NETWORK_PASSPHRASE,
       HOME_DOMAIN,
-      ""
+      "",
     );
 
     const { accessToken, refreshToken } = tokenService.issueTokens(accountId);
 
     res.cookie("jwt", accessToken, {
       httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
       maxAge:   15 * 60 * 1000, // 15 mins
     });

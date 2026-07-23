@@ -11,6 +11,19 @@ const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes
 // POST /api/scheduled-transactions
 router.post("/", (req, res, next) => {
   try {
+    const { signedXDR, submitAt, publicKey } = req.body;
+
+    if (!signedXDR || !submitAt || !publicKey) {
+      return res
+        .status(400)
+        .json({ error: "Missing signedXDR, submitAt, or publicKey" });
+    }
+
+    const submitDate = new Date(submitAt);
+    if (isNaN(submitDate.getTime())) {
+      return res
+        .status(400)
+        .json({ error: "submitAt must be a valid ISO 8601 date string" });
     const schedule = scheduledTransactionService.createSchedule(req.body);
     res.status(201).json(schedule);
   } catch (error) {

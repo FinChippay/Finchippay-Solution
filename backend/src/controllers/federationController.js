@@ -86,7 +86,7 @@ async function resolveStellarAddress(stellarAddress, req) {
   // Check if it's our domain
   if (isLocalFederationDomain(domain, req)) {
     // Local resolution
-    const result = usernameService.resolveUsername(username);
+    const result = await usernameService.resolveUsername(username);
     return {
       stellar_address: `${username}*${domain}`,
       account_id: result.publicKey,
@@ -104,8 +104,8 @@ async function resolveStellarAddress(stellarAddress, req) {
  */
 async function resolveAccountId(accountId) {
   // First check local usernames
-  const allUsernames = usernameService.getAllUsernames();
-  const match = allUsernames.find(user => user.publicKey === accountId);
+  const allUsernames = await usernameService.getAllUsernames();
+  const match = allUsernames.find((user) => user.publicKey === accountId);
 
   if (match) {
     const domain = getPrimaryFederationDomain();
@@ -163,7 +163,9 @@ async function forwardFederation(query, type) {
     response.data.account_id &&
     !/^G[A-Z0-9]{55}$/.test(response.data.account_id)
   ) {
-    const error = new Error("Invalid Stellar address returned from federation server");
+    const error = new Error(
+      "Invalid Stellar address returned from federation server",
+    );
     error.status = 502;
     error.errorCode = "SRV_FEDERATION_FAILED";
     throw error;
@@ -227,7 +229,7 @@ function getPrimaryFederationDomain() {
     process.env.FEDERATION_DOMAIN ||
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
-      "stellarfinchippay.io"
+      "stellarfinchippay.io",
   );
 }
 

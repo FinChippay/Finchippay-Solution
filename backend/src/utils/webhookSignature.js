@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+const crypto = require("crypto");
 
 /**
  * Generates an HMAC-SHA256 signature for a webhook payload.
@@ -8,10 +8,10 @@ const crypto = require('crypto');
  * @returns {string} The hex representation of the HMAC signature.
  */
 function generateWebhookSignature(payload, secret) {
-  const hmac = crypto.createHmac('sha256', secret);
-  const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const hmac = crypto.createHmac("sha256", secret);
+  const data = typeof payload === "string" ? payload : JSON.stringify(payload);
   hmac.update(data);
-  return hmac.digest('hex');
+  return hmac.digest("hex");
 }
 
 /**
@@ -25,12 +25,12 @@ function generateWebhookSignature(payload, secret) {
 function verifyWebhookSignature(payload, secret, signature) {
   const expectedSignature = generateWebhookSignature(payload, secret);
   return crypto.timingSafeEqual(
-    Buffer.from(expectedSignature, 'hex'),
-    Buffer.from(signature, 'hex')
+    Buffer.from(expectedSignature, "hex"),
+    Buffer.from(signature, "hex"),
   );
 }
 
 module.exports = {
   generateWebhookSignature,
-  verifyWebhookSignature
+  verifyWebhookSignature,
 };

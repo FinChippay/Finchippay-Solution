@@ -19,7 +19,12 @@ const paymentController = require("../controllers/paymentController");
  *   limit  — number of results (default: 20, max: 100)
  *   cursor — pagination cursor
  */
-router.get("/:publicKey", strictLimiter, sanitizePublicKey, paymentController.getPayments);
+router.get(
+  "/:publicKey",
+  strictLimiter,
+  sanitizePublicKey,
+  paymentController.getPayments,
+);
 
 /**
  * GET /api/payments/:publicKey/stats
