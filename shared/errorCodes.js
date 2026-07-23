@@ -3,18 +3,29 @@
  * Canonical error code registry for Finchippay Solution.
  *
  * Every API error response follows the shape:
- *   { error: { code: string, message: string, details?: any } }
+ *   { error: { code: string, message: string, correlationId?: string, details?: any } }
+ *
+ * `correlationId` is the request's `X-Request-ID`, which lets support trace a
+ * single user-reported failure across the contract, API, and frontend logs. It
+ * is injected automatically once a host registers a provider (see
+ * `setCorrelationIdProvider`); the frontend registers none, so bodies it builds
+ * locally simply omit the field.
  *
  * This module provides:
  *   - ERROR_CODES: the full catalogue keyed by code string.
  *   - getError(code): lookup helper returning { code, httpStatus, message }.
+ *   - getErrorLayer(code): which layer owns the code — contract, api, frontend.
  *   - formatErrorResponse(code, details?): builds the canonical error body.
+ *   - setCorrelationIdProvider(fn): supplies the correlation ID for that body.
  *   - CONTRACT_ERROR_MAP: maps numeric ContractError values → error codes.
  *
- * Usage (backend):
- *   const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
- *   res.status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
- *      .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
+ * Naming: codes are `CATEGORY_SPECIFIC` (see CATEGORY_LAYERS below). The
+ * category prefix determines the owning layer, so the layer is derivable from
+ * the code itself rather than repeated in it. See docs/error-codes.md.
+ *
+ * Usage (backend) — prefer src/utils/errorResponse.js, which wraps this module:
+ *   const { sendError } = require("../utils/errorResponse");
+ *   sendError(res, "VAL_INVALID_PUBLIC_KEY");
  *
  * Usage (frontend):
  *   import { ERROR_CODES, getError } from "../shared/errorCodes";
@@ -31,7 +42,28 @@
 //   CONTRACT_*– On-chain contract errors (mapped from numeric ContractError)
 //   PAY_*     – Payment / transaction errors
 //   SRV_*     – Server / infrastructure errors
+//   WALLET_*  – Browser wallet errors raised in the frontend
 //   GEN_*     – Generic / catch-all errors
+
+/**
+ * Which layer owns each category. Used by `getErrorLayer` so monitoring and
+ * support tooling can group errors by origin without a second lookup table.
+ *
+ * @type {Record<string, "api" | "contract" | "frontend" | "shared">}
+ */
+const CATEGORY_LAYERS = {
+  AUTH: "api",
+  TOKEN: "api", // legacy TOKEN_EXPIRED alias — see the entry's comment
+
+  VAL: "api",
+  RES: "api",
+  RATE: "api",
+  PAY: "api",
+  SRV: "api",
+  CONTRACT: "contract",
+  WALLET: "frontend",
+  GEN: "shared",
+};
 
 const ERROR_CODES = {
   // ── Auth errors ──────────────────────────────────────────────────────────
@@ -65,6 +97,18 @@ const ERROR_CODES = {
     code: "AUTH_CHALLENGE_FAILED",
     httpStatus: 401,
     message: "SEP-0010 challenge verification failed.",
+  },
+  /**
+   * Deprecated alias for AUTH_EXPIRED_TOKEN. Shipped before this catalogue
+   * existed and is asserted by existing consumers, so the API still emits it
+   * on JWT expiry. New code should use AUTH_EXPIRED_TOKEN.
+   */
+  TOKEN_EXPIRED: {
+    code: "TOKEN_EXPIRED",
+    httpStatus: 401,
+    message: "Token has expired. Please refresh or re-authenticate.",
+    deprecated: true,
+    supersededBy: "AUTH_EXPIRED_TOKEN",
   },
 
   // ── Validation errors ────────────────────────────────────────────────────
@@ -137,6 +181,16 @@ const ERROR_CODES = {
     code: "VAL_INVALID_FEDERATION_TYPE",
     httpStatus: 400,
     message: "Invalid type parameter. Must be 'name' or 'id'.",
+  },
+  VAL_INVALID_OFFSET: {
+    code: "VAL_INVALID_OFFSET",
+    httpStatus: 400,
+    message: "Offset must be a non-negative integer.",
+  },
+  VAL_INVALID_QUERY_PARAM: {
+    code: "VAL_INVALID_QUERY_PARAM",
+    httpStatus: 400,
+    message: "A query parameter is missing or invalid.",
   },
 
   // ── Resource errors ──────────────────────────────────────────────────────
@@ -361,6 +415,45 @@ const ERROR_CODES = {
     message: "This feature is not yet implemented.",
   },
 
+  // ── Browser wallet errors (frontend layer) ───────────────────────────────
+  WALLET_NOT_INSTALLED: {
+    code: "WALLET_NOT_INSTALLED",
+    httpStatus: 0,
+    message: "Freighter is not installed. Install it from freighter.app.",
+  },
+  WALLET_NOT_CONNECTED: {
+    code: "WALLET_NOT_CONNECTED",
+    httpStatus: 0,
+    message: "No wallet is connected. Connect a wallet to continue.",
+  },
+  WALLET_CONNECTION_REJECTED: {
+    code: "WALLET_CONNECTION_REJECTED",
+    httpStatus: 0,
+    message: "The connection request was rejected in the wallet.",
+  },
+  WALLET_SIGNATURE_REJECTED: {
+    code: "WALLET_SIGNATURE_REJECTED",
+    httpStatus: 0,
+    message: "The transaction signature was rejected in the wallet.",
+  },
+  WALLET_NETWORK_MISMATCH: {
+    code: "WALLET_NETWORK_MISMATCH",
+    httpStatus: 0,
+    message:
+      "The wallet is on a different Stellar network than this app. Switch networks in the wallet.",
+  },
+  WALLET_ACCOUNT_MISMATCH: {
+    code: "WALLET_ACCOUNT_MISMATCH",
+    httpStatus: 0,
+    message:
+      "The wallet's selected account differs from the active account in this app.",
+  },
+  WALLET_LOCKED: {
+    code: "WALLET_LOCKED",
+    httpStatus: 0,
+    message: "The wallet is locked. Unlock it and try again.",
+  },
+
   // ── Generic / catch-all ──────────────────────────────────────────────────
   GEN_UNKNOWN: {
     code: "GEN_UNKNOWN",
@@ -407,6 +500,45 @@ const CONTRACT_ERROR_MAP = {
   17: "CONTRACT_TRANSFER_FAILED",
 };
 
+// ─── Correlation ID ────────────────────────────────────────────────────────
+
+/**
+ * Supplies the correlation ID stamped onto every error body this module builds.
+ * Left null by default so the module stays free of host-specific dependencies:
+ * the backend registers `getRequestId` from its AsyncLocalStorage middleware,
+ * while the frontend registers nothing.
+ *
+ * @type {(() => string | undefined) | null}
+ */
+let correlationIdProvider = null;
+
+/**
+ * Register the function used to resolve the current correlation ID.
+ * Call once during host startup. Pass null to clear it (used by tests).
+ *
+ * @param {(() => string | undefined) | null} provider
+ */
+function setCorrelationIdProvider(provider) {
+  correlationIdProvider = typeof provider === "function" ? provider : null;
+}
+
+/**
+ * Resolve the current correlation ID, if a provider is registered and it is
+ * able to produce one. A provider that throws (for example, because it is
+ * called outside a request context) must never break error formatting.
+ *
+ * @returns {string | undefined}
+ */
+function getCorrelationId() {
+  if (!correlationIdProvider) return undefined;
+  try {
+    const id = correlationIdProvider();
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /**
@@ -421,15 +553,55 @@ function getError(code) {
 }
 
 /**
+ * The layer that owns an error code, derived from its category prefix.
+ *
+ * @param {string} code - Error code key (e.g. "CONTRACT_NOT_FOUND")
+ * @returns {"api" | "contract" | "frontend" | "shared"}
+ */
+function getErrorLayer(code) {
+  const entry = getError(code);
+  const prefix = entry.code.split("_")[0];
+  return CATEGORY_LAYERS[prefix] || "shared";
+}
+
+/**
+ * Whether a code is registered in the catalogue.
+ *
+ * @param {string} code
+ * @returns {boolean}
+ */
+function isKnownErrorCode(code) {
+  return Object.prototype.hasOwnProperty.call(ERROR_CODES, code);
+}
+
+/**
  * Build the canonical API error response body.
+ *
+ * `correlationId` is added whenever a provider is registered and resolves an
+ * ID, so every existing call site gains request correlation without changes.
+ * The `error` key stays at the top level for backward compatibility.
  *
  * @param {string} code - Error code key (e.g. "VAL_INVALID_AMOUNT")
  * @param {*} [details] - Optional extra data (field name, validation issues, etc.)
- * @returns {{ error: { code: string, message: string, details?: any } }}
+ * @param {{ message?: string, correlationId?: string }} [overrides] - Optional
+ *   context-specific message and an explicit correlation ID that wins over the
+ *   registered provider.
+ * @returns {{ error: { code: string, message: string, correlationId?: string, details?: any } }}
  */
-function formatErrorResponse(code, details) {
+function formatErrorResponse(code, details, overrides = {}) {
   const entry = getError(code);
-  const body = { error: { code: entry.code, message: entry.message } };
+  const body = {
+    error: {
+      code: entry.code,
+      message: overrides.message || entry.message,
+    },
+  };
+
+  const correlationId = overrides.correlationId || getCorrelationId();
+  if (correlationId) {
+    body.error.correlationId = correlationId;
+  }
+
   if (details !== undefined) {
     body.error.details = details;
   }
@@ -463,9 +635,14 @@ function formatContractErrorResponse(contractErrCode, details) {
 
 module.exports = {
   ERROR_CODES,
+  CATEGORY_LAYERS,
   CONTRACT_ERROR_MAP,
   getError,
+  getErrorLayer,
+  isKnownErrorCode,
   formatErrorResponse,
   getContractErrorCode,
   formatContractErrorResponse,
+  setCorrelationIdProvider,
+  getCorrelationId,
 };

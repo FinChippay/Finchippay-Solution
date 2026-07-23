@@ -11,6 +11,7 @@ const { strictLimiter, sensitiveLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey, sanitizeUsername } = require("../middleware/sanitization");
 const { verifyJWT } = require("../middleware/auth");
 const accountController = require("../controllers/accountController");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * Restrict account-data routes to the authenticated account holder (#278).
@@ -18,9 +19,9 @@ const accountController = require("../controllers/accountController");
  */
 function requireOwnAccount(req, res, next) {
   if (req.user?.publicKey !== req.params.publicKey) {
-    return res
-      .status(403)
-      .json({ error: "Forbidden: you may only access your own account data" });
+    return sendError(res, "AUTH_FORBIDDEN", {
+      message: "Forbidden: you may only access your own account data.",
+    });
   }
   next();
 }
