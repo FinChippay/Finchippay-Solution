@@ -11,6 +11,20 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 
 const MAX_RECIPIENTS = 10;
 
+// Supported token types for batch payments
+type TokenType = "XLM" | "USDC" | "custom";
+
+type TokenInfo = {
+  code: string;
+  issuer?: string;
+  type: TokenType;
+};
+
+const AVAILABLE_TOKENS: TokenInfo[] = [
+  { code: "XLM", type: "XLM" },
+  { code: "USDC", issuer: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B", type: "USDC" },
+];
+
 type RecipientStatus = "idle" | "pending" | "success" | "failed";
 
 type BatchRecipient = {
@@ -18,6 +32,7 @@ type BatchRecipient = {
   address: string;
   amount: string;
   memo: string;
+  token: TokenInfo;
   status: RecipientStatus;
   error?: string;
   transactionHash?: string;
@@ -38,6 +53,7 @@ function createRecipient(): BatchRecipient {
     address: "",
     amount: "",
     memo: "",
+    token: AVAILABLE_TOKENS[0], // Default to XLM
     status: "idle",
   };
 }
@@ -60,14 +76,19 @@ export default function BatchPaymentForm({
     xlmBalanceValue - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM
   );
 
-  const totalXLM = useMemo(
-    () =>
-      recipients.reduce((sum, recipient) => {
-        const amount = parseFloat(recipient.amount);
-        return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
-      }, 0),
-    [recipients]
-  );
+  const totalByToken = useMemo(() => {
+    const totals: Record<string, number> = {};
+    recipients.forEach((recipient) => {
+      const amount = parseFloat(recipient.amount);
+      if (Number.isFinite(amount) && amount > 0) {
+        const tokenCode = recipient.token.code;
+        totals[tokenCode] = (totals[tokenCode] || 0) + amount;
+      }
+    });
+    return totals;
+  }, [recipients]);
+
+  const totalXLM = totalByToken["XLM"] || 0;
 
   const hasFailed = recipients.some((recipient) => recipient.status === "failed");
   const hasPending = recipients.some((recipient) => recipient.status === "pending");
@@ -207,14 +228,14 @@ export default function BatchPaymentForm({
     <div className="card animate-fade-in border-stellar-400/20">
       <div className="flex items-center justify-between mb-6 gap-3">
         <div>
-          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
+          <h2 className="font-display text-lg font-semibold text-white">
             Batch Send
           </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Send XLM to up to {MAX_RECIPIENTS} recipients sequentially.
+          <p className="text-sm text-slate-400">
+            Send multiple tokens (XLM, USDC) to up to {MAX_RECIPIENTS} recipients in a single transaction.
           </p>
         </div>
-        <div className="rounded-full bg-slate-50 dark:bg-white/5 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+        <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">
           {recipientCount} / {MAX_RECIPIENTS}
         </div>
       </div>
@@ -223,11 +244,35 @@ export default function BatchPaymentForm({
         {recipients.map((recipient, index) => (
           <div
             key={recipient.id}
-            className="rounded-3xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4"
+            className="rounded-3xl border border-white/10 bg-white/5 p-4"
           >
             <div className="flex flex-col gap-3">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <label className="block flex-1">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="block">
+                  <span className="label">Token</span>
+                  <select
+                    value={recipient.token.code}
+                    onChange={(event) => {
+                      const selectedToken = AVAILABLE_TOKENS.find(
+                        (t) => t.code === event.target.value
+                      );
+                      if (selectedToken) {
+                        updateRecipient(recipient.id, {
+                          token: selectedToken,
+                        });
+                      }
+                    }}
+                    disabled={isProcessing}
+                    className="input-field w-full"
+                  >
+                    {AVAILABLE_TOKENS.map((token) => (
+                      <option key={token.code} value={token.code}>
+                        {token.code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
                   <span className="label">Recipient address</span>
                   <input
                     type="text"
@@ -242,8 +287,8 @@ export default function BatchPaymentForm({
                     placeholder="G..."
                   />
                 </label>
-                <label className="block flex-1">
-                  <span className="label">Amount (XLM)</span>
+                <label className="block">
+                  <span className="label">Amount ({recipient.token.code})</span>
                   <input
                     type="number"
                     step="0.0000001"
@@ -255,7 +300,7 @@ export default function BatchPaymentForm({
                       })
                     }
                     disabled={isProcessing}
-                    className="input-field w-full border-white/20 focus:border-stellar-500/60 dark:border-slate-700/50"
+                    className="input-field w-full"
                     placeholder="0.5"
                   />
                 </label>
@@ -279,13 +324,13 @@ export default function BatchPaymentForm({
               </label>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-700 dark:text-slate-300">
+                <div className="text-sm text-slate-300">
                   Status: 
                   {recipient.status === "idle" && (
-                    <span className="text-slate-600 dark:text-slate-400">Waiting</span>
+                    <span className="text-slate-400">Waiting</span>
                   )}
                   {recipient.status === "pending" && (
-                    <span className="text-amber-700 dark:text-amber-300">Processing</span>
+                    <span className="text-amber-300">Processing</span>
                   )}
                   {recipient.status === "success" && (
                     <span className="text-emerald-400">Sent ✓</span>
@@ -299,7 +344,7 @@ export default function BatchPaymentForm({
                     type="button"
                     onClick={() => handleRemoveRecipient(recipient.id)}
                     disabled={isProcessing || recipients.length <= 1}
-                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-50"
+                    className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -324,8 +369,13 @@ export default function BatchPaymentForm({
           >
             Add recipient
           </button>
-          <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
-            Total: <span className="font-semibold text-slate-900 dark:text-white">{totalXLM.toFixed(7)} XLM</span>
+          <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Total:{" "}
+            <span className="font-semibold text-white">
+              {Object.entries(totalByToken)
+                .map(([token, amount]) => `${(amount as number).toFixed(7)} ${token}`)
+                .join(", ")}
+            </span>
           </div>
         </div>
 

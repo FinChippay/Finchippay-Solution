@@ -7,7 +7,6 @@
 * @see {@link https://stellar.github.io/js-stellar-sdk/ | stellar-sdk Reference}
 */
 
-import "./api";
 import {
   Horizon,
   Account,
@@ -25,6 +24,8 @@ import {
   rpc,
   Federation,
 } from "@stellar/stellar-sdk";
+
+import { FinchippayContractClient } from "./contract-bindings";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -1117,128 +1118,29 @@ export function explorerUrl(hash: string): string | null {
  * @param params.fromPublicKey - Sender's public key (G...).
  * @param params.toPublicKey - Recipient's public key (G...).
  * @param params.amount - XLM amount as a string (e.g. "0.5").
+ * @param params.memo - Optional memo for the tip.
  * @returns A promise resolving to a built and preflighted {@link Transaction}.
  */
 export async function buildSorobanTipTransaction({
   fromPublicKey,
   toPublicKey,
   amount,
+  memo,
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
+  memo?: string;
 }): Promise<Transaction> {
   if (!CONTRACT_ID) {
     throw new Error("Contract ID is not configured.");
   }
 
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  const contract = new Contract(CONTRACT_ID);
-
-  // Derive the XLM Asset Contract ID
   const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
-
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 
-  // Prepare the `send_tip` invocation
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        "send_tip",
-        nativeToScVal(xlmContractId, { type: "address" }),
-        nativeToScVal(fromPublicKey, { type: "address" }),
-        nativeToScVal(toPublicKey, { type: "address" }),
-        nativeToScVal(stroops, { type: "i128" })
-      )
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
-    .build();
-
-  // Preflight: Simulate the transaction to get resources and fees
-  const simulated = await sorobanServer.simulateTransaction(tx);
-
-  if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Simulation failed: ${simulated.error}`);
-  }
-
-  // Assemble the transaction with simulation results
-  return sorobanServer.prepareTransaction(tx);
-}
-
-/**
- * Build a Soroban contract invocation transaction to call `batch_send()`.
- *
- * @param params - Batch send parameters.
- * @param params.fromPublicKey - Sender's public key (G...).
- * @param params.recipients - List of recipient public keys (G...).
- * @param params.amounts - List of XLM amounts as strings.
- * @param params.memos - List of memo strings.
- * @returns A promise resolving to a built and preflighted {@link Transaction}.
- */
-export async function buildSorobanBatchSendTransaction({
-  fromPublicKey,
-  recipients,
-  amounts,
-  memos,
-}: {
-  fromPublicKey: string;
-  recipients: string[];
-  amounts: string[];
-  memos: string[];
-}): Promise<Transaction> {
-  if (!CONTRACT_ID) {
-    throw new Error("Contract ID is not configured.");
-  }
-  if (
-    recipients.length !== amounts.length ||
-    recipients.length !== memos.length
-  ) {
-    throw new Error("Recipients, amounts, and memos length mismatch.");
-  }
-
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  const contract = new Contract(CONTRACT_ID);
-  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
-
-  const recipientScVals = recipients.map((r) =>
-    nativeToScVal(r, { type: "address" })
-  );
-  const amountScVals = amounts.map((a) =>
-    nativeToScVal(
-      BigInt(Math.round(parseFloat(a) * STELLAR_STROOPS_PER_XLM)),
-      { type: "i128" }
-    )
-  );
-  const memoScVals = memos.map((m) =>
-    nativeToScVal(m || "", { type: "symbol" })
-  );
-
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        "batch_send",
-        nativeToScVal(xlmContractId, { type: "address" }),
-        nativeToScVal(fromPublicKey, { type: "address" }),
-        xdr.ScVal.scvVec(recipientScVals),
-        xdr.ScVal.scvVec(amountScVals),
-        xdr.ScVal.scvVec(memoScVals)
-      )
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
-    .build();
-
-  const simulated = await sorobanServer.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Simulation failed: ${simulated.error}`);
-  }
-
-  return sorobanServer.prepareTransaction(tx);
+  const client = new FinchippayContractClient(CONTRACT_ID);
+  return client.sendTip(fromPublicKey, xlmContractId, fromPublicKey, toPublicKey, stroops, memo ?? "");
 }
 
 /**
@@ -1251,70 +1153,11 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
   if (!CONTRACT_ID) return "0";
 
   try {
-    const contract = new Contract(CONTRACT_ID);
-
-    // Create a dummy transaction to simulate the getter call
-    // Alternatively, we could use getLedgerEntries if we knew the storage key format,
-    // but simulation is more robust for contract getters.
-    const tx = new TransactionBuilder(
-      new Account(recipient, "0"),
-      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE }
-    )
-      .addOperation(
-        contract.call("tip_total", nativeToScVal(recipient, { type: "address" }))
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await sorobanServer.simulateTransaction(tx);
-
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const value = scValToNative(sim.result.retval);
-      return value.toString();
-    }
-
-    return "0";
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getTipTotal(recipient);
   } catch (err) {
     console.error("Failed to query tip total:", err);
     return "0";
-  }
-}
-
-/**
- * Call the on-chain `tip_count` view function for `recipient`.
- *
- * Uses the stable alias introduced in #62 so the binding is resilient to
- * internal contract refactors. Falls back to 0 when CONTRACT_ID is unset or
- * the simulation fails.
- *
- * @param recipient - Stellar public key of the tip recipient.
- * @returns A promise resolving to the number of tips received.
- */
-export async function getContractTipCount(recipient: string): Promise<number> {
-  if (!CONTRACT_ID) return 0;
-
-  try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(
-      new Account(recipient, "0"),
-      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE }
-    )
-      .addOperation(
-        contract.call("tip_count", nativeToScVal(recipient, { type: "address" }))
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await sorobanServer.simulateTransaction(tx);
-
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      return Number(scValToNative(sim.result.retval));
-    }
-
-    return 0;
-  } catch (err) {
-    console.error("Failed to query on-chain tip count:", err);
-    return 0;
   }
 }
 
@@ -1323,6 +1166,8 @@ export async function getContractTipCount(recipient: string): Promise<number> {
 /**
  * Build a Soroban contract invocation to mint a payment receipt (NFT).
  * Simulates/preflights the transaction so it's ready for signing.
+ *
+ * Uses the auto-generated contract bindings for type-safe contract interaction.
  */
 export async function buildReceiptMintTransaction({
   fromPublicKey,
@@ -1339,120 +1184,25 @@ export async function buildReceiptMintTransaction({
     throw new Error("Contract ID is not configured.");
   }
 
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  const contract = new Contract(CONTRACT_ID);
-
   const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
   const memoStr = (memo ?? "").slice(0, 28);
-  const memoScVal = nativeToScVal(memoStr, { type: "symbol" });
 
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        "mint_receipt",
-        nativeToScVal(fromPublicKey, { type: "address" }),
-        nativeToScVal(toPublicKey, { type: "address" }),
-        nativeToScVal(stroops, { type: "i128" }),
-        memoScVal
-      )
-    )
-    .setTimeout(60)
-    .build();
-
-  const simulated = await sorobanServer.simulateTransaction(tx);
-
-  if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Receipt simulation failed: ${simulated.error}`);
-  }
-
-  return sorobanServer.prepareTransaction(tx);
+  const client = new FinchippayContractClient(CONTRACT_ID);
+  return client.mintReceipt(fromPublicKey, fromPublicKey, toPublicKey, stroops, memoStr);
 }
 
 /**
  * Get the number of receipt NFTs minted for a payer.
+ *
+ * Uses the auto-generated contract bindings for type-safe contract interaction.
  */
 export async function getReceiptCount(payer: string): Promise<number> {
   if (!CONTRACT_ID) return 0;
   try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(
-      new Account(payer, "0"),
-      { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
-    )
-      .addOperation(
-        contract.call("get_receipt_count", nativeToScVal(payer, { type: "address" }))
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await sorobanServer.simulateTransaction(tx);
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const value = scValToNative(sim.result.retval);
-      return Number(value);
-    }
-    return 0;
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getReceiptCount(payer);
   } catch {
     return 0;
-  }
-}
-
-export interface ReceiptMetadata {
-  from: string;
-  to: string;
-  amount: string; // Stored as string to handle i128
-  timestamp: number;
-  memo: string;
-  ledger: number;
-}
-
-/**
- * Get receipt metadata for a specific receipt index.
- */
-export async function getReceipt(payer: string, index: number): Promise<ReceiptMetadata | null> {
-  if (!CONTRACT_ID) return null;
-  try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(
-      new Account(payer, "0"),
-      { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
-    )
-      .addOperation(
-        contract.call(
-          "get_receipt",
-          nativeToScVal(payer, { type: "address" }),
-          nativeToScVal(index, { type: "u32" })
-        )
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await sorobanServer.simulateTransaction(tx);
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const rawValue = scValToNative(sim.result.retval);
-      
-      // Since it's returning a custom struct, it comes back as an array or object
-      // rawValue typically is an object matching the struct fields if we use nativeToScVal/scValToNative on maps/structs.
-      // But the Soroban JS SDK scValToNative on a map/struct with symbols as keys returns a JS object or array of entries depending on exact SDK version.
-      // Soroban struct properties return as an array of key-value maps: {from: ..., to: ...} or similar if we use scValToNative on an SCMap.
-      // Assuming typical object structure:
-      
-      const res = rawValue as any;
-      return {
-        from: res.from ? res.from.toString() : "",
-        to: res.to ? res.to.toString() : "",
-        amount: res.amount ? res.amount.toString() : "0",
-        timestamp: res.timestamp ? Number(res.timestamp) : 0,
-        memo: res.memo ? res.memo.toString() : "",
-        ledger: res.ledger ? Number(res.ledger) : 0,
-      };
-    }
-    return null;
-  } catch (error) {
-    console.error("Failed to get receipt:", error);
-    return null;
   }
 }
 
@@ -2278,59 +2028,6 @@ export async function getActiveStreamsForRecipient(
     (s): s is StreamRecord =>
       s !== null && s.recipient === recipientPublicKey && !s.closed,
   );
-}
-
-export async function listStreamsByPayer(
-  payerPublicKey: string,
-  offset: number,
-  limit: number,
-): Promise<StreamRecord[]> {
-  if (!CONTRACT_ID) return [];
-  try {
-    const contract = new Contract(CONTRACT_ID);
-    const tx = new TransactionBuilder(
-      new Account(payerPublicKey, "0"),
-      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE },
-    )
-      .addOperation(
-        contract.call(
-          "list_streams_by_payer",
-          new Address(payerPublicKey).toScVal(),
-          nativeToScVal(offset, { type: "u32" }),
-          nativeToScVal(limit, { type: "u32" })
-        )
-      )
-      .setTimeout(30)
-      .build();
-    const sim = await sorobanServer.simulateTransaction(tx);
-    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return [];
-    
-    const decodedArr = scValToNative(sim.result.retval) as Array<{
-      id: number;
-      payer: string;
-      recipient: string;
-      token: string;
-      rate_per_ledger: bigint;
-      deposited: bigint;
-      claimed: bigint;
-      start_ledger: number;
-      closed: boolean;
-    }>;
-    
-    return decodedArr.map(decoded => ({
-      id: Number(decoded.id),
-      payer: decoded.payer,
-      recipient: decoded.recipient,
-      token: decoded.token,
-      ratePerLedger: String(decoded.rate_per_ledger),
-      deposited: String(decoded.deposited),
-      claimed: String(decoded.claimed),
-      startLedger: Number(decoded.start_ledger),
-      closed: Boolean(decoded.closed),
-    }));
-  } catch {
-    return [];
-  }
 }
 
 /**
