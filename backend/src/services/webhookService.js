@@ -51,6 +51,9 @@ let nextId = 1;
 /** @type {Map<string, Function>} Active Horizon SSE close-stream handles keyed by publicKey */
 const activeStreams = new Map();
 
+/** @type {Set<Promise<void>>} In-flight webhook delivery requests, tracked for graceful shutdown */
+const pendingDeliveries = new Set();
+
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 /**
@@ -236,7 +239,16 @@ function startMonitoring(webhook) {
 
         const hooks = getWebhooksByPublicKey(webhook.publicKey);
         // Deliver in parallel; individual failures are swallowed in deliverWebhook.
-        await Promise.allSettled(hooks.map((h) => deliverWebhook(h, payload)));
+        // Each delivery is tracked in `pendingDeliveries` so a graceful shutdown
+        // can wait for in-flight HTTP requests before closing streams.
+        const deliveries = hooks.map((h) => {
+          const promise = deliverWebhook(h, payload).finally(() =>
+            pendingDeliveries.delete(promise),
+          );
+          pendingDeliveries.add(promise);
+          return promise;
+        });
+        await Promise.allSettled(deliveries);
       },
       onerror: (err) => {
         logger.error({

@@ -351,10 +351,18 @@ async function gracefulShutdown(signal, server, otelSdk) {
     if (err) logger.error({ err }, "Error closing HTTP server");
   });
 
-  // 2. Close Redis connection
+  // 2. Close Horizon SSE streams and wait for in-flight webhook deliveries
+  //    (bounded at 5s) so hooks don't leak hanging connections on restart.
+  try {
+    await closeAllStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing webhook streams");
+  }
+
+  // 3. Close Redis connection
   await closeRedis();
 
-  // 3. Flush OTel spans (time-boxed at 5 s)
+  // 4. Flush OTel spans (time-boxed at 5 s)
   if (otelSdk) {
     try {
       await Promise.race([
