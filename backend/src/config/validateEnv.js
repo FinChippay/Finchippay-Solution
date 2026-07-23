@@ -130,7 +130,14 @@ function collectErrors(env) {
       );
     }
   }
-
+  // ANCHORS_CONFIG is optional but if set must be valid JSON.
+  if (env.ANCHORS_CONFIG) {
+    try {
+      JSON.parse(env.ANCHORS_CONFIG);
+    } catch (err) {
+      errors.push(`ANCHORS_CONFIG must be valid JSON: ${err.message}`);
+    }
+  }
   return errors;
 }
 
