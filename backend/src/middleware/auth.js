@@ -59,8 +59,16 @@ function verifyJWT(req, res, next) {
     req.user = decoded; // { publicKey: "G...", iat, exp }
     next();
   } catch (err) {
-    const errorCode =
-      err.name === "TokenExpiredError" ? "AUTH_EXPIRED_TOKEN" : "AUTH_INVALID_TOKEN";
+    if (err.name === "TokenExpiredError") {
+      // Emits the legacy TOKEN_EXPIRED code rather than AUTH_EXPIRED_TOKEN:
+      // it is documented and asserted by existing consumers. It is registered
+      // in the catalogue as a deprecated alias so it still resolves and still
+      // carries a correlation ID (#270).
+      return res
+        .status(ERROR_CODES.TOKEN_EXPIRED.httpStatus)
+        .json(formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }));
+    }
+    const errorCode = "AUTH_INVALID_TOKEN";
     return res
       .status(ERROR_CODES[errorCode].httpStatus)
       .json(formatErrorResponse(errorCode, { reason: err.message }));

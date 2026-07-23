@@ -3,16 +3,21 @@
  * Global app wrapper for theme, wallet, navigation, and shared overlays.
  */
 
+import "@/lib/api";
 import type { AppProps } from "next/app";
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";
 import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import { FeatureFlagProvider } from "@/lib/FeatureFlags";
+import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
+import MobileBottomNav from "@/components/MobileBottomNav";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
@@ -101,18 +106,6 @@ function InstallBanner() {
   );
 }
 
-interface ThemeContextType {
-  theme: "dark" | "light";
-  toggleTheme: () => void;
-}
-
-export const ThemeContext = createContext<ThemeContextType>({
-  theme: "dark",
-  toggleTheme: () => {},
-});
-
-export const useTheme = () => useContext(ThemeContext);
-
 function AppShell({
   Component,
   pageProps,
@@ -155,16 +148,28 @@ function AppShellInner({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
+  const router = useRouter();
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
         <OfflineBanner />
         <Navbar />
-        <main>
-          <Component {...pageProps} stellarURI={stellarURI} />
+        <main className="pb-20 md:pb-0">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={router.route}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Component {...pageProps} stellarURI={stellarURI} />
+            </motion.div>
+          </AnimatePresence>
         </main>
         <InstallBanner />
+        <MobileBottomNav />
       </div>
 
       {publicKey && (
@@ -176,12 +181,11 @@ function AppShellInner({
           usdcBalance={null}
         />
       )}
-    </>
+    </MotionConfig>
   );
 }
 
 export default function App({ Component, pageProps }: AppProps) {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
 
@@ -232,21 +236,14 @@ export default function App({ Component, pageProps }: AppProps) {
     return () => window.removeEventListener("load", registerWorker);
   }, []);
 
-  const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    localStorage.setItem("finchippay:theme", nextTheme);
-  };
-
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <ThemeProvider>
       <ToastProvider>
       <WalletProvider>
         <Head>
           <title>Finchippay-Solution | Instant Stellar Payments</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
           <meta
             name="description"
             content="Send instant, low-fee payments globally using the Stellar network — streaming, escrow, multi-sig, and tips. Non-custodial, secure, and transparent."
@@ -292,7 +289,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <ToastContainer />
       </WalletProvider>
       </ToastProvider>
-    </ThemeContext.Provider>
+    </ThemeProvider>
     </I18nextProvider>
   );
 }

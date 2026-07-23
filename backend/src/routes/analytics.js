@@ -49,4 +49,11 @@ router.get(
   analyticsController.getActivityByDay,
 );
 
+router.get(
+  "/:publicKey/timeseries",
+  strictLimiter,
+  sanitizePublicKey,
+  analyticsController.getTimeseries
+);
+
 module.exports = router;
