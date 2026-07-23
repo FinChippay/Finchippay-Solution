@@ -43,4 +43,13 @@ const sensitiveLimiter = rateLimit({
   ...(store ? { store } : {}),
 });
 
-module.exports = { strictLimiter, sensitiveLimiter };
+const adminLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+  ...(store ? { store } : {}),
+});
+
+module.exports = { strictLimiter, sensitiveLimiter, adminLimiter };
