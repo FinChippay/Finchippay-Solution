@@ -12,6 +12,8 @@ const morgan = require("morgan");
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
+// Registers the correlation-ID provider for error bodies built in this process.
+require("./utils/errorResponse");
 
 const TURRETS_PORT = Number(process.env.TURRETS_PORT || 4100);
 

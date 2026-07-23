@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useWallet } from "@/lib/useWallet";
+import { listStreamsByPayer, StreamRecord } from "@/lib/stellar";
 
 export interface RecurringSchedule {
   id: string;
@@ -88,7 +90,11 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) {
+  const { publicKey } = useWallet();
   const [schedules, setSchedules] = useState<RecurringSchedule[]>([]);
+  const [contractStreams, setContractStreams] = useState<StreamRecord[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(10);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -97,6 +103,12 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   useEffect(() => {
     setSchedules(loadSchedules());
   }, []);
+
+  useEffect(() => {
+    if (publicKey) {
+      listStreamsByPayer(publicKey, offset, limit).then(setContractStreams).catch(console.error);
+    }
+  }, [publicKey, offset, limit]);
 
   const persist = (updated: RecurringSchedule[]) => {
     setSchedules(updated);
@@ -360,6 +372,51 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Contract Streams (Paginated) */}
+      {contractStreams.length > 0 && (
+        <div className="mt-8 space-y-4">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex justify-between items-center">
+            Active On-Chain Streams
+            <div className="flex gap-2 text-xs">
+              <button 
+                onClick={() => setOffset(Math.max(0, offset - limit))}
+                disabled={offset === 0}
+                className="text-stellar-600 disabled:opacity-50 cursor-pointer"
+              >
+                Previous
+              </button>
+              <button 
+                onClick={() => setOffset(offset + limit)}
+                disabled={contractStreams.length < limit}
+                className="text-stellar-600 disabled:opacity-50 cursor-pointer"
+              >
+                Next
+              </button>
+            </div>
+          </h3>
+          <div className="space-y-2">
+            {contractStreams.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] p-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="font-semibold text-sm text-slate-900 dark:text-white">Rate: {s.ratePerLedger} XLM/ledger</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 font-mono truncate">
+                    To: {s.recipient.slice(0, 8)}…{s.recipient.slice(-6)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Deposited: {s.deposited}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -1,11 +1,15 @@
 /**
  * components/CreatorTipsDashboard.tsx
  * Dashboard component for creators to view tips received.
+ *
+ * On-chain data (tip count + total from the Soroban contract) takes
+ * precedence over backend stats for the summary cards, per #62.
  */
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { formatXLM, shortenAddress, formatUSD } from "@/utils/format";
+import { formatXLM, shortenAddress, formatUSD, formatStroopsToXLM } from "@/utils/format";
+import { getContractTipTotal, getContractTipCount, CONTRACT_ID } from "@/lib/stellar";
 
 interface TipRecord {
   id: number;
@@ -43,6 +47,28 @@ export default function CreatorTipsDashboard({
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const pageSize = 10;
+
+  // On-chain tip data (authoritative, from the Soroban contract — #62)
+  const [onChainTipCount, setOnChainTipCount] = useState<number | null>(null);
+  const [onChainTipTotal, setOnChainTipTotal] = useState<string | null>(null);
+
+  const fetchOnChainStats = useCallback(async () => {
+    if (!publicKey || !CONTRACT_ID) return;
+    try {
+      const [count, total] = await Promise.all([
+        getContractTipCount(publicKey),
+        getContractTipTotal(publicKey),
+      ]);
+      setOnChainTipCount(count);
+      setOnChainTipTotal(total);
+    } catch (err) {
+      console.error("Failed to fetch on-chain tip stats:", err);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    fetchOnChainStats();
+  }, [fetchOnChainStats]);
 
   const fetchTips = useCallback(async () => {
     setLoading(true);
@@ -130,23 +156,45 @@ export default function CreatorTipsDashboard({
           <p className="text-xs uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400 mb-1">
             Total Tips Received
           </p>
+          {/* Prefer on-chain count (tip_count) over backend analytics (#62) */}
           <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-            {stats?.totalTips ?? 0}
+            {onChainTipCount !== null ? onChainTipCount : (stats?.totalTips ?? 0)}
           </p>
+          {onChainTipCount !== null && (
+            <p className="text-[10px] text-stellar-500/60 mt-0.5">on-chain</p>
+          )}
         </div>
 
         <div className="card bg-gradient-to-br from-emerald-500/10 to-transparent border-emerald-500/20">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400 mb-1">
             Total XLM Received
           </p>
-          <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-            {getTotalXLMReceived()}
-            <span className="text-stellar-700 dark:text-stellar-400 text-lg ml-1">XLM</span>
-          </p>
-          {xlmPrice && parseFloat(getTotalXLMReceived()) > 0 && (
-            <p className="text-xs text-emerald-400 mt-1">
-              ≈ {formatUSD(parseFloat(getTotalXLMReceived()) * xlmPrice)}
-            </p>
+          {/* Prefer on-chain total (tip_total in stroops) over backend (#62) */}
+          {onChainTipTotal !== null && CONTRACT_ID ? (
+            <>
+              <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
+                {formatStroopsToXLM(onChainTipTotal)}
+                <span className="text-stellar-700 dark:text-stellar-400 text-lg ml-1">XLM</span>
+              </p>
+              {xlmPrice && parseFloat(formatStroopsToXLM(onChainTipTotal)) > 0 && (
+                <p className="text-xs text-emerald-400 mt-1">
+                  ≈ {formatUSD(parseFloat(formatStroopsToXLM(onChainTipTotal)) * xlmPrice)}
+                </p>
+              )}
+              <p className="text-[10px] text-stellar-500/60 mt-0.5">on-chain</p>
+            </>
+          ) : (
+            <>
+              <p className="font-display text-2xl font-bold text-slate-900 dark:text-white">
+                {getTotalXLMReceived()}
+                <span className="text-stellar-700 dark:text-stellar-400 text-lg ml-1">XLM</span>
+              </p>
+              {xlmPrice && parseFloat(getTotalXLMReceived()) > 0 && (
+                <p className="text-xs text-emerald-400 mt-1">
+                  ≈ {formatUSD(parseFloat(getTotalXLMReceived()) * xlmPrice)}
+                </p>
+              )}
+            </>
           )}
         </div>
 

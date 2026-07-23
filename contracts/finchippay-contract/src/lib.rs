@@ -131,6 +131,8 @@ pub struct Escrow {
 
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
 const MAX_USER_ESCROWS: u32 = 100;
+const MAX_USER_STREAMS: u32 = 100;
+const MAX_PAGE_SIZE: u32 = 50;
 
 // ─── Streaming payments ───────────────────────────────────────────────────────
 
@@ -262,6 +264,7 @@ pub enum DataKey {
     // Multi-sig
     MultiSigCount,
     MultiSig(u32),
+    StreamByPayer(Address),
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -591,6 +594,13 @@ impl FinchippayContract {
         val
     }
 
+    /// Stable alias for `get_tip_total`. The dashboard and analytics pages
+    /// call this instead of the backend analytics endpoint so that tip data
+    /// is always read from the canonical on-chain source.
+    pub fn tip_total(env: Env, address: Address) -> i128 {
+        Self::get_tip_total(env, address)
+    }
+
     /// Return the number of tips received by `recipient`.
     pub fn get_tip_count(env: Env, recipient: Address) -> u32 {
         let key = DataKey::TipCount(recipient);
@@ -599,6 +609,13 @@ impl FinchippayContract {
             bump(&env, &key);
         }
         val
+    }
+
+    /// Stable alias for `get_tip_count`. The dashboard and analytics pages
+    /// call this instead of the backend analytics endpoint so that tip data
+    /// is always read from the canonical on-chain source.
+    pub fn tip_count(env: Env, address: Address) -> u32 {
+        Self::get_tip_count(env, address)
     }
 
     /// Return the tip record at `index` for `recipient`.
@@ -906,6 +923,12 @@ impl FinchippayContract {
             .unwrap_or(0)
     }
 
+    /// Stable alias for `get_escrow_count`. Provides a consistent SDK
+    /// binding for dashboard and analytics consumers.
+    pub fn escrow_count(env: Env) -> u32 {
+        Self::get_escrow_count(env)
+    }
+
     // ─── Streaming payments ───────────────────────────────────────────────────
 
     /// Open a new payment stream. `payer` deposits `deposit` tokens that will
@@ -969,6 +992,18 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::StreamCount, &(id + 1));
         bump(&env, &DataKey::StreamCount);
+
+        let s_key = DataKey::StreamByPayer(payer.clone());
+        let mut p_streams: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&s_key)
+            .unwrap_or(Vec::new(&env));
+        if p_streams.len() < MAX_USER_STREAMS {
+            p_streams.push_back(id);
+            env.storage().persistent().set(&s_key, &p_streams);
+            bump(&env, &s_key);
+        }
 
         env.events().publish(
             (Symbol::new(&env, "stream_open"), id),
@@ -1105,9 +1140,26 @@ impl FinchippayContract {
             .set(&DataKey::Stream(stream_id), &stream);
         bump(&env, &DataKey::Stream(stream_id));
 
+        let s_key = DataKey::StreamByPayer(payer.clone());
+        let p_streams: Vec<u32> = env.storage().persistent().get(&s_key).unwrap_or(Vec::new(&env));
+        let mut new_streams = Vec::new(&env);
+        for s_id in p_streams.iter() {
+            if s_id != stream_id {
+                new_streams.push_back(s_id);
+            }
+        }
+        env.storage().persistent().set(&s_key, &new_streams);
+        bump(&env, &s_key);
+
         env.events().publish(
             (Symbol::new(&env, "stream_close"), stream_id),
             (payer, refund),
+        );
+
+        // Emit final close event for indexing/UI.
+        env.events().publish(
+            (Symbol::new(&env, "stream_closed"), stream_id),
+            (refund, claimable),
         );
         refund
     }
@@ -1247,6 +1299,61 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::StreamCount)
             .unwrap_or(0)
+    }
+
+    /// Stable alias for `get_stream_count`. Generates a consistent SDK
+    /// binding name that will not change across contract upgrades, making
+    /// dashboard and analytics integrations resilient to internal refactors.
+    pub fn stream_count(env: Env) -> u32 {
+        Self::get_stream_count(env)
+    }
+
+    pub fn list_streams_by_payer(env: Env, payer: Address, offset: u32, limit: u32) -> Vec<Stream> {
+        let s_key = DataKey::StreamByPayer(payer);
+        let p_streams: Vec<u32> = env.storage().persistent().get(&s_key).unwrap_or(Vec::new(&env));
+        if env.storage().persistent().has(&s_key) {
+            bump(&env, &s_key);
+        }
+        let total = p_streams.len();
+        if offset >= total {
+            return Vec::new(&env);
+        }
+        let max_limit = limit.min(MAX_PAGE_SIZE);
+        let mut end = offset.saturating_add(max_limit);
+        if end > total {
+            end = total;
+        }
+        let mut result = Vec::new(&env);
+        for i in offset..end {
+            let id = p_streams.get(i).unwrap();
+            let stream: Stream = env.storage().persistent().get(&DataKey::Stream(id)).unwrap();
+            result.push_back(stream);
+        }
+        result
+    }
+
+    pub fn list_escrows_by_recipient(env: Env, recipient: Address, offset: u32, limit: u32) -> Vec<Escrow> {
+        let e_key = DataKey::EscrowByRecipient(recipient);
+        let r_escrows: Vec<u32> = env.storage().persistent().get(&e_key).unwrap_or(Vec::new(&env));
+        if env.storage().persistent().has(&e_key) {
+            bump(&env, &e_key);
+        }
+        let total = r_escrows.len();
+        if offset >= total {
+            return Vec::new(&env);
+        }
+        let max_limit = limit.min(MAX_PAGE_SIZE);
+        let mut end = offset.saturating_add(max_limit);
+        if end > total {
+            end = total;
+        }
+        let mut result = Vec::new(&env);
+        for i in offset..end {
+            let id = r_escrows.get(i).unwrap();
+            let escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).unwrap();
+            result.push_back(escrow);
+        }
+        result
     }
 
     // Internal: compute claimable amount for a stream at the current ledger.
@@ -1516,6 +1623,12 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::MultiSigCount)
             .unwrap_or(0)
+    }
+
+    /// Stable alias for `get_multisig_count`. Provides a consistent SDK
+    /// binding for dashboard and analytics consumers.
+    pub fn multisig_count(env: Env) -> u32 {
+        Self::get_multisig_count(env)
     }
 
     // ─── Diagnostic helpers ───────────────────────────────────────────────────
@@ -1959,6 +2072,31 @@ mod tests {
         assert_eq!(refund, 700);
         assert_eq!(token.balance(&payer), 700);
         assert_eq!(token.balance(&recipient), 300);
+        assert!(client.get_stream(&sid).closed);
+    }
+
+    #[test]
+    fn test_close_stream_at_halfway_ledger_pays_claimable_to_recipient() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 1_000);
+        let token = token::Client::new(&env, &token_id);
+
+        let start = env.ledger().sequence();
+        let sid = client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+
+        // Close after 50 ledgers -> 500 streamed, 500 refund.
+        advance(&env, start + 50);
+        client.close_stream(&sid, &payer);
+
+        // Recipient should receive every token they earned.
+        assert_eq!(token.balance(&recipient), 500);
+        // Payer should receive only the truly unearned remainder.
+        assert_eq!(token.balance(&payer), 500);
         assert!(client.get_stream(&sid).closed);
     }
 
@@ -2557,6 +2695,114 @@ mod tests {
         assert_eq!((e1, s1, m1), (1, 1, 0));
     }
 
+    // ── Dashboard view-function aliases ───────────────────────────────────
+    // These tests cover the five stable short-name aliases introduced in #62.
+    // Each alias simply delegates to its `get_*` counterpart; the tests verify
+    // that counts increment correctly after creating records and that the
+    // per-address tip functions return the same values as the originals.
+
+    #[test]
+    fn test_stream_count_alias_increments_after_open() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 5_000);
+
+        assert_eq!(client.stream_count(), 0);
+        client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+        assert_eq!(client.stream_count(), 1);
+        client.open_stream(&token_id, &payer, &recipient, &5, &500);
+        assert_eq!(client.stream_count(), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.stream_count(), client.get_stream_count());
+    }
+
+    #[test]
+    fn test_escrow_count_alias_increments_after_create() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        assert_eq!(client.escrow_count(), 0);
+        let release = env.ledger().sequence() + 10;
+        let memo = Symbol::new(&env, "e");
+        client.create_escrow(&token_id, &from, &to, &2_000, &release, &memo);
+        assert_eq!(client.escrow_count(), 1);
+        client.create_escrow(&token_id, &from, &to, &2_000, &release, &memo);
+        assert_eq!(client.escrow_count(), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.escrow_count(), client.get_escrow_count());
+    }
+
+    #[test]
+    fn test_multisig_count_alias_increments_after_create() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let proposer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &proposer, 5_000);
+
+        assert_eq!(client.multisig_count(), 0);
+        let expiry = env.ledger().sequence() + 1_000;
+        let signers = soroban_sdk::Vec::from_array(&env, [s1.clone()]);
+        client.create_multisig(&token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
+        assert_eq!(client.multisig_count(), 1);
+        client.create_multisig(&token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
+        assert_eq!(client.multisig_count(), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.multisig_count(), client.get_multisig_count());
+    }
+
+    #[test]
+    fn test_tip_count_alias_matches_get_tip_count() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 2_000);
+
+        // Before any tips.
+        assert_eq!(client.tip_count(&to), 0);
+        client.send_tip(&token_id, &from, &to, &300, &Symbol::new(&env, "t1"));
+        assert_eq!(client.tip_count(&to), 1);
+        client.send_tip(&token_id, &from, &to, &500, &Symbol::new(&env, "t2"));
+        assert_eq!(client.tip_count(&to), 2);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.tip_count(&to), client.get_tip_count(&to));
+    }
+
+    #[test]
+    fn test_tip_total_alias_matches_get_tip_total() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 3_000);
+
+        // Before any tips.
+        assert_eq!(client.tip_total(&to), 0);
+        client.send_tip(&token_id, &from, &to, &400, &Symbol::new(&env, "a"));
+        assert_eq!(client.tip_total(&to), 400);
+        client.send_tip(&token_id, &from, &to, &600, &Symbol::new(&env, "b"));
+        assert_eq!(client.tip_total(&to), 1_000);
+        // Alias agrees with the canonical getter.
+        assert_eq!(client.tip_total(&to), client.get_tip_total(&to));
+    }
+
     // ── Minimum amount enforcement ────────────────────────────────────────
 
     #[test]
@@ -2883,19 +3129,16 @@ mod tests {
         memos.push_back(Symbol::new(&env, "memo2"));
         client.batch_send(&token_id, &from, &recipients, &amounts, &memos);
 
-        let target_topic = (Symbol::new(&env, "batch_sent"),).into_val(&env);
-        let events: Vec<_> = env
-            .events()
-            .all()
-            .filter_by_contract(&contract_id)
-            .into_iter()
-            .filter(|e| e.1 == target_topic)
-            .collect();
-
+        let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
             vec![
                 &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "init"),).into_val(&env),
+                    admin.into_val(&env),
+                ),
                 (
                     contract_id.clone(),
                     (Symbol::new(&env, "batch_sent"),).into_val(&env),
@@ -2932,5 +3175,32 @@ mod tests {
                 ),
             ]
         );
+    }
+    #[test]
+    fn test_pagination_bounds() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 100_000);
+
+        // Open 3 streams
+        for _ in 0..3 {
+            client.open_stream(&token_id, &payer, &recipient, &10, &1_000);
+        }
+
+        // Test list_streams_by_payer completely full response sequence
+        let all = client.list_streams_by_payer(&payer, &0, &10);
+        assert_eq!(all.len(), 3);
+
+        // Test partially filled tracking bounds
+        let part = client.list_streams_by_payer(&payer, &1, &1);
+        assert_eq!(part.len(), 1);
+
+        // Test empty arrays (out of bounds)
+        let empty = client.list_streams_by_payer(&payer, &5, &10);
+        assert_eq!(empty.len(), 0);
     }
 }

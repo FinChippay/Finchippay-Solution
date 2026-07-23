@@ -22,12 +22,18 @@ export interface StandardError {
   code: string;
   message: string;
   details?: unknown;
+  /**
+   * Request correlation ID from the API, matching the `X-Request-ID` response
+   * header and the server logs. Absent for errors raised client-side (#270).
+   */
+  correlationId?: string;
 }
 
 export interface ApiErrorResponse {
   error?: {
     code?: string;
     message?: string;
+    correlationId?: string;
     details?: unknown;
   };
   // Legacy fallback shapes (in transition)
@@ -95,11 +101,12 @@ export async function parseApiError(
     return synthesizeFromStatus(response.status);
   }
 
-  // Canonical shape: { error: { code, message, details? } }
+  // Canonical shape: { error: { code, message, correlationId?, details? } }
   if (body.error && typeof body.error === "object") {
     const apiErr = body.error as {
       code?: string;
       message?: string;
+      correlationId?: string;
       details?: unknown;
     };
     const code = apiErr.code || codeFromHttpStatus(response.status);
@@ -108,6 +115,11 @@ export async function parseApiError(
       code: resolved.code,
       message: apiErr.message || resolved.message,
       details: apiErr.details,
+      // Fall back to the header: it is set even when the body predates #270.
+      correlationId:
+        apiErr.correlationId ||
+        response.headers?.get?.("X-Request-ID") ||
+        undefined,
     };
   }
 

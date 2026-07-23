@@ -642,6 +642,7 @@ function SendPaymentForm({
     if (!canSubmit) return;
     startTracker();
     let activeStep: PaymentStepId = "building";
+    let pendingId: string | null = null;
     try {
       markStepStarted("building");
       setStatus("building");
@@ -683,18 +684,41 @@ function SendPaymentForm({
       if (signError || !signedXDR) throw new Error(signError || "Signing failed");
       markStepCompleted("signing");
 
+      pendingId = "pending-" + Date.now();
+      const pendingTx = {
+        id: pendingId,
+        type: "sent" as const,
+        amount: amountNum.toFixed(7),
+        asset: typeof assetParam === "string" ? assetParam : assetParam.code,
+        from: publicKey,
+        to: paymentDestination,
+        memo: memo.trim() || undefined,
+        createdAt: new Date().toISOString(),
+        transactionHash: pendingId,
+        isPending: true,
+      };
+      
+      const prevPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]");
+      sessionStorage.setItem("finchippay:pending-txs", JSON.stringify([pendingTx, ...prevPending]));
+      window.dispatchEvent(new CustomEvent("finchippay:pending-tx", { detail: pendingTx }));
+
       activeStep = "submitting";
       markStepStarted("submitting");
       setStatus("submitting");
       const result = await submitTransaction(signedXDR);
       setTxHash(result.hash);
-      markStepCompleted("submitting");
 
       activeStep = "confirming";
       markStepStarted("confirming");
       setStatus("confirming");
       await waitForTransactionConfirmation(result.hash);
       markStepCompleted("confirming");
+      
+      const resolvedTx = { ...pendingTx, transactionHash: result.hash, isPending: false };
+      const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: any) => t.id !== pendingId);
+      sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+      window.dispatchEvent(new CustomEvent("finchippay:resolved-tx", { detail: { pendingId, resolvedTx } }));
+      markStepCompleted("submitting");
 
       setStatus("success");
       saveRecipient(trimmedDestination);
@@ -707,6 +731,11 @@ function SendPaymentForm({
 
       onSuccess?.(result.hash);
     } catch (err: unknown) {
+      if (pendingId) {
+        const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: any) => t.id !== pendingId);
+        sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+        window.dispatchEvent(new CustomEvent("finchippay:failed-tx", { detail: { pendingId } }));
+      }
       const message = err instanceof Error ? err.message : "An unexpected error occurred";
       setError(message);
       markStepFailed(activeStep, message);

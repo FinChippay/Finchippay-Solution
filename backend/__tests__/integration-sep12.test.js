@@ -64,7 +64,9 @@ describe("SEP-12 KYC Integration", () => {
         .send({ fields: { first_name: "John" } });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("anchorName");
+      // Canonical error shape (#270): { error: { code, message, details } }.
+      expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+      expect(res.body.error.details.fields).toContain("anchorName");
     });
 
     it("returns 400 when fields is missing", async () => {

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import clsx from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
 import { CheckIcon, AlertCircleIcon } from "@/components/icons";
 import { useToastContext, type ToastItem } from "@/lib/ToastContext";
 
@@ -25,14 +26,12 @@ export default function Toast({
   onRetry,
   duration = 4000,
 }: ToastProps) {
-  const [visible, setVisible] = useState(true);
   const [startX, setStartX] = useState(0);
   const [currentX, setCurrentX] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setVisible(false);
-      if (onClose) setTimeout(onClose, 300);
+      if (onClose) onClose();
     }, duration);
     return () => clearTimeout(timer);
   }, [duration, onClose]);
@@ -41,8 +40,7 @@ export default function Toast({
   const handleTouchMove = (e: React.TouchEvent) => setCurrentX(e.touches[0].clientX);
   const handleTouchEnd = () => {
     if (currentX > 0 && currentX - startX > 50) {
-      setVisible(false);
-      setTimeout(() => onClose?.(), 300);
+      onClose?.();
     }
     setStartX(0);
     setCurrentX(0);
@@ -51,7 +49,11 @@ export default function Toast({
   const deltaX = currentX > startX ? currentX - startX : 0;
 
   return (
-    <div
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: 100 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, transition: { duration: 0.2 } }}
       role="status"
       aria-live="polite"
       aria-atomic="true"
@@ -64,8 +66,7 @@ export default function Toast({
       }}
       className={clsx(
         "flex items-start gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white",
-        "border shadow-xl transition-all duration-300",
-        visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4",
+        "border shadow-xl",
         type === "success" && "bg-emerald-600 border-emerald-500",
         type === "error" && "bg-red-600 border-red-500",
         type === "info" && "bg-slate-800 border-white/10"
@@ -91,7 +92,7 @@ export default function Toast({
           </button>
         )}
         <button
-          onClick={() => { setVisible(false); setTimeout(() => onClose?.(), 300); }}
+          onClick={() => { onClose?.(); }}
           className="text-white/60 hover:text-white transition-colors"
           aria-label="Dismiss notification"
         >
@@ -100,7 +101,7 @@ export default function Toast({
           </svg>
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -129,11 +130,13 @@ export function ToastContainer() {
       aria-label="Notifications"
       className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)] pointer-events-none"
     >
-      {toasts.map((t) => (
-        <div key={t.id} className="pointer-events-auto animate-slide-up">
-          <ToastItemWrapper toast={t} />
-        </div>
-      ))}
+      <AnimatePresence mode="popLayout">
+        {toasts.map((t) => (
+          <div key={t.id} className="pointer-events-auto">
+            <ToastItemWrapper toast={t} />
+          </div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

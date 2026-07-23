@@ -13,6 +13,7 @@ const { Utils, Keypair } = require("@stellar/stellar-sdk");
 
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const tokenService = require("../services/tokenService");
+const { sendError } = require("../utils/errorResponse");
 
 const router = express.Router();
 
@@ -119,9 +120,9 @@ router.post("/refresh", (req, res) => {
   if (!rotated) {
     res.clearCookie("jwt");
     res.clearCookie("refreshToken");
-    return res
-      .status(401)
-      .json({ error: { code: "AUTH_INVALID_TOKEN", message: "Invalid or expired refresh token." } });
+    return sendError(res, "AUTH_INVALID_TOKEN", {
+      message: "Invalid or expired refresh token.",
+    });
   }
 
   const { accessToken, refreshToken: newRefreshToken } = rotated;
