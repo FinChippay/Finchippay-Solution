@@ -2,7 +2,13 @@
 
 const express = require("express");
 const router = express.Router();
-const { registerWebhook, getWebhooksByPublicKey, deleteWebhook } = require("../services/webhookService");
+const {
+  registerWebhook,
+  getWebhooksByPublicKey,
+  deleteWebhook,
+  getDeadDeliveries,
+  retryDeadDeliveries,
+} = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
@@ -76,6 +82,48 @@ router.get("/:publicKey", (req, res) => {
   }
   const hooks = getWebhooksByPublicKey(publicKey);
   return res.json({ webhooks: hooks });
+});
+
+/**
+ * GET /api/webhooks/:publicKey/failures
+ * Get dead letter queue (failed webhook deliveries) for a Stellar account.
+ */
+router.get("/:publicKey/failures", (req, res) => {
+  const { publicKey } = req.params;
+  if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
+    return res
+      .status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
+  }
+  try {
+    const failures = getDeadDeliveries(publicKey);
+    return res.json({ failures });
+  } catch (err) {
+    return res
+      .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
+      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
+  }
+});
+
+/**
+ * POST /api/webhooks/:publicKey/retry
+ * Reset dead deliveries to pending and trigger retry for a Stellar account.
+ */
+router.post("/:publicKey/retry", (req, res) => {
+  const { publicKey } = req.params;
+  if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
+    return res
+      .status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
+  }
+  try {
+    const result = retryDeadDeliveries(publicKey);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res
+      .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
+      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
+  }
 });
 
 /**

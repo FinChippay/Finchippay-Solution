@@ -88,6 +88,21 @@ function refreshTokens(): Promise<string | null> {
 }
 
 /**
+ * Return a usable access token, refreshing from the stored refresh token if the
+ * in-memory one is missing (e.g. right after a page reload). Returns null when
+ * the user is not authenticated.
+ *
+ * `withAuth` does this implicitly for fetch calls; callers that build a URL
+ * themselves — such as the SSE balance stream, since `EventSource` cannot set
+ * an Authorization header — need it explicitly.
+ */
+export async function ensureAccessToken(): Promise<string | null> {
+  if (inMemoryAccessToken) return inMemoryAccessToken;
+  if (!getRefreshToken()) return null;
+  return refreshTokens();
+}
+
+/**
  * withAuth wrapper that catches 401, calls /api/auth/refresh, and retries.
  */
 export function withAuth(fetchFn: typeof fetch): typeof fetch {

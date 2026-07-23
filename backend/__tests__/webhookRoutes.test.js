@@ -6,6 +6,7 @@
 jest.mock("../src/services/webhookService", () => {
   const store = new Map();
   let nextId = 1;
+  const deadDeliveries = [];
 
   return {
     registerWebhook: jest.fn((publicKey, url, secret) => {
@@ -23,6 +24,13 @@ jest.mock("../src/services/webhookService", () => {
       Array.from(store.values()).filter((w) => w.publicKey === publicKey)
     ),
     deleteWebhook: jest.fn((id) => store.delete(id)),
+    getDeadDeliveries: jest.fn((publicKey) =>
+      deadDeliveries.filter((d) => d.publicKey === publicKey)
+    ),
+    retryDeadDeliveries: jest.fn((publicKey) => {
+      const count = deadDeliveries.filter((d) => d.publicKey === publicKey).length;
+      return { reset: count };
+    }),
   };
 });
 
@@ -76,6 +84,41 @@ describe("GET /api/webhooks/:publicKey", () => {
     const res = await request(app()).get(`/api/webhooks/${ME}`);
     expect(res.status).toBe(200);
     expect(res.body.webhooks).toHaveLength(1);
+  });
+});
+
+describe("GET /api/webhooks/:publicKey/failures", () => {
+  it("returns dead deliveries for the account", async () => {
+    webhookService.getDeadDeliveries.mockReturnValue([
+      { id: "del-1", webhook_id: "1", event_type: "payment.received", status: "dead", attempts: 5 },
+    ]);
+
+    const res = await request(app()).get(`/api/webhooks/${ME}/failures`);
+    expect(res.status).toBe(200);
+    expect(res.body.failures).toHaveLength(1);
+    expect(res.body.failures[0].status).toBe("dead");
+  });
+
+  it("validates public key format", async () => {
+    const res = await request(app()).get("/api/webhooks/invalid/failures");
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/webhooks/:publicKey/retry", () => {
+  it("resets dead deliveries for retry", async () => {
+    webhookService.retryDeadDeliveries.mockReturnValue({ reset: 3 });
+
+    const res = await request(app()).post(`/api/webhooks/${ME}/retry`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.reset).toBe(3);
+    expect(webhookService.retryDeadDeliveries).toHaveBeenCalledWith(ME);
+  });
+
+  it("validates public key format", async () => {
+    const res = await request(app()).post("/api/webhooks/invalid/retry");
+    expect(res.status).toBe(400);
   });
 });
 

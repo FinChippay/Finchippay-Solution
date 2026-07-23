@@ -82,6 +82,7 @@ import { useToastContext } from "@/lib/ToastContext";
 import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
+import { useBalanceStream } from "@/lib/useBalanceStream";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
@@ -163,7 +164,12 @@ function formatSnapshotTime(savedAt: number) {
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
   const { t } = useTranslation("common");
-  const AUTO_REFRESH_SECONDS = 30;
+  // Balance arrives over SSE, falling back to polling automatically (#157).
+  const {
+    xlmBalance: streamedXlmBalance,
+    isLive: isBalanceLive,
+    lastUpdatedAt: balanceUpdatedAt,
+  } = useBalanceStream(publicKey);
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
   // now-hidden Connect control (#252).
@@ -184,7 +190,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [addressExpanded, setAddressExpanded] = useState(false);
   const [balanceFlash, setBalanceFlash] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_SECONDS);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const { addToast } = useToastContext();
   const showToast = useCallback((msg: string) => addToast(msg, "info"), [addToast]);
@@ -362,7 +367,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const refreshBalance = useCallback(async () => {
     if (!publicKey) return;
     setIsRefreshingBalance(true);
-    setRefreshCountdown(AUTO_REFRESH_SECONDS);
     try {
       await fetchBalance();
     } finally {
@@ -635,21 +639,34 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     fetchBalance();
   }, [fetchBalance, refreshKey]);
 
+  // Render the streamed balance immediately, then pull the rest of the account
+  // (USDC, other assets, reserve) so every figure on the card agrees. The very
+  // first delivery is skipped: the initial fetchBalance already covers it.
+  const seenFirstStreamedBalanceRef = useRef(false);
+
   useEffect(() => {
-    if (!publicKey) return;
+    seenFirstStreamedBalanceRef.current = false;
+  }, [publicKey]);
 
-    const intervalId = window.setInterval(() => {
-      setRefreshCountdown((current) => {
-        if (current <= 1) {
-          void refreshBalance();
-          return AUTO_REFRESH_SECONDS;
-        }
-        return current - 1;
-      });
-    }, 1000);
+  useEffect(() => {
+    if (!publicKey || balanceUpdatedAt === null) return;
 
-    return () => window.clearInterval(intervalId);
-  }, [publicKey, refreshBalance]);
+    setXlmBalance((prev) => {
+      if (prev !== null && prev !== streamedXlmBalance) {
+        setBalanceFlash(true);
+        setTimeout(() => setBalanceFlash(false), 800);
+      }
+      return streamedXlmBalance;
+    });
+    setStaleBalanceAt(null);
+
+    if (!seenFirstStreamedBalanceRef.current) {
+      seenFirstStreamedBalanceRef.current = true;
+      return;
+    }
+
+    void fetchBalance();
+  }, [publicKey, streamedXlmBalance, balanceUpdatedAt, fetchBalance]);
 
   useEffect(() => {
     setFriendbotSuccessMessage(null);
@@ -707,7 +724,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   };
 
   const handleManualRefresh = () => {
-    setRefreshCountdown(30);
     fetchBalance();
   };
 
@@ -1136,8 +1152,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   <RefreshIcon className={`w-3 h-3 ${isRefreshingBalance ? "animate-spin" : ""}`} />
                   {isRefreshingBalance ? t("dashboard.refreshing") : t("dashboard.refresh")}
                 </button>
-                <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400 sm:text-right">
-                  {t("dashboard.refreshingIn")} {refreshCountdown}s
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 sm:justify-end">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      isBalanceLive ? "animate-pulse bg-emerald-400" : "bg-amber-400"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {isBalanceLive ? t("dashboard.balanceLive") : t("dashboard.balancePolling")}
                 </p>
               </div>
             ) : accountNotFound && isTestnet ? (
