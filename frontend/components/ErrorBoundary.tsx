@@ -42,16 +42,16 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="p-6 rounded-2xl border border-red-500/20 bg-red-950/10 backdrop-blur-md text-slate-200 shadow-xl max-w-lg mx-auto my-4 animate-fade-in">
+        <div className="p-6 rounded-2xl border border-red-500/20 bg-red-50 dark:bg-red-950/10 backdrop-blur-md text-slate-700 dark:text-slate-200 shadow-xl max-w-lg mx-auto my-4 animate-fade-in">
           <div className="flex items-start gap-4">
-            <div className="p-3 rounded-xl bg-red-500/10 text-red-400 flex-shrink-0">
+            <div className="p-3 rounded-xl bg-red-500/10 text-red-700 dark:text-red-400 flex-shrink-0">
               <AlertCircleIcon className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-red-400">
+              <h3 className="text-lg font-semibold text-red-700 dark:text-red-400">
                 Failed to load {this.props.name || "component"}
               </h3>
-              <p className="mt-1 text-sm text-slate-400 leading-relaxed">
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
                 An unexpected error occurred while rendering this section.
               </p>
               {this.state.error && (
@@ -61,7 +61,7 @@ export class ErrorBoundary extends Component<Props, State> {
               )}
               <button
                 onClick={this.handleReset}
-                className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 active:bg-red-500/40 border border-red-500/30 text-red-300 text-sm font-medium rounded-xl transition-all duration-200"
+                className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 active:bg-red-500/40 border border-red-500/30 text-red-700 dark:text-red-300 text-sm font-medium rounded-xl transition-all duration-200"
               >
                 Try Again
               </button>

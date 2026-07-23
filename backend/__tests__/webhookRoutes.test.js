@@ -48,7 +48,7 @@ describe("POST /api/webhooks", () => {
   it("requires publicKey, url, and secret", async () => {
     const res = await request(app()).post("/api/webhooks").send({ url: "https://x.test/h" });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/required/i);
+    expect(res.body.error.message).toMatch(/required/i);
   });
 
   it("registers a webhook", async () => {
@@ -93,6 +93,6 @@ describe("DELETE /api/webhooks/:id", () => {
 
     const res = await request(app()).delete("/api/webhooks/missing");
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe("Webhook not found");
+    expect(res.body.error.code).toBe("RES_NOT_FOUND");
   });
 });

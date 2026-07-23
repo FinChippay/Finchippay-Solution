@@ -24,7 +24,8 @@ const { NodeSDK } = require("@opentelemetry/sdk-node");
 const {
   getNodeAutoInstrumentations,
 } = require("@opentelemetry/auto-instrumentations-node");
-const { diag, DiagConsoleLogger, DiagLogLevel } = require("@opentelemetry/api");
+const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
+const { diag, DiagConsoleLogger, DiagLogLevel, trace } = require("@opentelemetry/api");
 const logger = require("../utils/logger");
 
 // ─── Guard: skip in test environment or when no endpoint is configured ────────
@@ -51,9 +52,13 @@ if (NODE_ENV === "test") {
 
   // ─── SDK initialisation ──────────────────────────────────────────────────
 
+  const traceExporter = new OTLPTraceExporter({
+    url: OTLP_ENDPOINT.endsWith("/v1/traces") ? OTLP_ENDPOINT : `${OTLP_ENDPOINT}/v1/traces`,
+  });
+
   sdk = new NodeSDK({
     serviceName: process.env.OTEL_SERVICE_NAME || "finchippay-backend",
-
+    traceExporter,
     instrumentations: [
       getNodeAutoInstrumentations({
         // We add custom spans for Horizon calls in stellarService.js;
@@ -76,9 +81,6 @@ if (NODE_ENV === "test") {
         },
       }),
     ],
-
-    // OTLP exporter — default protocol is http/protobuf (port 4318).
-    // For gRPC (port 4317) install @opentelemetry/exporter-trace-otlp-grpc.
   });
 
   try {
@@ -96,4 +98,8 @@ if (NODE_ENV === "test") {
   }
 }
 
-module.exports = { sdk };
+function getTracer(name) {
+  return trace.getTracer(name || "finchippay-backend");
+}
+
+module.exports = { sdk, getTracer };

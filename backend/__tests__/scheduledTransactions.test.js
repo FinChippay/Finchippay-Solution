@@ -57,7 +57,7 @@ describe("Scheduled Transactions Routes", () => {
         .send({ submitAt: "2026-08-01T12:00:00Z" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("Missing");
+      expect(res.body.error.message).toMatch(/missing/i);
     });
 
     it("returns 400 when submitAt is not a valid date", async () => {
@@ -66,7 +66,7 @@ describe("Scheduled Transactions Routes", () => {
         .send({ signedXDR: "AAAAAgAAAAC...", submitAt: "not-a-date", publicKey: "GABC123" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("valid ISO 8601 date");
+      expect(res.body.error.message).toContain("valid ISO 8601 date");
     });
 
     it("forwards service errors via next()", async () => {
@@ -139,7 +139,7 @@ describe("Scheduled Transactions Routes", () => {
       const res = await request(app).delete("/api/scheduled-txns/tx-999");
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toContain("not found");
+      expect(res.body.error.message).toContain("not found");
     });
 
     it("forwards service errors", async () => {

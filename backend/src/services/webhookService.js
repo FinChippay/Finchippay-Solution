@@ -27,6 +27,8 @@ const crypto = require("crypto");
 const { Horizon } = require("@stellar/stellar-sdk");
 const logger = require("../utils/logger");
 const metrics = require("./metricsService");
+const tracer = require("../config/tracing").getTracer("webhook-service");
+const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 require("dotenv").config();
 
@@ -48,6 +50,9 @@ let nextId = 1;
 
 /** @type {Map<string, Function>} Active Horizon SSE close-stream handles keyed by publicKey */
 const activeStreams = new Map();
+
+/** @type {Set<Promise<void>>} In-flight webhook delivery requests, tracked for graceful shutdown */
+const pendingDeliveries = new Set();
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
@@ -133,17 +138,31 @@ function signPayload(secret, payload) {
  * @returns {Promise<void>}
  */
 async function deliverWebhook(webhook, payload) {
+  const span = tracer.startSpan("webhook.delivery");
+  span.setAttributes({
+    "webhook.id": webhook.id,
+    "webhook.url": webhook.url,
+  });
+
   const signature = signPayload(webhook.secret, payload);
   try {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Webhook-Signature": signature,
+      ...getRequestIdHeader(),
+    };
+
+    // Inject trace parent headers into outgoing request
+    propagation.inject(context.active(), headers);
+
     const res = await fetch(webhook.url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Webhook-Signature": signature,
-        ...getRequestIdHeader(),
-      },
+      headers,
       body: JSON.stringify(payload),
     });
+
+    span.setAttribute("http.status_code", res.status);
+
     if (!res.ok) {
       logger.error({
         type: "webhook_delivery_failed",
@@ -151,8 +170,10 @@ async function deliverWebhook(webhook, payload) {
         status: res.status,
         url: webhook.url,
       });
+      span.setStatus({ code: 2, message: `Delivery failed with status ${res.status}` });
     } else {
       logger.info({ type: "webhook_delivered", id: webhook.id, url: webhook.url });
+      span.setStatus({ code: 1 });
     }
   } catch (err) {
     logger.error({
@@ -161,6 +182,10 @@ async function deliverWebhook(webhook, payload) {
       url: webhook.url,
       error: err.message,
     });
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+  } finally {
+    span.end();
   }
 }
 
@@ -214,7 +239,16 @@ function startMonitoring(webhook) {
 
         const hooks = getWebhooksByPublicKey(webhook.publicKey);
         // Deliver in parallel; individual failures are swallowed in deliverWebhook.
-        await Promise.allSettled(hooks.map((h) => deliverWebhook(h, payload)));
+        // Each delivery is tracked in `pendingDeliveries` so a graceful shutdown
+        // can wait for in-flight HTTP requests before closing streams.
+        const deliveries = hooks.map((h) => {
+          const promise = deliverWebhook(h, payload).finally(() =>
+            pendingDeliveries.delete(promise),
+          );
+          pendingDeliveries.add(promise);
+          return promise;
+        });
+        await Promise.allSettled(deliveries);
       },
       onerror: (err) => {
         logger.error({
@@ -234,4 +268,4 @@ function startMonitoring(webhook) {
   logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
 }
 
-module.exports = { registerWebhook, getWebhooksByPublicKey, deleteWebhook, signPayload };
+module.exports = { registerWebhook, getWebhooksByPublicKey, deleteWebhook, signPayload, deliverWebhook };

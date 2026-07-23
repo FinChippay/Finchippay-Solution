@@ -301,7 +301,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
 
           <section className="rounded-lg border border-gray-200 p-4">
             <h2 className="mb-3 text-lg font-medium">Claim or cancel</h2>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="number"
                 min="0"
@@ -345,7 +345,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
 
                 {lookup.escrow.status === "Pending" && (
                   <div className="mt-3 space-y-3">
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <button
                         type="button"
                         onClick={() => handleAction("claim")}
@@ -391,7 +391,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                       <p className="mb-2 text-xs text-gray-500">
                         Or claim a partial amount (XLM):
                       </p>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="number"
                           min="0"

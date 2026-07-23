@@ -26,6 +26,8 @@ export default function Toast({
   duration = 4000,
 }: ToastProps) {
   const [visible, setVisible] = useState(true);
+  const [startX, setStartX] = useState(0);
+  const [currentX, setCurrentX] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -35,11 +37,31 @@ export default function Toast({
     return () => clearTimeout(timer);
   }, [duration, onClose]);
 
+  const handleTouchStart = (e: React.TouchEvent) => setStartX(e.touches[0].clientX);
+  const handleTouchMove = (e: React.TouchEvent) => setCurrentX(e.touches[0].clientX);
+  const handleTouchEnd = () => {
+    if (currentX > 0 && currentX - startX > 50) {
+      setVisible(false);
+      setTimeout(() => onClose?.(), 300);
+    }
+    setStartX(0);
+    setCurrentX(0);
+  };
+
+  const deltaX = currentX > startX ? currentX - startX : 0;
+
   return (
     <div
       role="status"
       aria-live="polite"
       aria-atomic="true"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{
+        transform: deltaX > 0 ? `translateX(${deltaX}px)` : undefined,
+        transition: currentX > 0 ? "none" : undefined,
+      }}
       className={clsx(
         "flex items-start gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white",
         "border shadow-xl transition-all duration-300",
