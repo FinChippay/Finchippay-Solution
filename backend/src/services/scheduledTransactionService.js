@@ -12,10 +12,15 @@
  */
 
 "use strict";
-
 const crypto = require("crypto");
 const cron = require("node-cron");
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+const crypto = require("crypto");
+const cron = require("node-cron");
+
+
+ master
 const {
   Asset,
   Memo,
@@ -24,7 +29,11 @@ const {
   TransactionBuilder,
 } = require("@stellar/stellar-sdk");
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 const knex = require("../db/connection");
+=
+const db = require("../db");
+ master
 const { server } = require("../config/stellar");
 const { validatePublicKey } = require("./stellarService");
 const webhookService = require("./webhookService");
@@ -52,9 +61,13 @@ function toAsset(assetStr) {
 function frequencyToCron(frequency, startDate, cronExpression) {
   if (frequency === "cron") {
     if (!cronExpression || !cron.validate(cronExpression)) {
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
       const err = new Error(
         "A valid cron_expression is required when frequency is 'cron'",
       );
+
+      const err = new Error("A valid cron_expression is required when frequency is 'cron'");
+ master
       err.status = 400;
       throw err;
     }
@@ -74,9 +87,13 @@ function frequencyToCron(frequency, startDate, cronExpression) {
   if (frequency === "weekly") return `${minute} ${hour} * * ${d.getUTCDay()}`;
   if (frequency === "monthly") return `${minute} ${hour} ${d.getUTCDate()} * *`;
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   const err = new Error(
     "frequency must be 'daily', 'weekly', 'monthly', or 'cron'",
   );
+
+  const err = new Error("frequency must be 'daily', 'weekly', 'monthly', or 'cron'");
+ master
   err.status = 400;
   throw err;
 }
@@ -85,12 +102,17 @@ function estimateNextRun(frequency, fromDate) {
   const next = new Date(fromDate);
   if (frequency === "daily") next.setUTCDate(next.getUTCDate() + 1);
   else if (frequency === "weekly") next.setUTCDate(next.getUTCDate() + 7);
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   else if (frequency === "monthly")
     next.setUTCMonth(next.getUTCMonth() + 1);
+
+  else if (frequency === "monthly") next.setUTCMonth(next.getUTCMonth() + 1);
+ master
   else return null; // raw cron: fired by node-cron directly, not tracked here
   return next.toISOString();
 }
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 async function buildUnsignedPaymentXDR({
   ownerPk,
   recipient,
@@ -98,6 +120,9 @@ async function buildUnsignedPaymentXDR({
   asset,
   memo,
 }) {
+
+async function buildUnsignedPaymentXDR({ ownerPk, recipient, amount, asset, memo }) {
+ master
   const sourceAccount = await server.loadAccount(ownerPk);
   const assetObj = toAsset(asset);
 
@@ -138,8 +163,13 @@ function unregisterCronJob(id) {
   }
 }
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 async function loadActiveSchedules() {
   const rows = await knex("scheduled_transactions").where("status", "active");
+
+function loadActiveSchedules() {
+  const rows = db.prepare("SELECT * FROM scheduled_transactions WHERE status = 'active'").all();
+ master
   for (const schedule of rows) {
     registerCronJob(schedule);
   }
@@ -149,9 +179,13 @@ async function loadActiveSchedules() {
 // ─── Execution ────────────────────────────────────────────────────────────
 
 async function notifyOwner(schedule, pendingId) {
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   const hooks = await webhookService.getWebhooksByPublicKey(
     schedule.owner_pk,
   );
+
+  const hooks = webhookService.getWebhooksByPublicKey(schedule.owner_pk);
+ master
   const payload = {
     event: "scheduled_transaction.pending_signature",
     scheduleId: schedule.id,
@@ -160,6 +194,7 @@ async function notifyOwner(schedule, pendingId) {
     amount: schedule.amount,
     asset: schedule.asset,
   };
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   await Promise.allSettled(
     hooks.map((h) => webhookService.deliverWebhook(h, payload)),
   );
@@ -170,6 +205,15 @@ async function executeSchedule(scheduleId) {
     .where("id", scheduleId)
     .andWhere("status", "active")
     .first();
+
+  await Promise.allSettled(hooks.map((h) => webhookService.deliverWebhook(h, payload)));
+}
+
+async function executeSchedule(scheduleId) {
+  const schedule = db
+    .prepare("SELECT * FROM scheduled_transactions WHERE id = ? AND status = 'active'")
+    .get(scheduleId);
+ master
   if (!schedule) return;
 
   try {
@@ -182,6 +226,7 @@ async function executeSchedule(scheduleId) {
     });
 
     const pendingId = crypto.randomUUID();
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
     await knex("pending_executions").insert({
       id: pendingId,
       schedule_id: schedule.id,
@@ -190,9 +235,16 @@ async function executeSchedule(scheduleId) {
       status: "awaiting_signature",
     });
 
+    db.prepare(
+      `INSERT INTO pending_executions (id, schedule_id, owner_pk, unsigned_xdr, status)
+       VALUES (?, ?, ?, ?, 'awaiting_signature')`,
+    ).run(pendingId, schedule.id, schedule.owner_pk, xdr);
+ master
+
     await notifyOwner(schedule, pendingId);
 
     const nextRun = estimateNextRun(schedule.frequency, new Date());
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
     await knex("scheduled_transactions")
       .where("id", schedule.id)
       .update({ next_run_at: nextRun });
@@ -201,12 +253,24 @@ async function executeSchedule(scheduleId) {
       { err, scheduleId },
       "Failed to execute scheduled transaction",
     );
+
+    db.prepare("UPDATE scheduled_transactions SET next_run_at = ? WHERE id = ?").run(
+      nextRun,
+      schedule.id,
+    );
+  } catch (err) {
+    logger.error({ err, scheduleId }, "Failed to execute scheduled transaction");
+ master
   }
 }
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 async function createSchedule(body) {
+
+function createSchedule(body) {
+ master
   const {
     ownerPk,
     recipient,
@@ -219,9 +283,13 @@ async function createSchedule(body) {
   } = body;
 
   if (!ownerPk || !recipient || !amount || !frequency || !startDate) {
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
     const err = new Error(
       "ownerPk, recipient, amount, frequency, and startDate are required",
     );
+
+    const err = new Error("ownerPk, recipient, amount, frequency, and startDate are required");
+ master
     err.status = 400;
     throw err;
   }
@@ -231,6 +299,7 @@ async function createSchedule(body) {
   const resolvedCron = frequencyToCron(frequency, startDate, cronExpression);
   const id = crypto.randomUUID();
   const nextRunAt = estimateNextRun(frequency, new Date(startDate)) || startDate;
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 
   await knex("scheduled_transactions").insert({
     id,
@@ -264,10 +333,45 @@ async function updateSchedule(id, updates) {
   const existing = await knex("scheduled_transactions")
     .where("id", id)
     .first();
+
+
+  db.prepare(
+    `INSERT INTO scheduled_transactions
+      (id, owner_pk, recipient, amount, asset, memo, frequency, cron_expression, start_date, next_run_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+  ).run(
+    id,
+    ownerPk,
+    recipient,
+    String(amount),
+    asset,
+    memo || null,
+    frequency,
+    resolvedCron,
+    startDate,
+    nextRunAt,
+  );
+
+  const schedule = db.prepare("SELECT * FROM scheduled_transactions WHERE id = ?").get(id);
+  registerCronJob(schedule);
+  return schedule;
+}
+
+function listSchedules(ownerPk) {
+  validatePublicKey(ownerPk);
+  return db
+    .prepare("SELECT * FROM scheduled_transactions WHERE owner_pk = ? ORDER BY created_at DESC")
+    .all(ownerPk);
+}
+
+function updateSchedule(id, updates) {
+  const existing = db.prepare("SELECT * FROM scheduled_transactions WHERE id = ?").get(id);
+ master
   if (!existing) {
     const err = new Error("Scheduled transaction not found");
     err.status = 404;
     throw err;
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   }
 
   const merged = { ...existing, ...updates };
@@ -331,6 +435,69 @@ async function submitPendingExecution(id, signedXDR) {
   const pending = await knex("pending_executions")
     .where("id", id)
     .first();
+
+  }
+
+  const merged = { ...existing, ...updates };
+  const resolvedCron =
+    updates.frequency || updates.cronExpression
+      ? frequencyToCron(
+          merged.frequency,
+          merged.start_date,
+          updates.cronExpression || merged.cron_expression,
+        )
+      : existing.cron_expression;
+
+  db.prepare(
+    `UPDATE scheduled_transactions
+     SET recipient = ?, amount = ?, asset = ?, memo = ?, frequency = ?, cron_expression = ?, status = ?
+     WHERE id = ?`,
+  ).run(
+    merged.recipient,
+    String(merged.amount),
+    merged.asset,
+    merged.memo || null,
+    merged.frequency,
+    resolvedCron,
+    merged.status,
+    id,
+  );
+
+  const updated = db.prepare("SELECT * FROM scheduled_transactions WHERE id = ?").get(id);
+
+  if (updated.status === "active") {
+    registerCronJob(updated);
+  } else {
+    unregisterCronJob(id);
+  }
+
+  return updated;
+}
+
+function deleteSchedule(id) {
+  const existing = db.prepare("SELECT * FROM scheduled_transactions WHERE id = ?").get(id);
+  if (!existing) return false;
+  unregisterCronJob(id);
+  db.prepare("DELETE FROM scheduled_transactions WHERE id = ?").run(id);
+  return true;
+}
+
+function listPendingExecutions(ownerPk) {
+  validatePublicKey(ownerPk);
+  return db
+    .prepare(
+      `SELECT pe.*, st.recipient, st.amount, st.asset
+       FROM pending_executions pe
+       JOIN scheduled_transactions st ON st.id = pe.schedule_id
+       WHERE pe.owner_pk = ? AND pe.status = 'awaiting_signature'
+       ORDER BY pe.created_at DESC`,
+    )
+    .all(ownerPk);
+}
+
+async function submitPendingExecution(id, signedXDR) {
+  const pending = db.prepare("SELECT * FROM pending_executions WHERE id = ?").get(id);
+ master
   if (!pending) {
     const err = new Error("Pending execution not found");
     err.status = 404;
@@ -345,6 +512,7 @@ async function submitPendingExecution(id, signedXDR) {
   try {
     const tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
     const result = await server.submitTransaction(tx);
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
     await knex("pending_executions").where("id", id).update({
       status: "submitted",
       submitted_hash: result.hash,
@@ -357,6 +525,16 @@ async function submitPendingExecution(id, signedXDR) {
       error: err.message,
       resolved_at: new Date().toISOString(),
     });
+
+    db.prepare(
+      "UPDATE pending_executions SET status = 'submitted', submitted_hash = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ).run(result.hash, id);
+    return { status: "submitted", hash: result.hash };
+  } catch (err) {
+    db.prepare(
+      "UPDATE pending_executions SET status = 'failed', error = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ).run(err.message, id);
+ master
     const wrapped = new Error(`Submission failed: ${err.message}`);
     wrapped.status = 400;
     throw wrapped;

@@ -66,6 +66,27 @@ function parseAllowedOrigins(raw) {
 function collectErrors(env) {
   const errors = [];
 
+  // Database provider validation
+  const dbProvider = (env.DB_PROVIDER || "sqlite").toLowerCase();
+  if (!["sqlite", "postgres"].includes(dbProvider)) {
+    errors.push(
+      `DB_PROVIDER must be "sqlite" or "postgres", got "${dbProvider}"`,
+    );
+  }
+
+  if (dbProvider === "postgres") {
+    const dbUrl = env.DATABASE_URL || env.DATABASE_URL_PROD;
+    if (!dbUrl || !dbUrl.trim()) {
+      errors.push("DATABASE_URL is required when DB_PROVIDER=postgres");
+    } else {
+      try {
+        new URL(dbUrl);
+      } catch {
+        errors.push(`DATABASE_URL must be a valid URL, got "${dbUrl}"`);
+      }
+    }
+  }
+
   const stellarNetwork = env.STELLAR_NETWORK?.trim();
   if (!stellarNetwork) {
     errors.push('STELLAR_NETWORK is required (e.g. "testnet" or "mainnet")');
@@ -95,6 +116,18 @@ function collectErrors(env) {
     // Malformed origins are surfaced as errors at startup — an operator must
     // fix the value before the server is trusted to make correct CORS decisions.
     errors.push(w);
+  }
+
+  // SOROBAN_RPC_URL is optional but if set must be a valid URL.
+  if (env.SOROBAN_RPC_URL) {
+    const rpcUrl = String(env.SOROBAN_RPC_URL).trim();
+    if (rpcUrl.length > 0) {
+      try {
+        new URL(rpcUrl);
+      } catch {
+        errors.push(`SOROBAN_RPC_URL must be a valid URL, got "${rpcUrl}"`);
+      }
+    }
   }
 
   // OTEL_EXPORTER_OTLP_ENDPOINT is optional but if set must be a valid URL.
@@ -130,7 +163,14 @@ function collectErrors(env) {
       );
     }
   }
-
+  // ANCHORS_CONFIG is optional but if set must be valid JSON.
+  if (env.ANCHORS_CONFIG) {
+    try {
+      JSON.parse(env.ANCHORS_CONFIG);
+    } catch (err) {
+      errors.push(`ANCHORS_CONFIG must be valid JSON: ${err.message}`);
+    }
+  }
   return errors;
 }
 

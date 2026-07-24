@@ -90,7 +90,15 @@ async function resolveStellarAddress(stellarAddress, req) {
  */
 async function resolveAccountId(accountId) {
   // First check local usernames
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   const allUsernames = await usernameService.getAllUsernames();
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  const allUsernames = usernameService.getAllUsernames();
+
+  const allUsernames = await usernameService.getAllUsernames();
+ master
+ master
   const match = allUsernames.find((user) => user.publicKey === accountId);
 
   if (match) {

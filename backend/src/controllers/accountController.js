@@ -21,6 +21,15 @@
 
 const stellarService = require("../services/stellarService");
 const usernameService = require("../services/usernameService");
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+
+const balanceStreamService = require("../services/balanceStreamService");
+const logger = require("../utils/logger");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+master
+
+/** Comment frames keep proxies and load balancers from idling the connection out. */
+const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const balanceStreamService = require("../services/balanceStreamService");
 const logger = require("../utils/logger");
