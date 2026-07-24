@@ -1,3 +1,4 @@
+
 /**
  * src/turretsServer.js
  * Sidecar Express server for Stellar Turrets txFunctions endpoints.
@@ -11,6 +12,7 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
+const priceFeedService = require("./services/priceFeedService");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 // Registers the correlation-ID provider for error bodies built in this process.
 require("./utils/errorResponse");
@@ -43,8 +45,18 @@ function createTurretsApp() {
   app.use(express.json({ limit: "10kb" }));
   app.use(cors());
 
-  app.get("/health", (req, res) => {
-    res.json({ success: true, service: "turrets", status: "ok" });
+  app.get("/health", async (req, res, next) => {
+    try {
+      const priceFeed = await priceFeedService.getHealth();
+      res.status(priceFeed.status === "ok" ? 200 : 503).json({
+        success: priceFeed.status === "ok",
+        service: "turrets",
+        status: priceFeed.status,
+        priceFeed,
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
   app.use("/tx-functions", turretsRoutes);

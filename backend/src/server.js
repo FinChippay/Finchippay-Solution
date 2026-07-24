@@ -60,6 +60,8 @@ const {
 } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const { zodErrorHandler } = require("./validation/middleware");
+const { errorLogFields } = require("./utils/errorResponse");
+const traceContextMiddleware = require("./middleware/tracing");
 
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 // Requiring errorResponse registers getRequestId as the shared registry's
@@ -348,6 +350,9 @@ app.use((err, req, res, next) => {
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
  160-issue-38-rtl-language-support-arabic-hebrew-fix
     logger.error(
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+      { ...errorLogFields(err.errorCode, { details: err.details }), status },
+
       { status, errorCode: err.errorCode, details: err.details },
 
     // The logged correlationId is the same one returned in the response body,
@@ -355,12 +360,17 @@ app.use((err, req, res, next) => {
     logger.error(
       { ...errorLogFields(err.errorCode, { details: err.details }), status },
  master
+ master
       "Request error",
     );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
+  logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
   const message =
     sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
@@ -368,6 +378,7 @@ app.use((err, req, res, next) => {
 
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
+ master
  master
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {

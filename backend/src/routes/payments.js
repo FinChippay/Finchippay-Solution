@@ -32,6 +32,9 @@ router.get(
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
+ master
  master
   paymentController.getPayments,
 );

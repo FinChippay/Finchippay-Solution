@@ -36,6 +36,7 @@ router.post(
   validate(turretDeploySchema),
   controller.deploy,
 );
+router.get("/health", strictLimiter, controller.health);
 router.get(
   "/:id",
   strictLimiter,

@@ -60,6 +60,9 @@ router.get(
  160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(usernameParamSchema, "params"),
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
+ master
  master
   accountController.resolveUsername,
 );
@@ -116,6 +119,23 @@ router.get(
   accountController.streamBalance,
 );
  master
+
+/**
+ * GET /api/accounts/:publicKey/stream
+ * Server-Sent Events stream of XLM balance updates for an account.
+ *
+ * Long-lived by design, so the sensitive limiter is deliberately omitted — one
+ * connection is one request, and it would otherwise be counted against a user
+ * who simply left the dashboard open.
+ */
+router.get(
+  "/:publicKey/stream",
+  acceptTokenFromQuery,
+  verifyJWT,
+  sanitizePublicKey,
+  requireOwnAccount,
+  accountController.streamBalance,
+);
 
 /**
  * POST /api/accounts/register

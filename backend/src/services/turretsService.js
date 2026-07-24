@@ -20,6 +20,10 @@ const {
   TransactionBuilder,
 } = require("@stellar/stellar-sdk");
 const knex = require("../db/connection");
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+const priceFeedService = require("./priceFeedService");
+
+ master
 
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -348,9 +352,11 @@ async function addExecutionLog(deploymentId, status, message, result = null) {
   }
 }
 
-let priceCache = { value: null, fetchedAt: 0 };
-
 async function getXlmUsdPrice() {
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+  const priceQuote = await priceFeedService.getXLMPrice();
+  return priceQuote.price;
+
   const now = Date.now();
   if (priceCache.value !== null && now - priceCache.fetchedAt < 30_000) {
     return priceCache.value;
@@ -373,6 +379,7 @@ async function getXlmUsdPrice() {
 
   priceCache = { value, fetchedAt: now };
   return value;
+ master
 }
 
 function nextRunIso(intervalMinutes) {
@@ -633,6 +640,13 @@ async function setDeploymentStatus(id, status) {
   return deployment;
 }
 
+async function countDeploymentsByStatus(status) {
+  const [{ count }] = await knex("turrets_deployments")
+    .where("status", status)
+    .count("* as count");
+  return Number(count);
+}
+
 module.exports = {
   createSigningChallenge,
   deployTxFunction,
@@ -640,6 +654,7 @@ module.exports = {
   getDeployment,
   getExecutionHistory,
   setDeploymentStatus,
+  countDeploymentsByStatus,
   startRunner,
   stopRunner,
 };

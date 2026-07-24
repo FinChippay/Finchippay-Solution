@@ -1,38 +1,23 @@
 /**
  * src/controllers/turretsController.js
  * HTTP handlers for Stellar Turrets txFunction deployment and monitoring.
- *
- * Turrets are decentralised signers that execute pre-approved transaction
- * functions on behalf of users. This controller exposes the management API
- * for deploying, listing, pausing, and resuming txFunctions on the Finchippay
- * Turrets side-server.
- *
- * All handlers follow the (req, res, next) Express convention and delegate
- * business logic entirely to `turretsService`. Errors are forwarded to the
- * global error handler via `next(err)`.
  */
 
 "use strict";
 
 const turretsService = require("../services/turretsService");
+const priceFeedService = require("../services/priceFeedService");
 
-/**
- * POST /api/turrets/challenge
- * Create a signing challenge that the client must sign to prove key ownership.
- *
- * Body: { ownerPublicKey: string, type: string, config: object }
- * Response: { success: true, data: { challenge, expiresAt } }
- *
- * @param {import('express').Request}  req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
 async function createChallenge(req, res, next) {
   try {
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+    const { ownerPublicKey, type, config } = req.validated || req.body;
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
     const { ownerPublicKey, type, config } = req.validated;
 
     const { ownerPublicKey, type, config } = req.body;
+ master
  master
     const data = await turretsService.createSigningChallenge({
       ownerPublicKey,
@@ -44,6 +29,13 @@ async function createChallenge(req, res, next) {
     next(err);
   }
 }
+
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+async function deploy(req, res, next) {
+  try {
+    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } =
+      req.validated || req.body;
+    const data = await turretsService.deployTxFunction({
 
 /**
  * POST /api/turrets/deploy
@@ -66,6 +58,7 @@ async function deploy(req, res, next) {
       req.body;
     const data = await turretsService.deployTxFunction({
  master
+ master
       ownerPublicKey,
       type,
       config,
@@ -77,6 +70,12 @@ async function deploy(req, res, next) {
     next(err);
   }
 }
+
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+async function list(req, res, next) {
+  try {
+    const { ownerPublicKey } = req.validated || req.query;
+    const data = await turretsService.listDeployments(ownerPublicKey);
 
 /**
  * GET /api/turrets
@@ -98,11 +97,18 @@ async function list(req, res, next) {
     const { ownerPublicKey } = req.query;
     const data = await turretsService.listDeployments(ownerPublicKey);
  master
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
 }
+
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+async function getOne(req, res, next) {
+  try {
+    const { id } = req.validated || req.params;
+    const data = await turretsService.getDeployment(id);
 
 /**
  * GET /api/turrets/:id
@@ -123,11 +129,19 @@ async function getOne(req, res, next) {
     const { id } = req.params;
     const data = await turretsService.getDeployment(id);
  master
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
 }
+
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+async function getHistory(req, res, next) {
+  try {
+    const { id } = req.validated || req.params;
+    await turretsService.getDeployment(id); // throws 404 if not found
+    const data = await turretsService.getExecutionHistory(id);
 
 /**
  * GET /api/turrets/:id/history
@@ -150,11 +164,18 @@ async function getHistory(req, res, next) {
     await turretsService.getDeployment(id); // throws 404 if not found
     const data = await turretsService.getExecutionHistory(id);
  master
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
 }
+
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+async function pause(req, res, next) {
+  try {
+    const { id } = req.validated || req.params;
+    const data = await turretsService.setDeploymentStatus(id, "paused");
 
 /**
  * POST /api/turrets/:id/pause
@@ -175,11 +196,18 @@ async function pause(req, res, next) {
     const { id } = req.params;
     const data = await turretsService.setDeploymentStatus(id, "paused");
  master
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
 }
+
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+async function resume(req, res, next) {
+  try {
+    const { id } = req.validated || req.params;
+    const data = await turretsService.setDeploymentStatus(id, "active");
 
 /**
  * POST /api/turrets/:id/resume
@@ -200,7 +228,24 @@ async function resume(req, res, next) {
     const { id } = req.params;
     const data = await turretsService.setDeploymentStatus(id, "active");
  master
+ master
     res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function health(req, res, next) {
+  try {
+    const priceFeed = await priceFeedService.getHealth();
+    const activeDeployments = await turretsService.countDeploymentsByStatus("active");
+    res.status(priceFeed.status === "ok" ? 200 : 503).json({
+      success: priceFeed.status === "ok",
+      service: "turrets",
+      status: priceFeed.status,
+      activeDeployments,
+      priceFeed,
+    });
   } catch (err) {
     next(err);
   }
@@ -214,4 +259,5 @@ module.exports = {
   getHistory,
   pause,
   resume,
+  health,
 };

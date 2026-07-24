@@ -405,6 +405,41 @@ const options = {
             createdAt: { type: "string", format: "date-time" },
           },
         },
+        PriceFeedProviderStatus: {
+          type: "object",
+          properties: {
+            status: {
+              type: "string",
+              enum: ["ok", "error", "unknown"],
+              description:
+                "Outcome of the most recent probe to this provider",
+            },
+            latencyMs: {
+              type: "number",
+              nullable: true,
+              description: "Most recent probe latency in milliseconds",
+            },
+            lastError: {
+              type: "string",
+              nullable: true,
+              description: "Most recent error message, if any",
+            },
+            lastSuccessAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+            cacheAgeMs: {
+              type: "number",
+              nullable: true,
+              description: "Age of the cached price, in milliseconds",
+            },
+            cachedPrice: {
+              type: "number",
+              nullable: true,
+            },
+          },
+        },
       },
     },
     paths: {
@@ -942,6 +977,88 @@ const options = {
           responses: {
             200: { description: "Tip recorded" },
             400: { description: "Invalid tip data" },
+          },
+        },
+      },
+      "/api/turrets/health": {
+        get: {
+          tags: ["Turrets"],
+          summary: "Turrets subsystem health (incl. price feed)",
+          description:
+            "Reports deployment counts, per-provider price-feed status, the active provider, and the freshness of the price cache. Returns 200 when at least one provider is healthy, 503 when every provider is currently down (the runner cannot evaluate stop-loss or DCA txFunctions without a price).",
+          responses: {
+            200: {
+              description: "Turrets subsystem is healthy",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: {
+                        type: "object",
+                        properties: {
+                          status: { type: "string", enum: ["ok", "degraded"] },
+                          priceFeed: {
+                            type: "object",
+                            properties: {
+                              activeProvider: {
+                                type: "string",
+                                nullable: true,
+                                enum: ["coingecko", "binance", "coincap"],
+                              },
+                              activeProviderAt: {
+                                type: "string",
+                                format: "date-time",
+                                nullable: true,
+                              },
+                              cacheTtlMs: { type: "integer", example: 30000 },
+                              timeoutMs: { type: "integer", example: 5000 },
+                              providers: {
+                                type: "object",
+                                additionalProperties: {
+                                  $ref:
+                                    "#/components/schemas/PriceFeedProviderStatus",
+                                },
+                              },
+                              activePrice: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                  price: { type: "number" },
+                                  source: { type: "string" },
+                                  timestamp: {
+                                    type: "string",
+                                    format: "date-time",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          deployments: {
+                            type: "object",
+                            properties: {
+                              active: { type: "integer" },
+                              paused: { type: "integer" },
+                              total: { type: "integer" },
+                            },
+                          },
+                          uptime: { type: "number" },
+                          timestamp: {
+                            type: "string",
+                            format: "date-time",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            503: {
+              description:
+                "Every price provider is currently unreachable. Stop-loss and DCA evaluations will fail until at least one provider recovers.",
+            },
           },
         },
       },
