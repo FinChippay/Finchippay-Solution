@@ -5,6 +5,10 @@
  * Polls get_stream (via getActiveStreamsForRecipient) every ledger close
  * (~5s) and animates the claimable balance between polls using the stream's
  * rate_per_ledger, so the number visibly ticks up instead of jumping.
+ *
+ * Transaction Simulation Preview (#151):
+ *   Before claiming a stream, a preview modal shows simulation results
+ *   including balance changes, resource fees, and contract errors.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -21,6 +25,12 @@ import {
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { useCountUp } from "@/lib/useCountUp";
 import { useToastContext } from "@/lib/ToastContext";
+import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
+import {
+  useTransactionSimulation,
+  type SimulationResult,
+} from "@/hooks/useTransactionSimulation";
+import clsx from "clsx";
 
 /** Matches Stellar's ~5s ledger close time. */
 const POLL_INTERVAL_MS = 5000;
@@ -37,6 +47,11 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [pollTick, setPollTick] = useState(0);
   const { addToast } = useToastContext();
+
+  // Transaction simulation for stream claims
+  const sim = useTransactionSimulation({ publicKey });
+  const [showPreview, setShowPreview] = useState(false);
+  const [pendingClaimId, setPendingClaimId] = useState<number | null>(null);
 
   const fetchStreams = useCallback(async () => {
     try {
@@ -63,9 +78,32 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
 
   const handleClaim = async (streamId: number) => {
     setClaimingId(streamId);
+    setPendingClaimId(streamId);
     try {
       const tx = await buildClaimStreamTransaction(publicKey, streamId);
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
+
+      // Step 1: Simulate the transaction
+      const xdr = tx.toXDR();
+      await sim.simulate(xdr);
+      setShowPreview(true);
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Claim preparation failed.", "error");
+      setClaimingId(null);
+      setPendingClaimId(null);
+    }
+  };
+
+  const handleProceedToSign = async () => {
+    if (!pendingClaimId) return;
+    setShowPreview(false);
+
+    try {
+      const tx = await buildClaimStreamTransaction(publicKey, pendingClaimId);
+
+      // Use the prepared XDR from simulation if available
+      const txToSign = sim.result?.preparedTransactionXdr ?? tx.toXDR();
+
+      const { signedXDR, error: signError } = await signTransactionWithWallet(txToSign);
       if (signError || !signedXDR) {
         throw new Error(signError || "Signing was rejected.");
       }
@@ -76,7 +114,16 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
       addToast(err instanceof Error ? err.message : "Claim failed. Please try again.", "error");
     } finally {
       setClaimingId(null);
+      setPendingClaimId(null);
+      sim.reset();
     }
+  };
+
+  const handleClosePreview = () => {
+    setShowPreview(false);
+    setClaimingId(null);
+    setPendingClaimId(null);
+    sim.reset();
   };
 
   if (loading) {
@@ -125,6 +172,20 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
           ))}
         </div>
       )}
+
+      {/* Transaction Simulation Preview Modal */}
+      <TransactionSimulationPreview
+        isOpen={showPreview}
+        onClose={handleClosePreview}
+        onProceed={handleProceedToSign}
+        simulation={sim.result}
+        loading={sim.loading}
+        error={sim.error}
+        warning={sim.warning}
+        proceedLabel="Sign with Freighter"
+        title="Claim Stream Preview"
+        description="Review the estimated effects of claiming this stream before signing."
+      />
     </section>
   );
 }
