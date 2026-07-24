@@ -165,6 +165,20 @@ pub struct Stream {
     pub closed: bool,
 }
 
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct VestingSchedule {
+    pub id: u32,
+    pub funder: Address,
+    pub token: Address,
+    pub beneficiary: Address,
+    pub total_amount: i128,
+    pub cliff_ledger: u32,
+    pub end_ledger: u32,
+    pub claimed: i128,
+    pub revoked: bool,
+}
+
 // ─── Multi-sig payments ───────────────────────────────────────────────────────
 
 /// Status of a multi-sig payment proposal.
@@ -230,6 +244,10 @@ const MAX_MULTISIG_SIGNERS: u32 = 20;
 /// set (≈ 30 days at 5 s/ledger). Prevents proposals from outliving the
 /// security assumptions (e.g. signer key rotation) made at creation time.
 const MAX_MULTISIG_TTL: u32 = 518_400;
+/// Maximum amount for a vesting schedule.
+const MAX_VESTING_AMOUNT: i128 = 1_000_000_000_000_000_000;
+/// Maximum duration of a vesting schedule in ledgers.
+const MAX_VESTING_DURATION_LEDGERS: u32 = 31_536_000;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
@@ -266,6 +284,9 @@ pub enum DataKey {
     MultiSigCount,
     MultiSig(u32),
     StreamByPayer(Address),
+    // Vesting
+    VestingCount,
+    Vesting(u32),
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2009,8 +2030,225 @@ impl FinchippayContract {
             (Symbol::new(&env, "batch_sent_multi"),),
             (from, recipients.len(), total_amount),
         );
-        
         Ok(())
+    }
+
+    pub fn create_vesting(
+        env: Env,
+        token: Address,
+        from: Address,
+        beneficiary: Address,
+        amount: i128,
+        cliff_ledger: u32,
+        end_ledger: u32,
+    ) -> u32 {
+        require_initialized(&env);
+        require_not_paused(&env);
+        from.require_auth();
+
+        if cliff_ledger >= end_ledger {
+            panic!("cliff_ledger must be less than end_ledger");
+        }
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+        if amount > MAX_VESTING_AMOUNT {
+            panic!("amount exceeds maximum vesting size");
+        }
+        let current_ledger = env.ledger().sequence();
+        let duration = end_ledger.checked_sub(current_ledger).unwrap_or(0);
+        if duration > MAX_VESTING_DURATION_LEDGERS {
+            panic!("duration exceeds maximum vesting duration");
+        }
+
+        let token_client = get_token_client(&env, &token);
+        let contract_address = env.current_contract_address();
+        require_transfer_succeeded(&env, &token_client, &from, &contract_address, &amount);
+
+        let next_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VestingCount)
+            .unwrap_or(0);
+
+        let vesting = VestingSchedule {
+            id: next_id,
+            funder: from.clone(),
+            token,
+            beneficiary: beneficiary.clone(),
+            total_amount: amount,
+            cliff_ledger,
+            end_ledger,
+            claimed: 0,
+            revoked: false,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vesting(next_id), &vesting);
+        bump(&env, &DataKey::Vesting(next_id));
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::VestingCount, &(next_id + 1));
+        bump(&env, &DataKey::VestingCount);
+
+        env.events().publish(
+            (Symbol::new(&env, "vesting_create"), next_id),
+            (from, beneficiary, amount, cliff_ledger, end_ledger),
+        );
+
+        next_id
+    }
+
+    pub fn claim_vesting(env: Env, id: u32, beneficiary: Address) -> i128 {
+        require_not_paused(&env);
+        beneficiary.require_auth();
+
+        let mut vesting: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Vesting(id))
+            .expect("vesting schedule not found");
+
+        if beneficiary != vesting.beneficiary {
+            panic!("Unauthorized");
+        }
+        if vesting.revoked {
+            panic!("vesting schedule has been revoked");
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < vesting.cliff_ledger {
+            return 0;
+        }
+
+        let effective_ledger = if current_ledger > vesting.end_ledger {
+            vesting.end_ledger
+        } else {
+            current_ledger
+        };
+
+        let elapsed = (effective_ledger - vesting.cliff_ledger) as i128;
+        let duration = (vesting.end_ledger - vesting.cliff_ledger) as i128;
+
+        let vested = vesting.total_amount
+            .checked_mul(elapsed)
+            .expect("overflow")
+            .checked_div(duration)
+            .expect("division by zero");
+
+        let claimable = vested.checked_sub(vesting.claimed).expect("underflow");
+        if claimable <= 0 {
+            return 0;
+        }
+
+        let token_client = get_token_client(&env, &vesting.token);
+        token_client.transfer(&env.current_contract_address(), &beneficiary, &claimable);
+
+        vesting.claimed = vesting.claimed.checked_add(claimable).expect("overflow");
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vesting(id), &vesting);
+        bump(&env, &DataKey::Vesting(id));
+
+        env.events().publish(
+            (Symbol::new(&env, "vesting_claim"), id),
+            (beneficiary, claimable),
+        );
+
+        claimable
+    }
+
+    pub fn revoke_vesting(env: Env, id: u32, admin: Address) {
+        require_not_paused(&env);
+        admin.require_auth();
+
+        let stored_admin = get_admin(&env);
+        if admin != stored_admin {
+            panic!("Unauthorized");
+        }
+
+        let mut vesting: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Vesting(id))
+            .expect("vesting schedule not found");
+
+        if vesting.revoked {
+            panic!("vesting schedule is already revoked");
+        }
+
+        let unclaimed = vesting.total_amount
+            .checked_sub(vesting.claimed)
+            .expect("underflow");
+
+        if unclaimed > 0 {
+            let token_client = get_token_client(&env, &vesting.token);
+            token_client.transfer(&env.current_contract_address(), &vesting.funder, &unclaimed);
+        }
+
+        vesting.revoked = true;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vesting(id), &vesting);
+        bump(&env, &DataKey::Vesting(id));
+
+        env.events().publish(
+            (Symbol::new(&env, "vesting_revoke"), id),
+            (vesting.funder, unclaimed),
+        );
+    }
+
+    pub fn get_vesting(env: Env, id: u32) -> VestingSchedule {
+        let key = DataKey::Vesting(id);
+        let vesting: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("vesting schedule not found");
+        bump(&env, &key);
+        vesting
+    }
+
+    pub fn get_claimable_vesting(env: Env, id: u32) -> i128 {
+        let vesting: VestingSchedule = match env.storage().persistent().get(&DataKey::Vesting(id)) {
+            Some(v) => v,
+            None => return 0,
+        };
+
+        if vesting.revoked {
+            return 0;
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < vesting.cliff_ledger {
+            return 0;
+        }
+
+        let effective_ledger = if current_ledger > vesting.end_ledger {
+            vesting.end_ledger
+        } else {
+            current_ledger
+        };
+
+        let elapsed = (effective_ledger - vesting.cliff_ledger) as i128;
+        let duration = (vesting.end_ledger - vesting.cliff_ledger) as i128;
+
+        let vested = vesting.total_amount
+            .checked_mul(elapsed)
+            .expect("overflow")
+            .checked_div(duration)
+            .expect("division by zero");
+
+        let claimable = vested.checked_sub(vesting.claimed).expect("underflow");
+        if claimable < 0 {
+            0
+        } else {
+            claimable
+        }
     }
 }
 
@@ -2441,6 +2679,87 @@ mod tests {
         let token_id = create_token(&env, &admin, &payer, 1000);
         client.pause(&admin);
         client.open_stream(&token_id, &payer, &recipient, &10, &500);
+    }
+
+    #[test]
+    fn test_pauser_can_pause_and_unpause() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        env.mock_all_auths();
+
+        // Admin designates a separate pauser (hot-key) role.
+        client.set_pauser(&admin, &pauser);
+        assert_eq!(client.get_pauser(), Some(pauser.clone()));
+
+        // The pauser — not the admin — can trigger the circuit breaker.
+        client.pause(&pauser);
+        assert!(client.is_paused());
+
+        // …and lift it again.
+        client.unpause(&pauser);
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_non_admin_non_pauser_cannot_pause() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        let stranger = Address::generate(&env);
+        env.mock_all_auths();
+
+        client.set_pauser(&admin, &pauser);
+        // A random address that is neither admin nor the designated pauser
+        // must be rejected even with a valid auth signature.
+        client.pause(&stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_set_pauser_requires_admin() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let stranger = Address::generate(&env);
+        let pauser = Address::generate(&env);
+        env.mock_all_auths();
+
+        // Only the admin may assign the pauser role.
+        client.set_pauser(&stranger, &pauser);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_pauser_cannot_transfer_admin() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        env.mock_all_auths();
+
+        client.set_pauser(&admin, &pauser);
+        // The pauser role is pause-only; it must not be able to seize admin
+        // rights by transferring them away.
+        client.transfer_admin(&pauser, &new_admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_pauser_cannot_upgrade() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        env.mock_all_auths();
+
+        client.set_pauser(&admin, &pauser);
+        // The pauser must not be able to swap the contract WASM.
+        let dummy_hash = BytesN::from_array(&env, &[0u8; 32]);
+        client.upgrade(&pauser, &dummy_hash);
     }
 
     // ── Batch send ─────────────────────────────────────────────────────────
@@ -3252,7 +3571,9 @@ mod tests {
         let token_id = create_token(&env, &admin, &from, 2_000);
         let recipients = Vec::from_array(&env, [to1.clone(), to2.clone()]);
         let amounts = Vec::from_array(&env, [500_i128, 700_i128]);
-        let memos = Vec::from_array(&env, [Symbol::new(&env, "m1"), Symbol::new(&env, "m2")]);
+        let mut memos = soroban_sdk::Vec::new(&env);
+        memos.push_back(Symbol::new(&env, ""));
+        memos.push_back(Symbol::new(&env, ""));
         client.batch_send(&token_id, &from, &recipients, &amounts, &memos);
         assert_eq!(client.get_tip_total(&to1), 500);
         assert_eq!(client.get_tip_total(&to2), 700);
@@ -3363,8 +3684,8 @@ mod tests {
         amounts.push_back(300i128);
         amounts.push_back(200i128);
         let mut memos = soroban_sdk::Vec::new(&env);
-        memos.push_back(Symbol::new(&env, "m1"));
-        memos.push_back(Symbol::new(&env, "m2"));
+        memos.push_back(Symbol::new(&env, ""));
+        memos.push_back(Symbol::new(&env, ""));
         client.batch_send(&token_id, &from, &recipients, &amounts, &memos);
 
         let events = env.events().all().filter_by_contract(&contract_id);
@@ -3440,5 +3761,219 @@ mod tests {
         // Test empty arrays (out of bounds)
         let empty = client.list_streams_by_payer(&payer, &5, &10);
         assert_eq!(empty.len(), 0);
+    }
+
+    #[test]
+    fn test_vesting_full_lifecycle() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+        assert_eq!(id, 0);
+
+        let vesting = client.get_vesting(&id);
+        assert_eq!(vesting.total_amount, amount);
+        assert_eq!(vesting.cliff_ledger, cliff);
+        assert_eq!(vesting.end_ledger, end);
+        assert_eq!(vesting.claimed, 0);
+        assert_eq!(vesting.revoked, false);
+    }
+
+    #[test]
+    fn test_vesting_claim_before_cliff() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Before cliff, claimable amount must be 0
+        let claimable = client.get_claimable_vesting(&id);
+        assert_eq!(claimable, 0);
+
+        // Claiming before cliff must return 0 without error
+        let claimed = client.claim_vesting(&id, &beneficiary);
+        assert_eq!(claimed, 0);
+    }
+
+    #[test]
+    fn test_vesting_partial_claim_after_cliff() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Advance ledger past cliff but before end (e.g. half-way from cliff to end: cliff + 10 = 20)
+        // Duration from cliff to end is 20 ledgers.
+        // We advance to start + 20 (cliff + 10).
+        // Claimable should be: 1000 * 10 / 20 = 500.
+        advance(&env, start + 20);
+
+        let claimable = client.get_claimable_vesting(&id);
+        assert_eq!(claimable, 500);
+
+        let claimed = client.claim_vesting(&id, &beneficiary);
+        assert_eq!(claimed, 500);
+
+        let vesting = client.get_vesting(&id);
+        assert_eq!(vesting.claimed, 500);
+
+        // Check token balance of beneficiary
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&beneficiary), 500);
+    }
+
+    #[test]
+    fn test_vesting_full_claim_at_end() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Advance past end
+        advance(&env, end + 5);
+
+        let claimable = client.get_claimable_vesting(&id);
+        assert_eq!(claimable, amount);
+
+        let claimed = client.claim_vesting(&id, &beneficiary);
+        assert_eq!(claimed, amount);
+
+        let vesting = client.get_vesting(&id);
+        assert_eq!(vesting.claimed, amount);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&beneficiary), amount);
+    }
+
+    #[test]
+    fn test_vesting_revoke_before_cliff() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Revoke before cliff
+        client.revoke_vesting(&id, &admin);
+
+        let vesting = client.get_vesting(&id);
+        assert_eq!(vesting.revoked, true);
+
+        // Claiming after revoke should fail/return 0
+        let claimable = client.get_claimable_vesting(&id);
+        assert_eq!(claimable, 0);
+
+        // Check that funds returned to the funder
+        let token_client = token::Client::new(&env, &token_id);
+        // Original balance: 10_000. Spent 1_000. Revoke returned 1_000. Total = 10_000.
+        assert_eq!(token_client.balance(&from), 10_000);
+    }
+
+    #[test]
+    fn test_vesting_revoke_after_partial_claim() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Advance to cliff + 10 ledgers
+        advance(&env, start + 20);
+
+        // Claim 500
+        client.claim_vesting(&id, &beneficiary);
+
+        // Revoke. Unclaimed is 500. Funder should get back 500.
+        client.revoke_vesting(&id, &admin);
+
+        let vesting = client.get_vesting(&id);
+        assert_eq!(vesting.revoked, true);
+
+        // Check balances
+        let token_client = token::Client::new(&env, &token_id);
+        // Beneficiary has 500. Funder has 9000 (after initial 1000 spend) + 500 (returned) = 9500.
+        assert_eq!(token_client.balance(&beneficiary), 500);
+        assert_eq!(token_client.balance(&from), 9500);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_vesting_revoke_unauthorized() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Call revoke with non_admin - should panic with "Unauthorized"
+        client.revoke_vesting(&id, &non_admin);
     }
 }

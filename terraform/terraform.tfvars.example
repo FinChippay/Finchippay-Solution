@@ -1,0 +1,50 @@
+# ─── terraform.tfvars.example ────────────────────────────────────────────────
+#
+# Copy this file to terraform.tfvars and fill in the values.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# NEVER commit terraform.tfvars — it is listed in .gitignore.
+# For CI/CD, export secrets as TF_VAR_* environment variables instead:
+#
+#   export TF_VAR_do_token="<your-personal-access-token>"
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Authentication ──────────────────────────────────────────────────────────
+# DigitalOcean personal access token.
+# Generate one at: https://cloud.digitalocean.com/account/api/tokens
+do_token = "dop_v1_REPLACE_WITH_YOUR_TOKEN"
+
+# ─── Project / naming ────────────────────────────────────────────────────────
+project_name = "finchippay"
+environment  = "production"   # "staging" or "production"
+region       = "nyc3"         # See: https://docs.digitalocean.com/glossary/datacenter/
+
+# ─── Compute ─────────────────────────────────────────────────────────────────
+# Droplet size: https://docs.digitalocean.com/reference/api/api-reference/#operation/sizes_list
+droplet_size  = "s-2vcpu-4gb"
+# DO Marketplace Docker image on Ubuntu 20.04 — comes with Docker pre-installed
+droplet_image = "docker-20-04"
+# Path to your SSH public key (will be authorised on the Droplet)
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# Number of application Droplets (1 for staging, 2+ for HA production)
+droplet_count = 1
+
+# ─── PostgreSQL ──────────────────────────────────────────────────────────────
+db_engine     = "pg"
+db_version    = "16"
+# DB node sizes: https://docs.digitalocean.com/reference/api/api-reference/#operation/databases_list_options
+db_size       = "db-s-1vcpu-1gb"   # upgrade to db-s-2vcpu-4gb for production
+db_node_count = 1                  # set to 2 for HA standby node
+db_name       = "finchippay"
+db_user       = "finchippay_app"
+
+# ─── Redis ────────────────────────────────────────────────────────────────────
+redis_version        = "7"
+redis_size           = "db-s-1vcpu-1gb"
+redis_node_count     = 1
+redis_eviction_policy = "allkeys-lru"
+
+# ─── Networking ───────────────────────────────────────────────────────────────
+vpc_ip_range = "10.10.0.0/16"

@@ -39,6 +39,27 @@ Thumbs.db
 *.suo
 *.user
 
+# ─── Terraform ────────────────────────────────────────────────────────────────
+# State files — may contain secrets; never commit
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# tfvars may contain secrets
+terraform.tfvars
+*.auto.tfvars
+
+# Local Terraform working directories
+.terraform/
+.terraform.lock.hcl
+
+# Crash log output
+crash.log
+crash.*.log
+
+# Terraform plan files (can contain sensitive data)
+*.tfplan
+
 # ─── Misc ─────────────────────────────────────────────────────────────────────
 *.log
 .env
