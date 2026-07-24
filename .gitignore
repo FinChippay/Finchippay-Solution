@@ -73,4 +73,5 @@ test_snapshots
 # ─── Local scripts (never push) ───────────────────────────────────────────────
 scripts/create_issues.py
 
+# Webhook SQLite database (runtime artifact, never commit)
 backend/data/

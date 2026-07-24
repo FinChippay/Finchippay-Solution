@@ -1646,6 +1646,172 @@ const options = {
           },
         },
       },
+
+      // ─── Webhooks ──────────────────────────────────────────────────────────
+      "/api/webhooks": {
+        post: {
+          tags: ["Webhooks"],
+          summary: "Register a webhook",
+          description:
+            "Register an HTTPS endpoint to receive a signed `POST` notification whenever\n" +
+            "a registered Stellar account receives a payment.\n\n" +
+            "### Payload signing\n\n" +
+            "Every delivery includes an `X-Webhook-Signature` header containing\n" +
+            "`HMAC-SHA256(secret, JSON.stringify(payload))` as a hex digest.\n" +
+            "Consumers must verify this signature before processing the payload.\n\n" +
+            "### ⚠️ Session-scoped secret\n\n" +
+            "The signing `secret` is **never stored on disk**. It is held in memory for\n" +
+            "the lifetime of the server process only. If the server restarts, previously\n" +
+            "registered webhooks will continue to receive events but **deliveries will\n" +
+            "not be signed** until the merchant re-registers the webhook (providing the\n" +
+            "secret again). Re-registration is non-destructive: the same URL can be\n" +
+            "registered multiple times; simply delete the old entry afterwards.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["publicKey", "url", "secret"],
+                  properties: {
+                    publicKey: {
+                      type: "string",
+                      pattern: "^G[A-Z0-9]{55}$",
+                      description: "Stellar public key to monitor (G…)",
+                      example: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA",
+                    },
+                    url: {
+                      type: "string",
+                      format: "uri",
+                      description: "HTTPS endpoint that will receive POST payloads (HTTP allowed in non-production)",
+                      example: "https://merchant.example.com/stellar/webhook",
+                    },
+                    secret: {
+                      type: "string",
+                      minLength: 8,
+                      description:
+                        "Shared secret for HMAC-SHA256 payload signing. " +
+                        "Must be ≥ 8 characters. **Never logged or stored in plaintext.** " +
+                        "Session-scoped — must be re-provided after a server restart to restore signed delivery.",
+                      example: "whsec_change_me_to_a_long_random_value",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Webhook registered. The secret is not echoed back.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      webhook: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string", format: "uuid" },
+                          publicKey: { type: "string" },
+                          url: { type: "string" },
+                          createdAt: { type: "string", format: "date-time" },
+                        },
+                      },
+                      _note: {
+                        type: "string",
+                        description: "Runtime reminder about session-scoped secret lifecycle",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing or invalid field (publicKey, url, or secret)" },
+            500: { description: "Internal server error" },
+          },
+        },
+      },
+      "/api/webhooks/{publicKey}": {
+        get: {
+          tags: ["Webhooks"],
+          summary: "List webhooks for an account",
+          description:
+            "Returns all active webhook registrations for the given Stellar public key.\n\n" +
+            "Secrets are **never** included in the response.",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+              description: "Stellar public key",
+              example: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA",
+            },
+          ],
+          responses: {
+            200: {
+              description: "List of active webhooks (secrets omitted)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      webhooks: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string", format: "uuid" },
+                            publicKey: { type: "string" },
+                            url: { type: "string" },
+                            createdAt: { type: "string", format: "date-time" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Invalid Stellar public key format" },
+          },
+        },
+      },
+      "/api/webhooks/{id}": {
+        delete: {
+          tags: ["Webhooks"],
+          summary: "Delete a webhook",
+          description: "Soft-deactivates the webhook. The registration is retained in the database for audit purposes but will no longer receive deliveries.",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+              description: "Webhook ID returned by the registration endpoint",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Webhook deleted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Webhook ID is required" },
+            404: { description: "Webhook not found" },
+          },
+        },
+      },
     },
   },
   apis: [],

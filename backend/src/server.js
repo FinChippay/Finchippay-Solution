@@ -37,32 +37,21 @@ const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
+const { restoreWebhooks } = require("./services/webhookService");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
 const sep12Routes = require("./routes/sep12");
-const featuresRoutes = require("./routes/features");
-const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const eventIndexer = require("./services/eventIndexer");
-const { startRetryWorker, closeAllStreams } = require("./services/webhookService");
+const { startRetryWorker, closeAllStreams: closeWebhookStreams } = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-const {
-  correlationMiddleware,
-  getRequestId,
-} = require("./utils/correlationId");
-const { initRedis, closeRedis } = require("./services/cacheService");
-const { zodErrorHandler } = require("./validation/middleware");
-const { errorLogFields } = require("./utils/errorResponse");
-const traceContextMiddleware = require("./middleware/tracing");
-
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 // Requiring errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider, so every error body the API returns — including the
@@ -70,9 +59,9 @@ const { correlationMiddleware, getRequestId } = require("./utils/correlationId")
 // X-Request-ID (#270).
 const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
-const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
+const { closeAll: closeBalanceStreams } = require("./services/balanceStreamService");
+const { zodErrorHandler } = require("./validation/middleware");
 const traceContextMiddleware = require("./middleware/tracing");
- master
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -301,8 +290,6 @@ app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
 app.use("/api/sep12", sep12Routes);
-app.use("/api/features", featuresRoutes);
-app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -348,38 +335,18 @@ app.use((err, req, res, next) => {
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-    logger.error(
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
-      { ...errorLogFields(err.errorCode, { details: err.details }), status },
-
-      { status, errorCode: err.errorCode, details: err.details },
-
     // The logged correlationId is the same one returned in the response body,
     // which is what makes a user-quoted ID searchable in the logs.
     logger.error(
       { ...errorLogFields(err.errorCode, { details: err.details }), status },
- master
- master
       "Request error",
     );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
-
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-  const message =
-    sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  logger.error({ status, message }, "Request error");
-
-  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
- master
- master
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
@@ -402,9 +369,16 @@ async function gracefulShutdown(signal, server, otelSdk) {
   // 2. Close the Horizon payment streams backing the balance SSE endpoint so
   //    they don't leak hanging connections on restart (#157).
   try {
-    closeAllStreams();
+    closeBalanceStreams();
   } catch (err) {
     logger.error({ err }, "Error closing Horizon balance streams");
+  }
+
+  // 2b. Close the Horizon payment streams backing webhook monitoring (#72).
+  try {
+    await closeWebhookStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing webhook Horizon streams");
   }
 
   // 3. Close Redis connection
@@ -443,6 +417,8 @@ if (require.main === module) {
   🚀 Server running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
+    // Reload persisted webhook registrations and re-establish Horizon SSE streams.
+    restoreWebhooks();
   });
 
   startTurretsServer();

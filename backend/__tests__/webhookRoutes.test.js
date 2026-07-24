@@ -24,6 +24,7 @@ jest.mock("../src/services/webhookService", () => {
       Array.from(store.values()).filter((w) => w.publicKey === publicKey),
     ),
     deleteWebhook: jest.fn((id) => store.delete(id)),
+    restoreWebhooks: jest.fn(() => 0),
     getDeadDeliveries: jest.fn((publicKey) =>
       deadDeliveries.filter((d) => d.publicKey === publicKey)
     ),
