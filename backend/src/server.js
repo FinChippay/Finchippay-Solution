@@ -24,7 +24,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
-const rateLimit = require("express-rate-limit");
+const { createInstrumentedLimiter } = require("./middleware/rateLimit");
 const Sentry = require("@sentry/node");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
@@ -43,6 +43,7 @@ const sep24Routes = require("./routes/sep24");
 const sep12Routes = require("./routes/sep12");
 const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
+const rateLimitStatsRoutes = require("./routes/rateLimitStats");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -279,13 +280,16 @@ TRANSFER_SERVER_SEP0024="${transferServerUrl}"
 // standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset (RFC 6585 draft-7).
 // legacyHeaders: false   → suppresses deprecated X-RateLimit-* headers.
 // Clients should inspect RateLimit-Remaining and back off when it approaches 0.
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
-});
+const limiter = createInstrumentedLimiter(
+  {
+    windowMs: 15 * 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
+  },
+  "global",
+);
 app.use(limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -303,6 +307,7 @@ app.use("/api/sep24", sep24Routes);
 app.use("/api/sep12", sep12Routes);
 app.use("/api/features", featuresRoutes);
 app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
+app.use("/api/admin/rate-limit-stats", rateLimitStatsRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 

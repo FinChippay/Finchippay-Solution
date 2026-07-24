@@ -75,4 +75,28 @@ function verifyJWT(req, res, next) {
   }
 }
 
-module.exports = { verifyJWT, JWT_SECRET };
+/**
+ * Restrict an authenticated route to explicitly configured Stellar accounts.
+ *
+ * ADMIN_PUBLIC_KEYS is read per request so deployments can rotate the
+ * comma-separated allowlist without embedding authorization data in tokens.
+ * An empty allowlist fails closed.
+ */
+function requireAdmin(req, res, next) {
+  const adminPublicKeys = new Set(
+    String(process.env.ADMIN_PUBLIC_KEYS || "")
+      .split(",")
+      .map((publicKey) => publicKey.trim())
+      .filter(Boolean),
+  );
+
+  if (!req.user?.publicKey || !adminPublicKeys.has(req.user.publicKey)) {
+    return res
+      .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
+      .json(formatErrorResponse("AUTH_FORBIDDEN"));
+  }
+
+  return next();
+}
+
+module.exports = { verifyJWT, requireAdmin, JWT_SECRET };
