@@ -41,6 +41,8 @@ const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
 const sep12Routes = require("./routes/sep12");
+const featuresRoutes = require("./routes/features");
+const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -297,6 +299,8 @@ app.use("/api/parse-payment", parsePaymentRoutes);
 app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
 app.use("/api/sep12", sep12Routes);
+app.use("/api/features", featuresRoutes);
+app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 

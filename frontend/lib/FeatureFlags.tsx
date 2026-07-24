@@ -23,6 +23,8 @@ const DEFAULT_FEATURE_FLAGS: Record<string, FeatureFlagDefinition> = {
   new_dashboard_charts: { enabled: false, rollout: 0 },
   trading_page: { enabled: true, rollout: 100 },
   ledger_wallet: { enabled: false, rollout: 0 },
+  new_portfolio: { enabled: false, rollout: 0 },
+  events_page: { enabled: false, rollout: 0 },
 };
 
 function hashUser(flagName: string, userPublicKey: string): number {
