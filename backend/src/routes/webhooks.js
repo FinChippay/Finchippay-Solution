@@ -6,7 +6,11 @@ const {
   registerWebhook,
   getWebhooksByPublicKey,
   deleteWebhook,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 } = require("../services/webhookService");
 const {
   formatErrorResponse,
@@ -36,7 +40,11 @@ const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes
  *   - url must be an HTTPS endpoint (reject http:// in production).
  *   - secret must be at least 8 characters (HMAC-SHA256 signing secret).
  */
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 router.post("/", validate(registerWebhookSchema), (req, res) => {
   const { publicKey, url, secret } = req.validated;
 
@@ -96,7 +104,11 @@ router.post("/", async (req, res) => {
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account.
  */
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 router.get(
   "/:publicKey",
   validate(publicKeyParamSchema, "params"),
@@ -106,6 +118,10 @@ router.get(
     return res.json({ webhooks: hooks });
   },
 );
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+
+ master
 router.get("/:publicKey", async (req, res) => {
   const { publicKey } = req.params;
   if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
@@ -164,7 +180,11 @@ router.post("/:publicKey/retry", (req, res) => {
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 router.delete("/:id", validate(idParamSchema, "params"), (req, res) => {
   const { id } = req.validated;
   const deleted = deleteWebhook(id);

@@ -30,11 +30,19 @@ router.post("/", strictLimiter, validate(tipSchema), tipsController.recordTip);
 router.get(
   "/received/:creatorPublicKey",
   strictLimiter,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(creatorPublicKeyParamSchema, "params"),
   validate(tipsPaginationQuerySchema, "query"),
 
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+master
+
+ master
  master
   tipsController.getTipsReceived,
 );
@@ -46,7 +54,11 @@ router.get(
 router.get(
   "/stats/:creatorPublicKey",
   strictLimiter,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(creatorPublicKeyParamSchema, "params"),
 
   sanitizePublicKey,
@@ -61,12 +73,20 @@ router.get(
 router.get(
   "/sent/:senderPublicKey",
   strictLimiter,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(senderPublicKeyParamSchema, "params"),
   validate(tipsPaginationQuerySchema, "query"),
 
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ master
+
 master
+ master
   tipsController.getTipsSent,
 );
 

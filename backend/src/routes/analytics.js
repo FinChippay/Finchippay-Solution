@@ -21,7 +21,11 @@ router.get(
   "/:publicKey/summary",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(publicKeyParamSchema, "params"),
 
  master
@@ -36,7 +40,11 @@ router.get(
   "/:publicKey/top-recipients",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(publicKeyParamSchema, "params"),
 
  master
@@ -51,7 +59,11 @@ router.get(
   "/:publicKey/activity",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(publicKeyParamSchema, "params"),
   analyticsController.getActivityByDay,
 

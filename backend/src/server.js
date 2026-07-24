@@ -51,7 +51,11 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 const {
   correlationMiddleware,
   getRequestId,
@@ -342,7 +346,11 @@ app.use((err, req, res, next) => {
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     logger.error(
       { status, errorCode: err.errorCode, details: err.details },
 
@@ -357,13 +365,21 @@ app.use((err, req, res, next) => {
   }
 
   const status = err.status || 500;
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   const message =
     sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ status, message }, "Request error");
 
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
   logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
+ 140-issue-18-input-validation-with-zod-schemas-fix
+master
+
+ master
  master
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {

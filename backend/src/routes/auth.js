@@ -10,7 +10,11 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 const { JWT_SECRET } = require("../middleware/auth");
 const {
   formatErrorResponse,
@@ -83,7 +87,11 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
       "",
     );
 
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, {
       expiresIn: "24h",
 
@@ -101,7 +109,11 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
       maxAge: 24 * 60 * 60 * 1000,
 
       maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days

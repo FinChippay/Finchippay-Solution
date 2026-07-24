@@ -13,7 +13,11 @@ const {
   idParamSchema,
 } = require("../validation/schemas");
 
+ 140-issue-18-input-validation-with-zod-schemas-fix
+140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 /**
  * POST /api/scheduled-txns
  * Schedules a new transaction for future submission.
@@ -60,7 +64,11 @@ router.post("/pending/:id/submit", async (req, res, next) => {
     const result = await scheduledTransactionService.submitPendingExecution(
       req.params.id,
       signedXDR,
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
       new Date(submitAt),
       publicKey,
 
@@ -72,7 +80,11 @@ router.post("/pending/:id/submit", async (req, res, next) => {
   }
 });
 
+ 140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
 /**
  * GET /api/scheduled-txns/:publicKey
  * Lists all pending scheduled transactions for a given public key.
