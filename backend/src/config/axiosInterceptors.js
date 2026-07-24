@@ -9,14 +9,14 @@
 "use strict";
 
 const axios = require("axios");
-const { getRequestId } = require("../utils/correlationId");
+const { getRequestIdHeader } = require("../utils/correlationId");
 
-// Global request interceptor — adds X-Request-ID when a correlation
-// context is active (i.e. inside an HTTP request handler).
+// Global request interceptor — forwards correlation headers when a
+// request context is active (i.e. inside an HTTP request handler).
 axios.interceptors.request.use((config) => {
-  const requestId = getRequestId();
-  if (requestId) {
-    config.headers.set("X-Request-ID", requestId);
+  const headers = getRequestIdHeader();
+  for (const [key, value] of Object.entries(headers)) {
+    config.headers.set(key, value);
   }
   return config;
 });

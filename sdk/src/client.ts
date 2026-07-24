@@ -143,6 +143,12 @@ export class FinchippayClient {
       headers["Authorization"] = `Bearer ${this.authToken}`;
     }
 
+    // Correlation IDs (#172) — unique per request; optional session left to
+    // the caller's fetch wrapper (frontend installs X-Session-ID globally).
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      headers["X-Request-ID"] = crypto.randomUUID();
+    }
+
     const res = await this.fetchFn(url.toString(), {
       method,
       headers,

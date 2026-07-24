@@ -36,23 +36,6 @@ async function getPayments(req, res, next) {
     // default 20) thanks to the paymentsQuerySchema validate() middleware.
     const { publicKey, limit, cursor } = req.validated;
 
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-
-    // Explicit limit validation — parseInt("0") or NaN must not silently pass.
-    const rawLimit = req.query.limit;
-    let limit = 20;
-    if (rawLimit !== undefined) {
-      const parsed = parseInt(rawLimit, 10);
-      if (isNaN(parsed) || !Number.isSafeInteger(parsed) || parsed < 1) {
-        return res
-          .status(ERROR_CODES.VAL_INVALID_LIMIT.httpStatus)
-          .json(formatErrorResponse("VAL_INVALID_LIMIT"));
-      }
-      limit = Math.min(parsed, 100);
-    }
-
-    const cursor = req.query.cursor || undefined;
- master
     const payments = await stellarService.getPayments(publicKey, {
       limit,
       cursor,
@@ -81,14 +64,8 @@ async function getPayments(req, res, next) {
  */
 async function getStats(req, res, next) {
   try {
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
     const { publicKey } = req.validated;
 
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
-
-    const { publicKey } = req.params;
- master
- master
     const payments = await stellarService.getPayments(publicKey, {
       limit: 100,
     });

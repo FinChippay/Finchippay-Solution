@@ -31,15 +31,11 @@ router.post("/", strictLimiter, validate(tipSchema), tipsController.recordTip);
 router.get(
   "/received/:creatorPublicKey",
   strictLimiter,
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(creatorPublicKeyParamSchema, "params"),
   validate(tipsPaginationQuerySchema, "query"),
 
   sanitizePublicKey,
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 
- master
- master
   tipsController.getTipsReceived,
 );
 
@@ -50,14 +46,10 @@ router.get(
 router.get(
   "/stats/:creatorPublicKey",
   strictLimiter,
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(creatorPublicKeyParamSchema, "params"),
 
   sanitizePublicKey,
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 
- master
- master
   tipsController.getTipsStats,
 );
 
@@ -68,15 +60,11 @@ router.get(
 router.get(
   "/sent/:senderPublicKey",
   strictLimiter,
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(senderPublicKeyParamSchema, "params"),
   validate(tipsPaginationQuerySchema, "query"),
 
   sanitizePublicKey,
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 
-master
- master
   tipsController.getTipsSent,
 );
 

@@ -144,11 +144,7 @@ export default function Navbar() {
           </div>
         </div>
 
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
         <div className="flex items-center gap-3 rtl:flex-row-reverse">
-
-        <div className="flex items-center gap-3">
- master
           <ThemeToggle />
 
           {publicKey ? (
@@ -187,13 +183,8 @@ export default function Navbar() {
 
       {/* Mobile Menu Dropdown */}
       {isMobileMenuOpen && (
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
         <div className="absolute left-0 right-0 top-full rtl:text-right border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
           <div className="flex flex-col gap-2 rtl:items-stretch">
-
-        <div className="absolute left-0 right-0 top-full border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
-          <div className="flex flex-col gap-2">
-master
             {navLinks.map((link) => (
               <Link
                 key={link.href}

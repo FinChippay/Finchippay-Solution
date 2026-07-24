@@ -47,32 +47,24 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const eventIndexer = require("./services/eventIndexer");
-const { startRetryWorker, closeAllStreams } = require("./services/webhookService");
+const {
+  startRetryWorker,
+  closeAllStreams: closeWebhookStreams,
+} = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-const {
-  correlationMiddleware,
-  getRequestId,
-} = require("./utils/correlationId");
+const { requestIdMiddleware } = require("./middleware/requestId");
+const { getRequestId } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const { zodErrorHandler } = require("./validation/middleware");
-const { errorLogFields } = require("./utils/errorResponse");
-const traceContextMiddleware = require("./middleware/tracing");
-
-const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
 // Requiring errorResponse registers getRequestId as the shared registry's
-// correlation-ID provider, so every error body the API returns — including the
-// ones built by direct formatErrorResponse calls — carries the request's
-// X-Request-ID (#270).
+// correlation-ID provider (#270).
 const { errorLogFields } = require("./utils/errorResponse");
-const { initRedis, closeRedis } = require("./services/cacheService");
-const { closeAll: closeAllStreams } = require("./services/balanceStreamService");
+const { closeAll: closeBalanceStreams } = require("./services/balanceStreamService");
 const traceContextMiddleware = require("./middleware/tracing");
- master
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -103,6 +95,12 @@ Sentry.init({
         ...v,
         value: sanitizeMessage(v.value),
       }));
+    }
+    // Attach correlation ID so Sentry events can be cross-referenced with logs.
+    const requestId = getRequestId();
+    if (requestId) {
+      event.tags = { ...event.tags, correlationId: requestId };
+      event.extra = { ...event.extra, correlationId: requestId };
     }
     return event;
   },
@@ -181,21 +179,19 @@ app.use(helmet(helmetOptions));
 // Mounted before routes so the "finish" event captures the resolved
 // route pattern (e.g. "GET /api/payments/:id") rather than raw paths.
 app.use(trackHttpMetrics);
-// Correlation ID middleware — generates/adopts X-Request-ID, stores in ALS.
+// Request ID middleware (#172) — generates/adopts X-Request-ID, attaches
+// req.log child logger, stores context in ALS, tags Sentry.
 // Mounted before pino-http so the requestId appears in every log line.
-app.use(correlationMiddleware);
+app.use(requestIdMiddleware);
 app.use(traceContextMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-// req.id is set by correlationMiddleware above.
+// req.id / req.log are set by requestIdMiddleware above.
+// requestId / sessionId also come from the logger mixin (ALS).
 app.use(
   pinoHttp({
     logger,
     genReqId: (req) => req.id || crypto.randomUUID(),
-    customProps: () => {
-      const requestId = getRequestId();
-      return requestId ? { requestId } : {};
-    },
   }),
 );
 
@@ -213,13 +209,17 @@ app.use(requireJsonContentType);
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 app.use(express.json({ limit: "100kb" }));
 
-// JSON body parsing error handler
+// JSON body parsing error handler — uses standardized error codes
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({ error: "Invalid JSON body" });
+    return res
+      .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
+      .json(formatErrorResponse("VAL_INVALID_JSON"));
   }
   if (err.type === "entity.too.large" || err.status === 413) {
-    return res.status(413).json({ error: "Request body too large" });
+    return res
+      .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
+      .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
   }
   next();
 });
@@ -243,7 +243,13 @@ app.use(
       }
     },
     methods: ["GET", "POST", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Request-ID",
+      "X-Session-ID",
+    ],
+    exposedHeaders: ["X-Request-ID", "X-Session-ID"],
     credentials: true,
   }),
 );
@@ -327,7 +333,8 @@ app.get("/api/docs.json", (req, res) => {
 
 app.use((req, res) => {
   const sanitizedPath = req.path.replace(/[\r\n]/g, "");
-  logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
+  const log = req.log || logger;
+  log.warn({ method: req.method, path: sanitizedPath }, "Route not found");
   res
     .status(ERROR_CODES.RES_ROUTE_NOT_FOUND.httpStatus)
     .json(formatErrorResponse("RES_ROUTE_NOT_FOUND"));
@@ -338,48 +345,31 @@ app.use((req, res) => {
 // Sentry must capture errors before the generic handler responds
 Sentry.setupExpressErrorHandler(app);
 
-// Convert any stray ZodError (thrown outside the validate() middleware, e.g.
-// a schema.parse() inside a controller) into the standard 400 payload.
+// Convert any stray ZodError (thrown outside the validate() middleware) into
+// the standard 400 payload.
 app.use(zodErrorHandler);
 
 app.use((err, req, res, next) => {
   void next;
+  const log = req.log || logger;
   // If the error already has a code from our registry, use it directly.
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-    logger.error(
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+    // Logged correlationId matches the one returned in the response body.
+    log.error(
       { ...errorLogFields(err.errorCode, { details: err.details }), status },
-
-      { status, errorCode: err.errorCode, details: err.details },
-
-    // The logged correlationId is the same one returned in the response body,
-    // which is what makes a user-quoted ID searchable in the logs.
-    logger.error(
-      { ...errorLogFields(err.errorCode, { details: err.details }), status },
- master
- master
       "Request error",
     );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
-
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
-  const message =
-    sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  logger.error({ status, message }, "Request error");
-
-  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  logger.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
- master
- master
+  log.error(
+    { ...errorLogFields("SRV_INTERNAL"), status, message },
+    "Request error",
+  );
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
@@ -399,18 +389,24 @@ async function gracefulShutdown(signal, server, otelSdk) {
     if (err) logger.error({ err }, "Error closing HTTP server");
   });
 
-  // 2. Close the Horizon payment streams backing the balance SSE endpoint so
-  //    they don't leak hanging connections on restart (#157).
+  // 2. Close Horizon payment streams backing the balance SSE endpoint (#157).
   try {
-    closeAllStreams();
+    closeBalanceStreams();
   } catch (err) {
     logger.error({ err }, "Error closing Horizon balance streams");
   }
 
-  // 3. Close Redis connection
+  // 3. Close webhook delivery streams.
+  try {
+    await closeWebhookStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing webhook streams");
+  }
+
+  // 4. Close Redis connection
   await closeRedis();
 
-  // 4. Flush OTel spans (time-boxed at 5 s)
+  // 5. Flush OTel spans (time-boxed at 5 s)
   if (otelSdk) {
     try {
       await Promise.race([

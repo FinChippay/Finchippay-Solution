@@ -258,10 +258,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <I18nextProvider i18n={i18n}>
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
       <DirectionSync />
-
- master
       <ThemeProvider>
       <ToastProvider>
       <WalletProvider>

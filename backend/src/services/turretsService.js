@@ -20,10 +20,8 @@ const {
   TransactionBuilder,
 } = require("@stellar/stellar-sdk");
 const knex = require("../db/connection");
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
 const priceFeedService = require("./priceFeedService");
 
- master
 
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -353,7 +351,6 @@ async function addExecutionLog(deploymentId, status, message, result = null) {
 }
 
 async function getXlmUsdPrice() {
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
   const priceQuote = await priceFeedService.getXLMPrice();
   return priceQuote.price;
 
@@ -379,7 +376,6 @@ async function getXlmUsdPrice() {
 
   priceCache = { value, fetchedAt: now };
   return value;
- master
 }
 
 function nextRunIso(intervalMinutes) {
