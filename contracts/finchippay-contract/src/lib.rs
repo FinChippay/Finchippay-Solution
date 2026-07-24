@@ -80,6 +80,8 @@ pub enum ContractError {
     /// Token transfer succeeded but the actual balance did not increase by
     /// the expected amount (possible malicious/fake token contract).
     TransferFailed = 17,
+    /// The recipient's escrow index already holds `MAX_USER_ESCROWS` entries.
+    IndexFull = 18,
 }
 
 // ─── Shared data types ────────────────────────────────────────────────────────
@@ -794,6 +796,10 @@ impl FinchippayContract {
     /// Lock `amount` tokens from `from` until `release_ledger`. Returns the escrow ID.
     ///
     /// Funds are held by the contract itself until `claim_escrow` or `cancel_escrow`.
+    ///
+    /// # Errors
+    /// - Returns `ContractError::IndexFull` if `to` already has `MAX_USER_ESCROWS`
+    ///   escrows tracked in its recipient index, before any funds move.
     pub fn create_escrow(
         env: Env,
         token_address: Address,
@@ -802,7 +808,7 @@ impl FinchippayContract {
         amount: i128,
         release_ledger: u32,
         memo: Symbol,
-    ) -> u32 {
+    ) -> Result<u32, ContractError> {
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
@@ -823,6 +829,18 @@ impl FinchippayContract {
         }
         if release_ledger > env.ledger().sequence() + MAX_ESCROW_LEDGERS {
             panic!("release_ledger is too far in the future");
+        }
+
+        // Enforce the recipient escrow index cap before any funds move, so a
+        // rejected call has no side effects.
+        let rkey = DataKey::EscrowByRecipient(to.clone());
+        let mut r_escrows: Vec<Escrow> = env
+            .storage()
+            .persistent()
+            .get(&rkey)
+            .unwrap_or(Vec::new(&env));
+        if r_escrows.len() >= MAX_USER_ESCROWS {
+            return Err(ContractError::IndexFull);
         }
 
         let token = get_token_client(&env, &token_address);
@@ -856,23 +874,15 @@ impl FinchippayContract {
             .set(&DataKey::EscrowCount, &(next_id + 1));
         bump(&env, &DataKey::EscrowCount);
 
-        let rkey = DataKey::EscrowByRecipient(to.clone());
-        let mut r_escrows: Vec<Escrow> = env
-            .storage()
-            .persistent()
-            .get(&rkey)
-            .unwrap_or(Vec::new(&env));
-        if r_escrows.len() < MAX_USER_ESCROWS {
-            r_escrows.push_back(escrow);
-            env.storage().persistent().set(&rkey, &r_escrows);
-            bump(&env, &rkey);
-        }
+        r_escrows.push_back(escrow);
+        env.storage().persistent().set(&rkey, &r_escrows);
+        bump(&env, &rkey);
 
         env.events().publish(
             (Symbol::new(&env, "escrow_create"), next_id),
             (from.clone(), to.clone(), amount, release_ledger),
         );
-        next_id
+        Ok(next_id)
     }
 
     /// Claim a partial amount from the escrow. The caller must be the
@@ -2901,6 +2911,36 @@ mod tests {
         assert_eq!(client.get_tip_total(&r1), 300);
         assert_eq!(client.get_tip_total(&r2), 400);
         assert_eq!(client.get_tip_total(&r3), 500);
+    }
+
+    // ── Escrow recipient index cap ─────────────────────────────────────────
+
+    #[test]
+    fn test_create_escrow_rejects_when_recipient_index_full() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(
+            &env,
+            &admin,
+            &from,
+            (MAX_USER_ESCROWS as i128 + 1) * MIN_ESCROW_AMOUNT,
+        );
+        let release = env.ledger().sequence() + 10;
+        let memo = Symbol::new(&env, "e");
+
+        for _ in 0..MAX_USER_ESCROWS {
+            client.create_escrow(&token_id, &from, &to, &MIN_ESCROW_AMOUNT, &release, &memo);
+        }
+
+        // The 101st escrow to the same recipient must be rejected rather than
+        // silently created without being indexed.
+        let res =
+            client.try_create_escrow(&token_id, &from, &to, &MIN_ESCROW_AMOUNT, &release, &memo);
+        assert_eq!(res.unwrap_err().unwrap(), ContractError::IndexFull);
     }
 
     // ── Self-transfer prevention ───────────────────────────────────────────
