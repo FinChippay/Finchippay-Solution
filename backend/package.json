@@ -11,22 +11,11 @@
     "format:check": "prettier --check .",
     "test": "jest",
     "test:unit": "jest --testPathIgnorePatterns='/(integration|federation)\\.test\\.'",
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
-
-160-issue-38-rtl-language-support-arabic-hebrew-fix
     "test:integration": "jest --testPathPatterns='integration|federation'",
-    "lint": "eslint 'src/**/*.js'"
-
- master
-    "test:integration": "jest --testPathPattern='integration|federation'",
     "lint": "eslint 'src/**/*.js'",
     "migrate": "node src/db/migrate.js",
     "migrate:rollback": "node src/db/migrate.js rollback",
     "migrate:seed": "node src/db/migrate.js seed"
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
-
- master
- master
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
@@ -43,17 +32,9 @@
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
- #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
     "knex": "^3.1.0",
     "morgan": "^1.10.0",
     "node-cron": "^4.6.0",
-    "pg": "^8.15.0",
-
-    "better-sqlite3": "^11.7.0",
-    "knex": "^3.1.0",
-    "morgan": "^1.10.0",
-    "node-cron": "^4.6.0",
- master
     "pino": "^9.0.0",
     "pg": "^8.15.0",
     "pino-http": "^10.3.0",

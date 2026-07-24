@@ -7,6 +7,7 @@ jest.mock("../src/middleware/auth", () => ({
     req.user = { publicKey: req.params.publicKey };
     next();
   },
+  requireAdmin: (_req, _res, next) => next(),
 }));
 
 const app = require("../src/server");

@@ -58,6 +58,42 @@ describe("validateEnv.collectErrors", () => {
     );
   });
 
+  it("requires a strong rate-limit hash salt in production", () => {
+    const missingSalt = collectErrors({
+      NODE_ENV: "production",
+      STELLAR_NETWORK: "mainnet",
+      HORIZON_URL: "https://horizon.stellar.org",
+    });
+    const shortSalt = collectErrors({
+      NODE_ENV: "production",
+      STELLAR_NETWORK: "mainnet",
+      HORIZON_URL: "https://horizon.stellar.org",
+      RATE_LIMIT_IP_HASH_SALT: "too-short",
+    });
+
+    expect(missingSalt).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("RATE_LIMIT_IP_HASH_SALT is required"),
+      ]),
+    );
+    expect(shortSalt).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("must contain at least 32 characters"),
+      ]),
+    );
+  });
+
+  it("accepts a strong rate-limit hash salt in production", () => {
+    expect(
+      collectErrors({
+        NODE_ENV: "production",
+        STELLAR_NETWORK: "mainnet",
+        HORIZON_URL: "https://horizon.stellar.org",
+        RATE_LIMIT_IP_HASH_SALT: "a".repeat(32),
+      }),
+    ).toEqual([]);
+  });
+
   it("returns no errors when ALLOWED_ORIGINS is absent (uses default)", () => {
     expect(
       collectErrors({
