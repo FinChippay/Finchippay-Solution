@@ -6,10 +6,24 @@ const {
   registerWebhook,
   getWebhooksByPublicKey,
   deleteWebhook,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+} = require("../services/webhookService");
+const {
+  formatErrorResponse,
+  ERROR_CODES,
+} = require("../../../shared/errorCodes");
+const { validate } = require("../validation/middleware");
+const {
+  registerWebhookSchema,
+  publicKeyParamSchema,
+  idParamSchema,
+} = require("../validation/schemas");
+
   getDeadDeliveries,
   retryDeadDeliveries,
 } = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+ master
 
 /**
  * POST /api/webhooks
@@ -17,12 +31,16 @@ const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes
  *
  * Body: { publicKey: "G...", url: "https://...", secret: "whsec_..." }
  *
- * Validation:
+ * Validation (registerWebhookSchema):
  *   - publicKey must be a valid 56-char Stellar address.
  *   - url must be an HTTPS endpoint (reject http:// in production).
- *   - secret must be at least 16 characters.
+ *   - secret must be at least 8 characters (HMAC-SHA256 signing secret).
  */
-router.post("/", (req, res) => {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+router.post("/", validate(registerWebhookSchema), (req, res) => {
+  const { publicKey, url, secret } = req.validated;
+
+router.post("/", async (req, res) => {
   const { publicKey, url, secret } = req.body;
   if (!publicKey || !url || !secret) {
     return res
@@ -58,9 +76,14 @@ router.post("/", (req, res) => {
       .status(ERROR_CODES.VAL_WEAK_SECRET.httpStatus)
       .json(formatErrorResponse("VAL_WEAK_SECRET"));
   }
+ master
 
   try {
-    const webhook = registerWebhook(publicKey, url, secret);
+    const webhook = await webhookService.registerWebhook(
+      publicKey,
+      url,
+      secret,
+    );
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
     return res
@@ -73,16 +96,27 @@ router.post("/", (req, res) => {
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account.
  */
-router.get("/:publicKey", (req, res) => {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+router.get(
+  "/:publicKey",
+  validate(publicKeyParamSchema, "params"),
+  (req, res) => {
+    const { publicKey } = req.validated;
+    const hooks = getWebhooksByPublicKey(publicKey);
+    return res.json({ webhooks: hooks });
+  },
+);
+router.get("/:publicKey", async (req, res) => {
   const { publicKey } = req.params;
   if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
     return res
       .status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus)
       .json(formatErrorResponse("VAL_INVALID_PUBLIC_KEY"));
   }
-  const hooks = getWebhooksByPublicKey(publicKey);
+  const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
   return res.json({ webhooks: hooks });
 });
+ master
 
 /**
  * GET /api/webhooks/:publicKey/failures
@@ -128,20 +162,24 @@ router.post("/:publicKey/retry", (req, res) => {
 
 /**
  * DELETE /api/webhooks/:id
- * Delete a webhook by numeric ID.
+ * Delete a webhook by ID.
  */
-router.delete("/:id", (req, res) => {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+router.delete("/:id", validate(idParamSchema, "params"), (req, res) => {
+  const { id } = req.validated;
+  const deleted = deleteWebhook(id);
+
+router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   if (!id || typeof id !== "string" || id.length === 0) {
     return res
       .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
       .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["id"] }));
   }
-  const deleted = deleteWebhook(id);
+  const deleted = await webhookService.deleteWebhook(id);
+ master
   if (!deleted) {
-    return res
-      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
-      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "webhook", id }));
+    return res.status(404).json({ error: "Webhook not found" });
   }
   return res.json({ success: true, message: `Webhook ${id} deleted` });
 });

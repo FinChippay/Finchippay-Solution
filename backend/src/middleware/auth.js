@@ -20,7 +20,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
 if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
   console.warn(
     "⚠️  JWT_SECRET is not set — using insecure default. " +
-      "Generate a production secret: openssl rand -hex 32"
+      "Generate a production secret: openssl rand -hex 32",
   );
 }
 

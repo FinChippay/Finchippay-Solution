@@ -893,7 +893,7 @@ function SendPaymentForm({
         {!hideDestinationField && (
           <div className="relative" ref={dropdownRef}>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("sendPayment.destination")}</label>
+              <label className="label mb-0 rtl:text-right">{t("sendPayment.destination")}</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -948,7 +948,7 @@ function SendPaymentForm({
               onFocus={() => setIsContactsDropdownOpen(true)}
               placeholder="G..., alice*domain.com, or @username"
               className={clsx(
-                "input-field font-mono text-sm",
+                "input-field font-mono text-sm rtl:text-left",
                 destination &&
                   !isValidDest &&
                   !isFederationDestination &&
@@ -977,7 +977,11 @@ function SendPaymentForm({
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectContact(item.address)}
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+                    className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left rtl:items-end rtl:text-right hover:bg-slate-50 dark:hover:bg-white/5"
+
                     className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-white/5"
+ master
                   >
                     <span className="text-sm font-medium text-slate-900 dark:text-slate-200">{item.nickname}</span>
                     <span className="text-xs text-slate-600 dark:text-slate-400">{shortenAddress(item.address, 8)}</span>
@@ -991,7 +995,11 @@ function SendPaymentForm({
         {!hideAmountField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+              <label className="label mb-0 rtl:text-right">{t("sendPayment.amount")} ({selectedAsset})</label>
+
               <label className="label mb-0">{t("sendPayment.amount")} ({selectedAsset})</label>
+ master
               <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300" disabled={status !== "idle"}>
                 {t("sendPayment.max")}: {formatXLM(maxSend)}
               </button>
@@ -1013,7 +1021,11 @@ function SendPaymentForm({
         {!hideMemoField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+              <label className="label mb-0 rtl:text-right">{t("sendPayment.memo")}</label>
+
               <label className="label mb-0">{t("sendPayment.memo")}</label>
+ master
               <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-600 dark:text-slate-400")}>
                 {memoBytes}/28 {t("sendPayment.bytes")}
               </span>

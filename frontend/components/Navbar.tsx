@@ -93,8 +93,8 @@ export default function Navbar() {
 
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 backdrop-blur-xl transition-colors duration-300 dark:bg-cosmos-900/80">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-4">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 rtl:flex-row-reverse">
+        <div className="flex items-center gap-4 rtl:flex-row-reverse">
           <Link href="/" className="group flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-stellar-500/30 bg-stellar-500/20 transition-colors group-hover:border-stellar-500/60">
               <NavStarIcon className="h-4 w-4 text-stellar-400" />
@@ -126,7 +126,7 @@ export default function Navbar() {
             />
           )}
 
-          <div className="hidden items-center gap-1 md:flex">
+          <div className="hidden items-center gap-1 md:flex rtl:flex-row-reverse">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
@@ -144,7 +144,11 @@ export default function Navbar() {
           </div>
         </div>
 
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+        <div className="flex items-center gap-3 rtl:flex-row-reverse">
+
         <div className="flex items-center gap-3">
+ master
           <ThemeToggle />
 
           {publicKey ? (
@@ -183,8 +187,13 @@ export default function Navbar() {
 
       {/* Mobile Menu Dropdown */}
       {isMobileMenuOpen && (
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+        <div className="absolute left-0 right-0 top-full rtl:text-right border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
+          <div className="flex flex-col gap-2 rtl:items-stretch">
+
         <div className="absolute left-0 right-0 top-full border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
           <div className="flex flex-col gap-2">
+master
             {navLinks.map((link) => (
               <Link
                 key={link.href}

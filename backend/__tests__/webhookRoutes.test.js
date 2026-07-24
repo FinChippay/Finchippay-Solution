@@ -21,7 +21,7 @@ jest.mock("../src/services/webhookService", () => {
       return webhook;
     }),
     getWebhooksByPublicKey: jest.fn((publicKey) =>
-      Array.from(store.values()).filter((w) => w.publicKey === publicKey)
+      Array.from(store.values()).filter((w) => w.publicKey === publicKey),
     ),
     deleteWebhook: jest.fn((id) => store.delete(id)),
     getDeadDeliveries: jest.fn((publicKey) =>
@@ -54,15 +54,19 @@ beforeEach(() => {
 
 describe("POST /api/webhooks", () => {
   it("requires publicKey, url, and secret", async () => {
-    const res = await request(app()).post("/api/webhooks").send({ url: "https://x.test/h" });
+    const res = await request(app())
+      .post("/api/webhooks")
+      .send({ url: "https://x.test/h" });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/required/i);
   });
 
   it("registers a webhook", async () => {
-    const res = await request(app())
-      .post("/api/webhooks")
-      .send({ publicKey: ME, url: "https://x.test/hook", secret: "supersecret" });
+    const res = await request(app()).post("/api/webhooks").send({
+      publicKey: ME,
+      url: "https://x.test/hook",
+      secret: "supersecret",
+    });
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -70,7 +74,7 @@ describe("POST /api/webhooks", () => {
     expect(webhookService.registerWebhook).toHaveBeenCalledWith(
       ME,
       "https://x.test/hook",
-      "supersecret"
+      "supersecret",
     );
   });
 });
@@ -78,7 +82,12 @@ describe("POST /api/webhooks", () => {
 describe("GET /api/webhooks/:publicKey", () => {
   it("returns webhooks for the account", async () => {
     webhookService.getWebhooksByPublicKey.mockReturnValue([
-      { id: "1", publicKey: ME, url: "https://x.test/hook", secret: "supersecret" },
+      {
+        id: "1",
+        publicKey: ME,
+        url: "https://x.test/hook",
+        secret: "supersecret",
+      },
     ]);
 
     const res = await request(app()).get(`/api/webhooks/${ME}`);

@@ -251,9 +251,9 @@ export default function MultiSigFlow({
       </p>
 
       {/* Step indicator */}
-      <div className="flex items-center mb-6 overflow-x-auto pb-1">
+      <div className="flex items-center mb-6 overflow-x-auto pb-1 rtl:flex-row-reverse">
         {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center flex-shrink-0">
+          <div key={s} className="flex items-center flex-shrink-0 rtl:flex-row-reverse">
             <div
               className={clsx(
                 "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
@@ -268,7 +268,7 @@ export default function MultiSigFlow({
             </div>
             <span
               className={clsx(
-                "ml-1 text-xs hidden sm:block",
+                "ml-1 text-xs hidden sm:block rtl:ml-0 rtl:mr-1",
                 i === stepIndex ? "text-stellar-300" : "text-slate-500"
               )}
             >
@@ -290,7 +290,7 @@ export default function MultiSigFlow({
       {step === "build" && (
         <div className="space-y-4">
           <div>
-            <label className="label">Recipient Address</label>
+            <label className="label rtl:text-right">Recipient Address</label>
             <input
               type="text"
               value={destination}
@@ -300,7 +300,7 @@ export default function MultiSigFlow({
             />
           </div>
           <div>
-            <label className="label">Amount (XLM)</label>
+            <label className="label rtl:text-right">Amount (XLM)</label>
             <input
               type="number"
               value={amount}
@@ -318,7 +318,7 @@ export default function MultiSigFlow({
             )}
           </div>
           <div>
-            <label className="label">Memo (optional)</label>
+            <label className="label rtl:text-right">Memo (optional)</label>
             <input
               type="text"
               value={memo}
@@ -328,7 +328,7 @@ export default function MultiSigFlow({
             />
           </div>
           <div>
-            <label className="label">
+            <label className="label rtl:text-right">
               Required Signatures
               <span className="ml-1 text-slate-500 font-normal">(minimum 2)</span>
             </label>
@@ -442,7 +442,7 @@ export default function MultiSigFlow({
           {!thresholdMet && (
             <>
               <div>
-                <label className="label">Paste Signed XDR from Co-Signer</label>
+                <label className="label rtl:text-right">Paste Signed XDR from Co-Signer</label>
                 <textarea
                   value={pastedXDR}
                   onChange={(e) => setPastedXDR(e.target.value)}

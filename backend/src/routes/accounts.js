@@ -8,8 +8,17 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter, sensitiveLimiter } = require("../middleware/rateLimit");
-const { sanitizePublicKey, sanitizeUsername } = require("../middleware/sanitization");
+const {
+  sanitizePublicKey,
+  sanitizeUsername,
+} = require("../middleware/sanitization");
 const { verifyJWT } = require("../middleware/auth");
+const { validate } = require("../validation/middleware");
+const {
+  publicKeyParamSchema,
+  usernameParamSchema,
+  registerUsernameSchema,
+} = require("../validation/schemas");
 const accountController = require("../controllers/accountController");
 const { sendError } = require("../utils/errorResponse");
 
@@ -44,19 +53,51 @@ function acceptTokenFromQuery(req, res, next) {
  * Resolve a username to a Stellar public key.
  * Must be registered before /:publicKey or Express matches it as a key.
  */
-router.get("/resolve/:username", sensitiveLimiter, sanitizeUsername, accountController.resolveUsername);
+router.get(
+  "/resolve/:username",
+  sensitiveLimiter,
+  sanitizeUsername,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(usernameParamSchema, "params"),
+
+ master
+  accountController.resolveUsername,
+);
 
 /**
  * GET /api/accounts/:publicKey
  * Fetch account info and balances from Horizon.
  */
-router.get("/:publicKey", sensitiveLimiter, verifyJWT, sanitizePublicKey, requireOwnAccount, accountController.getAccount);
+router.get(
+  "/:publicKey",
+  sensitiveLimiter,
+  verifyJWT,
+  sanitizePublicKey,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+ master
+  requireOwnAccount,
+  accountController.getAccount,
+);
 
 /**
  * GET /api/accounts/:publicKey/balance
  * Fetch just the XLM balance for an account.
  */
-router.get("/:publicKey/balance", sensitiveLimiter, verifyJWT, sanitizePublicKey, requireOwnAccount, accountController.getBalance);
+router.get(
+  "/:publicKey/balance",
+  sensitiveLimiter,
+  verifyJWT,
+  sanitizePublicKey,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+  requireOwnAccount,
+  accountController.getBalance,
+);
+
+  requireOwnAccount,
+  accountController.getBalance,
+);
 
 /**
  * GET /api/accounts/:publicKey/stream
@@ -74,11 +115,17 @@ router.get(
   requireOwnAccount,
   accountController.streamBalance,
 );
+ master
 
 /**
  * POST /api/accounts/register
  * Register a new username with a public key.
  */
-router.post("/register", strictLimiter, accountController.registerUsername);
+router.post(
+  "/register",
+  strictLimiter,
+  validate(registerUsernameSchema),
+  accountController.registerUsername,
+);
 
 module.exports = router;

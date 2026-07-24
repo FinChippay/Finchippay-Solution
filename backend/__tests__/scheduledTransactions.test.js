@@ -32,23 +32,19 @@ describe("Scheduled Transactions Routes", () => {
 
       scheduledTransactionService.scheduleTransaction.mockReturnValue(mockTx);
 
-      const res = await request(app)
-        .post("/api/scheduled-txns")
-        .send({
-          signedXDR: "AAAAAgAAAAC...",
-          submitAt: "2026-08-01T12:00:00Z",
-          publicKey: "GABC123",
-        });
+      const res = await request(app).post("/api/scheduled-txns").send({
+        signedXDR: "AAAAAgAAAAC...",
+        submitAt: "2026-08-01T12:00:00Z",
+        publicKey: "GABC123",
+      });
 
       expect(res.status).toBe(201);
       expect(res.body.message).toBe("Transaction scheduled successfully");
       expect(res.body.id).toBe("tx-1");
       expect(res.body.publicKey).toBe("GABC123");
-      expect(scheduledTransactionService.scheduleTransaction).toHaveBeenCalledWith(
-        "AAAAAgAAAAC...",
-        expect.any(Date),
-        "GABC123"
-      );
+      expect(
+        scheduledTransactionService.scheduleTransaction,
+      ).toHaveBeenCalledWith("AAAAAgAAAAC...", expect.any(Date), "GABC123");
     });
 
     it("returns 400 when required fields are missing", async () => {
@@ -61,9 +57,11 @@ describe("Scheduled Transactions Routes", () => {
     });
 
     it("returns 400 when submitAt is not a valid date", async () => {
-      const res = await request(app)
-        .post("/api/scheduled-txns")
-        .send({ signedXDR: "AAAAAgAAAAC...", submitAt: "not-a-date", publicKey: "GABC123" });
+      const res = await request(app).post("/api/scheduled-txns").send({
+        signedXDR: "AAAAAgAAAAC...",
+        submitAt: "not-a-date",
+        publicKey: "GABC123",
+      });
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain("valid ISO 8601 date");
@@ -74,13 +72,11 @@ describe("Scheduled Transactions Routes", () => {
         throw new Error("Service failure");
       });
 
-      const res = await request(app)
-        .post("/api/scheduled-txns")
-        .send({
-          signedXDR: "AAAAAgAAAAC...",
-          submitAt: "2026-08-01T12:00:00Z",
-          publicKey: "GABC123",
-        });
+      const res = await request(app).post("/api/scheduled-txns").send({
+        signedXDR: "AAAAAgAAAAC...",
+        submitAt: "2026-08-01T12:00:00Z",
+        publicKey: "GABC123",
+      });
 
       expect(res.status).toBe(500);
     });
@@ -93,14 +89,18 @@ describe("Scheduled Transactions Routes", () => {
         { id: "tx-2", publicKey: "GABC123", submitAt: new Date() },
       ];
 
-      scheduledTransactionService.getPendingTransactions.mockReturnValue(mockTxs);
+      scheduledTransactionService.getPendingTransactions.mockReturnValue(
+        mockTxs,
+      );
 
       const res = await request(app).get("/api/scheduled-txns/GABC123");
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(2);
       expect(res.body[0].id).toBe("tx-1");
-      expect(scheduledTransactionService.getPendingTransactions).toHaveBeenCalledWith("GABC123");
+      expect(
+        scheduledTransactionService.getPendingTransactions,
+      ).toHaveBeenCalledWith("GABC123");
     });
 
     it("returns empty array when no transactions exist", async () => {
@@ -113,9 +113,11 @@ describe("Scheduled Transactions Routes", () => {
     });
 
     it("forwards service errors", async () => {
-      scheduledTransactionService.getPendingTransactions.mockImplementation(() => {
-        throw new Error("DB error");
-      });
+      scheduledTransactionService.getPendingTransactions.mockImplementation(
+        () => {
+          throw new Error("DB error");
+        },
+      );
 
       const res = await request(app).get("/api/scheduled-txns/GABC123");
 

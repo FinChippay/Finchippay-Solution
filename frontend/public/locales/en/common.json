@@ -278,6 +278,7 @@
     "yourAddress": "Your address:",
     "registerStellarName": "Register your name on StellarNames →",
     "languageTitle": "Language",
-    "languageDescription": "Select your preferred language for the application interface."
+    "languageDescription": "Select your preferred language for the application interface.",
+    "rtlSupportNote": "RTL support: Arabic and Hebrew layouts are mirrored."
   }
 }

@@ -152,30 +152,40 @@ const ACCOUNT_D = "GCDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
 const ACCOUNT_E = "GCEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
 
 describe("webhook registry", () => {
-  it("registers and lists webhooks for an account", () => {
-    const webhook = webhookService.registerWebhook(
+  it("registers and lists webhooks for an account", async () => {
+    const webhook = await webhookService.registerWebhook(
       ACCOUNT_A,
       "https://x.test/hook",
-      "supersecret"
+      "supersecret",
     );
 
-    const list = webhookService.getWebhooksByPublicKey(ACCOUNT_A);
+    const list = await webhookService.getWebhooksByPublicKey(ACCOUNT_A);
     expect(list).toHaveLength(1);
     expect(list[0].url).toBe("https://x.test/hook");
     expect(list[0].id).toBe(webhook.id);
   });
 
-  it("scopes listing to the account and supports deletion", () => {
-    const webhook = webhookService.registerWebhook(
+  it("scopes listing to the account and supports deletion", async () => {
+    const webhook = await webhookService.registerWebhook(
       ACCOUNT_B,
       "https://x.test/a",
-      "secret-aaa"
+      "secret-aaa",
     );
-    webhookService.registerWebhook(ACCOUNT_C, "https://x.test/b", "secret-bbb");
+    await webhookService.registerWebhook(
+      ACCOUNT_C,
+      "https://x.test/b",
+      "secret-bbb",
+    );
 
-    expect(webhookService.getWebhooksByPublicKey(ACCOUNT_B)).toHaveLength(1);
-    expect(webhookService.deleteWebhook(webhook.id)).toBe(true);
-    expect(webhookService.getWebhooksByPublicKey(ACCOUNT_B)).toHaveLength(0);
+    const listB = await webhookService.getWebhooksByPublicKey(ACCOUNT_B);
+    expect(listB).toHaveLength(1);
+
+    const deleted = await webhookService.deleteWebhook(webhook.id);
+    expect(deleted).toBe(true);
+
+    const listAfterDelete =
+      await webhookService.getWebhooksByPublicKey(ACCOUNT_B);
+    expect(listAfterDelete).toHaveLength(0);
   });
 });
 

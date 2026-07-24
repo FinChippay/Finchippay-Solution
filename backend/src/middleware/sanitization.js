@@ -75,7 +75,10 @@ function sanitizeUsername(req, res, next) {
     return next();
   }
 
-  const sanitized = username.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const sanitized = username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 
   if (!sanitized || sanitized.length < 3 || sanitized.length > 20) {
     return res

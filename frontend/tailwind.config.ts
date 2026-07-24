@@ -58,7 +58,12 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    ({ addVariant }: { addVariant: (name: string, selector: string) => void }) => {
+      // Prefix utilities with `rtl:` when an ancestor (normally <html>) is RTL.
+      addVariant("rtl", '[dir="rtl"] &');
+    },
+  ],
 };
 
 export default config;

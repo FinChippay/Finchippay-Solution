@@ -7,51 +7,37 @@
 
 const axios = require("axios");
 const usernameService = require("../services/usernameService");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const {
+  stellarAddress: stellarAddressSchema,
+} = require("../validation/schemas");
 
 /**
  * GET /federation?q=<query>&type=<type>
  * Federation endpoint per SEP-0002.
+ *
+ * Query input is validated by `federationQuerySchema` via the validate()
+ * middleware; `req.validated.q` / `req.validated.type` are guaranteed to be
+ * present strings with type ∈ {name, id} when this handler runs.
  */
 async function resolveFederation(req, res, next) {
   try {
-    const { q, type } = req.query;
-
-    if (!q || !type) {
-      return res
-        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["q", "type"] }));
-    }
-
-    if (typeof q !== "string" || typeof type !== "string") {
-      return res
-        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(formatErrorResponse("VAL_MISSING_FIELD", {
-          reason: "q and type must be strings",
-        }));
-    }
+    const { q, type } = req.validated;
 
     if (type === "name") {
       // Resolve stellar address to account ID
       const result = await resolveStellarAddress(q, req);
       return res.json(result);
-    } else if (type === "id") {
-      // Resolve account ID to stellar address
-      const result = await resolveAccountId(q);
-      return res.json(result);
-    } else {
-      return res
-        .status(ERROR_CODES.VAL_INVALID_FEDERATION_TYPE.httpStatus)
-        .json(formatErrorResponse("VAL_INVALID_FEDERATION_TYPE"));
     }
+
+    // type === "id": resolve account ID to stellar address
+    const result = await resolveAccountId(q);
+    return res.json(result);
   } catch (err) {
     if (err.response && err.response.status === 404) {
-      return res
-        .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
-        .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "federation" }));
+      return res.status(404).json({ error: "Not found" });
     }
     if (err.status) {
-      return res.status(err.status).json(formatErrorResponse(err.errorCode || "SRV_INTERNAL", { reason: err.message }));
+      return res.status(err.status).json({ error: err.message });
     }
     next(err);
   }
@@ -86,7 +72,7 @@ async function resolveStellarAddress(stellarAddress, req) {
   // Check if it's our domain
   if (isLocalFederationDomain(domain, req)) {
     // Local resolution
-    const result = usernameService.resolveUsername(username);
+    const result = await usernameService.resolveUsername(username);
     return {
       stellar_address: `${username}*${domain}`,
       account_id: result.publicKey,
@@ -104,8 +90,12 @@ async function resolveStellarAddress(stellarAddress, req) {
  */
 async function resolveAccountId(accountId) {
   // First check local usernames
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
   const allUsernames = usernameService.getAllUsernames();
-  const match = allUsernames.find(user => user.publicKey === accountId);
+
+  const allUsernames = await usernameService.getAllUsernames();
+ master
+  const match = allUsernames.find((user) => user.publicKey === accountId);
 
   if (match) {
     const domain = getPrimaryFederationDomain();
@@ -161,9 +151,11 @@ async function forwardFederation(query, type) {
   if (
     response.data &&
     response.data.account_id &&
-    !/^G[A-Z0-9]{55}$/.test(response.data.account_id)
+    !stellarAddressSchema.safeParse(response.data.account_id).success
   ) {
-    const error = new Error("Invalid Stellar address returned from federation server");
+    const error = new Error(
+      "Invalid Stellar address returned from federation server",
+    );
     error.status = 502;
     error.errorCode = "SRV_FEDERATION_FAILED";
     throw error;
@@ -227,7 +219,7 @@ function getPrimaryFederationDomain() {
     process.env.FEDERATION_DOMAIN ||
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
-      "stellarfinchippay.io"
+      "stellarfinchippay.io",
   );
 }
 

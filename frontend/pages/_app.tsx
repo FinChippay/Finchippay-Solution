@@ -25,8 +25,28 @@ import {
 } from "@/lib/sep0007";
 import { I18nextProvider } from "react-i18next";
 import i18n from "@/lib/i18n";
+import { getDirection, syncDocumentDirection } from "@/lib/useDirection";
 import { initSdkAuth } from "@/lib/sdk-instance";
 import "@/styles/globals.css";
+
+function DirectionSync() {
+  const [locale, setLocale] = useState(i18n.resolvedLanguage || i18n.language || "en");
+
+  useEffect(() => {
+    const syncDirection = (nextLocale: string) => {
+      syncDocumentDirection(nextLocale);
+      setLocale(nextLocale);
+    };
+
+    syncDirection(i18n.resolvedLanguage || i18n.language || "en");
+    i18n.on("languageChanged", syncDirection);
+    return () => i18n.off("languageChanged", syncDirection);
+  }, []);
+
+  // Keeping this node in the tree lets React update immediately after a locale
+  // switch while the document attributes are synchronised imperatively above.
+  return <span className="sr-only" data-locale={locale} data-direction={getDirection(locale)} />;
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -238,6 +258,10 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <I18nextProvider i18n={i18n}>
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+      <DirectionSync />
+
+ master
       <ThemeProvider>
       <ToastProvider>
       <WalletProvider>

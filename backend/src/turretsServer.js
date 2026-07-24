@@ -37,7 +37,7 @@ function createTurretsApp() {
           frameSrc: ["'none'"],
         },
       },
-    })
+    }),
   );
   app.use(morgan("tiny"));
   app.use(express.json({ limit: "10kb" }));
@@ -70,7 +70,9 @@ function startTurretsServer() {
   startRunner();
 
   return app.listen(TURRETS_PORT, () => {
-    console.log(`🛡️ Turrets txFunctions server running at http://localhost:${TURRETS_PORT}`);
+    console.log(
+      `🛡️ Turrets txFunctions server running at http://localhost:${TURRETS_PORT}`,
+    );
   });
 }
 
