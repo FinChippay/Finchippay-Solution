@@ -6,6 +6,7 @@ All notable changes to the Finchippay-Solution smart contract will be documented
 
 ### Security Fixes
 
+- **#58: Pauser role enforcement** — `pause` and `unpause` now accept either the stored admin or the designated pauser address (set via `set_pauser`), so the separate pause-only role is actually consulted instead of being ignored. This lets a low-exposure "hot key" trigger the emergency circuit breaker during an incident without bringing the admin key online. The pauser remains strictly pause-only — it cannot `upgrade`, `transfer_admin`, `set_pauser`, or `rescue_tokens`. Added unit tests covering pauser pause/unpause, stranger rejection, and pauser being denied upgrade/admin-transfer, and documented both roles in `docs/architecture.md`.
 - **#54: Mandatory multi-sig expiration** — `create_multisig` now requires `expiration_ledger` to be strictly greater than the current ledger sequence, and rejects a TTL longer than the new `MAX_MULTISIG_TTL` (518,400 ledgers, ≈ 30 days). The `expiration_ledger == 0` escape hatch ("no expiration") has been removed from `approve_multisig`, so every proposal now has a bounded lifetime and can no longer accumulate approvals indefinitely from signers whose keys may have since been rotated or compromised.
 
 ### Breaking Changes

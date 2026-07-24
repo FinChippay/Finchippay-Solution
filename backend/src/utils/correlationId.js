@@ -61,9 +61,20 @@ function getRequestIdHeader() {
   return headers;
 }
 
+/**
+ * Alias for upstream callers / tests that still import `correlationMiddleware`
+ * from this module. The canonical middleware lives in `middleware/requestId.js`
+ * (session ID + req.log + Sentry tags).
+ */
+function correlationMiddleware(req, res, next) {
+  const { requestIdMiddleware } = require("../middleware/requestId");
+  return requestIdMiddleware(req, res, next);
+}
+
 module.exports = {
   runWithRequestContext,
   getRequestId,
   getSessionId,
   getRequestIdHeader,
+  correlationMiddleware,
 };

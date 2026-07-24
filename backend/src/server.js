@@ -40,9 +40,17 @@ const webhookRoutes = require("./routes/webhooks");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
+const sep12Routes = require("./routes/sep12");
+const featuresRoutes = require("./routes/features");
+const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const eventIndexer = require("./services/eventIndexer");
+const {
+  startRetryWorker,
+  closeAllStreams: closeWebhookStreams,
+} = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
@@ -51,6 +59,12 @@ const metricsRoutes = require("./routes/metrics");
 const { requestIdMiddleware } = require("./middleware/requestId");
 const { getRequestId } = require("./utils/correlationId");
 const { initRedis, closeRedis } = require("./services/cacheService");
+const { zodErrorHandler } = require("./validation/middleware");
+// Requiring errorResponse registers getRequestId as the shared registry's
+// correlation-ID provider (#270).
+const { errorLogFields } = require("./utils/errorResponse");
+const { closeAll: closeBalanceStreams } = require("./services/balanceStreamService");
+const traceContextMiddleware = require("./middleware/tracing");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -169,15 +183,15 @@ app.use(trackHttpMetrics);
 // req.log child logger, stores context in ALS, tags Sentry.
 // Mounted before pino-http so the requestId appears in every log line.
 app.use(requestIdMiddleware);
+app.use(traceContextMiddleware);
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 // req.id / req.log are set by requestIdMiddleware above.
+// requestId / sessionId also come from the logger mixin (ALS).
 app.use(
   pinoHttp({
     logger,
     genReqId: (req) => req.id || crypto.randomUUID(),
-    // requestId / sessionId come from the logger mixin (ALS) — avoid duplicating
-    // them here via customProps.
   }),
 );
 
@@ -290,8 +304,11 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/parse-payment", parsePaymentRoutes);
-app.use("/api/scheduled-txns", scheduledTransactionRoutes);
+app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/sep24", sep24Routes);
+app.use("/api/sep12", sep12Routes);
+app.use("/api/features", featuresRoutes);
+app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
 
@@ -328,6 +345,10 @@ app.use((req, res) => {
 // Sentry must capture errors before the generic handler responds
 Sentry.setupExpressErrorHandler(app);
 
+// Convert any stray ZodError (thrown outside the validate() middleware) into
+// the standard 400 payload.
+app.use(zodErrorHandler);
+
 app.use((err, req, res, next) => {
   void next;
   const log = req.log || logger;
@@ -335,13 +356,20 @@ app.use((err, req, res, next) => {
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
     const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
-    log.error({ status, errorCode: err.errorCode, details: err.details }, "Request error");
+    // Logged correlationId matches the one returned in the response body.
+    log.error(
+      { ...errorLogFields(err.errorCode, { details: err.details }), status },
+      "Request error",
+    );
     return res.status(status).json(entry);
   }
 
   const status = err.status || 500;
   const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  log.error({ status, message }, "Request error");
+  log.error(
+    { ...errorLogFields("SRV_INTERNAL"), status, message },
+    "Request error",
+  );
   // For unknown/unclassified errors, fall back to SRV_INTERNAL with raw details.
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
@@ -361,10 +389,24 @@ async function gracefulShutdown(signal, server, otelSdk) {
     if (err) logger.error({ err }, "Error closing HTTP server");
   });
 
-  // 2. Close Redis connection
+  // 2. Close Horizon payment streams backing the balance SSE endpoint (#157).
+  try {
+    closeBalanceStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing Horizon balance streams");
+  }
+
+  // 3. Close webhook delivery streams.
+  try {
+    await closeWebhookStreams();
+  } catch (err) {
+    logger.error({ err }, "Error closing webhook streams");
+  }
+
+  // 4. Close Redis connection
   await closeRedis();
 
-  // 3. Flush OTel spans (time-boxed at 5 s)
+  // 5. Flush OTel spans (time-boxed at 5 s)
   if (otelSdk) {
     try {
       await Promise.race([
@@ -390,6 +432,7 @@ if (require.main === module) {
   initRedis().catch((err) => {
     logger.error({ err }, "Redis initialisation failed");
   });
+  require("./services/scheduledTransactionService").loadActiveSchedules();
   const server = app.listen(PORT, () => {
     console.log(`
   ✨ Finchippay Solution API
@@ -399,9 +442,17 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+  eventIndexer.start();
+  startRetryWorker();
 
-  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server, otelSdk));
-  process.on("SIGINT", () => gracefulShutdown("SIGINT", server, otelSdk));
+  process.on("SIGTERM", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGTERM", server, otelSdk);
+  });
+  process.on("SIGINT", () => {
+    eventIndexer.stop();
+    gracefulShutdown("SIGINT", server, otelSdk);
+  });
 }
 
 module.exports = app;

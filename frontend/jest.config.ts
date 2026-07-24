@@ -5,7 +5,7 @@ const config: Config = {
   transform: { "^.+\\.tsx?$": ["ts-jest", { tsconfig: { jsx: "react-jsx" } }] },
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
-    "^@stellar/stellar-sdk$": "<rootDir>/node_modules/@stellar/stellar-sdk/lib/index.js",
+    "^@stellar/stellar-sdk$": "<rootDir>/../node_modules/@stellar/stellar-sdk/lib/index.js",
   },
   setupFiles: ["<rootDir>/jest.setup.ts"],
   setupFilesAfterEnv: ["@testing-library/jest-dom"],
@@ -16,6 +16,9 @@ const config: Config = {
     "components/TradeForm.tsx",
   ],
   coverageThreshold: {
+    global: {
+      lines: 70,
+    },
     "./components/RecurringPayments.tsx": {
       lines: 70,
     },

@@ -1,19 +1,12 @@
 /**
  * src/services/tipsService.js
  * Business logic for tracking tips received by creators.
- * Uses in-memory storage for v1 (can be migrated to database later).
+ * Uses Knex-backed SQLite/PostgreSQL for persistent storage.
  */
 
 "use strict";
 
-// In-memory storage for tips
-// Structure: Map<creatorPublicKey, TipRecord[]>
-const tipsByCreator = new Map();
-
-// Tip record structure:
-// { id, senderPublicKey, creatorPublicKey, amount, asset, memo, timestamp, txHash }
-
-let tipIdCounter = 1;
+const knex = require("../db/connection");
 
 /**
  * Record a tip sent to a creator.
@@ -23,33 +16,46 @@ let tipIdCounter = 1;
  * @param {string} asset - The asset code (XLM, USDC, etc.)
  * @param {string} [memo] - Optional memo/message from sender
  * @param {string} [txHash] - The transaction hash
- * @returns {object} The created tip record
+ * @returns {Promise<object>} The created tip record
  */
-function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", memo = "", txHash = "" }) {
+async function recordTip({
+  senderPublicKey,
+  creatorPublicKey,
+  amount,
+  asset = "XLM",
+  memo = "",
+  txHash = "",
+}) {
   if (!senderPublicKey || !creatorPublicKey || !amount) {
-    const error = new Error("senderPublicKey, creatorPublicKey, and amount are required");
+    const error = new Error(
+      "senderPublicKey, creatorPublicKey, and amount are required",
+    );
     error.status = 400;
     throw error;
   }
 
-  const tip = {
-    id: tipIdCounter++,
-    senderPublicKey,
-    creatorPublicKey,
+  const [id] = await knex("tips").insert({
+    sender_pk: senderPublicKey,
+    creator_pk: creatorPublicKey,
     amount: String(amount),
     asset,
     memo,
-    txHash,
-    timestamp: new Date().toISOString(),
+    tx_hash: txHash,
+    created_at: new Date().toISOString(),
+  });
+
+  const tip = await knex("tips").where("id", id).first();
+
+  return {
+    id: tip.id,
+    senderPublicKey: tip.sender_pk,
+    creatorPublicKey: tip.creator_pk,
+    amount: tip.amount,
+    asset: tip.asset,
+    memo: tip.memo,
+    txHash: tip.tx_hash,
+    timestamp: tip.created_at,
   };
-
-  if (!tipsByCreator.has(creatorPublicKey)) {
-    tipsByCreator.set(creatorPublicKey, []);
-  }
-
-  tipsByCreator.get(creatorPublicKey).unshift(tip); // Add to beginning (most recent first)
-
-  return tip;
 }
 
 /**
@@ -58,9 +64,9 @@ function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", m
  * @param {object} [options] - Optional filters
  * @param {number} [options.limit] - Maximum number of tips to return
  * @param {number} [options.offset] - Number of tips to skip (for pagination)
- * @returns {object} Object with tips array and total count
+ * @returns {Promise<object>} Object with tips array and total count
  */
-function getTipsReceived(creatorPublicKey, options = {}) {
+async function getTipsReceived(creatorPublicKey, options = {}) {
   if (!creatorPublicKey) {
     const error = new Error("creatorPublicKey is required");
     error.status = 400;
@@ -69,13 +75,27 @@ function getTipsReceived(creatorPublicKey, options = {}) {
 
   const { limit = 50, offset = 0 } = options;
 
-  const tips = tipsByCreator.get(creatorPublicKey) || [];
-  const total = tips.length;
-  const paginatedTips = tips.slice(offset, offset + limit);
+  const query = knex("tips")
+    .where("creator_pk", creatorPublicKey)
+    .orderBy("created_at", "desc");
+
+  const [{ count: total }] = await query.clone().count("* as count");
+  const rows = await query.clone().limit(limit).offset(offset);
+
+  const tips = rows.map((row) => ({
+    id: row.id,
+    senderPublicKey: row.sender_pk,
+    creatorPublicKey: row.creator_pk,
+    amount: row.amount,
+    asset: row.asset,
+    memo: row.memo,
+    txHash: row.tx_hash,
+    timestamp: row.created_at,
+  }));
 
   return {
-    tips: paginatedTips,
-    total,
+    tips,
+    total: Number(total),
     limit,
     offset,
   };
@@ -84,19 +104,21 @@ function getTipsReceived(creatorPublicKey, options = {}) {
 /**
  * Get statistics for tips received by a creator.
  * @param {string} creatorPublicKey - The Stellar public key of the creator
- * @returns {object} Object with total tips, total amount by asset
+ * @returns {Promise<object>} Object with total tips, total amount by asset
  */
-function getTipsStats(creatorPublicKey) {
+async function getTipsStats(creatorPublicKey) {
   if (!creatorPublicKey) {
     const error = new Error("creatorPublicKey is required");
     error.status = 400;
     throw error;
   }
 
-  const tips = tipsByCreator.get(creatorPublicKey) || [];
+  const rows = await knex("tips")
+    .where("creator_pk", creatorPublicKey)
+    .select("amount", "asset");
 
   const stats = {
-    totalTips: tips.length,
+    totalTips: rows.length,
     totalByAsset: {},
     averageTip: null,
     largestTip: null,
@@ -104,13 +126,13 @@ function getTipsStats(creatorPublicKey) {
   };
 
   // Calculate totals by asset
-  for (const tip of tips) {
-    const asset = tip.asset || "XLM";
+  for (const row of rows) {
+    const asset = row.asset || "XLM";
     if (!stats.totalByAsset[asset]) {
       stats.totalByAsset[asset] = { count: 0, amount: 0 };
     }
     stats.totalByAsset[asset].count++;
-    stats.totalByAsset[asset].amount += parseFloat(tip.amount);
+    stats.totalByAsset[asset].amount += parseFloat(row.amount);
   }
 
   // Convert amounts to strings with proper precision
@@ -118,12 +140,11 @@ function getTipsStats(creatorPublicKey) {
     stats.totalByAsset[asset].amount = String(stats.totalByAsset[asset].amount);
   }
 
-  // Calculate average
-  if (tips.length > 0) {
-    const totalAmount = tips.reduce((sum, tip) => sum + parseFloat(tip.amount), 0);
-    stats.averageTip = String(totalAmount / tips.length);
-    
-    const amounts = tips.map(t => parseFloat(t.amount));
+  // Calculate average, largest, smallest
+  if (rows.length > 0) {
+    const amounts = rows.map((r) => parseFloat(r.amount));
+    const totalAmount = amounts.reduce((sum, a) => sum + a, 0);
+    stats.averageTip = String(totalAmount / rows.length);
     stats.largestTip = String(Math.max(...amounts));
     stats.smallestTip = String(Math.min(...amounts));
   }
@@ -135,9 +156,9 @@ function getTipsStats(creatorPublicKey) {
  * Get all tips sent by a user (for sender's history).
  * @param {string} senderPublicKey - The Stellar public key of the sender
  * @param {object} [options] - Optional filters
- * @returns {object} Object with tips array and total count
+ * @returns {Promise<object>} Object with tips array and total count
  */
-function getTipsSent(senderPublicKey, options = {}) {
+async function getTipsSent(senderPublicKey, options = {}) {
   if (!senderPublicKey) {
     const error = new Error("senderPublicKey is required");
     error.status = 400;
@@ -146,25 +167,27 @@ function getTipsSent(senderPublicKey, options = {}) {
 
   const { limit = 50, offset = 0 } = options;
 
-  // Search all tips to find ones sent by this user
-  const allTips = [];
-  for (const tips of tipsByCreator.values()) {
-    for (const tip of tips) {
-      if (tip.senderPublicKey === senderPublicKey) {
-        allTips.push(tip);
-      }
-    }
-  }
+  const query = knex("tips")
+    .where("sender_pk", senderPublicKey)
+    .orderBy("created_at", "desc");
 
-  // Sort by timestamp descending
-  allTips.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const [{ count: total }] = await query.clone().count("* as count");
+  const rows = await query.clone().limit(limit).offset(offset);
 
-  const total = allTips.length;
-  const paginatedTips = allTips.slice(offset, offset + limit);
+  const tips = rows.map((row) => ({
+    id: row.id,
+    senderPublicKey: row.sender_pk,
+    creatorPublicKey: row.creator_pk,
+    amount: row.amount,
+    asset: row.asset,
+    memo: row.memo,
+    txHash: row.tx_hash,
+    timestamp: row.created_at,
+  }));
 
   return {
-    tips: paginatedTips,
-    total,
+    tips,
+    total: Number(total),
     limit,
     offset,
   };

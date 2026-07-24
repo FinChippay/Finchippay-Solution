@@ -18,6 +18,12 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Target URL for load tests (default: http://localhost:4000)'
+        required: false
+        default: 'http://localhost:4000'
 
 jobs:
   # ─── Frontend ──────────────────────────────────────────────────────────────
@@ -292,6 +298,101 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx lhci autorun
+
+  # ─── Load Tests (k6) — manual trigger only ─────────────────────────────────
+  load-test:
+    name: Load Tests (k6)
+    runs-on: ubuntu-latest
+    # Manual trigger only — load tests are expensive and should not block PRs.
+    # Run against staging by setting BASE_URL in the workflow dispatch inputs.
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          npm start &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4000/health && echo "Backend ready" && break
+            [ "$i" -eq 30 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+        env:
+          PORT: 4000
+          NODE_ENV: test
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          JWT_SECRET: test-secret-for-load-testing-only
+          ALLOWED_ORIGINS: "*"
+          ANTHROPIC_API_KEY: test-key-for-ci
+
+      - name: Create results directory
+        run: mkdir -p k6-results
+
+      - name: Run dashboard-traffic scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/dashboard-traffic.json \
+            tests/load/dashboard-traffic.js
+        continue-on-error: true
+
+      - name: Run payment-burst scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/payment-burst.json \
+            tests/load/payment-burst.js
+        continue-on-error: true
+
+      - name: Run analytics-query scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/analytics-query.json \
+            tests/load/analytics-query.js
+        continue-on-error: true
+
+      - name: Run sustained-load scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/sustained-load.json \
+            tests/load/sustained-load.js
+        continue-on-error: true
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: k6-results/
+          retention-days: 30
 
   # --- Validate Config -------------------------------------------------------
   validate:

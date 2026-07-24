@@ -9,6 +9,11 @@
     "build:sdk": "npm run build --workspace=sdk",
     "build": "npm run build --workspace=sdk --workspace=frontend",
     "load-test": "node scripts/load-test.js",
+    "load-test:dashboard": "k6 run --out json=k6-results/dashboard-traffic.json tests/load/dashboard-traffic.js",
+    "load-test:payments": "k6 run --out json=k6-results/payment-burst.json tests/load/payment-burst.js",
+    "load-test:analytics": "k6 run --out json=k6-results/analytics-query.json tests/load/analytics-query.js",
+    "load-test:sustained": "k6 run --out json=k6-results/sustained-load.json tests/load/sustained-load.js",
+    "load-test:all": "bash tests/load/run-all.sh",
     "lint": "npm run lint --workspace=frontend",
     "type-check": "npm run type-check --workspace=sdk --workspace=frontend",
     "test": "npm run test --workspace=frontend"

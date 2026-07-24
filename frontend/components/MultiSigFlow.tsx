@@ -7,12 +7,14 @@
  *  1. Build  — initiator fills in destination, amount, memo, and required
  *              signature threshold (≥ 2). Triggered automatically when the
  *              payment amount exceeds MULTISIG_THRESHOLD_XLM.
- *  2. Sign   — initiator signs first with their own Freighter wallet.
- *  3. Share  — a shareable URL containing the unsigned XDR is generated so
+ *  2. Preview — simulation preview shows balance changes, fees, and
+ *              contract errors before signing (Issue #151).
+ *  3. Sign   — initiator signs first with their own Freighter wallet.
+ *  4. Share  — a shareable URL containing the unsigned XDR is generated so
  *              co-signers can open /multi-sig-sign in their own browser.
- *  4. Collect — initiator pastes each co-signer's signed XDR back in.
+ *  5. Collect — initiator pastes each co-signer's signed XDR back in.
  *              Signature hints are shown so the initiator can verify who signed.
- *  5. Submit — once the threshold is met the combined XDR is submitted to
+ *  6. Submit — once the threshold is met the combined XDR is submitted to
  *              Stellar Horizon.
  *
  * Stellar multi-sig reference:
@@ -30,6 +32,11 @@ import {
   NETWORK_PASSPHRASE,
 } from "../lib/stellar";
 import { signTransactionWithWallet } from "../lib/wallet";
+import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
+import {
+  useTransactionSimulation,
+  type SimulationResult,
+} from "@/hooks/useTransactionSimulation";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,7 +45,7 @@ export const MULTISIG_THRESHOLD_XLM = 100;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Step = "build" | "sign" | "share" | "collect" | "submit" | "success";
+type Step = "build" | "preview" | "sign" | "share" | "collect" | "submit" | "success";
 
 interface MultiSigFlowProps {
   publicKey: string;
@@ -99,6 +106,10 @@ export default function MultiSigFlow({
   const [xdrCopied, setXdrCopied] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
 
+  // Transaction simulation
+  const sim = useTransactionSimulation({ publicKey });
+  const [showPreview, setShowPreview] = useState(false);
+
   const balance = parseFloat(xlmBalance);
   const amountNum = parseFloat(amount);
   const isValidDest = isValidStellarAddress(destination);
@@ -125,14 +136,26 @@ export default function MultiSigFlow({
         amount: amountNum.toFixed(7),
         memo: memo.trim() || undefined,
       });
-      setUnsignedXDR(tx.toXDR());
-      setStep("sign");
+      const xdr = tx.toXDR();
+      setUnsignedXDR(xdr);
+
+      // Run simulation before proceeding to sign
+      await sim.simulate(xdr);
+      setShowPreview(true);
+      setStep("preview");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to build transaction");
     } finally {
       setLoading(false);
     }
   };
+
+  // ── From Preview → Sign ──────────────────────────────────────────────────
+
+  const handleProceedFromPreview = useCallback(() => {
+    setShowPreview(false);
+    setStep("sign");
+  }, []);
 
   // ── Step 2: Initiator signs first ─────────────────────────────────────────
 
@@ -141,7 +164,9 @@ export default function MultiSigFlow({
     setLoading(true);
     setError(null);
     try {
-      const { signedXDR, error: signError } = await signTransactionWithWallet(unsignedXDR);
+      // Use the prepared XDR from simulation if available
+      const txToSign = sim.result?.preparedTransactionXdr ?? unsignedXDR;
+      const { signedXDR, error: signError } = await signTransactionWithWallet(txToSign);
       if (signError || !signedXDR) throw new Error(signError || "Signing rejected");
       setInitiatorSignedXDR(signedXDR);
       setStep("share");
@@ -219,13 +244,16 @@ export default function MultiSigFlow({
     setPastedXDR("");
     setError(null);
     setTxHash(null);
+    setShowPreview(false);
+    sim.reset();
   };
 
-  const STEPS: Step[] = ["build", "sign", "share", "collect", "submit"];
+  const STEPS: Step[] = ["build", "preview", "sign", "share", "collect", "submit"];
   const stepIndex = STEPS.indexOf(step === "success" ? "submit" : step);
 
   const stepLabels: Record<Step, string> = {
     build: "Build",
+    preview: "Preview",
     sign: "Sign",
     share: "Share",
     collect: "Collect",
@@ -237,8 +265,8 @@ export default function MultiSigFlow({
 
   return (
     <div className="card animate-fade-in border-stellar-400/20">
-      <h2 className="font-display text-lg font-semibold text-white mb-1 flex items-center gap-2">
-        <MultiSigIcon className="w-5 h-5 text-stellar-400" />
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+        <MultiSigIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
         Multi-Signature Payment
       </h2>
       <p className="text-xs text-slate-500 mb-5">
@@ -251,9 +279,9 @@ export default function MultiSigFlow({
       </p>
 
       {/* Step indicator */}
-      <div className="flex items-center mb-6 overflow-x-auto pb-1">
+      <div className="flex items-center mb-6 overflow-x-auto pb-1 rtl:flex-row-reverse">
         {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center flex-shrink-0">
+          <div key={s} className="flex items-center flex-shrink-0 rtl:flex-row-reverse">
             <div
               className={clsx(
                 "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
@@ -261,14 +289,14 @@ export default function MultiSigFlow({
                   ? "bg-stellar-500 text-black"
                   : i === stepIndex
                   ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
-                  : "bg-white/10 text-slate-500"
+                  : "bg-slate-100 dark:bg-white/10 text-slate-500"
               )}
             >
               {i < stepIndex ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
             </div>
             <span
               className={clsx(
-                "ml-1 text-xs hidden sm:block",
+                "ml-1 text-xs hidden sm:block rtl:ml-0 rtl:mr-1",
                 i === stepIndex ? "text-stellar-300" : "text-slate-500"
               )}
             >
@@ -290,7 +318,7 @@ export default function MultiSigFlow({
       {step === "build" && (
         <div className="space-y-4">
           <div>
-            <label className="label">Recipient Address</label>
+            <label className="label rtl:text-right">Recipient Address</label>
             <input
               type="text"
               value={destination}
@@ -300,7 +328,7 @@ export default function MultiSigFlow({
             />
           </div>
           <div>
-            <label className="label">Amount (XLM)</label>
+            <label className="label rtl:text-right">Amount (XLM)</label>
             <input
               type="number"
               value={amount}
@@ -318,7 +346,7 @@ export default function MultiSigFlow({
             )}
           </div>
           <div>
-            <label className="label">Memo (optional)</label>
+            <label className="label rtl:text-right">Memo (optional)</label>
             <input
               type="text"
               value={memo}
@@ -328,7 +356,7 @@ export default function MultiSigFlow({
             />
           </div>
           <div>
-            <label className="label">
+            <label className="label rtl:text-right">
               Required Signatures
               <span className="ml-1 text-slate-500 font-normal">(minimum 2)</span>
             </label>
@@ -351,16 +379,32 @@ export default function MultiSigFlow({
         </div>
       )}
 
+      {/* ── Step: Preview (simulation shown before signing) ── */}
+      {step === "preview" && (
+        <div className="space-y-4">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
+            Review the simulated result before signing with your wallet.
+          </p>
+          <button
+            onClick={handleProceedFromPreview}
+            className="btn-primary w-full py-2.5"
+          >
+            Review Simulation →
+          </button>
+        </div>
+      )}
+
       {/* ── Step: Sign (initiator) ── */}
       {step === "sign" && (
         <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2 text-sm">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 space-y-2 text-sm">
             <Row label="To" value={destination} mono />
             <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
             {memo && <Row label="Memo" value={memo} />}
+            {memo && <Row label="Memo" value={memo} />}
             <Row label="Threshold" value={`${threshold} signatures`} />
           </div>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             Sign first with your own Freighter wallet. Co-signers will add their signatures next.
           </p>
           <button
@@ -371,7 +415,7 @@ export default function MultiSigFlow({
             {loading ? <Spinner /> : <FreighterIcon className="w-4 h-4" />}
             {loading ? "Waiting for Freighter..." : "Sign with Freighter"}
           </button>
-          <button onClick={handleReset} className="text-xs text-slate-500 hover:text-slate-300 w-full text-center transition-colors">
+          <button onClick={handleReset} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 w-full text-center transition-colors">
             ← Start over
           </button>
         </div>
@@ -380,18 +424,18 @@ export default function MultiSigFlow({
       {/* ── Step: Share ── */}
       {step === "share" && (
         <div className="space-y-4">
-          <p className="text-slate-300 text-sm">
+          <p className="text-slate-700 dark:text-slate-300 text-sm">
             Your signature has been added. Share this link with your co-signers so they can sign in their own browser.
           </p>
-          <div className="rounded-xl bg-white/5 border border-white/10 p-3">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-3">
             <p className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Co-signer URL</p>
-            <p className="font-mono text-xs text-slate-300 break-all">{shareableUrl}</p>
+            <p className="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{shareableUrl}</p>
           </div>
           <button
             onClick={handleCopyUrl}
             className="btn-secondary w-full py-2.5 flex items-center justify-center gap-2"
           >
-            {copied ? <CheckSmallIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4" />}
+            {copied ? <CheckSmallIcon className="w-4 h-4 text-green-700 dark:text-green-400" /> : <CopyIcon className="w-4 h-4" />}
             {copied ? "Copied!" : "Copy Link"}
           </button>
           <button
@@ -407,24 +451,24 @@ export default function MultiSigFlow({
       {step === "collect" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-slate-300 text-sm">
-              Signatures: <span className="font-bold text-white">{signaturesCollected}</span> / {threshold}
+            <p className="text-slate-700 dark:text-slate-300 text-sm">
+              Signatures: <span className="font-bold text-slate-900 dark:text-white">{signaturesCollected}</span> / {threshold}
             </p>
             {thresholdMet && (
-              <span className="text-xs text-green-400 font-medium">Threshold met ✓</span>
+              <span className="text-xs text-green-700 dark:text-green-400 font-medium">Threshold met ✓</span>
             )}
           </div>
 
           {/* Signature hints */}
           {allSignedXDRs.length > 0 && (
-            <div className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-1">
+            <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-3 space-y-1">
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Collected Signatures</p>
               {extractHints(allSignedXDRs).map((hint, i) => (
                 <div key={i} className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
                     {i === 0 ? "You (initiator)" : `Co-signer ${i}`}
                   </span>
-                  <code className="text-xs text-stellar-300 font-mono">{hint}</code>
+                  <code className="text-xs text-stellar-700 dark:text-stellar-300 font-mono">{hint}</code>
                   {i > 0 && (
                     <button
                       onClick={() => handleRemoveCosignerXDR(i - 1)}
@@ -441,7 +485,7 @@ export default function MultiSigFlow({
           {!thresholdMet && (
             <>
               <div>
-                <label className="label">Paste Signed XDR from Co-Signer</label>
+                <label className="label rtl:text-right">Paste Signed XDR from Co-Signer</label>
                 <textarea
                   value={pastedXDR}
                   onChange={(e) => setPastedXDR(e.target.value)}
@@ -473,13 +517,13 @@ export default function MultiSigFlow({
       {/* ── Step: Submit ── */}
       {step === "submit" && (
         <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2 text-sm">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 space-y-2 text-sm">
             <Row label="To" value={destination} mono />
             <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
             {memo && <Row label="Memo" value={memo} />}
             <Row label="Signatures" value={`${signaturesCollected} / ${threshold}`} />
           </div>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             All required signatures have been collected. Submit the transaction to the Stellar network.
           </p>
           <button
@@ -490,7 +534,7 @@ export default function MultiSigFlow({
             {loading ? <Spinner /> : null}
             {loading ? "Submitting..." : "Submit to Stellar Network"}
           </button>
-          <button onClick={() => setStep("collect")} className="text-xs text-slate-500 hover:text-slate-300 w-full text-center transition-colors">
+          <button onClick={() => setStep("collect")} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 w-full text-center transition-colors">
             ← Back to signatures
           </button>
         </div>
@@ -500,10 +544,10 @@ export default function MultiSigFlow({
       {step === "success" && txHash && (
         <div className="text-center space-y-4">
           <div className="mx-auto w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
-            <CheckSmallIcon className="w-7 h-7 text-green-400" />
+            <CheckSmallIcon className="w-7 h-7 text-green-700 dark:text-green-400" />
           </div>
-          <p className="font-display text-lg font-semibold text-white">Transaction submitted!</p>
-          <p className="text-slate-400 text-sm">
+          <p className="font-display text-lg font-semibold text-slate-900 dark:text-white">Transaction submitted!</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             The multi-signature payment has been confirmed on the Stellar network.
           </p>
           <a
@@ -526,6 +570,20 @@ export default function MultiSigFlow({
           {error}
         </p>
       )}
+
+      {/* Transaction Simulation Preview Modal */}
+      <TransactionSimulationPreview
+        isOpen={showPreview}
+        onClose={() => { setShowPreview(false); sim.reset(); }}
+        onProceed={handleProceedFromPreview}
+        simulation={sim.result}
+        loading={sim.loading}
+        error={sim.error}
+        warning={sim.warning}
+        proceedLabel="I've Reviewed — Sign Now"
+        title="Multi-Sig Transaction Preview"
+        description="Review the simulated effects of this multi-signature payment before signing."
+      />
     </div>
   );
 }
@@ -535,8 +593,8 @@ export default function MultiSigFlow({
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <span className="text-slate-400 flex-shrink-0">{label}</span>
-      <span className={clsx("text-slate-200 text-right break-all", mono && "font-mono text-xs")}>
+      <span className="text-slate-600 dark:text-slate-400 flex-shrink-0">{label}</span>
+      <span className={clsx("text-slate-800 dark:text-slate-200 text-right break-all", mono && "font-mono text-xs")}>
         {value}
       </span>
     </div>
