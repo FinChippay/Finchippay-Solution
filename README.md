@@ -195,6 +195,7 @@ Key backend variables:
 | [docs/api.md](docs/api.md) | Full REST API reference |
 | [docs/architecture.md](docs/architecture.md) | System design and data flows |
 | [docs/deployment.md](docs/deployment.md) | Production deployment guide |
+| [docs/onboarding.md](docs/onboarding.md) | Interactive onboarding tour (Issue #254) |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Docker / cloud deployment |
 | [ENV.md](ENV.md) | Environment variable reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
