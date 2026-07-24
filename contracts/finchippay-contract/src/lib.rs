@@ -1848,7 +1848,7 @@ impl FinchippayContract {
         require_not_paused(&env);
         from.require_auth();
         if recipients.len() == 0 {
-            panic!("batch must have at least one recipient");
+            return Err(ContractError::InvalidState);
         }
         if recipients.len() > MAX_BATCH_SIZE {
             return Err(ContractError::BatchTooLarge);
@@ -1859,7 +1859,7 @@ impl FinchippayContract {
         for i in 0..amounts.len() {
             let amount = amounts.get(i).unwrap();
             if amount <= 0 {
-                panic!("amount must be positive");
+                return Err(ContractError::NonPositiveAmount);
             }
         }
         let token = get_token_client(&env, &token_address);
@@ -1898,7 +1898,13 @@ impl FinchippayContract {
                 .set(&DataKey::TipRecord(to.clone(), current_count), &record);
             bump(&env, &DataKey::TipRecord(to.clone(), current_count));
 
-            recipient_updates.set(to.clone(), (current_count + 1, acc_amt + amount));
+            recipient_updates.set(
+                to.clone(),
+                (
+                    current_count.checked_add(1).expect("overflow"),
+                    acc_amt.checked_add(amount).expect("overflow"),
+                ),
+            );
 
             env.events()
                 .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), (amount, memo));
