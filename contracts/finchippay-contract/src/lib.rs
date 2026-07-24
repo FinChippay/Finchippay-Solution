@@ -2443,6 +2443,87 @@ mod tests {
         client.open_stream(&token_id, &payer, &recipient, &10, &500);
     }
 
+    #[test]
+    fn test_pauser_can_pause_and_unpause() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        env.mock_all_auths();
+
+        // Admin designates a separate pauser (hot-key) role.
+        client.set_pauser(&admin, &pauser);
+        assert_eq!(client.get_pauser(), Some(pauser.clone()));
+
+        // The pauser — not the admin — can trigger the circuit breaker.
+        client.pause(&pauser);
+        assert!(client.is_paused());
+
+        // …and lift it again.
+        client.unpause(&pauser);
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_non_admin_non_pauser_cannot_pause() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        let stranger = Address::generate(&env);
+        env.mock_all_auths();
+
+        client.set_pauser(&admin, &pauser);
+        // A random address that is neither admin nor the designated pauser
+        // must be rejected even with a valid auth signature.
+        client.pause(&stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_set_pauser_requires_admin() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let stranger = Address::generate(&env);
+        let pauser = Address::generate(&env);
+        env.mock_all_auths();
+
+        // Only the admin may assign the pauser role.
+        client.set_pauser(&stranger, &pauser);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_pauser_cannot_transfer_admin() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        env.mock_all_auths();
+
+        client.set_pauser(&admin, &pauser);
+        // The pauser role is pause-only; it must not be able to seize admin
+        // rights by transferring them away.
+        client.transfer_admin(&pauser, &new_admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_pauser_cannot_upgrade() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let pauser = Address::generate(&env);
+        env.mock_all_auths();
+
+        client.set_pauser(&admin, &pauser);
+        // The pauser must not be able to swap the contract WASM.
+        let dummy_hash = BytesN::from_array(&env, &[0u8; 32]);
+        client.upgrade(&pauser, &dummy_hash);
+    }
+
     // ── Batch send ─────────────────────────────────────────────────────────
 
     #[test]
