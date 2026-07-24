@@ -31,6 +31,13 @@ master
 /** Comment frames keep proxies and load balancers from idling the connection out. */
 const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
 
+const balanceStreamService = require("../services/balanceStreamService");
+const logger = require("../utils/logger");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+
+/** Comment frames keep proxies and load balancers from idling the connection out. */
+const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
+
 /**
  * GET /api/accounts/:publicKey
  * Load a Stellar account and return its sequence number, balances, and

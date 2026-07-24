@@ -84,7 +84,10 @@ async function getStats(req, res, next) {
  160-issue-38-rtl-language-support-arabic-hebrew-fix
     const { publicKey } = req.validated;
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
     const { publicKey } = req.params;
+ master
  master
     const payments = await stellarService.getPayments(publicKey, {
       limit: 100,

@@ -140,7 +140,9 @@ router.get(
 
     const record = sep24Service.getTransaction(id);
     if (!record) {
-      return res.status(404).json({ error: "Transaction not found" });
+      return res
+        .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+        .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "transaction" }));
     }
 
     // Build the SEP-0024 compliant transaction response

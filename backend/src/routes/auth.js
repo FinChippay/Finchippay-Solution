@@ -4,6 +4,8 @@
  *
  * GET  /api/auth?account=G... → returns a challenge transaction
  * POST /api/auth              → verifies signed challenge, returns JWT
+ * POST /api/auth/refresh      → rotates access + refresh tokens
+ * POST /api/auth/logout       → revokes the token family
  */
 "use strict";
 
@@ -12,15 +14,14 @@ const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
  160-issue-38-rtl-language-support-arabic-hebrew-fix
 const { JWT_SECRET } = require("../middleware/auth");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const {
   authChallengeQuerySchema,
   authTokenBodySchema,
 } = require("../validation/schemas");
+const tokenService = require("../services/tokenService");
+const { sendError } = require("../utils/errorResponse");
 
 
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
@@ -69,7 +70,7 @@ router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
   }
 });
 
-// POST /api/auth — verify signed challenge and issue JWT
+// POST /api/auth — verify signed challenge and issue JWT (and refresh token)
 router.post("/", validate(authTokenBodySchema), (req, res) => {
   const { transaction } = req.validated;
 
@@ -83,17 +84,25 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
       "",
     );
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+    // Issue both an access token and a refresh token via the token service.
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
     const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, {
       expiresIn: "24h",
 
+ master
     const { accessToken, refreshToken } = tokenService.issueTokens(accountId);
 
     res.cookie("jwt", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+      maxAge: 15 * 60 * 1000, // 15 minutes
+
       maxAge:   15 * 60 * 1000, // 15 mins
+ master
  master
     });
 
@@ -101,18 +110,28 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+
  160-issue-38-rtl-language-support-arabic-hebrew-fix
       maxAge: 24 * 60 * 60 * 1000,
 
       maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
  master
+ master
     });
 
     res.json({
       success: true,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+      token: accessToken, // backward compatibility
+      accessToken,
+      refreshToken,
+
       token: accessToken, // for backward compatibility
       accessToken,
       refreshToken
+ master
     });
   } catch (e) {
     res
@@ -123,13 +142,23 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
   }
 });
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+// POST /api/auth/refresh — rotate access + refresh tokens
+
 // POST /api/auth/refresh — Rotate access + refresh tokens
+ master
 router.post("/refresh", (req, res) => {
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
   if (!refreshToken) {
     return res
       .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+      .json(
+        formatErrorResponse("VAL_MISSING_FIELD", { fields: ["refreshToken"] }),
+      );
+
       .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["refreshToken"] }));
+ master
   }
 
   const rotated = tokenService.rotateRefreshToken(refreshToken);
@@ -145,27 +174,47 @@ router.post("/refresh", (req, res) => {
 
   res.cookie("jwt", accessToken, {
     httpOnly: true,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 15 * 60 * 1000,
+
     secure:   process.env.NODE_ENV === "production",
     sameSite: "strict",
     maxAge:   15 * 60 * 1000,
+ master
   });
 
   res.cookie("refreshToken", newRefreshToken, {
     httpOnly: true,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+
     secure:   process.env.NODE_ENV === "production",
     sameSite: "strict",
     maxAge:   7 * 24 * 60 * 60 * 1000,
+ master
   });
 
   res.json({
     success: true,
     token: accessToken,
     accessToken,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+    refreshToken: newRefreshToken,
+  });
+});
+
+// POST /api/auth/logout — revoke the token family
+
     refreshToken: newRefreshToken
   });
 });
 
 // POST /api/auth/logout — Revoke the token family
+ master
 router.post("/logout", (req, res) => {
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
   let publicKey = null;

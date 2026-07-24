@@ -24,6 +24,9 @@ router.get(
  160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(publicKeyParamSchema, "params"),
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
+ master
  master
   analyticsController.getSummary,
 );
@@ -39,6 +42,9 @@ router.get(
 160-issue-38-rtl-language-support-arabic-hebrew-fix
   validate(publicKeyParamSchema, "params"),
 
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
+ master
  master
   analyticsController.getTopRecipients,
 );

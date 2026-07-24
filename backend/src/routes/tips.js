@@ -9,6 +9,7 @@ const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { validate } = require("../validation/middleware");
+const { sanitizePublicKey } = require("../middleware/sanitization");
 const {
   tipSchema,
   creatorPublicKeyParamSchema,
@@ -35,6 +36,9 @@ router.get(
   validate(tipsPaginationQuerySchema, "query"),
 
   sanitizePublicKey,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
+ master
  master
   tipsController.getTipsReceived,
 );
@@ -50,6 +54,9 @@ router.get(
   validate(creatorPublicKeyParamSchema, "params"),
 
   sanitizePublicKey,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
+ master
  master
   tipsController.getTipsStats,
 );
@@ -66,7 +73,10 @@ router.get(
   validate(tipsPaginationQuerySchema, "query"),
 
   sanitizePublicKey,
+ #136-Issue-#14-Database-Backed-Turrets-with-Price-Feed-Fallbacks-FIX
+
 master
+ master
   tipsController.getTipsSent,
 );
 
