@@ -49,6 +49,10 @@ function getCache() {
 async function recordTip(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     // Input has already been validated by `tipSchema` (see validate()
     // middleware) — asset defaults to "XLM", amount is a positive decimal
     // string, both keys are valid Stellar addresses.
@@ -108,6 +112,10 @@ async function recordTip(req, res, next) {
 async function getTipsReceived(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { creatorPublicKey, limit, offset } = req.validated;
 
     const result = tipsService.getTipsReceived(creatorPublicKey, {
@@ -149,12 +157,20 @@ async function getTipsReceived(req, res, next) {
 async function getTipsStats(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { creatorPublicKey } = req.validated;
     const stats = tipsService.getTipsStats(creatorPublicKey);
 
     const { creatorPublicKey } = req.params;
     const stats = await tipsService.getTipsStats(creatorPublicKey);
+ 140-issue-18-input-validation-with-zod-schemas-fix
 master
+
+ master
+ master
     return res.json({ success: true, data: stats });
   } catch (err) {
     next(err);
@@ -179,6 +195,10 @@ master
 async function getTipsSent(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { senderPublicKey, limit, offset } = req.validated;
 
     const { senderPublicKey } = req.params;

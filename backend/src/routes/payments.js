@@ -28,11 +28,19 @@ router.get(
   "/:publicKey",
   strictLimiter,
   sanitizePublicKey,
+ 140-issue-18-input-validation-with-zod-schemas-fix
 140-issue-18-input-validation-with-zod-schemas-fix
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
 
 master
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+  validate(paymentsQuerySchema, "query"),
+
+ master
+ master
   paymentController.getPayments,
 );
 

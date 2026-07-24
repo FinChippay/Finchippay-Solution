@@ -30,6 +30,10 @@ const turretsService = require("../services/turretsService");
 async function createChallenge(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { ownerPublicKey, type, config } = req.validated;
 
     const { ownerPublicKey, type, config } = req.body;
@@ -60,6 +64,10 @@ async function deploy(req, res, next) {
   try {
     const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } =
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
       req.validated;
     const data = turretsService.deployTxFunction({
 
@@ -92,12 +100,20 @@ async function deploy(req, res, next) {
 async function list(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { ownerPublicKey } = req.validated;
     const data = turretsService.listDeployments(ownerPublicKey);
 
     const { ownerPublicKey } = req.query;
     const data = await turretsService.listDeployments(ownerPublicKey);
+ 140-issue-18-input-validation-with-zod-schemas-fix
 master
+
+ master
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -117,6 +133,10 @@ master
 async function getOne(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { id } = req.validated;
     const data = turretsService.getDeployment(id);
 
@@ -142,6 +162,10 @@ async function getOne(req, res, next) {
 async function getHistory(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { id } = req.validated;
     turretsService.getDeployment(id); // throws 404 if not found
     const data = turretsService.getExecutionHistory(id);
@@ -169,6 +193,10 @@ async function getHistory(req, res, next) {
 async function pause(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { id } = req.validated;
     const data = turretsService.setDeploymentStatus(id, "paused");
 
@@ -194,6 +222,10 @@ async function pause(req, res, next) {
 async function resume(req, res, next) {
   try {
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
     const { id } = req.validated;
     const data = turretsService.setDeploymentStatus(id, "active");
 

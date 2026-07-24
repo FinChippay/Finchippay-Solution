@@ -364,7 +364,10 @@ export default function SettingsPage({
                 {t("settings.languageTitle")}
               </h2>
               <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">{t("settings.languageDescription")}</p>
-              <div className="grid grid-cols-3 gap-3">
+              <p className="mb-4 text-xs text-slate-500 dark:text-slate-400" role="status">
+                {t("settings.rtlSupportNote")}
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {SUPPORTED_LANGUAGES.map((lang) => (
                   <button
                     key={lang.code}

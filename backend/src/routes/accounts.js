@@ -58,9 +58,16 @@ router.get(
   sensitiveLimiter,
   sanitizeUsername,
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
   validate(usernameParamSchema, "params"),
 
 master
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(usernameParamSchema, "params"),
+
+ master
+ master
   accountController.resolveUsername,
 );
 
@@ -74,8 +81,13 @@ router.get(
   verifyJWT,
   sanitizePublicKey,
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
   validate(publicKeyParamSchema, "params"),
 
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+ master
  master
   requireOwnAccount,
   accountController.getAccount,
@@ -91,6 +103,10 @@ router.get(
   verifyJWT,
   sanitizePublicKey,
  140-issue-18-input-validation-with-zod-schemas-fix
+ 140-issue-18-input-validation-with-zod-schemas-fix
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+ master
   validate(publicKeyParamSchema, "params"),
   requireOwnAccount,
   accountController.getBalance,
