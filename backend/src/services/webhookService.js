@@ -69,6 +69,14 @@ const RETRY_WORKER_INTERVAL = 30000;
 const WEBHOOK_SECRET_KEY =
   process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
 
+if (!process.env.WEBHOOK_SECRET_KEY) {
+  logger.warn(
+    "WEBHOOK_SECRET_KEY is not set — a random key will be used. " +
+      "Stored secret hashes will not be reproducible across restarts. " +
+      "Set WEBHOOK_SECRET_KEY in your environment for production use.",
+  );
+}
+
 /**
  * In-memory store for webhooks registered in the current process.
  * Includes the raw `secret` so outgoing payloads can be signed.
