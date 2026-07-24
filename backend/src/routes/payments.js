@@ -30,6 +30,7 @@ router.get(
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
+
   paymentController.getPayments,
 );
 

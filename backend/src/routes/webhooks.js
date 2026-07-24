@@ -2,11 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const {
-  registerWebhook,
-  getWebhooksByPublicKey,
-  deleteWebhook,
-} = require("../services/webhookService");
+const webhookService = require("../services/webhookService");
 const {
   formatErrorResponse,
   ERROR_CODES,
@@ -29,16 +25,17 @@ const {
  *   - url must be an HTTPS endpoint (reject http:// in production).
  *   - secret must be at least 8 characters (HMAC-SHA256 signing secret).
  */
-router.post("/", validate(registerWebhookSchema), (req, res) => {
-  const { publicKey, url, secret } = req.validated;
-
+router.post("/", validate(registerWebhookSchema), async (req, res, next) => {
   try {
-    const webhook = registerWebhook(publicKey, url, secret);
+    const { publicKey, url, secret } = req.validated;
+    const webhook = await webhookService.registerWebhook(
+      publicKey,
+      url,
+      secret,
+    );
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
-    return res
-      .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
-      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
+    return next(err);
   }
 });
 
@@ -49,24 +46,74 @@ router.post("/", validate(registerWebhookSchema), (req, res) => {
 router.get(
   "/:publicKey",
   validate(publicKeyParamSchema, "params"),
-  (req, res) => {
-    const { publicKey } = req.validated;
-    const hooks = getWebhooksByPublicKey(publicKey);
-    return res.json({ webhooks: hooks });
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
+      return res.json({ webhooks: hooks });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+/**
+ * GET /api/webhooks/:publicKey/failures
+ * Get dead letter queue (failed webhook deliveries) for a Stellar account.
+ */
+router.get(
+  "/:publicKey/failures",
+  validate(publicKeyParamSchema, "params"),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const failures = await webhookService.getDeadDeliveries(publicKey);
+      return res.json({ failures });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+/**
+ * POST /api/webhooks/:publicKey/retry
+ * Reset dead deliveries to pending and trigger retry for a Stellar account.
+ */
+router.post(
+  "/:publicKey/retry",
+  validate(publicKeyParamSchema, "params"),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const result = await webhookService.retryDeadDeliveries(publicKey);
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return next(err);
+    }
   },
 );
 
 /**
  * DELETE /api/webhooks/:id
- * Delete a webhook by numeric ID.
+ * Delete a webhook by ID.
  */
-router.delete("/:id", validate(idParamSchema, "params"), (req, res) => {
-  const { id } = req.validated;
-  const deleted = deleteWebhook(id);
-  if (!deleted) {
-    return res.status(404).json({ error: "Webhook not found" });
-  }
-  return res.json({ success: true, message: `Webhook ${id} deleted` });
-});
+router.delete(
+  "/:id",
+  validate(idParamSchema, "params"),
+  async (req, res, next) => {
+    try {
+      const { id } = req.validated;
+      const deleted = await webhookService.deleteWebhook(id);
+      if (!deleted) {
+        return res
+          .status(404)
+          .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "webhook", id }));
+      }
+      return res.json({ success: true, message: `Webhook ${id} deleted` });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 module.exports = router;

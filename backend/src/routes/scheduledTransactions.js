@@ -1,10 +1,8 @@
 /**
  * src/routes/scheduledTransactions.js
- * Routes for scheduling future Stellar transaction submissions.
+ * CRUD + execution routes for cron-based scheduled Stellar transactions.
  */
-
 "use strict";
-
 const express = require("express");
 const router = express.Router();
 const scheduledTransactionService = require("../services/scheduledTransactionService");
@@ -14,6 +12,7 @@ const {
   loosePublicKeyParamSchema,
   idParamSchema,
 } = require("../validation/schemas");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * POST /api/scheduled-txns
@@ -25,17 +24,12 @@ router.post("/", validate(scheduleTransactionSchema), (req, res, next) => {
     // submitAt is already confirmed to parse to a valid date by the schema.
     const { signedXDR, submitAt, publicKey } = req.validated;
 
-    const scheduledTx = scheduledTransactionService.scheduleTransaction(
+    const schedule = scheduledTransactionService.scheduleTransaction(
       signedXDR,
       new Date(submitAt),
       publicKey,
     );
-    res.status(201).json({
-      message: "Transaction scheduled successfully",
-      id: scheduledTx.id,
-      publicKey: scheduledTx.publicKey,
-      submitAt: new Date(scheduledTx.submitAt).toISOString(),
-    });
+    res.status(201).json(schedule);
   } catch (error) {
     next(error);
   }

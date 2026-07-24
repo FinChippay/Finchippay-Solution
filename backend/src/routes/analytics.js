@@ -22,6 +22,7 @@ router.get(
   strictLimiter,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
+
   analyticsController.getSummary,
 );
 
@@ -34,6 +35,7 @@ router.get(
   strictLimiter,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
+
   analyticsController.getTopRecipients,
 );
 

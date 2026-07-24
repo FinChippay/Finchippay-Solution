@@ -65,6 +65,7 @@ async function getPayments(req, res, next) {
 async function getStats(req, res, next) {
   try {
     const { publicKey } = req.validated;
+
     const payments = await stellarService.getPayments(publicKey, {
       limit: 100,
     });

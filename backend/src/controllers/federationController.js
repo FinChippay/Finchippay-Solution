@@ -72,7 +72,7 @@ async function resolveStellarAddress(stellarAddress, req) {
   // Check if it's our domain
   if (isLocalFederationDomain(domain, req)) {
     // Local resolution
-    const result = usernameService.resolveUsername(username);
+    const result = await usernameService.resolveUsername(username);
     return {
       stellar_address: `${username}*${domain}`,
       account_id: result.publicKey,
@@ -90,7 +90,7 @@ async function resolveStellarAddress(stellarAddress, req) {
  */
 async function resolveAccountId(accountId) {
   // First check local usernames
-  const allUsernames = usernameService.getAllUsernames();
+  const allUsernames = await usernameService.getAllUsernames();
   const match = allUsernames.find((user) => user.publicKey === accountId);
 
   if (match) {

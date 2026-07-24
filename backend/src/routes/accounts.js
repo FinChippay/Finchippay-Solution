@@ -20,6 +20,7 @@ const {
   registerUsernameSchema,
 } = require("../validation/schemas");
 const accountController = require("../controllers/accountController");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * Restrict account-data routes to the authenticated account holder (#278).
@@ -27,9 +28,22 @@ const accountController = require("../controllers/accountController");
  */
 function requireOwnAccount(req, res, next) {
   if (req.user?.publicKey !== req.params.publicKey) {
-    return res
-      .status(403)
-      .json({ error: "Forbidden: you may only access your own account data" });
+    return sendError(res, "AUTH_FORBIDDEN", {
+      message: "Forbidden: you may only access your own account data.",
+    });
+  }
+  next();
+}
+
+/**
+ * The browser `EventSource` API cannot set request headers, so the SSE stream
+ * accepts the SEP-10 JWT as a `?token=` query parameter and promotes it to an
+ * Authorization header before `verifyJWT` runs (#157). Requests that already
+ * carry the header keep using it.
+ */
+function acceptTokenFromQuery(req, res, next) {
+  if (!req.headers.authorization && typeof req.query.token === "string") {
+    req.headers.authorization = `Bearer ${req.query.token}`;
   }
   next();
 }
@@ -44,6 +58,7 @@ router.get(
   sensitiveLimiter,
   sanitizeUsername,
   validate(usernameParamSchema, "params"),
+
   accountController.resolveUsername,
 );
 
@@ -73,6 +88,23 @@ router.get(
   validate(publicKeyParamSchema, "params"),
   requireOwnAccount,
   accountController.getBalance,
+);
+
+/**
+ * GET /api/accounts/:publicKey/stream
+ * Server-Sent Events stream of XLM balance updates for an account.
+ *
+ * Long-lived by design, so the sensitive limiter is deliberately omitted — one
+ * connection is one request, and it would otherwise be counted against a user
+ * who simply left the dashboard open.
+ */
+router.get(
+  "/:publicKey/stream",
+  acceptTokenFromQuery,
+  verifyJWT,
+  sanitizePublicKey,
+  requireOwnAccount,
+  accountController.streamBalance,
 );
 
 /**
