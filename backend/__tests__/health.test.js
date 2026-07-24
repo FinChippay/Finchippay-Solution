@@ -17,6 +17,7 @@ const { checkDependencies } = require("../src/services/healthService");
 // ─── Mock auth middleware (standard pattern across the test suite) ────────────
 jest.mock("../src/middleware/auth", () => ({
   verifyJWT: (_req, _res, next) => next(),
+  requireAdmin: (_req, _res, next) => next(),
 }));
 
 const app = require("../src/server");

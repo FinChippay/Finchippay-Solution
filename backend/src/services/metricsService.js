@@ -74,6 +74,41 @@ const activeWebhookStreams = new promClient.Gauge({
   registers: [register],
 });
 
+/**
+ * Rate-limit decisions, including both allowed and blocked requests.
+ * Labels: route, limiter_type, status ("allowed" or "blocked")
+ */
+const rateLimitHitsTotal = new promClient.Counter({
+  name: "rate_limit_hits_total",
+  help: "Total number of rate-limit decisions by normalized route, limiter type, and outcome.",
+  labelNames: ["route", "limiter_type", "status"],
+  registers: [register],
+});
+
+/**
+ * Requests rejected by a rate limiter.
+ *
+ * The `ip` label contains an HMAC-SHA256 digest, never a raw IP address.
+ * Labels: route, ip
+ */
+const rateLimitBreachesTotal = new promClient.Counter({
+  name: "rate_limit_breaches_total",
+  help: "Total number of rejected requests by normalized route and privacy-preserving client hash.",
+  labelNames: ["route", "ip"],
+  registers: [register],
+});
+
+/**
+ * Requests allowed to continue past an instrumented rate limiter.
+ * Labels: route, limiter_type
+ */
+const rateLimitBypassedTotal = new promClient.Counter({
+  name: "rate_limit_bypassed_total",
+  help: "Total number of requests allowed to continue past a rate limiter.",
+  labelNames: ["route", "limiter_type"],
+  registers: [register],
+});
+
 // ─── Metrics exposition ───────────────────────────────────────────────────────
 
 /**
@@ -95,7 +130,7 @@ function getContentType() {
 // ─── Boot log ─────────────────────────────────────────────────────────────────
 
 logger.info(
-  "Prometheus metrics registered: http_requests_total, http_request_duration_seconds, horizon_requests_total, active_webhook_streams",
+  "Prometheus metrics registered: http_requests_total, http_request_duration_seconds, horizon_requests_total, active_webhook_streams, rate_limit_hits_total, rate_limit_breaches_total, rate_limit_bypassed_total",
 );
 
 module.exports = {
@@ -104,6 +139,9 @@ module.exports = {
   httpRequestDurationSeconds,
   horizonRequestsTotal,
   activeWebhookStreams,
+  rateLimitHitsTotal,
+  rateLimitBreachesTotal,
+  rateLimitBypassedTotal,
   getMetrics,
   getContentType,
 };
