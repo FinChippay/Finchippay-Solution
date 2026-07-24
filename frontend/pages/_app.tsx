@@ -18,6 +18,8 @@ import { FeatureFlagProvider } from "@/lib/FeatureFlags";
 import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import OnboardingTour from "@/components/OnboardingTour";
+import { useOnboardingTour } from "@/hooks/useOnboardingTour";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
@@ -170,11 +172,18 @@ function AppShellInner({
   const { publicKey } = useWallet();
   const router = useRouter();
 
+  // ── Onboarding tour ───────────────────────────────────────────────────────
+  // The hook owns all tour state; we pass `startTour` to Navbar so the
+  // "Take a Tour" button can launch it from anywhere in the app.
+  const tour = useOnboardingTour();
+
   return (
     <MotionConfig reducedMotion="user">
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
         <OfflineBanner />
-        <Navbar />
+        <Navbar onTakeTour={tour.startTour} />
+        {/* OnboardingTour is rendered here so it overlays the entire page */}
+        <OnboardingTour tour={tour} />
         <main className="pb-20 md:pb-0">
           <AnimatePresence mode="wait">
             <motion.div
@@ -223,7 +232,6 @@ export default function App({ Component, pageProps }: AppProps) {
       saved ??
       (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 
-    setTheme(preferred);
     document.documentElement.classList.toggle("dark", preferred === "dark");
   }, []);
 
@@ -258,10 +266,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <I18nextProvider i18n={i18n}>
- 160-issue-38-rtl-language-support-arabic-hebrew-fix
       <DirectionSync />
-
- master
       <ThemeProvider>
       <ToastProvider>
       <WalletProvider>
