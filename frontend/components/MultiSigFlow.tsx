@@ -7,12 +7,14 @@
  *  1. Build  — initiator fills in destination, amount, memo, and required
  *              signature threshold (≥ 2). Triggered automatically when the
  *              payment amount exceeds MULTISIG_THRESHOLD_XLM.
- *  2. Sign   — initiator signs first with their own Freighter wallet.
- *  3. Share  — a shareable URL containing the unsigned XDR is generated so
+ *  2. Preview — simulation preview shows balance changes, fees, and
+ *              contract errors before signing (Issue #151).
+ *  3. Sign   — initiator signs first with their own Freighter wallet.
+ *  4. Share  — a shareable URL containing the unsigned XDR is generated so
  *              co-signers can open /multi-sig-sign in their own browser.
- *  4. Collect — initiator pastes each co-signer's signed XDR back in.
+ *  5. Collect — initiator pastes each co-signer's signed XDR back in.
  *              Signature hints are shown so the initiator can verify who signed.
- *  5. Submit — once the threshold is met the combined XDR is submitted to
+ *  6. Submit — once the threshold is met the combined XDR is submitted to
  *              Stellar Horizon.
  *
  * Stellar multi-sig reference:
@@ -30,6 +32,11 @@ import {
   NETWORK_PASSPHRASE,
 } from "../lib/stellar";
 import { signTransactionWithWallet } from "../lib/wallet";
+import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
+import {
+  useTransactionSimulation,
+  type SimulationResult,
+} from "@/hooks/useTransactionSimulation";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,7 +45,7 @@ export const MULTISIG_THRESHOLD_XLM = 100;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Step = "build" | "sign" | "share" | "collect" | "submit" | "success";
+type Step = "build" | "preview" | "sign" | "share" | "collect" | "submit" | "success";
 
 interface MultiSigFlowProps {
   publicKey: string;
@@ -99,6 +106,10 @@ export default function MultiSigFlow({
   const [xdrCopied, setXdrCopied] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
 
+  // Transaction simulation
+  const sim = useTransactionSimulation({ publicKey });
+  const [showPreview, setShowPreview] = useState(false);
+
   const balance = parseFloat(xlmBalance);
   const amountNum = parseFloat(amount);
   const isValidDest = isValidStellarAddress(destination);
@@ -125,14 +136,26 @@ export default function MultiSigFlow({
         amount: amountNum.toFixed(7),
         memo: memo.trim() || undefined,
       });
-      setUnsignedXDR(tx.toXDR());
-      setStep("sign");
+      const xdr = tx.toXDR();
+      setUnsignedXDR(xdr);
+
+      // Run simulation before proceeding to sign
+      await sim.simulate(xdr);
+      setShowPreview(true);
+      setStep("preview");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to build transaction");
     } finally {
       setLoading(false);
     }
   };
+
+  // ── From Preview → Sign ──────────────────────────────────────────────────
+
+  const handleProceedFromPreview = useCallback(() => {
+    setShowPreview(false);
+    setStep("sign");
+  }, []);
 
   // ── Step 2: Initiator signs first ─────────────────────────────────────────
 
@@ -141,7 +164,9 @@ export default function MultiSigFlow({
     setLoading(true);
     setError(null);
     try {
-      const { signedXDR, error: signError } = await signTransactionWithWallet(unsignedXDR);
+      // Use the prepared XDR from simulation if available
+      const txToSign = sim.result?.preparedTransactionXdr ?? unsignedXDR;
+      const { signedXDR, error: signError } = await signTransactionWithWallet(txToSign);
       if (signError || !signedXDR) throw new Error(signError || "Signing rejected");
       setInitiatorSignedXDR(signedXDR);
       setStep("share");
@@ -219,13 +244,16 @@ export default function MultiSigFlow({
     setPastedXDR("");
     setError(null);
     setTxHash(null);
+    setShowPreview(false);
+    sim.reset();
   };
 
-  const STEPS: Step[] = ["build", "sign", "share", "collect", "submit"];
+  const STEPS: Step[] = ["build", "preview", "sign", "share", "collect", "submit"];
   const stepIndex = STEPS.indexOf(step === "success" ? "submit" : step);
 
   const stepLabels: Record<Step, string> = {
     build: "Build",
+    preview: "Preview",
     sign: "Sign",
     share: "Share",
     collect: "Collect",
@@ -347,6 +375,21 @@ export default function MultiSigFlow({
           >
             {loading ? <Spinner /> : null}
             {loading ? "Building..." : "Build Transaction"}
+          </button>
+        </div>
+      )}
+
+      {/* ── Step: Preview (simulation shown before signing) ── */}
+      {step === "preview" && (
+        <div className="space-y-4">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
+            Review the simulated result before signing with your wallet.
+          </p>
+          <button
+            onClick={handleProceedFromPreview}
+            className="btn-primary w-full py-2.5"
+          >
+            Review Simulation →
           </button>
         </div>
       )}
@@ -526,6 +569,20 @@ export default function MultiSigFlow({
           {error}
         </p>
       )}
+
+      {/* Transaction Simulation Preview Modal */}
+      <TransactionSimulationPreview
+        isOpen={showPreview}
+        onClose={() => { setShowPreview(false); sim.reset(); }}
+        onProceed={handleProceedFromPreview}
+        simulation={sim.result}
+        loading={sim.loading}
+        error={sim.error}
+        warning={sim.warning}
+        proceedLabel="I've Reviewed — Sign Now"
+        title="Multi-Sig Transaction Preview"
+        description="Review the simulated effects of this multi-signature payment before signing."
+      />
     </div>
   );
 }
