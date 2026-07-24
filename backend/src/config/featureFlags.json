@@ -1,0 +1,100 @@
+{
+  "flags": [
+    {
+      "key": "streaming_payments",
+      "description": "Enable real-time per-ledger streaming payment flows.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": true
+      },
+      "rolloutPercent": 100,
+      "owner": "platform",
+      "createdAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "key": "multi_sig_payments",
+      "description": "Enable N-of-M multi-signature payment proposals.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": true
+      },
+      "rolloutPercent": 100,
+      "owner": "platform",
+      "createdAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "key": "ai_payment_assistant",
+      "description": "AI-powered assistant for composing payment instructions.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": true
+      },
+      "rolloutPercent": 50,
+      "owner": "product",
+      "createdAt": "2024-03-01T00:00:00Z"
+    },
+    {
+      "key": "new_dashboard_charts",
+      "description": "Redesigned analytics charts on the dashboard page.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": false
+      },
+      "rolloutPercent": 0,
+      "owner": "frontend",
+      "createdAt": "2024-04-01T00:00:00Z"
+    },
+    {
+      "key": "trading_page",
+      "description": "In-app token trading interface.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": true
+      },
+      "rolloutPercent": 100,
+      "owner": "product",
+      "createdAt": "2024-02-01T00:00:00Z"
+    },
+    {
+      "key": "ledger_wallet",
+      "description": "Hardware Ledger wallet support via WebUSB.",
+      "environments": {
+        "development": true,
+        "staging": false,
+        "production": false
+      },
+      "rolloutPercent": 0,
+      "owner": "platform",
+      "createdAt": "2024-05-01T00:00:00Z"
+    },
+    {
+      "key": "new_portfolio",
+      "description": "Portfolio overview page with asset allocation breakdown.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": false
+      },
+      "rolloutPercent": 0,
+      "owner": "product",
+      "createdAt": "2024-06-01T00:00:00Z"
+    },
+    {
+      "key": "events_page",
+      "description": "On-chain event feed page for contract activity.",
+      "environments": {
+        "development": true,
+        "staging": true,
+        "production": false
+      },
+      "rolloutPercent": 0,
+      "owner": "platform",
+      "createdAt": "2024-06-01T00:00:00Z"
+    }
+  ]
+}
