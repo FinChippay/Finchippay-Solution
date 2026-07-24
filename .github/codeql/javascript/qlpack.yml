@@ -1,0 +1,21 @@
+# .github/codeql/javascript/qlpack.yml
+#
+# CodeQL query pack for Finchippay JavaScript/TypeScript security rules.
+#
+# This pack contains Stellar/Soroban-specific security queries for the
+# JavaScript and TypeScript code in the Finchippay-Solution repository.
+# It extends the standard codeql/javascript-queries pack.
+#
+# Queries:
+#   - HardcodedStellarSecretKey.ql
+#   - LocalStoragePrivateData.ql
+#   - MissingWebhookSignatureVerification.ql
+
+name: finchippay/javascript-security-queries
+version: 1.0.0
+description: >
+  Stellar/Soroban-specific CodeQL security queries for Finchippay
+  JavaScript and TypeScript source code.
+license: MIT
+dependencies:
+  codeql/javascript-all: "*"

@@ -1,0 +1,21 @@
+# .github/codeql/rust/qlpack.yml
+#
+# CodeQL query pack for Finchippay Rust / Soroban smart contract security rules.
+#
+# This pack contains Soroban-specific security queries for the Rust contract
+# code in the Finchippay-Solution repository (contracts/ directory).
+# It extends the standard codeql/rust-queries pack.
+#
+# Queries:
+#   - MissingCheckedArithmetic.ql
+#   - UnboundedLoop.ql
+#   - RawPanicWithoutError.ql
+
+name: finchippay/rust-security-queries
+version: 1.0.0
+description: >
+  Soroban smart contract–specific CodeQL security queries for Finchippay
+  Rust source code.
+license: MIT
+dependencies:
+  codeql/rust-all: "*"
