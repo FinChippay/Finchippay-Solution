@@ -9,6 +9,11 @@ const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
+const { validate } = require("../validation/middleware");
+const {
+  publicKeyParamSchema,
+  paymentsQuerySchema,
+} = require("../validation/schemas");
 const paymentController = require("../controllers/paymentController");
 
 /**
@@ -19,12 +24,27 @@ const paymentController = require("../controllers/paymentController");
  *   limit  — number of results (default: 20, max: 100)
  *   cursor — pagination cursor
  */
-router.get("/:publicKey", strictLimiter, sanitizePublicKey, paymentController.getPayments);
+router.get(
+  "/:publicKey",
+  strictLimiter,
+  sanitizePublicKey,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(publicKeyParamSchema, "params"),
+  validate(paymentsQuerySchema, "query"),
+
+ master
+  paymentController.getPayments,
+);
 
 /**
  * GET /api/payments/:publicKey/stats
  * Return aggregate stats for an account (total sent, received, count).
  */
-router.get("/:publicKey/stats", strictLimiter, paymentController.getStats);
+router.get(
+  "/:publicKey/stats",
+  strictLimiter,
+  validate(publicKeyParamSchema, "params"),
+  paymentController.getStats,
+);
 
 module.exports = router;

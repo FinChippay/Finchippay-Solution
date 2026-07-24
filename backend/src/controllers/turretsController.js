@@ -29,8 +29,16 @@ const turretsService = require("../services/turretsService");
  */
 async function createChallenge(req, res, next) {
   try {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { ownerPublicKey, type, config } = req.validated;
+
     const { ownerPublicKey, type, config } = req.body;
-    const data = await turretsService.createSigningChallenge({ ownerPublicKey, type, config });
+ master
+    const data = await turretsService.createSigningChallenge({
+      ownerPublicKey,
+      type,
+      config,
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -48,10 +56,16 @@ async function createChallenge(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function deploy(req, res, next) {
+async function deploy(req, res, next) {
   try {
-    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } = req.body;
+    const { ownerPublicKey, type, config, deploymentHash, signedChallengeXDR } =
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+      req.validated;
     const data = turretsService.deployTxFunction({
+
+      req.body;
+    const data = await turretsService.deployTxFunction({
+ master
       ownerPublicKey,
       type,
       config,
@@ -75,10 +89,15 @@ function deploy(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function list(req, res, next) {
+async function list(req, res, next) {
   try {
-    const { ownerPublicKey } = req.query;
+160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { ownerPublicKey } = req.validated;
     const data = turretsService.listDeployments(ownerPublicKey);
+
+    const { ownerPublicKey } = req.query;
+    const data = await turretsService.listDeployments(ownerPublicKey);
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -95,10 +114,15 @@ function list(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function getOne(req, res, next) {
+async function getOne(req, res, next) {
   try {
-    const { id } = req.params;
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { id } = req.validated;
     const data = turretsService.getDeployment(id);
+
+    const { id } = req.params;
+    const data = await turretsService.getDeployment(id);
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -115,11 +139,17 @@ function getOne(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function getHistory(req, res, next) {
+async function getHistory(req, res, next) {
   try {
-    const { id } = req.params;
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { id } = req.validated;
     turretsService.getDeployment(id); // throws 404 if not found
     const data = turretsService.getExecutionHistory(id);
+
+    const { id } = req.params;
+    await turretsService.getDeployment(id); // throws 404 if not found
+    const data = await turretsService.getExecutionHistory(id);
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -136,10 +166,15 @@ function getHistory(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function pause(req, res, next) {
+async function pause(req, res, next) {
   try {
-    const { id } = req.params;
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { id } = req.validated;
     const data = turretsService.setDeploymentStatus(id, "paused");
+
+    const { id } = req.params;
+    const data = await turretsService.setDeploymentStatus(id, "paused");
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -156,10 +191,15 @@ function pause(req, res, next) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function resume(req, res, next) {
+async function resume(req, res, next) {
   try {
-    const { id } = req.params;
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { id } = req.validated;
     const data = turretsService.setDeploymentStatus(id, "active");
+
+    const { id } = req.params;
+    const data = await turretsService.setDeploymentStatus(id, "active");
+ master
     res.json({ success: true, data });
   } catch (err) {
     next(err);

@@ -8,31 +8,66 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
-const { sanitizePublicKey } = require("../middleware/sanitization");
+const { validate } = require("../validation/middleware");
+const {
+  tipSchema,
+  creatorPublicKeyParamSchema,
+  senderPublicKeyParamSchema,
+  tipsPaginationQuerySchema,
+} = require("../validation/schemas");
 const tipsController = require("../controllers/tipsController");
 
 /**
  * POST /api/tips
  * Record a new tip.
  */
-router.post("/", strictLimiter, tipsController.recordTip);
+router.post("/", strictLimiter, validate(tipSchema), tipsController.recordTip);
 
 /**
  * GET /api/tips/received/:creatorPublicKey
  * Get all tips received by a creator.
  */
-router.get("/received/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsReceived);
+router.get(
+  "/received/:creatorPublicKey",
+  strictLimiter,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(creatorPublicKeyParamSchema, "params"),
+  validate(tipsPaginationQuerySchema, "query"),
+
+  sanitizePublicKey,
+ master
+  tipsController.getTipsReceived,
+);
 
 /**
  * GET /api/tips/stats/:creatorPublicKey
  * Get statistics for tips received by a creator.
  */
-router.get("/stats/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsStats);
+router.get(
+  "/stats/:creatorPublicKey",
+  strictLimiter,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(creatorPublicKeyParamSchema, "params"),
+
+  sanitizePublicKey,
+ master
+  tipsController.getTipsStats,
+);
 
 /**
  * GET /api/tips/sent/:senderPublicKey
  * Get all tips sent by a user.
  */
-router.get("/sent/:senderPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsSent);
+router.get(
+  "/sent/:senderPublicKey",
+  strictLimiter,
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+  validate(senderPublicKeyParamSchema, "params"),
+  validate(tipsPaginationQuerySchema, "query"),
+
+  sanitizePublicKey,
+master
+  tipsController.getTipsSent,
+);
 
 module.exports = router;

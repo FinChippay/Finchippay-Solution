@@ -270,3 +270,14 @@
 @media (prefers-reduced-motion: reduce) {
   .balance-flash { animation: none; }
 }
+
+/* RTL: use logical direction for translated UI while preserving technical data. */
+[dir="rtl"] .text-start { text-align: right; }
+[dir="rtl"] .text-end { text-align: left; }
+[dir="rtl"] .icon-directional { transform: scaleX(-1); }
+[dir="rtl"] .label { text-align: right; }
+/* Wallet addresses, hashes, asset codes, and amounts must retain LTR ordering in RTL prose. */
+.bidi-ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+[dir="rtl"] input[type="number"],
+[dir="rtl"] input.font-mono,
+[dir="rtl"] .address-pill { direction: ltr; text-align: left; unicode-bidi: isolate; }

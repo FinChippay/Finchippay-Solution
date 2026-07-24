@@ -3,7 +3,7 @@
  * Displays paginated payment history for a Stellar account.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useReducer } from "react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
@@ -25,6 +25,7 @@ import {
   PrinterIcon,
 } from "@/components/icons";
 import clsx from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
 
@@ -144,6 +145,56 @@ function TransactionList({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
   
+  type PendingAction =
+    | { type: "ADD"; payload: PaymentRecord }
+    | { type: "RESOLVE"; payload: { pendingId: string; resolvedTx: PaymentRecord } }
+    | { type: "REMOVE"; payload: string }
+    | { type: "INIT"; payload: PaymentRecord[] };
+
+  const [pendingPayments, dispatchPending] = useReducer((state: PaymentRecord[], action: PendingAction): PaymentRecord[] => {
+    switch (action.type) {
+      case "ADD":
+        return [action.payload, ...state];
+      case "RESOLVE":
+        return state.filter((tx) => tx.id !== action.payload.pendingId);
+      case "REMOVE":
+        return state.filter((tx) => tx.id !== action.payload);
+      case "INIT":
+        return action.payload;
+      default:
+        return state;
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]");
+      dispatchPending({ type: "INIT", payload: stored });
+    } catch {}
+
+    const onPending = (e: any) => dispatchPending({ type: "ADD", payload: e.detail });
+    const onResolved = (e: any) => {
+      dispatchPending({ type: "RESOLVE", payload: e.detail });
+      setPayments((prev) => {
+        if (prev.some(p => p.id === e.detail.resolvedTx.id)) return prev;
+        const next = [e.detail.resolvedTx, ...prev];
+        onPaymentsChange?.(next);
+        return next;
+      });
+    };
+    const onFailed = (e: any) => dispatchPending({ type: "REMOVE", payload: e.detail.pendingId });
+
+    window.addEventListener("finchippay:pending-tx", onPending);
+    window.addEventListener("finchippay:resolved-tx", onResolved);
+    window.addEventListener("finchippay:failed-tx", onFailed);
+
+    return () => {
+      window.removeEventListener("finchippay:pending-tx", onPending);
+      window.removeEventListener("finchippay:resolved-tx", onResolved);
+      window.removeEventListener("finchippay:failed-tx", onFailed);
+    };
+  }, [onPaymentsChange]);
+
   // Pull-to-refresh state
   const [pullStartY, setPullStartY] = useState(0);
   const [pullMoveY, setPullMoveY] = useState(0);
@@ -341,7 +392,7 @@ function TransactionList({
     });
   }, [incomingPayment, onPaymentsChange]);
 
-  const visiblePayments = filterPayments(payments, filters);
+  const visiblePayments = filterPayments([...pendingPayments, ...payments], filters);
   const hasActiveFilters =
     filters.direction !== "all" || filters.minAmount.trim() !== "" || filters.memoSearch.trim() !== "";
 
@@ -495,9 +546,15 @@ function TransactionList({
             aria-label={t("transactions.paymentHistory")}
             className="space-y-2"
           >
+        <AnimatePresence initial={false}>
         {visiblePayments.map((tx, index) => (
-          <div
+          <motion.div
             key={tx.id}
+            layout
+            initial={{ opacity: 0, height: 0, scale: 0.95 }}
+            animate={{ opacity: 1, height: "auto", scale: 1 }}
+            exit={{ opacity: 0, height: 0, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
             role="listitem"
             tabIndex={focusedIndex === index ? 0 : -1}
             onKeyDown={(e) => {
@@ -518,7 +575,11 @@ function TransactionList({
             onBlur={() => setFocusedIndex(-1)}
             onFocus={() => setFocusedIndex(index)}
             className={clsx(
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+              "flex items-center gap-3 p-3 rounded-xl bg-slate-50 rtl:flex-row-reverse dark:bg-white/3 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group relative",
+
               "flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-white/3 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group relative",
+ master
               focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
             )}
             aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
@@ -533,9 +594,9 @@ function TransactionList({
               )}
             >
               {tx.type === "sent" ? (
-                <ArrowUpIcon className="w-4 h-4 text-red-400" />
+                <ArrowUpIcon className="w-4 h-4 text-red-400 rtl:rotate-180" />
               ) : (
-                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
+                <ArrowDownIcon className="w-4 h-4 text-emerald-400 rtl:rotate-180" />
               )}
             </div>
 
@@ -545,6 +606,12 @@ function TransactionList({
                 <span className="text-sm font-medium text-slate-200 capitalize">
                   {tx.type === "sent" ? t("transactions.sentTo") : t("transactions.receivedFrom")}
                 </span>
+                {tx.isPending && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
+                    <div className="w-2.5 h-2.5 border border-amber-500 border-t-transparent rounded-full animate-spin" />
+                    Pending
+                  </span>
+                )}
                 <button
                   onClick={() =>
                     handleCopy(
@@ -553,7 +620,7 @@ function TransactionList({
                     )
                   }
                   aria-label={`Copy ${tx.type === "sent" ? "recipient" : "sender"} address`}
-                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs dark:hover:border-stellar-300/60"
                 >
                   {copiedId === tx.id
                     ? t("transactions.copied")
@@ -576,7 +643,7 @@ function TransactionList({
             <div className="flex items-center gap-2 flex-shrink-0">
               <span
                 className={clsx(
-                  "text-sm font-mono font-medium",
+                  "text-sm font-mono font-medium bidi-ltr",
                   tx.type === "sent" ? "text-red-400" : "text-emerald-400"
                 )}
               >
@@ -618,8 +685,9 @@ function TransactionList({
                 <ExternalLinkIcon className="w-3.5 h-3.5" />
               </a>
             </div>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
 
         {/* Infinite Scroll Sentinel / Loading Indicator */}
         {infiniteScroll && (

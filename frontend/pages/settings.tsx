@@ -8,6 +8,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
+import { signTransactionWithWallet } from "@/lib/wallet";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
 import { clearAddressBook, loadAddressBookContacts } from "@/lib/addressBook";
 import {
@@ -21,20 +22,23 @@ import {
 import { shortenAddress } from "@/lib/stellar";
 import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
 import KyCForm from "@/components/KyCForm";
+import AccountSettings from "@/components/AccountSettings";
+import { useWallet } from "@/lib/useWallet";
 
 interface SettingsPageProps {
-  publicKey: string | null;
-  onConnect: () => void;
-  onDisconnect: () => void;
+  publicKey?: string | null;
+  onDisconnect?: () => void;
 }
 
 // SNS section added
 export default function SettingsPage({
-  publicKey,
-  onConnect,
+  publicKey: publicKeyProp,
   onDisconnect,
 }: SettingsPageProps) {
   const { t } = useTranslation("common");
+  // The active account owns every setting on this page (#147).
+  const { publicKey: activePublicKey, disconnectWallet } = useWallet();
+  const publicKey = activePublicKey ?? publicKeyProp ?? null;
   const [currentLanguage, setCurrentLanguage] = useState<SupportedLanguage>(getCurrentLanguage);
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
@@ -251,7 +255,7 @@ export default function SettingsPage({
     // Disconnect wallet to force reconnect on new network
     if (publicKey) {
       disconnectWallet();
-      onDisconnect();
+      onDisconnect?.();
     }
 
     setShowMainnetWarning(false);
@@ -268,7 +272,7 @@ export default function SettingsPage({
       // Disconnect wallet on URL change
       if (publicKey) {
         disconnectWallet();
-        onDisconnect();
+        onDisconnect?.();
       }
     }
   };
@@ -348,6 +352,9 @@ export default function SettingsPage({
               </p>
             </div>
 
+            {/* Connected accounts + labels (#147) */}
+            <AccountSettings />
+
             {/* KYC Verification Section */}
             <KyCForm publicKey={publicKey} />
 
@@ -357,7 +364,10 @@ export default function SettingsPage({
                 {t("settings.languageTitle")}
               </h2>
               <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">{t("settings.languageDescription")}</p>
-              <div className="grid grid-cols-3 gap-3">
+              <p className="mb-4 text-xs text-slate-500 dark:text-slate-400" role="status">
+                {t("settings.rtlSupportNote")}
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {SUPPORTED_LANGUAGES.map((lang) => (
                   <button
                     key={lang.code}

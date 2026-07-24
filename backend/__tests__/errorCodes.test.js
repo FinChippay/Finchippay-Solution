@@ -14,17 +14,54 @@
 
 const {
   ERROR_CODES,
+  CATEGORY_LAYERS,
   CONTRACT_ERROR_MAP,
   getError,
+  getErrorLayer,
+  isKnownErrorCode,
   formatErrorResponse,
   getContractErrorCode,
   formatContractErrorResponse,
+  setCorrelationIdProvider,
 } = require("../../shared/errorCodes");
 
+// The registry is a module-level singleton; leave the provider unset so other
+// suites in the same worker are unaffected.
+afterEach(() => setCorrelationIdProvider(null));
+
 describe("ERROR_CODES registry", () => {
-  it("contains at least 40 error codes covering all categories", () => {
+  it("documents at least 50 error codes covering all categories (#270)", () => {
     const keys = Object.keys(ERROR_CODES);
-    expect(keys.length).toBeGreaterThanOrEqual(40);
+    expect(keys.length).toBeGreaterThanOrEqual(50);
+  });
+
+  it("every code key matches its own code field", () => {
+    for (const [key, entry] of Object.entries(ERROR_CODES)) {
+      expect(entry.code).toBe(key);
+    }
+  });
+
+  it("every category prefix is assigned an owning layer", () => {
+    for (const key of Object.keys(ERROR_CODES)) {
+      expect(CATEGORY_LAYERS).toHaveProperty(key.split("_")[0]);
+    }
+  });
+
+  it("marks deprecated codes with the code that supersedes them", () => {
+    for (const entry of Object.values(ERROR_CODES)) {
+      if (!entry.deprecated) continue;
+      expect(isKnownErrorCode(entry.supersededBy)).toBe(true);
+    }
+  });
+
+  it("still exposes the legacy TOKEN_EXPIRED code emitted on JWT expiry", () => {
+    expect(ERROR_CODES.TOKEN_EXPIRED.deprecated).toBe(true);
+    expect(ERROR_CODES.TOKEN_EXPIRED.supersededBy).toBe("AUTH_EXPIRED_TOKEN");
+  });
+
+  it("has wallet codes for the frontend layer", () => {
+    expect(getErrorLayer("WALLET_NOT_CONNECTED")).toBe("frontend");
+    expect(getErrorLayer("WALLET_SIGNATURE_REJECTED")).toBe("frontend");
   });
 
   it("every error entry has code, httpStatus, and message properties", () => {
@@ -234,5 +271,86 @@ describe("formatContractErrorResponse()", () => {
     });
     expect(response.error.code).toBe("CONTRACT_TRANSFER_FAILED");
     expect(response.error.details).toEqual({ tokenAddress: "GABC..." });
+  });
+});
+
+describe("getErrorLayer()", () => {
+  it("derives the layer from the category prefix", () => {
+    expect(getErrorLayer("AUTH_FORBIDDEN")).toBe("api");
+    expect(getErrorLayer("PAY_SUBMIT_FAILED")).toBe("api");
+    expect(getErrorLayer("CONTRACT_PAUSED")).toBe("contract");
+    expect(getErrorLayer("WALLET_LOCKED")).toBe("frontend");
+    expect(getErrorLayer("GEN_UNKNOWN")).toBe("shared");
+  });
+
+  it("resolves an unknown code through the GEN_UNKNOWN fallback", () => {
+    expect(getErrorLayer("NOT_A_REAL_CODE")).toBe("shared");
+  });
+});
+
+describe("isKnownErrorCode()", () => {
+  it("distinguishes registered codes from arbitrary strings", () => {
+    expect(isKnownErrorCode("RES_NOT_FOUND")).toBe(true);
+    expect(isKnownErrorCode("NOT_A_REAL_CODE")).toBe(false);
+    // Must not be fooled by inherited Object.prototype members.
+    expect(isKnownErrorCode("toString")).toBe(false);
+  });
+});
+
+describe("correlation ID injection (#270)", () => {
+  it("adds correlationId once a provider is registered", () => {
+    setCorrelationIdProvider(() => "req-abc-123");
+
+    expect(formatErrorResponse("RES_NOT_FOUND").error.correlationId).toBe(
+      "req-abc-123",
+    );
+  });
+
+  it("omits the field when the provider returns nothing", () => {
+    setCorrelationIdProvider(() => undefined);
+
+    expect(formatErrorResponse("RES_NOT_FOUND").error).not.toHaveProperty(
+      "correlationId",
+    );
+  });
+
+  it("never lets a throwing provider break error formatting", () => {
+    setCorrelationIdProvider(() => {
+      throw new Error("no request context");
+    });
+
+    const body = formatErrorResponse("SRV_INTERNAL");
+    expect(body.error.code).toBe("SRV_INTERNAL");
+    expect(body.error).not.toHaveProperty("correlationId");
+  });
+
+  it("lets an explicit correlationId win over the provider", () => {
+    setCorrelationIdProvider(() => "from-provider");
+
+    const body = formatErrorResponse("SRV_INTERNAL", undefined, {
+      correlationId: "explicit",
+    });
+    expect(body.error.correlationId).toBe("explicit");
+  });
+
+  it("ignores a non-function provider", () => {
+    setCorrelationIdProvider("not-a-function");
+
+    expect(formatErrorResponse("SRV_INTERNAL").error).not.toHaveProperty(
+      "correlationId",
+    );
+  });
+});
+
+describe("formatErrorResponse() message override", () => {
+  it("substitutes a context-specific message but keeps the code", () => {
+    const body = formatErrorResponse("AUTH_FORBIDDEN", undefined, {
+      message: "You may only access your own account data.",
+    });
+
+    expect(body.error.code).toBe("AUTH_FORBIDDEN");
+    expect(body.error.message).toBe(
+      "You may only access your own account data.",
+    );
   });
 });

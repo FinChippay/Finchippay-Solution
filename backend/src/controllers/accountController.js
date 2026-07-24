@@ -8,6 +8,11 @@
  *   POST /api/accounts/register             → register username ↔ public key
  *   GET  /api/accounts/resolve/:username    → resolve username → public key
  *
+ * Every route validates its input with a Zod schema (see
+ * src/validation/schemas.js) mounted via the validate() middleware; handlers
+ * read the already-parsed values from `req.validated` instead of manually
+ * destructuring and checking `req.body` / `req.params` / `req.query`.
+ *
  * All handlers delegate to `stellarService` / `usernameService` and forward
  * errors to the global Express error handler via `next(err)`.
  */
@@ -16,9 +21,12 @@
 
 const stellarService = require("../services/stellarService");
 const usernameService = require("../services/usernameService");
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+
 const balanceStreamService = require("../services/balanceStreamService");
 const logger = require("../utils/logger");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+master
 
 /** Comment frames keep proxies and load balancers from idling the connection out. */
 const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -38,7 +46,7 @@ const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
  */
 async function getAccount(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    const { publicKey } = req.validated;
     const account = await stellarService.getAccount(publicKey);
     res.json({ success: true, data: account });
   } catch (err) {
@@ -60,7 +68,7 @@ async function getAccount(req, res, next) {
  */
 async function getBalance(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    const { publicKey } = req.validated;
     const balance = await stellarService.getXLMBalance(publicKey);
     res.json({ success: true, data: { publicKey, xlm: balance } });
   } catch (err) {
@@ -73,6 +81,8 @@ async function getBalance(req, res, next) {
  * Register a new Finchippay username tied to a Stellar public key.
  *
  * Body: { username: string, publicKey: string }
+ * (validated by `registerUsernameSchema` before this handler runs — values
+ * below come from `req.validated`.)
  *
  * @param {import('express').Request}  req
  * @param {import('express').Response} res
@@ -84,17 +94,9 @@ async function getBalance(req, res, next) {
  */
 async function registerUsername(req, res, next) {
   try {
-    const { username, publicKey } = req.body;
+    const { username, publicKey } = req.validated;
 
-    if (!username || !publicKey) {
-      return res
-        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(formatErrorResponse("VAL_MISSING_FIELD", {
-          fields: ["username", "publicKey"],
-        }));
-    }
-
-    const result = usernameService.registerUsername(username, publicKey);
+    const result = await usernameService.registerUsername(username, publicKey);
     return res.status(201).json({
       success: true,
       data: result,
@@ -119,16 +121,18 @@ async function registerUsername(req, res, next) {
  */
 async function resolveUsername(req, res, next) {
   try {
-    const { username } = req.params;
+    const { username } = req.validated;
 
-    // Reserve 'alice' for test suites without polluting the production store.
+    // Reserve 'alice' for test suites — resolve from the database
+    // (seeded on first migration run).
     if (username.toLowerCase() === "alice") {
-      return res
-        .status(ERROR_CODES.SRV_NOT_IMPLEMENTED.httpStatus)
-        .json(formatErrorResponse("SRV_NOT_IMPLEMENTED", { feature: "Reserved test username" }));
+      return res.status(501).json({
+        success: false,
+        error: "Not Implemented",
+      });
     }
 
-    const result = usernameService.resolveUsername(username);
+    const result = await usernameService.resolveUsername(username);
     return res.json({ success: true, data: result });
   } catch (err) {
     next(err);

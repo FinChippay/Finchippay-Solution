@@ -14,6 +14,7 @@ const router = express.Router();
 const sep12Service = require("../services/sep12Service");
 const { verifyJWT } = require("../middleware/auth");
 const { sensitiveLimiter } = require("../middleware/rateLimit");
+const { sendError } = require("../utils/errorResponse");
 
 // ─── POST /api/sep12/customer ────────────────────────────────────────────────
 
@@ -38,19 +39,23 @@ router.post(
     try {
       const publicKey = req.user?.publicKey;
       if (!publicKey) {
-        return res
-          .status(401)
-          .json({ error: "Unauthorized: missing publicKey in token" });
+        return sendError(res, "AUTH_INVALID_TOKEN", {
+          message: "Unauthorized: the token carries no publicKey.",
+        });
       }
 
       const { anchorName, fields } = req.body;
 
       if (!anchorName) {
-        return res.status(400).json({ error: "anchorName is required" });
+        return sendError(res, "VAL_MISSING_FIELD", {
+          details: { fields: ["anchorName"] },
+        });
       }
 
       if (!fields || typeof fields !== "object") {
-        return res.status(400).json({ error: "fields object is required" });
+        return sendError(res, "VAL_MISSING_FIELD", {
+          details: { fields: ["fields"] },
+        });
       }
 
       const authHeader = req.headers.authorization;
@@ -99,16 +104,17 @@ router.get("/customer", verifyJWT, sensitiveLimiter, async (req, res, next) => {
   try {
     const publicKey = req.user?.publicKey;
     if (!publicKey) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: missing publicKey in token" });
+      return sendError(res, "AUTH_INVALID_TOKEN", {
+        message: "Unauthorized: the token carries no publicKey.",
+      });
     }
 
     const { anchorName } = req.query;
     if (!anchorName) {
-      return res
-        .status(400)
-        .json({ error: "anchorName query parameter is required" });
+      return sendError(res, "VAL_INVALID_QUERY_PARAM", {
+        message: "The anchorName query parameter is required.",
+        details: { parameter: "anchorName" },
+      });
     }
 
     const authHeader = req.headers.authorization;
@@ -157,16 +163,17 @@ router.get(
     try {
       const publicKey = req.user?.publicKey;
       if (!publicKey) {
-        return res
-          .status(401)
-          .json({ error: "Unauthorized: missing publicKey in token" });
+        return sendError(res, "AUTH_INVALID_TOKEN", {
+          message: "Unauthorized: the token carries no publicKey.",
+        });
       }
 
       const { anchorName } = req.query;
       if (!anchorName) {
-        return res
-          .status(400)
-          .json({ error: "anchorName query parameter is required" });
+        return sendError(res, "VAL_INVALID_QUERY_PARAM", {
+          message: "The anchorName query parameter is required.",
+          details: { parameter: "anchorName" },
+        });
       }
 
       const authHeader = req.headers.authorization;

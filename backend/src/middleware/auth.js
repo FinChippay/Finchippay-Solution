@@ -20,7 +20,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
 if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
   console.warn(
     "⚠️  JWT_SECRET is not set — using insecure default. " +
-      "Generate a production secret: openssl rand -hex 32"
+      "Generate a production secret: openssl rand -hex 32",
   );
 }
 
@@ -60,12 +60,13 @@ function verifyJWT(req, res, next) {
     next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {
-      return res.status(401).json({
-        error: {
-          code: "TOKEN_EXPIRED",
-          message: "Token has expired. Please refresh or re-authenticate.",
-        },
-      });
+      // Emits the legacy TOKEN_EXPIRED code rather than AUTH_EXPIRED_TOKEN:
+      // it is documented and asserted by existing consumers. It is registered
+      // in the catalogue as a deprecated alias so it still resolves and still
+      // carries a correlation ID (#270).
+      return res
+        .status(ERROR_CODES.TOKEN_EXPIRED.httpStatus)
+        .json(formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }));
     }
     const errorCode = "AUTH_INVALID_TOKEN";
     return res

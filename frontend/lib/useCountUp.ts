@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
+import { useMotionValue, animate } from 'framer-motion';
 
 export function useCountUp(target: number, duration: number = 2000, startOnView: boolean = true) {
   const [count, setCount] = useState(0);
   const [isVisible, setIsVisible] = useState(!startOnView);
   const [hasAnimated, setHasAnimated] = useState(false);
   const elementRef = useRef<HTMLDivElement>(null);
+  const motionValue = useMotionValue(0);
 
   useEffect(() => {
     if (!startOnView) {
@@ -26,22 +28,16 @@ export function useCountUp(target: number, duration: number = 2000, startOnView:
   }, [startOnView, hasAnimated]);
 
   useEffect(() => {
-    if (!isVisible || hasAnimated) return;
+    if (!isVisible) return;
 
-    let startTime: number;
-    const animate = (currentTime: number) => {
-      if (!startTime) startTime = currentTime;
-      const progress = Math.min((currentTime - startTime) / duration, 1);
+    const controls = animate(motionValue, target, {
+      duration: duration / 1000,
+      onUpdate: (latest) => setCount(Math.floor(latest)),
+      ease: "easeOut"
+    });
 
-      setCount(Math.floor(progress * target));
-
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
-    };
-
-    requestAnimationFrame(animate);
-  }, [isVisible, target, duration, hasAnimated]);
+    return controls.stop;
+  }, [isVisible, target, duration, motionValue]);
 
   return { count, elementRef };
 }

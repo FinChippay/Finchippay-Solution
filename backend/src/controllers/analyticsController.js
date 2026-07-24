@@ -29,7 +29,7 @@ const analyticsService = require("../services/analyticsService");
  */
 async function getSummary(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    const { publicKey } = req.validated;
     const data = await analyticsService.getSummary(publicKey);
     res.json({ success: true, data });
   } catch (err) {
@@ -50,7 +50,7 @@ async function getSummary(req, res, next) {
  */
 async function getTopRecipients(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    const { publicKey } = req.validated;
     const data = await analyticsService.getTopRecipients(publicKey);
     res.json({ success: true, data });
   } catch (err) {
@@ -71,7 +71,7 @@ async function getTopRecipients(req, res, next) {
  */
 async function getActivityByDay(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    const { publicKey } = req.validated;
     const data = await analyticsService.getActivityByDay(publicKey);
     res.json({ success: true, data });
   } catch (err) {

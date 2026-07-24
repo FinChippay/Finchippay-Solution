@@ -76,6 +76,17 @@ export default function PaymentStatusModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isOpen, isTerminal, onClose]);
 
+  useEffect(() => {
+    if (status === "error" && error) {
+      const isUserCancellation = error.includes("User declined") || 
+                                 error.includes("rejected by the user") || 
+                                 error.includes("Transaction signing was rejected");
+      if (isUserCancellation) {
+        onClose();
+      }
+    }
+  }, [status, error, onClose]);
+
   const progress = useMemo(() => {
     const completedCount = STEP_ORDER.filter(
       ({ id }) => stepTimings[id].completedAt !== null

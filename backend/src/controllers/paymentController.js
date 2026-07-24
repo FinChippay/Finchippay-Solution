@@ -13,13 +13,12 @@
 "use strict";
 
 const stellarService = require("../services/stellarService");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * GET /api/payments/:publicKey
  * Return paginated payment history for a Stellar account.
  *
- * Query params:
+ * Query params (validated by `paymentsQuerySchema`):
  *   - `limit`  {number} 1–100 (default 20) — max records per page
  *   - `cursor` {string} Horizon paging token for cursor-based pagination
  *
@@ -33,7 +32,11 @@ const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes
  */
 async function getPayments(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    // `limit` arrives already coerced to an integer ≥ 1 (capped at 100,
+    // default 20) thanks to the paymentsQuerySchema validate() middleware.
+    const { publicKey, limit, cursor } = req.validated;
+
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
 
     // Explicit limit validation — parseInt("0") or NaN must not silently pass.
     const rawLimit = req.query.limit;
@@ -49,7 +52,11 @@ async function getPayments(req, res, next) {
     }
 
     const cursor = req.query.cursor || undefined;
-    const payments = await stellarService.getPayments(publicKey, { limit, cursor });
+ master
+    const payments = await stellarService.getPayments(publicKey, {
+      limit,
+      cursor,
+    });
     res.json({ success: true, data: payments });
   } catch (err) {
     next(err);
@@ -74,8 +81,14 @@ async function getPayments(req, res, next) {
  */
 async function getStats(req, res, next) {
   try {
+ 160-issue-38-rtl-language-support-arabic-hebrew-fix
+    const { publicKey } = req.validated;
+
     const { publicKey } = req.params;
-    const payments = await stellarService.getPayments(publicKey, { limit: 100 });
+ master
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 100,
+    });
 
     let totalSent = 0;
     let totalReceived = 0;

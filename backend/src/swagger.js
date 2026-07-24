@@ -6,6 +6,10 @@
 "use strict";
 
 const swaggerJsdoc = require("swagger-jsdoc");
+const { ERROR_CODES } = require("../../shared/errorCodes");
+
+// Every code in the catalogue, so the spec can never drift from the registry.
+const ERROR_CODE_NAMES = Object.keys(ERROR_CODES).sort();
 
 const options = {
   definition: {
@@ -42,11 +46,59 @@ const options = {
     ],
     components: {
       schemas: {
-        Error: {
+        ErrorResponse: {
           type: "object",
+          required: ["error"],
+          description:
+            "Canonical error body returned by every endpoint. The `error` key " +
+            "is always at the top level, so consumers written against the " +
+            "original `{ error }` contract keep working.",
           properties: {
-            error: { type: "string", description: "Error message" },
+            error: {
+              type: "object",
+              required: ["code", "message"],
+              properties: {
+                code: {
+                  $ref: "#/components/schemas/ErrorCode",
+                },
+                message: {
+                  type: "string",
+                  description: "Human-readable description of the failure.",
+                  example: "Invalid Stellar public key format.",
+                },
+                correlationId: {
+                  type: "string",
+                  description:
+                    "Matches the `X-Request-ID` response header and the " +
+                    "`correlationId` field in the server logs. Quote this " +
+                    "value when reporting a problem.",
+                  example: "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8",
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: true,
+                  description:
+                    "Optional, code-specific context — the offending field, " +
+                    "the received value, and so on.",
+                  example: { fields: ["anchorName"] },
+                },
+              },
+            },
           },
+        },
+        ErrorCode: {
+          type: "string",
+          description:
+            "Machine-readable error code from the shared catalogue. The " +
+            "category prefix identifies the owning layer: CONTRACT_* is " +
+            "on-chain, WALLET_* is the browser wallet, and the rest are the " +
+            "API. See docs/error-codes.md.",
+          enum: ERROR_CODE_NAMES,
+          example: "VAL_INVALID_PUBLIC_KEY",
+        },
+        // Retained so any existing $ref to `Error` still resolves.
+        Error: {
+          allOf: [{ $ref: "#/components/schemas/ErrorResponse" }],
         },
         SuccessResponse: {
           type: "object",
@@ -1481,5 +1533,87 @@ const options = {
   },
   apis: [],
 };
+
+// ─── Error responses ─────────────────────────────────────────────────────────
+
+/**
+ * Reusable error responses, one per HTTP status the API can return.
+ * Referenced as `$ref: "#/components/responses/BadRequest"` and used as the
+ * default content for any documented error status that lacks its own schema.
+ */
+const ERROR_RESPONSES = {
+  400: ["BadRequest", "The request was rejected by validation."],
+  401: ["Unauthorized", "Authentication is missing, invalid, or expired."],
+  403: ["Forbidden", "The caller may not access this resource."],
+  404: ["NotFound", "The requested resource does not exist."],
+  409: ["Conflict", "The resource is in a state that blocks this operation."],
+  410: ["Gone", "The resource is no longer available."],
+  413: ["PayloadTooLarge", "The request body exceeds the maximum size."],
+  415: ["UnsupportedMediaType", "Content-Type must be application/json."],
+  422: ["UnprocessableEntity", "An upstream service rejected the request."],
+  429: ["TooManyRequests", "The rate limit for this route was exceeded."],
+  500: ["InternalServerError", "An unexpected server error occurred."],
+  501: ["NotImplemented", "The feature is not enabled on this deployment."],
+  502: ["BadGateway", "An upstream service (Horizon, anchor) failed."],
+  503: ["ServiceUnavailable", "The service is temporarily unavailable."],
+  504: ["GatewayTimeout", "An upstream service did not respond in time."],
+};
+
+/** Response object carrying the canonical error body. */
+function errorResponseObject(description) {
+  return {
+    description,
+    headers: {
+      "X-Request-ID": {
+        description:
+          "Correlation ID for this request. Matches `error.correlationId`.",
+        schema: { type: "string" },
+      },
+    },
+    content: {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ErrorResponse" },
+      },
+    },
+  };
+}
+
+options.definition.components.responses = Object.fromEntries(
+  Object.values(ERROR_RESPONSES).map(([name, description]) => [
+    name,
+    errorResponseObject(description),
+  ]),
+);
+
+/**
+ * Give every documented error status a response schema.
+ *
+ * Most path entries declare error statuses as a bare `{ description: "..." }`,
+ * which renders in Swagger UI without a body. Rather than restate the schema at
+ * every one of them — and require every future endpoint to remember to — this
+ * walks the spec once and fills in the canonical error content, keeping each
+ * endpoint's own description. Entries that already define `content` are left
+ * untouched.
+ */
+function attachErrorSchemas(paths) {
+  for (const pathItem of Object.values(paths || {})) {
+    for (const operation of Object.values(pathItem)) {
+      const responses = operation?.responses;
+      if (!responses) continue;
+
+      for (const [status, response] of Object.entries(responses)) {
+        const code = Number(status);
+        if (!ERROR_RESPONSES[code]) continue;
+        if (!response || response.$ref || response.content) continue;
+
+        responses[status] = errorResponseObject(
+          response.description || ERROR_RESPONSES[code][1],
+        );
+      }
+    }
+  }
+}
+
+attachErrorSchemas(options.definition.paths);
 
 module.exports = swaggerJsdoc(options);

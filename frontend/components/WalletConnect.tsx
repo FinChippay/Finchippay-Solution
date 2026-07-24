@@ -24,7 +24,9 @@ interface WalletConnectProps {
 type WalletType = "freighter" | "ledger";
 
 function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
-  const { connectWallet } = useWallet();
+  const { accounts, connectWallet } = useWallet();
+  // Once one account is connected, this panel is an "add another" flow (#147).
+  const hasAccounts = accounts.length > 0;
   const [loading, setLoading] = useState(false);
   const [step, setStep]       = useState<"idle" | "connecting" | "authenticating">("idle");
   const [error, setError]     = useState<string | null>(null);
@@ -192,10 +194,12 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
       </div>
 
       <h2 className="font-display text-xl font-semibold text-slate-900 dark:text-white mb-2">
-        Connect your wallet
+        {hasAccounts ? "Add another account" : "Connect your wallet"}
       </h2>
       <p className="text-slate-600 dark:text-slate-400 text-sm mb-6 leading-relaxed">
-        Choose your preferred wallet to connect to the Stellar network and start sending payments.
+        {hasAccounts
+          ? "Select a different account in Freighter, then connect it to manage it alongside your existing accounts."
+          : "Choose your preferred wallet to connect to the Stellar network and start sending payments."}
       </p>
 
       {error && (
@@ -217,7 +221,7 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
           </div>
           {step === "connecting" && selectedWallet === "freighter" ? <><Spinner /> Connecting...</> :
            step === "authenticating" && selectedWallet === "freighter" ? <><Spinner /> Authenticating...</> :
-           "Connect Freighter Wallet"}
+           hasAccounts ? "Add Account" : "Connect Freighter Wallet"}
         </button>
 
         {/* Ledger Option */}
