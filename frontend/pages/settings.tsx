@@ -8,7 +8,6 @@ import Head from "next/head";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
-import { signTransactionWithWallet } from "@/lib/wallet";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
 import { clearAddressBook, loadAddressBookContacts } from "@/lib/addressBook";
 import {

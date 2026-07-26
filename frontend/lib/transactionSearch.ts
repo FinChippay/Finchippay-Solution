@@ -79,15 +79,13 @@ export function matchesOperators(
   operators: SearchOperators
 ): boolean {
   if (operators.from) {
-    const from = payment.type === "payment" ? payment.from : "";
-    if (!from.toLowerCase().includes(operators.from.toLowerCase())) {
+    if (!payment.from.toLowerCase().includes(operators.from.toLowerCase())) {
       return false;
     }
   }
 
   if (operators.to) {
-    const to = payment.type === "payment" ? payment.to : "";
-    if (!to.toLowerCase().includes(operators.to.toLowerCase())) {
+    if (!payment.to.toLowerCase().includes(operators.to.toLowerCase())) {
       return false;
     }
   }
@@ -155,9 +153,9 @@ export function calculateRelevance(
   let score = 0;
   const fields = {
     memo: payment.memo ? payment.memo.toLowerCase() : "",
-    from: payment.type === "payment" ? payment.from.toLowerCase() : "",
-    to: payment.type === "payment" ? payment.to.toLowerCase() : "",
-    hash: payment.hash.toLowerCase(),
+    from: payment.from.toLowerCase(),
+    to: payment.to.toLowerCase(),
+    hash: payment.transactionHash.toLowerCase(),
     amount: payment.amount,
   };
 
@@ -195,7 +193,7 @@ export function searchPayments(
   const results: SearchResult[] = payments
     .map((payment) => {
       // Check operator matching
-      if (!matchesOperators(payment, { ...parsed, text: "" })) {
+      if (!matchesOperators(payment, parsed)) {
         return null;
       }
 
@@ -206,14 +204,11 @@ export function searchPayments(
       // Generate highlights
       const highlights = {
         memo: payment.memo ? highlightText(payment.memo, searchTokens) : [],
-        address:
-          payment.type === "payment"
-            ? [
-                ...highlightText(payment.from, searchTokens),
-                ...highlightText(payment.to, searchTokens),
-              ]
-            : [],
-        hash: highlightText(payment.hash, searchTokens),
+        address: [
+          ...highlightText(payment.from, searchTokens),
+          ...highlightText(payment.to, searchTokens),
+        ],
+        hash: highlightText(payment.transactionHash, searchTokens),
       };
 
       return { payment, relevance, highlights };

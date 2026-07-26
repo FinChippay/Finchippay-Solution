@@ -215,16 +215,16 @@ describe("isSupportError()", () => {
 describe("error codes contract with ERROR_CODES", () => {
   it("every retryable code exists in ERROR_CODES", () => {
     // Spot-check a few known retryable codes
-    const sample = ["SRV_INTERNAL", "RATE_LIMITED_GLOBAL", "GEN_NETWORK_ERROR"];
+    const sample = ["SRV_INTERNAL", "RATE_LIMITED_GLOBAL", "GEN_NETWORK_ERROR"] as const;
     for (const code of sample) {
-      expect(ERROR_CODES[code]).toBeDefined();
+      expect(ERROR_CODES[code as keyof typeof ERROR_CODES]).toBeDefined();
     }
   });
 
   it("every support code exists in ERROR_CODES", () => {
-    const sample = ["SRV_INTERNAL", "CONTRACT_TRANSFER_FAILED"];
+    const sample = ["SRV_INTERNAL", "CONTRACT_TRANSFER_FAILED"] as const;
     for (const code of sample) {
-      expect(ERROR_CODES[code]).toBeDefined();
+      expect(ERROR_CODES[code as keyof typeof ERROR_CODES]).toBeDefined();
     }
   });
 });

@@ -148,8 +148,8 @@ describe("CSVUpload Component", () => {
 
     // Map columns
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0"); // recipient
-    await userEvent.selectOption(selects[1], "1"); // amount
+    await userEvent.selectOptions(selects[0], "0"); // recipient
+    await userEvent.selectOptions(selects[1], "1"); // amount
 
     const continueButton = screen.getByText(/Continue to preview/i);
     fireEvent.click(continueButton);
@@ -184,8 +184,8 @@ describe("CSVUpload Component", () => {
 
     // Map columns
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0"); // recipient
-    await userEvent.selectOption(selects[1], "1"); // amount
+    await userEvent.selectOptions(selects[0], "0"); // recipient
+    await userEvent.selectOptions(selects[1], "1"); // amount
 
     // Continue to preview
     const continueButton = screen.getByText(/Continue to preview/i);
@@ -253,8 +253,8 @@ describe("CSVUpload Component", () => {
     });
 
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0"); // recipient
-    await userEvent.selectOption(selects[1], "1"); // amount
+    await userEvent.selectOptions(selects[0], "0"); // recipient
+    await userEvent.selectOptions(selects[1], "1"); // amount
 
     const continueButton = screen.getByText(/Continue to preview/i);
     fireEvent.click(continueButton);
@@ -308,8 +308,8 @@ describe("CSVUpload Component", () => {
     });
 
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0");
-    await userEvent.selectOption(selects[1], "1");
+    await userEvent.selectOptions(selects[0], "0");
+    await userEvent.selectOptions(selects[1], "1");
 
     const continueButton = screen.getByText(/Continue to preview/i);
     fireEvent.click(continueButton);

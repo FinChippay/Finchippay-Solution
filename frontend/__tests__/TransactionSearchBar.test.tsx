@@ -11,22 +11,22 @@ import { PaymentRecord } from "@/lib/stellar";
 
 // Mock the search functions
 jest.mock("@/lib/transactionSearch", () => ({
-  searchPayments: jest.fn((payments, query) => {
+  searchPayments: jest.fn((payments: PaymentRecord[], query: string) => {
     if (!query) return [];
     return payments
-      .filter((p) => p.memo?.includes(query) || p.hash?.includes(query))
+      .filter((p) => p.memo?.includes(query) || p.transactionHash?.includes(query))
       .map((p) => ({
         payment: p,
         relevance: 5,
         highlights: { memo: [], address: [], hash: [] },
       }));
   }),
-  parseSearchQuery: jest.fn((query) => ({
+  parseSearchQuery: jest.fn((query: string) => ({
     text: query,
     from: query.includes("from:") ? "GTEST" : undefined,
     to: query.includes("to:") ? "GTEST" : undefined,
   })),
-  tokenizeText: jest.fn((text) => text.split(" ")),
+  tokenizeText: jest.fn((text: string) => text.split(" ")),
 }));
 
 jest.mock("@/lib/transactionSearchIndex", () => ({
@@ -39,15 +39,14 @@ describe("TransactionSearchBar", () => {
   const mockPayments: PaymentRecord[] = [
     {
       id: "1",
-      type: "payment",
+      type: "sent",
       from: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
       to: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       amount: "100",
       asset: "XLM:native",
       memo: "Test payment",
-      hash: "abc123",
-      createdAt: new Date(),
-      status: "success",
+      transactionHash: "abc123",
+      createdAt: new Date().toISOString(),
     },
   ];
 

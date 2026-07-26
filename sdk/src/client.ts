@@ -320,12 +320,12 @@ export class FinchippayClient {
     getHistory: (id: string): Promise<SuccessResponse<ExecutionLogEntry[]>> =>
       this.request("GET", `/api/turrets/${id}/history`),
 
-    /** Pause a txFunction deployment. */
-    pause: (id: string): Promise<SuccessResponse<void>> =>
+    /** Pause a txFunction deployment. Returns the updated deployment. */
+    pause: (id: string): Promise<SuccessResponse<TxFunctionDeployment>> =>
       this.request("POST", `/api/turrets/${id}/pause`),
 
-    /** Resume a paused txFunction deployment. */
-    resume: (id: string): Promise<SuccessResponse<void>> =>
+    /** Resume a paused txFunction deployment. Returns the updated deployment. */
+    resume: (id: string): Promise<SuccessResponse<TxFunctionDeployment>> =>
       this.request("POST", `/api/turrets/${id}/resume`),
   };
 

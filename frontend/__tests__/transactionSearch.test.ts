@@ -16,39 +16,36 @@ describe("Transaction Search", () => {
   const mockPayments: PaymentRecord[] = [
     {
       id: "1",
-      type: "payment",
+      type: "sent",
       from: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
       to: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       amount: "100.5",
       asset: "XLM:native",
       memo: "Payment for invoice #123",
-      hash: "abc123def456ghi789jkl012mno345pqr678stu901vwx234yz",
-      createdAt: new Date("2026-01-15"),
-      status: "success",
+      transactionHash: "abc123def456ghi789jkl012mno345pqr678stu901vwx234yz",
+      createdAt: "2026-01-15T00:00:00.000Z",
     },
     {
       id: "2",
-      type: "payment_received",
+      type: "received",
       from: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       to: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
       amount: "50",
       asset: "USDC:GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       memo: "Salary deposit",
-      hash: "zyx987wvu654tsr321qpo098nml765kji432hgf109edc876baz",
-      createdAt: new Date("2026-01-14"),
-      status: "success",
+      transactionHash: "zyx987wvu654tsr321qpo098nml765kji432hgf109edc876baz",
+      createdAt: "2026-01-14T00:00:00.000Z",
     },
     {
       id: "3",
-      type: "payment",
+      type: "sent",
       from: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
       to: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF46Q",
       amount: "250",
       asset: "XLM:native",
       memo: "",
-      hash: "qqq123rrr456sss789ttt012uuu345vvv678www901xxx234yyy",
-      createdAt: new Date("2026-01-10"),
-      status: "success",
+      transactionHash: "qqq123rrr456sss789ttt012uuu345vvv678www901xxx234yyy",
+      createdAt: "2026-01-10T00:00:00.000Z",
     },
   ];
 
@@ -211,7 +208,7 @@ describe("Transaction Search", () => {
       const results = searchPayments(mockPayments, "from:GA2C5RF");
       expect(results.length).toBe(2); // Two payments from this address
       expect(
-        results.every((r) => r.payment.type === "payment" || r.payment.from === mockPayments[0].from)
+        results.every((r) => r.payment.from === mockPayments[0].from)
       ).toBe(true);
     });
 
@@ -240,9 +237,9 @@ describe("Transaction Search", () => {
         const result = results[0];
         expect(result.highlights).toBeDefined();
         expect(
-          result.highlights.memo.length > 0 ||
-            result.highlights.address.length > 0 ||
-            result.highlights.hash.length > 0
+          (result.highlights.memo?.length ?? 0) > 0 ||
+            (result.highlights.address?.length ?? 0) > 0 ||
+            (result.highlights.hash?.length ?? 0) > 0
         ).toBe(true);
       }
     });

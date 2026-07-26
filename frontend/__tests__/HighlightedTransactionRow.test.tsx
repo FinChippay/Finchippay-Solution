@@ -39,15 +39,14 @@ jest.mock("lucide-react", () => ({
 describe("HighlightedTransactionRow Component", () => {
   const mockPayment: PaymentRecord = {
     id: "tx-1",
-    type: "payment",
+    type: "sent",
     from: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
     to: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
     amount: "100",
     asset: "XLM:native",
     memo: "Test payment memo",
-    hash: "abc123def456ghi789",
-    createdAt: new Date("2024-01-15T10:00:00Z"),
-    status: "success",
+    transactionHash: "abc123def456ghi789",
+    createdAt: "2024-01-15T10:00:00.000Z",
   };
 
   const mockSearchResult: SearchResult = {

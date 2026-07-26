@@ -74,10 +74,12 @@ export async function getTurretsHistory(id: string) {
   return data as TurretsExecutionHistory[];
 }
 
-export async function pauseTurretsFunction(id: string) {
-  await sdk.turrets.pause(id);
+export async function pauseTurretsFunction(id: string): Promise<TurretsDeployment> {
+  const { data } = await sdk.turrets.pause(id);
+  return data as TurretsDeployment;
 }
 
-export async function resumeTurretsFunction(id: string) {
-  await sdk.turrets.resume(id);
+export async function resumeTurretsFunction(id: string): Promise<TurretsDeployment> {
+  const { data } = await sdk.turrets.resume(id);
+  return data as TurretsDeployment;
 }

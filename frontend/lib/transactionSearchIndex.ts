@@ -62,23 +62,21 @@ export function buildIndex(payments: PaymentRecord[]): Map<string, string[]> {
     }
 
     // Add address tokens
-    if (payment.type === "payment") {
-      payment.from
-        .toLowerCase()
-        .split(/(?=G)/)
-        .filter((t) => t.length > 0)
-        .forEach((t) => tokens.add(t));
+    payment.from
+      .toLowerCase()
+      .split(/(?=G)/)
+      .filter((t) => t.length > 0)
+      .forEach((t) => tokens.add(t));
 
-      payment.to
-        .toLowerCase()
-        .split(/(?=G)/)
-        .filter((t) => t.length > 0)
-        .forEach((t) => tokens.add(t));
-    }
+    payment.to
+      .toLowerCase()
+      .split(/(?=G)/)
+      .filter((t) => t.length > 0)
+      .forEach((t) => tokens.add(t));
 
     // Add hash prefix tokens
-    for (let i = 3; i <= payment.hash.length; i += 3) {
-      tokens.add(payment.hash.substring(0, i).toLowerCase());
+    for (let i = 3; i <= payment.transactionHash.length; i += 3) {
+      tokens.add(payment.transactionHash.substring(0, i).toLowerCase());
     }
 
     // Store in index
@@ -87,8 +85,8 @@ export function buildIndex(payments: PaymentRecord[]): Map<string, string[]> {
         index.set(token, []);
       }
       const hashes = index.get(token)!;
-      if (!hashes.includes(payment.hash)) {
-        hashes.push(payment.hash);
+      if (!hashes.includes(payment.transactionHash)) {
+        hashes.push(payment.transactionHash);
       }
     }
   }

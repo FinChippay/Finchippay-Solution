@@ -30,15 +30,14 @@ describe("Transaction Search Index", () => {
   const mockPayments: PaymentRecord[] = [
     {
       id: "1",
-      type: "payment",
+      type: "sent",
       from: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
       to: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       amount: "100",
       asset: "XLM:native",
       memo: "Payment memo test",
-      hash: "abc123def456",
-      createdAt: new Date(),
-      status: "success",
+      transactionHash: "abc123def456",
+      createdAt: new Date().toISOString(),
     },
   ];
 

@@ -25,7 +25,9 @@ import {
   Federation,
 } from "@stellar/stellar-sdk";
 
-import { FinchippayContractClient } from "./contract-bindings";
+import { FinchippayContractClient, type ReceiptMetadata } from "./contract-bindings";
+
+export type { ReceiptMetadata };
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -583,34 +585,42 @@ export async function buildPaymentTransaction({
   amount,
   memo,
   asset = "XLM",
+  baseFee,
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   memo?: string;
   asset?: "XLM" | "USDC" | { code: string; issuer: string };
+  /** Fee in stroops, overriding the dynamically-fetched network fee. */
+  baseFee?: string;
 }): Promise<Transaction> {
-  // ── Fetch dynamic fee from Horizon fee_stats ──────────────────────────────
+  // ── Fetch dynamic fee from Horizon fee_stats (unless the caller supplied
+  // an explicit override, e.g. from a fee-tier picker) ──────────────────────
   let baseFeeStroops: string = STELLAR_BASE_FEE_STROOPS_STRING;
-  try {
-    const config = getNetworkConfig();
-    const feeRes = await fetch(`${config.horizonUrl}/fee_stats`);
-    if (feeRes.ok) {
-      const feeData = await feeRes.json() as {
-        fee_charged?: { p50?: string };
-        max_fee?: { p50?: string };
-      };
-      const p50 =
-        feeData?.fee_charged?.p50 ??
-        feeData?.max_fee?.p50 ??
-        STELLAR_BASE_FEE_STROOPS_STRING;
-      const p50Num = parseInt(p50, 10);
-      if (Number.isFinite(p50Num) && p50Num > 0) {
-        baseFeeStroops = String(p50Num);
+  if (baseFee) {
+    baseFeeStroops = baseFee;
+  } else {
+    try {
+      const config = getNetworkConfig();
+      const feeRes = await fetch(`${config.horizonUrl}/fee_stats`);
+      if (feeRes.ok) {
+        const feeData = await feeRes.json() as {
+          fee_charged?: { p50?: string };
+          max_fee?: { p50?: string };
+        };
+        const p50 =
+          feeData?.fee_charged?.p50 ??
+          feeData?.max_fee?.p50 ??
+          STELLAR_BASE_FEE_STROOPS_STRING;
+        const p50Num = parseInt(p50, 10);
+        if (Number.isFinite(p50Num) && p50Num > 0) {
+          baseFeeStroops = String(p50Num);
+        }
       }
+    } catch {
+      // Network unavailable — fall back to protocol minimum
     }
-  } catch {
-    // Network unavailable — fall back to protocol minimum
   }
 
   const sourceAccount = await server.loadAccount(fromPublicKey);
@@ -1133,6 +1143,14 @@ export async function buildSorobanTipTransaction({
   toPublicKey: string;
   amount: string;
   memo?: string;
+  /**
+   * Accepted for interface parity with {@link buildPaymentTransaction}'s fee
+   * tier picker, but currently unused: Soroban's resource fee is derived
+   * from RPC simulation (`prepareTransaction`), not a flat base fee, so it
+   * can't be safely overridden the same way a classic payment operation's
+   * fee can.
+   */
+  baseFee?: string;
 }): Promise<Transaction> {
   if (!CONTRACT_ID) {
     throw new Error("Contract ID is not configured.");
@@ -1160,6 +1178,24 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
   } catch (err) {
     console.error("Failed to query tip total:", err);
     return "0";
+  }
+}
+
+/**
+ * Query the number of tips recorded on-chain for a specific recipient.
+ *
+ * @param recipient - The Stellar public key of the recipient.
+ * @returns A promise resolving to the tip count.
+ */
+export async function getContractTipCount(recipient: string): Promise<number> {
+  if (!CONTRACT_ID) return 0;
+
+  try {
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getTipCount(recipient);
+  } catch (err) {
+    console.error("Failed to query tip count:", err);
+    return 0;
   }
 }
 
@@ -1205,6 +1241,24 @@ export async function getReceiptCount(payer: string): Promise<number> {
     return await client.getReceiptCount(payer);
   } catch {
     return 0;
+  }
+}
+
+/**
+ * Fetch a single receipt NFT's metadata by its index for a payer.
+ *
+ * Uses the auto-generated contract bindings for type-safe contract interaction.
+ */
+export async function getReceipt(
+  payer: string,
+  index: number
+): Promise<ReceiptMetadata | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getReceipt(payer, index);
+  } catch {
+    return null;
   }
 }
 
@@ -2030,6 +2084,30 @@ export async function getActiveStreamsForRecipient(
     (s): s is StreamRecord =>
       s !== null && s.recipient === recipientPublicKey && !s.closed,
   );
+}
+
+/**
+ * Fetch a page of streams where `payerPublicKey` is the payer. The contract
+ * has no payer index, so this walks every stream ID (0..count) in parallel
+ * and filters/paginates client-side, mirroring
+ * {@link getActiveStreamsForRecipient}.
+ */
+export async function listStreamsByPayer(
+  payerPublicKey: string,
+  offset = 0,
+  limit = 10,
+): Promise<StreamRecord[]> {
+  const count = await getStreamCount(payerPublicKey);
+  if (count === 0) return [];
+
+  const ids = Array.from({ length: count }, (_, i) => i);
+  const streams = await Promise.all(ids.map((id) => getStream(payerPublicKey, id)));
+
+  const payerStreams = streams.filter(
+    (s): s is StreamRecord => s !== null && s.payer === payerPublicKey,
+  );
+
+  return payerStreams.slice(offset, offset + limit);
 }
 
 /**
