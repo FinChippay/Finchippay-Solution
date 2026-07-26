@@ -1,0 +1,9 @@
+# terraform/environments/dev/terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in the values.
+# Do NOT commit terraform.tfvars — it is git-ignored.
+
+aws_region       = "us-east-1"
+primary_az       = "us-east-1a"
+domain_name      = "finchippay.com"
+create_zone      = false
+existing_zone_id = "ZXXXXXXXXXXXXXXXXX"

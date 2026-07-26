@@ -1,0 +1,344 @@
+# .github/workflows/terraform.yml
+#
+# Terraform CI/CD for Finchippay-Solution
+#
+# Jobs:
+#   validate  — terraform fmt -check + validate (all envs, no AWS creds needed)
+#   plan-dev  — terraform plan for dev (on PR)
+#   plan-staging — terraform plan for staging (on PR)
+#   plan-prod — terraform plan for prod (on PR, requires approval)
+#   apply-dev — terraform apply for dev (on push to main)
+#   apply-staging — terraform apply for staging (on push to main, after dev)
+#   apply-prod — terraform apply for prod (manual trigger only)
+
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to apply (dev | staging | prod)"
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+      action:
+        description: "Terraform action"
+        required: true
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+env:
+  TF_VERSION: "1.6.6"
+  TF_IN_AUTOMATION: "true"
+  # Disable colour in non-interactive mode so plan output is readable in PR comments
+  TF_CLI_ARGS: "-no-color"
+
+permissions:
+  contents: read
+  pull-requests: write  # needed to post plan comments
+  id-token: write       # needed for OIDC auth with AWS
+
+# ── Validate (runs on every PR / push, no AWS creds required) ─────────────────
+jobs:
+  validate:
+    name: Validate (fmt + validate)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform fmt check (modules)
+        run: terraform fmt -check -recursive terraform/modules
+        working-directory: .
+
+      - name: terraform fmt check (environments)
+        run: terraform fmt -check -recursive terraform/environments
+        working-directory: .
+
+      - name: terraform fmt check (root)
+        run: terraform fmt -check terraform/
+        working-directory: .
+
+      # Validate the root module (no provider init needed for pure validation)
+      - name: terraform validate (root module)
+        run: |
+          cd terraform
+          terraform init -backend=false
+          terraform validate
+
+  # ── Plan jobs (run on PR only) ──────────────────────────────────────────────
+  plan-dev:
+    name: Plan — dev
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    environment: dev
+
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform plan
+        id: plan
+        run: terraform plan -out=tfplan.dev 2>&1 | tee /tmp/plan.txt
+        env:
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_existing_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+
+      - name: Post plan comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan.txt', 'utf8');
+            const truncated = plan.length > 65000 ? plan.substring(0, 65000) + '\n\n...[truncated]' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — \`dev\`\n\n<details><summary>Show plan</summary>\n\n\`\`\`hcl\n${truncated}\n\`\`\`\n\n</details>`
+            });
+
+  plan-staging:
+    name: Plan — staging
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+
+    defaults:
+      run:
+        working-directory: terraform/environments/staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_STAGING }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform plan
+        id: plan
+        run: terraform plan -out=tfplan.staging 2>&1 | tee /tmp/plan.txt
+        env:
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_existing_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+
+      - name: Post plan comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan.txt', 'utf8');
+            const truncated = plan.length > 65000 ? plan.substring(0, 65000) + '\n\n...[truncated]' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — \`staging\`\n\n<details><summary>Show plan</summary>\n\n\`\`\`hcl\n${truncated}\n\`\`\`\n\n</details>`
+            });
+
+  plan-prod:
+    name: Plan — prod
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    environment: prod   # requires GitHub environment protection rules / approval
+
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_PROD }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform plan
+        id: plan
+        run: terraform plan -out=tfplan.prod 2>&1 | tee /tmp/plan.txt
+        env:
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_existing_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+
+      - name: Post plan comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan.txt', 'utf8');
+            const truncated = plan.length > 65000 ? plan.substring(0, 65000) + '\n\n...[truncated]' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — \`prod\` ⚠️ PRODUCTION\n\n<details><summary>Show plan</summary>\n\n\`\`\`hcl\n${truncated}\n\`\`\`\n\n</details>`
+            });
+
+  # ── Apply jobs (push to main only) ──────────────────────────────────────────
+  apply-dev:
+    name: Apply — dev
+    runs-on: ubuntu-latest
+    needs: validate
+    if: >
+      github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev' && github.event.inputs.action == 'apply')
+    environment: dev
+
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform apply
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_existing_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+
+  apply-staging:
+    name: Apply — staging
+    runs-on: ubuntu-latest
+    needs: apply-dev
+    if: >
+      github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging' && github.event.inputs.action == 'apply')
+    environment: staging
+
+    defaults:
+      run:
+        working-directory: terraform/environments/staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_STAGING }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform apply
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_existing_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+
+  apply-prod:
+    name: Apply — prod (manual trigger only)
+    runs-on: ubuntu-latest
+    needs: apply-staging
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' && github.event.inputs.action == 'apply'
+    environment: prod   # requires mandatory reviewer approval in GitHub settings
+
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_PROD }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform apply
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_existing_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}

@@ -1,0 +1,6 @@
+# terraform/environments/staging/terraform.tfvars.example
+aws_region         = "us-east-1"
+availability_zones = ["us-east-1a", "us-east-1b"]
+domain_name        = "finchippay.com"
+create_zone        = false
+existing_zone_id   = "ZXXXXXXXXXXXXXXXXX"

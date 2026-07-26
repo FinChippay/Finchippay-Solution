@@ -1,0 +1,28 @@
+# terraform/terraform.tfvars.example
+# Root module example. Use environment-specific configs in environments/*/
+# for real deployments. This file is for direct root-module usage.
+#
+# Copy to terraform.tfvars and fill in your values.
+# Do NOT commit terraform.tfvars — it is git-ignored.
+
+project    = "finchippay"
+environment = "dev"
+aws_region  = "us-east-1"
+aws_account_id = "123456789012"
+
+availability_zones    = ["us-east-1a"]
+vpc_cidr              = "10.10.0.0/16"
+public_subnet_cidrs   = ["10.10.1.0/24"]
+private_subnet_cidrs  = ["10.10.11.0/24"]
+database_subnet_cidrs = ["10.10.21.0/24"]
+single_nat_gateway    = true
+enable_flow_logs      = false
+
+domain_name      = "finchippay.com"
+create_zone      = false
+existing_zone_id = "ZXXXXXXXXXXXXXXXXX"
+
+stellar_network    = "testnet"
+horizon_url        = "https://horizon-testnet.stellar.org"
+allowed_origins    = "https://dev.finchippay.com"
+secrets_arn_prefix = "arn:aws:secretsmanager:us-east-1:123456789012:secret:dev-finchippay"
