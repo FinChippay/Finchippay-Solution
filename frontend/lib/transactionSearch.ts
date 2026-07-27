@@ -79,14 +79,14 @@ export function matchesOperators(
   operators: SearchOperators
 ): boolean {
   if (operators.from) {
-    const from = payment.type === "payment" ? payment.from : "";
+    const from = payment.type === "sent" ? payment.from : payment.type === "received" ? payment.from : "";
     if (!from.toLowerCase().includes(operators.from.toLowerCase())) {
       return false;
     }
   }
 
   if (operators.to) {
-    const to = payment.type === "payment" ? payment.to : "";
+    const to = payment.type === "sent" ? payment.to : payment.type === "received" ? payment.to : "";
     if (!to.toLowerCase().includes(operators.to.toLowerCase())) {
       return false;
     }
@@ -104,14 +104,14 @@ export function matchesOperators(
     if (isNaN(amount)) return false;
 
     const amountOp = operators.amount;
-    if (amountOp.startsWith(">")) {
-      if (amount <= parseFloat(amountOp.slice(1))) return false;
-    } else if (amountOp.startsWith("<")) {
-      if (amount >= parseFloat(amountOp.slice(1))) return false;
-    } else if (amountOp.startsWith(">=")) {
+    if (amountOp.startsWith(">=")) {
       if (amount < parseFloat(amountOp.slice(2))) return false;
     } else if (amountOp.startsWith("<=")) {
       if (amount > parseFloat(amountOp.slice(2))) return false;
+    } else if (amountOp.startsWith(">")) {
+      if (amount <= parseFloat(amountOp.slice(1))) return false;
+    } else if (amountOp.startsWith("<")) {
+      if (amount >= parseFloat(amountOp.slice(1))) return false;
     } else if (amountOp.startsWith("=")) {
       if (amount !== parseFloat(amountOp.slice(1))) return false;
     } else {
@@ -121,10 +121,6 @@ export function matchesOperators(
 
   return true;
 }
-
-/**
- * Highlight matching terms in text
- */
 export function highlightText(text: string, searchTokens: string[]): string[] {
   if (searchTokens.length === 0) return [];
 
@@ -153,11 +149,12 @@ export function calculateRelevance(
   if (searchTokens.length === 0) return 0;
 
   let score = 0;
+  const txHash = payment.transactionHash ?? "";
   const fields = {
     memo: payment.memo ? payment.memo.toLowerCase() : "",
-    from: payment.type === "payment" ? payment.from.toLowerCase() : "",
-    to: payment.type === "payment" ? payment.to.toLowerCase() : "",
-    hash: payment.hash.toLowerCase(),
+    from: payment.from.toLowerCase(),
+    to: payment.to.toLowerCase(),
+    hash: txHash.toLowerCase(),
     amount: payment.amount,
   };
 
@@ -195,7 +192,8 @@ export function searchPayments(
   const results: SearchResult[] = payments
     .map((payment) => {
       // Check operator matching
-      if (!matchesOperators(payment, { ...parsed, text: "" })) {
+      const { text: _text, ...parsedOperators } = parsed;
+      if (!matchesOperators(payment, parsedOperators)) {
         return null;
       }
 
@@ -203,17 +201,16 @@ export function searchPayments(
       const relevance = calculateRelevance(payment, searchTokens);
       if (relevance === 0 && searchTokens.length > 0) return null;
 
+      const txHash = payment.transactionHash ?? "";
+
       // Generate highlights
       const highlights = {
         memo: payment.memo ? highlightText(payment.memo, searchTokens) : [],
-        address:
-          payment.type === "payment"
-            ? [
-                ...highlightText(payment.from, searchTokens),
-                ...highlightText(payment.to, searchTokens),
-              ]
-            : [],
-        hash: highlightText(payment.hash, searchTokens),
+        address: [
+          ...highlightText(payment.from, searchTokens),
+          ...highlightText(payment.to, searchTokens),
+        ],
+        hash: highlightText(txHash, searchTokens),
       };
 
       return { payment, relevance, highlights };

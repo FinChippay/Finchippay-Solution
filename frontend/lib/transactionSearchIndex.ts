@@ -62,7 +62,7 @@ export function buildIndex(payments: PaymentRecord[]): Map<string, string[]> {
     }
 
     // Add address tokens
-    if (payment.type === "payment") {
+    if (payment.type === "sent" || payment.type === "received") {
       payment.from
         .toLowerCase()
         .split(/(?=G)/)
@@ -77,8 +77,9 @@ export function buildIndex(payments: PaymentRecord[]): Map<string, string[]> {
     }
 
     // Add hash prefix tokens
-    for (let i = 3; i <= payment.hash.length; i += 3) {
-      tokens.add(payment.hash.substring(0, i).toLowerCase());
+    const txHash = payment.transactionHash ?? "";
+    for (let i = 3; i <= txHash.length; i += 3) {
+      tokens.add(txHash.substring(0, i).toLowerCase());
     }
 
     // Store in index
@@ -87,8 +88,8 @@ export function buildIndex(payments: PaymentRecord[]): Map<string, string[]> {
         index.set(token, []);
       }
       const hashes = index.get(token)!;
-      if (!hashes.includes(payment.hash)) {
-        hashes.push(payment.hash);
+      if (!hashes.includes(txHash)) {
+        hashes.push(txHash);
       }
     }
   }

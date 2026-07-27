@@ -17,6 +17,7 @@ import { WalletProvider, useWallet } from "@/lib/useWallet";
 import { FeatureFlagProvider } from "@/lib/FeatureFlags";
 import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
+import InstallPrompt from "@/components/InstallPrompt";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
@@ -48,84 +49,6 @@ function DirectionSync() {
   // Keeping this node in the tree lets React update immediately after a locale
   // switch while the document attributes are synchronised imperatively above.
   return <span className="sr-only" data-locale={locale} data-direction={getDirection(locale)} />;
-}
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-function InstallBanner() {
-  const [deferredPrompt, setDeferredPrompt] =
-    useState<BeforeInstallPromptEvent | null>(null);
-  const [showBanner, setShowBanner] = useState(false);
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      event.preventDefault();
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
-      setShowBanner(true);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-    };
-  }, []);
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-
-    await deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    setDeferredPrompt(null);
-    setShowBanner(false);
-  };
-
-  if (!showBanner) return null;
-
-  return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 animate-slide-up sm:left-auto sm:right-4 sm:w-96">
-      <div className="rounded-xl border border-stellar-500/30 bg-white dark:bg-cosmos-800 p-4 shadow-2xl backdrop-blur-sm dark:shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
-            <h3 className="mb-1 text-sm font-display font-semibold text-slate-900 dark:text-white">
-              Install Finchippay
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Add to your home screen for quick access and offline support
-            </p>
-          </div>
-          <button
-            onClick={() => setShowBanner(false)}
-            className="cursor-pointer p-1 text-slate-500 transition-colors hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
-            aria-label="Dismiss"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <button onClick={handleInstall} className="btn-primary flex-1 px-4 py-2 text-xs">
-            Install App
-          </button>
-          <button
-            onClick={() => setShowBanner(false)}
-            className="btn-secondary flex-1 px-4 py-2 text-xs"
-          >
-            Not Now
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function AppShell({
@@ -197,7 +120,7 @@ function AppShellInner({
             </motion.div>
           </AnimatePresence>
         </main>
-        <InstallBanner />
+        <InstallPrompt />
         <MobileBottomNav />
       </div>
 

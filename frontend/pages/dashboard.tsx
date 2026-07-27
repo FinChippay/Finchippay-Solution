@@ -83,6 +83,7 @@ import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
 import { useBalanceStream } from "@/lib/useBalanceStream";
+import { fetchWithCache } from "@/lib/cacheData";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
@@ -378,47 +379,59 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!publicKey) return;
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    const cacheKey = `payment-stats:${publicKey}`;
 
     setPaymentStatsLoading(true);
     setPaymentStatsError(null);
 
     try {
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
+      const { data, fromCache } = await fetchWithCache(
+        cacheKey,
+        async () => {
+          const headers: HeadersInit = {};
+          const token = getJwtToken();
+          if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+          }
 
-      const response = await fetch(
-        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
-        { headers }
+          const response = await fetch(
+            `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
+            { headers }
+          );
+
+          if (!response.ok) {
+            throw new Error("Unable to load payment stats right now.");
+          }
+
+          const payload = await response.json();
+          const d = payload?.data;
+
+          if (
+            !payload?.success ||
+            !d ||
+            typeof d.totalSentXLM !== "string" ||
+            typeof d.totalReceivedXLM !== "string" ||
+            typeof d.totalTransactions !== "number"
+          ) {
+            throw new Error("Payment stats response was invalid.");
+          }
+
+          return {
+            publicKey: d.publicKey,
+            totalSentXLM: d.totalSentXLM,
+            totalReceivedXLM: d.totalReceivedXLM,
+            sentCount: Number(d.sentCount ?? 0),
+            receivedCount: Number(d.receivedCount ?? 0),
+            totalTransactions: d.totalTransactions,
+          } as PaymentStats;
+        },
+        /* fallback = */ true
       );
 
-      if (!response.ok) {
-        throw new Error("Unable to load payment stats right now.");
+      setPaymentStats(data);
+      if (fromCache) {
+        setPaymentStatsError("Showing cached stats — reconnect to refresh");
       }
-
-      const payload = await response.json();
-      const data = payload?.data;
-
-      if (
-        !payload?.success ||
-        !data ||
-        typeof data.totalSentXLM !== "string" ||
-        typeof data.totalReceivedXLM !== "string" ||
-        typeof data.totalTransactions !== "number"
-      ) {
-        throw new Error("Payment stats response was invalid.");
-      }
-
-      setPaymentStats({
-        publicKey: data.publicKey,
-        totalSentXLM: data.totalSentXLM,
-        totalReceivedXLM: data.totalReceivedXLM,
-        sentCount: Number(data.sentCount ?? 0),
-        receivedCount: Number(data.receivedCount ?? 0),
-        totalTransactions: data.totalTransactions,
-      });
     } catch {
       setPaymentStats(null);
       setPaymentStatsError("Could not load your payment stats.");

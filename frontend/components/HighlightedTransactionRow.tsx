@@ -28,7 +28,6 @@ function HighlightText({
 
   let lastIndex = 0;
   const parts: JSX.Element[] = [];
-  const highlightSet = new Set(highlights.map((h) => h.toLowerCase()));
 
   // Sort highlights by position in text
   const positions = highlights.map((h) => ({
@@ -75,10 +74,10 @@ export default function HighlightedTransactionRow({
   onPrintReceipt,
   onSendAgain,
 }: HighlightedTransactionRowProps) {
-  const isIncoming = payment.type === "payment_received";
+  const isIncoming = payment.type === "received";
   const counterparty = isIncoming
-    ? (payment as any).from
-    : (payment as any).to;
+    ? payment.from
+    : payment.to;
 
   const memoHighlights = result?.highlights.memo || [];
   const addressHighlights = result?.highlights.address || [];
@@ -119,7 +118,7 @@ export default function HighlightedTransactionRow({
                 </p>
                 <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
                   <a
-                    href={explorerUrl(`account/${counterparty}`)}
+                    href={explorerUrl(`account/${counterparty}`) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:text-stellar-500 inline-flex items-center gap-1"
@@ -168,15 +167,15 @@ export default function HighlightedTransactionRow({
               </p>
               <p className="text-xs text-slate-600 dark:text-slate-400 font-mono">
                 <a
-                  href={explorerUrl(`tx/${payment.hash}`)}
+                  href={explorerUrl(`tx/${payment.transactionHash}`) ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-stellar-500 inline-flex items-center gap-1"
                 >
                   {hashHighlights.length > 0 ? (
-                    <HighlightText text={payment.hash.substring(0, 16)} highlights={hashHighlights} />
+                    <HighlightText text={payment.transactionHash.substring(0, 16)} highlights={hashHighlights} />
                   ) : (
-                    payment.hash.substring(0, 16)
+                    payment.transactionHash.substring(0, 16)
                   )}
                   ...
                   <ExternalLinkIcon className="w-3 h-3" />

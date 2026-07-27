@@ -8,7 +8,6 @@ import Head from "next/head";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
-import { signTransactionWithWallet } from "@/lib/wallet";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
 import { clearAddressBook, loadAddressBookContacts } from "@/lib/addressBook";
 import {
@@ -225,11 +224,17 @@ export default function SettingsPage({
     setTurretsError(null);
 
     try {
-      const updated =
-        deployment.status === "active"
-          ? await pauseTurretsFunction(deployment.id)
-          : await resumeTurretsFunction(deployment.id);
-      setDeployments((prev) => prev.map((item) => (item.id === deployment.id ? updated : item)));
+      if (deployment.status === "active") {
+        await pauseTurretsFunction(deployment.id);
+      } else {
+        await resumeTurretsFunction(deployment.id);
+      }
+      const newStatus = deployment.status === "active" ? "paused" : "active";
+      setDeployments((prev) =>
+        prev.map((item) =>
+          item.id === deployment.id ? { ...item, status: newStatus } : item
+        )
+      );
     } catch (err) {
       setTurretsError(err instanceof Error ? err.message : "Failed to update deployment status");
     } finally {
