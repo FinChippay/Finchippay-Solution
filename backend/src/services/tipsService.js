@@ -8,6 +8,17 @@
 
 const knex = require("../db/connection");
 const { applyKnexKeyset } = require("../utils/paginate");
+const logger = require("../utils/logger");
+
+// Lazy-load pushService to avoid a circular dependency at module initialisation
+// and to gracefully degrade when VAPID keys are not configured.
+function getPushService() {
+  try {
+    return require("./pushService");
+  } catch {
+    return null;
+  }
+}
 
 // Stable keyset ordering for tip lists: newest first, `id` as the unique
 // tiebreaker (created_at resolution is coarse and can collide).
@@ -54,7 +65,7 @@ async function recordTip({
 
   const tip = await knex("tips").where("id", id).first();
 
-  return {
+  const result = {
     id: tip.id,
     senderPublicKey: tip.sender_pk,
     creatorPublicKey: tip.creator_pk,
@@ -64,6 +75,22 @@ async function recordTip({
     txHash: tip.tx_hash,
     timestamp: tip.created_at,
   };
+
+  // Fire-and-forget push notification to the creator
+  const push = getPushService();
+  if (push) {
+    push
+      .sendNotification(creatorPublicKey, {
+        title: "You received a tip! 🎉",
+        body: `${amount} ${asset} from a supporter`,
+        url: "/dashboard",
+      })
+      .catch((err) =>
+        logger.error({ err }, "Push notification failed (recordTip)")
+      );
+  }
+
+  return result;
 }
 
 /**

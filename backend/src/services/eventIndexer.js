@@ -377,6 +377,113 @@ async function loadCursor() {
   return lastProcessedLedger;
 }
 
+// ─── Push notification dispatch ───────────────────────────────────────────────
+
+/**
+ * Send push notifications for contract events that have user-visible impact.
+ *
+ * Supported event types and their recipient fields:
+ *  - tip              → payload.to   (creator received a tip)
+ *  - escrow_create    → payload.to   (escrow was created for recipient)
+ *  - escrow_claim     → payload.from (payer's escrow was claimed)
+ *  - stream_claim     → payload.recipient (stream recipient claimed funds)
+ *  - stream_open      → payload.recipient (a stream was opened for them)
+ *
+ * The pushService is loaded lazily so the indexer degrades gracefully when
+ * VAPID keys are not configured.
+ *
+ * @param {Array<object>} events - Parsed contract events from parseEvent()
+ */
+async function dispatchPushForEvents(events) {
+  let pushService;
+  try {
+    pushService = require("./pushService");
+  } catch {
+    return; // web-push not available
+  }
+
+  const notifications = [];
+
+  for (const ev of events) {
+    const p = ev.payload || {};
+    switch (ev.event_type) {
+      case "tip":
+        if (p.to) {
+          notifications.push(
+            pushService.sendNotification(p.to, {
+              title: "You received a tip! 🎉",
+              body: `${p.amount ?? ""} ${p.asset ?? "XLM"} via Finchippay`,
+              url: "/dashboard",
+            })
+          );
+        }
+        break;
+
+      case "escrow_create":
+        if (p.to) {
+          notifications.push(
+            pushService.sendNotification(p.to, {
+              title: "Escrow created for you",
+              body: `${p.amount ?? ""} ${p.asset ?? "XLM"} locked in escrow — will unlock at ledger ${p.release_ledger ?? ""}`,
+              url: "/escrow",
+            })
+          );
+        }
+        break;
+
+      case "escrow_claim":
+        if (p.from) {
+          notifications.push(
+            pushService.sendNotification(p.from, {
+              title: "Your escrow was claimed",
+              body: `Escrow #${p.id ?? ""} has been claimed by the recipient`,
+              url: "/escrow",
+            })
+          );
+        }
+        break;
+
+      case "stream_open":
+        if (p.recipient) {
+          notifications.push(
+            pushService.sendNotification(p.recipient, {
+              title: "New payment stream started",
+              body: "A streaming payment has been opened for you",
+              url: "/dashboard",
+            })
+          );
+        }
+        break;
+
+      case "stream_claim":
+        if (p.recipient) {
+          notifications.push(
+            pushService.sendNotification(p.recipient, {
+              title: "Stream funds available",
+              body: `${p.amount ?? ""} ${p.asset ?? "XLM"} claimed from your stream`,
+              url: "/dashboard",
+            })
+          );
+        }
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  if (notifications.length > 0) {
+    const results = await Promise.allSettled(notifications);
+    const failed = results.filter((r) => r.status === "rejected");
+    if (failed.length > 0) {
+      logger.warn(
+        { failedCount: failed.length },
+        "Some push notifications failed during event dispatch"
+      );
+    }
+  }
+}
+
 // ─── Polling loop ────────────────────────────────────────────────────────────
 
 let pollTimer = null;
@@ -429,6 +536,11 @@ async function pollOnce() {
           endLedger: latestLedger,
         },
         "Indexed Soroban contract events",
+      );
+
+      // Fire push notifications for relevant events (non-blocking)
+      dispatchPushForEvents(parsed).catch((err) =>
+        logger.error({ err }, "Push dispatch failed during event indexing")
       );
     }
 

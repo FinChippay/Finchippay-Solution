@@ -30,6 +30,9 @@ cp frontend/.env.example frontend/.env.local
 | `ANTHROPIC_API_KEY` | ❌ | — | Anthropic API key for the AI payment parsing feature (`/api/parse-payment`). Returns 501 if unset. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | ❌ | — | OTLP collector endpoint for OpenTelemetry traces (e.g. `http://jaeger:4318`). Tracing is disabled when unset or in `NODE_ENV=test`. |
 | `OTEL_SERVICE_NAME` | ❌ | `finchippay-backend` | Service name reported in trace spans. |
+| `VAPID_PUBLIC_KEY` | ❌ | — | VAPID public key for Web Push notifications. Generate with `npx web-push generate-vapid-keys`. |
+| `VAPID_PRIVATE_KEY` | ❌ | — | VAPID private key for Web Push notifications (keep secret). |
+| `VAPID_SUBJECT` | ❌ | `mailto:noreply@finchippay.io` | VAPID subject — a `mailto:` or HTTPS URL identifying the push sender. |
 
 ### Example `backend/.env`
 
@@ -55,6 +58,7 @@ NODE_ENV=development
 | `NEXT_PUBLIC_SOROBAN_RPC_URL` | ❌ | — | Soroban RPC endpoint |
 | `NEXT_PUBLIC_SENTRY_DSN` | ❌ | — | Sentry DSN for client-side error tracking |
 | `NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE` | ❌ | — | Soroban network passphrase (auto-set from network) |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | ❌ | — | VAPID public key for Web Push subscriptions (same value as backend `VAPID_PUBLIC_KEY`). Required to enable push notifications in the PWA. |
 
 ### Example `frontend/.env.local`
 

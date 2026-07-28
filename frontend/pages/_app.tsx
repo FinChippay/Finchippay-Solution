@@ -19,6 +19,7 @@ import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import OnboardingTour from "@/components/OnboardingTour";
+import PushNotificationPrompt from "@/components/PushNotificationPrompt";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
 import {
   getStellarURIFromURL,
@@ -198,6 +199,7 @@ function AppShellInner({
           </AnimatePresence>
         </main>
         <InstallBanner />
+        <PushNotificationPrompt publicKey={publicKey ?? null} />
         <MobileBottomNav />
       </div>
 
