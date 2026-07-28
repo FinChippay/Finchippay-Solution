@@ -221,6 +221,52 @@ pub struct VestingSchedule {
     pub revoked: bool,
 }
 
+// ─── Recurring streams (Issue #217) ────────────────────────────────────────────
+
+/// Configuration for a recurring (subscription-style) payment stream.
+/// Each cycle deposits `deposit_per_cycle` and streams at `rate_per_ledger`
+/// over `cycle_ledgers` ledgers. When a cycle's deposit is depleted, anyone
+/// can call `advance_recurring_stream` to auto-deposit the next cycle.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RecurringStreamConfig {
+    /// Number of ledgers per billing cycle.
+    pub cycle_ledgers: u32,
+    /// Token base units deposited at the start of each cycle.
+    pub deposit_per_cycle: i128,
+    /// Maximum number of cycles before the recurring stream stops.
+    pub max_cycles: u32,
+}
+
+/// A recurring payment stream that auto-chains successive streaming periods.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RecurringStream {
+    pub id: u32,
+    /// The underlying stream ID for the current active cycle.
+    pub current_stream_id: u32,
+    /// Address that funds the recurring stream.
+    pub payer: Address,
+    /// Address entitled to drain each cycle's stream.
+    pub recipient: Address,
+    /// Token being streamed.
+    pub token: Address,
+    /// Stroops released per ledger within each cycle.
+    pub rate_per_ledger: i128,
+    /// Per-cycle deposit amount.
+    pub deposit_per_cycle: i128,
+    /// Number of ledgers per billing cycle.
+    pub cycle_ledgers: u32,
+    /// Maximum number of cycles.
+    pub max_cycles: u32,
+    /// Current cycle number (0-indexed; 0 = first cycle).
+    pub current_cycle: u32,
+    /// Ledger sequence when the current cycle started.
+    pub cycle_start_ledger: u32,
+    /// True when all cycles have been completed.
+    pub completed: bool,
+}
+
 // ─── Multi-sig payments ───────────────────────────────────────────────────────
 
 /// Status of a multi-sig payment proposal.
@@ -395,6 +441,9 @@ pub enum DataKey {
     AdminSigners,
     /// Number of admin approvals required for emergency withdrawal execution.
     AdminSignersThreshold,
+    // Recurring streams (Issue #217)
+    RecurringStreamCount,
+    RecurringStream(u32),
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2230,6 +2279,205 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::StreamCount)
             .unwrap_or(0)
+    }
+
+    // ─── Recurring streams (Issue #217) ────────────────────────────────────────
+
+    /// Open a recurring (subscription-style) payment stream.
+    ///
+    /// Creates the first cycle's stream immediately and auto-advances
+    /// when each cycle's deposit is depleted.
+    pub fn open_recurring_stream(
+        env: Env,
+        token_address: Address,
+        payer: Address,
+        recipient: Address,
+        rate_per_ledger: i128,
+        deposit_per_cycle: i128,
+        cycle_ledgers: u32,
+        max_cycles: u32,
+    ) -> u32 {
+        require_initialized(&env);
+        require_not_paused(&env);
+        payer.require_auth();
+
+        if payer == recipient {
+            panic!("cannot open recurring stream to yourself");
+        }
+        if rate_per_ledger <= 0 {
+            panic!("rate_per_ledger must be positive");
+        }
+        if rate_per_ledger > MAX_STREAM_RATE {
+            panic!("rate_per_ledger exceeds maximum");
+        }
+        if deposit_per_cycle <= 0 {
+            panic!("deposit_per_cycle must be positive");
+        }
+        if deposit_per_cycle > MAX_STREAM_DEPOSIT {
+            panic!("deposit_per_cycle exceeds maximum stream size");
+        }
+        if cycle_ledgers == 0 {
+            panic!("cycle_ledgers must be > 0");
+        }
+        if max_cycles == 0 {
+            panic!("max_cycles must be > 0");
+        }
+
+        // Open the first cycle's stream
+        let stream_id = Self::open_stream(
+            env.clone(),
+            token_address.clone(),
+            payer.clone(),
+            recipient.clone(),
+            rate_per_ledger,
+            deposit_per_cycle,
+        );
+
+        // Allocate recurring stream ID
+        let recurring_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RecurringStreamCount)
+            .unwrap_or(0);
+
+        let recurring = RecurringStream {
+            id: recurring_id,
+            current_stream_id: stream_id,
+            payer: payer.clone(),
+            recipient: recipient.clone(),
+            token: token_address.clone(),
+            rate_per_ledger,
+            deposit_per_cycle,
+            cycle_ledgers,
+            max_cycles,
+            current_cycle: 0,
+            cycle_start_ledger: env.ledger().sequence(),
+            completed: false,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RecurringStream(recurring_id), &recurring);
+        bump(&env, &DataKey::RecurringStream(recurring_id));
+        env.storage()
+            .persistent()
+            .set(&DataKey::RecurringStreamCount, &(recurring_id + 1));
+        bump(&env, &DataKey::RecurringStreamCount);
+
+        env.events().publish(
+            (Symbol::new(&env, "recurring_cycle_start"), recurring_id),
+            (payer, recipient, rate_per_ledger, deposit_per_cycle, 0u32),
+        );
+
+        recurring_id
+    }
+
+    /// Advance a recurring stream to the next cycle.
+    ///
+    /// Anyone can call this. When the current cycle's stream deposit is
+    /// depleted (or the cycle duration has elapsed), this function:
+    /// 1. Closes the current cycle's stream (returning any unclaimed remainder).
+    /// 2. Opens a new stream for the next cycle with a fresh deposit.
+    /// 3. Emits `recurring_cycle_end` and `recurring_cycle_start` events.
+    ///
+    /// If `max_cycles` has been reached, the recurring stream is marked
+    /// as completed and no further cycles are created.
+    pub fn advance_recurring_stream(env: Env, recurring_id: u32) {
+        require_not_paused(&env);
+
+        let mut recurring: RecurringStream = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RecurringStream(recurring_id))
+            .expect("recurring stream not found");
+        bump(&env, &DataKey::RecurringStream(recurring_id));
+
+        if recurring.completed {
+            panic!("recurring stream already completed");
+        }
+
+        // Check if the current cycle's stream is depleted or cycle duration elapsed
+        let current_stream: Stream = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Stream(recurring.current_stream_id))
+            .expect("current cycle stream not found");
+
+        let current_ledger = env.ledger().sequence();
+        let cycle_end_ledger = recurring.cycle_start_ledger
+            .checked_add(recurring.cycle_ledgers)
+            .expect("overflow in cycle end calculation");
+
+        let claimable = Self::_claimable(&env, &current_stream);
+        let cycle_elapsed = current_ledger >= cycle_end_ledger;
+
+        // Only advance if the cycle is depleted or the cycle duration has elapsed
+        if claimable > 0 && !cycle_elapsed {
+            panic!("current cycle still has claimable funds or time remaining");
+        }
+
+        // Close the current cycle's stream
+        let _remainder = Self::close_stream(
+            env.clone(),
+            recurring.current_stream_id,
+            recurring.payer.clone(),
+        );
+
+        // Emit cycle end event
+        env.events().publish(
+            (Symbol::new(&env, "recurring_cycle_end"), recurring_id),
+            (recurring.current_cycle, recurring.current_stream_id),
+        );
+
+        // Check if we've reached max_cycles
+        let next_cycle = recurring.current_cycle.checked_add(1).expect("cycle overflow");
+        if next_cycle >= recurring.max_cycles {
+            recurring.completed = true;
+            recurring.current_cycle = next_cycle;
+            env.storage()
+                .persistent()
+                .set(&DataKey::RecurringStream(recurring_id), &recurring);
+            bump(&env, &DataKey::RecurringStream(recurring_id));
+            return;
+        }
+
+        // Open the next cycle's stream
+        let new_stream_id = Self::open_stream(
+            env.clone(),
+            recurring.token.clone(),
+            recurring.payer.clone(),
+            recurring.recipient.clone(),
+            recurring.rate_per_ledger,
+            recurring.deposit_per_cycle,
+        );
+
+        recurring.current_stream_id = new_stream_id;
+        recurring.current_cycle = next_cycle;
+        recurring.cycle_start_ledger = current_ledger;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RecurringStream(recurring_id), &recurring);
+        bump(&env, &DataKey::RecurringStream(recurring_id));
+
+        // Emit cycle start event
+        env.events().publish(
+            (Symbol::new(&env, "recurring_cycle_start"), recurring_id),
+            (recurring.payer.clone(), recurring.recipient.clone(),
+             recurring.rate_per_ledger, recurring.deposit_per_cycle, next_cycle),
+        );
+    }
+
+    /// Get the status of a recurring stream.
+    pub fn get_recurring_status(env: Env, recurring_id: u32) -> Result<RecurringStream, ContractError> {
+        let key = DataKey::RecurringStream(recurring_id);
+        match env.storage().persistent().get(&key) {
+            Some(recurring) => {
+                bump(&env, &key);
+                Ok(recurring)
+            }
+            None => Err(ContractError::NotFound),
+        }
     }
 
     /// Stable alias for `get_stream_count`. Generates a consistent SDK

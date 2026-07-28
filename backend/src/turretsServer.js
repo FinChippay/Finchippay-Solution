@@ -20,7 +20,7 @@ const rateLimit = require("express-rate-limit");
 const Sentry = require("@sentry/node");
 const crypto = require("crypto");
 const turretsRoutes = require("./routes/turrets");
-const { startRunner } = require("./services/turretsService");
+const { startRunner, stopRunner } = require("./services/turretsService");
 const priceFeedService = require("./services/priceFeedService");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 const logger = require("./utils/logger");
@@ -163,9 +163,32 @@ function startTurretsServer() {
   const app = createTurretsApp();
   startRunner();
 
-  return app.listen(TURRETS_PORT, () => {
+  const server = app.listen(TURRETS_PORT, () => {
     logger.info({ port: TURRETS_PORT }, "Turrets txFunctions server started");
   });
+
+  // Issue #43: Stop the turrets runner interval on graceful shutdown
+  // to prevent HTTP requests to Horizon/CoinGecko after the server
+  // has started closing.
+  process.on("SIGTERM", () => {
+    logger.info("SIGTERM received — stopping turrets runner");
+    stopRunner();
+    server.close(() => {
+      logger.info("Turrets server closed");
+      process.exit(0);
+    });
+  });
+
+  process.on("SIGINT", () => {
+    logger.info("SIGINT received — stopping turrets runner");
+    stopRunner();
+    server.close(() => {
+      logger.info("Turrets server closed");
+      process.exit(0);
+    });
+  });
+
+  return server;
 }
 
 module.exports = { createTurretsApp, startTurretsServer };
