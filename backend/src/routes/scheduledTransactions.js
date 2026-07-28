@@ -46,9 +46,13 @@ router.post(
 /**
  * POST /api/scheduled-transactions/pending/:id/submit
  * Submits a pending execution.
+ *
+ * Validation: the id comes from req.validated (idParamSchema enforces a
+ * non-empty string). Service treats it as opaque.
  */
-router.post("/pending/:id/submit", async (req, res, next) => {
+router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req, res, next) => {
   try {
+    const { id } = req.validated;
     const { signedXDR } = req.body;
     if (!signedXDR) {
       return res
@@ -58,7 +62,7 @@ router.post("/pending/:id/submit", async (req, res, next) => {
         );
     }
     const result = await scheduledTransactionService.submitPendingExecution(
-      req.params.id,
+      id,
       signedXDR,
     );
     res.json(result);
@@ -104,11 +108,15 @@ router.get(
 /**
  * PUT /api/scheduled-transactions/:id
  * Updates an existing scheduled transaction.
+ *
+ * Validation: the id comes from req.validated (idParamSchema enforces a
+ * non-empty string), so the service can treat it as opaque.
  */
-router.put("/:id", async (req, res, next) => {
+router.put("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
   try {
+    const { id } = req.validated;
     const updated = await scheduledTransactionService.updateSchedule(
-      req.params.id,
+      id,
       req.body,
     );
     res.json(updated);

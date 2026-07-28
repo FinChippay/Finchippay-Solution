@@ -10,7 +10,7 @@ Every error Finchippay returns carries a machine-readable code from a single
 catalogue shared by the contract, the API, and the frontend. This document is
 generated from that catalogue, so it cannot drift from the code.
 
-**75 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
+**76 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
 
 ## Response format
 
@@ -65,7 +65,7 @@ layer, so the layer never has to be repeated in the code itself — use
 | `RES_*` | api | 7 | Resource lifecycle |
 | `SRV_*` | api | 6 | Server and infrastructure |
 | `TOKEN_*` | api | 1 | Legacy aliases |
-| `VAL_*` | api | 16 | Request validation |
+| `VAL_*` | api | 17 | Request validation |
 | `WALLET_*` | frontend | 7 | Browser wallet |
 
 ## Using the catalogue
@@ -229,6 +229,7 @@ Layer: **api**
 | `VAL_BODY_TOO_LARGE` | 413 | Request body exceeds the maximum allowed size. |
 | `VAL_CONTENT_TYPE` | 415 | Content-Type must be application/json. |
 | `VAL_INVALID_AMOUNT` | 400 | Amount must be a positive number. |
+| `VAL_INVALID_CURSOR` | 400 | Cursor is malformed. Use a cursor returned by a previous page. |
 | `VAL_INVALID_DATE` | 400 | Invalid date format. Provide a valid ISO 8601 date string. |
 | `VAL_INVALID_FEDERATION_TYPE` | 400 | Invalid type parameter. Must be 'name' or 'id'. |
 | `VAL_INVALID_JSON` | 400 | Request body contains invalid JSON. |

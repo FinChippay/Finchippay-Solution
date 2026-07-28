@@ -160,6 +160,12 @@ jobs:
       - name: Migration status (fails if pending)
         run: npm run migrate:status
 
+      - name: Check error code docs are up to date (#345)
+        # The script lives in the repository-root package.json, so run from
+        # the workspace root rather than inheriting the backend default.
+        working-directory: .
+        run: npm run docs:errors:check
+
       - name: Unit tests
         run: npm run test:unit
 

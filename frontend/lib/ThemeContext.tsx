@@ -13,8 +13,8 @@ import {
   type ReactNode,
 } from "react";
 
-export type Theme = "light" | "dark" | "system";
-export type ResolvedTheme = "light" | "dark";
+export type Theme = "light" | "dark" | "system" | "high-contrast";
+export type ResolvedTheme = "light" | "dark" | "high-contrast";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -34,7 +34,12 @@ const DARK_THEME_COLOR = "#050a1a";
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function isTheme(value: string | null): value is Theme {
-  return value === "light" || value === "dark" || value === "system";
+  return (
+    value === "light" ||
+    value === "dark" ||
+    value === "system" ||
+    value === "high-contrast"
+  );
 }
 
 function getStoredTheme(): Theme {
@@ -61,6 +66,12 @@ function getInitialResolvedTheme(): ResolvedTheme {
 function resolveTheme(theme: Theme, systemPrefersDark: boolean): ResolvedTheme {
   if (theme === "system") {
     return systemPrefersDark ? "dark" : "light";
+  }
+
+  // High contrast stays where the user put it: following the system toggle here
+  // would defeat the point of an explicit, accessibility-targeted override.
+  if (theme === "high-contrast") {
+    return "high-contrast";
   }
 
   return theme;
@@ -92,9 +103,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
       setResolved(nextResolvedTheme);
 
-      root.classList.toggle("dark", nextResolvedTheme === "dark");
+      root.classList.toggle(
+        "dark",
+        nextResolvedTheme === "dark" || nextResolvedTheme === "high-contrast",
+      );
       root.dataset.theme = theme;
-      root.style.colorScheme = nextResolvedTheme;
+      root.style.colorScheme =
+        nextResolvedTheme === "high-contrast" ? "dark" : nextResolvedTheme;
 
       const themeColorMeta = document.querySelector<HTMLMetaElement>(
         'meta[name="theme-color"]',

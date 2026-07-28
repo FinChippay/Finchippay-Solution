@@ -20,6 +20,7 @@ import {
 import { useWallet } from "@/lib/useWallet";
 import ThemeToggle from "@/components/ThemeToggle";
 import AccountSwitcher from "@/components/AccountSwitcher";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { NavStarIcon } from "@/components/icons";
 import { loadAlerts, PRICE_ALERTS_STORAGE_KEY } from "@/lib/priceAlerts";
 
@@ -215,6 +216,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          <LanguageSwitcher />
           <ThemeToggle />
 
           {/* ── Price alert bell badge ── */}

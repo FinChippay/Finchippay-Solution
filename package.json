@@ -17,6 +17,8 @@
     "load-test:analytics": "k6 run --out json=k6-results/analytics-query.json tests/load/analytics-query.js",
     "load-test:sustained": "k6 run --out json=k6-results/sustained-load.json tests/load/sustained-load.js",
     "load-test:all": "bash tests/load/run-all.sh",
+    "docs:errors": "node scripts/generate-error-codes-doc.js",
+    "docs:errors:check": "node scripts/generate-error-codes-doc.js --check",
     "lint": "npm run lint --workspace=frontend",
     "type-check": "npm run type-check --workspace=sdk --workspace=frontend",
     "test": "npm run test --workspace=frontend"
