@@ -59,7 +59,6 @@ function openDB(): Promise<IDBDatabase> {
         }
       }
     };
-    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
