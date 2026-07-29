@@ -29,7 +29,7 @@
 //!   multi-sig amounts are capped to prevent griefing and permanent lock-up.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Symbol, Vec,
 };
 
 // ─── Storage lifetime constants ───────────────────────────────────────────────
@@ -229,6 +229,29 @@ pub struct VestingSchedule {
     pub revoked: bool,
 }
 
+// ─── Merkle airdrop ───────────────────────────────────────────────────────────
+
+/// A Merkle-tree-based airdrop enabling gas-efficient distributions to many
+/// recipients. The funder commits a single Merkle root and each recipient claims
+/// their allocation by providing a Merkle proof.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MerkleAirdrop {
+    pub id: u32,
+    pub funder: Address,
+    pub token: Address,
+    /// SHA-256 Merkle root committing to all (recipient, amount) pairs.
+    pub merkle_root: BytesN<32>,
+    /// Total amount of tokens deposited for this airdrop.
+    pub total_amount: i128,
+    /// Cumulative amount already claimed by recipients.
+    pub claimed_amount: i128,
+    /// Ledger after which the funder can cancel and recover unclaimed funds.
+    pub expiration_ledger: u32,
+    /// True once the funder has cancelled the airdrop.
+    pub cancelled: bool,
+}
+
 // ─── Multi-sig payments ───────────────────────────────────────────────────────
 
 /// Status of a multi-sig payment proposal.
@@ -357,6 +380,12 @@ const MAX_ADMIN_SIGNERS: u32 = 20;
 /// `validate_storage_compatibility` before upgrading to ensure the new WASM
 /// declares a layout version >= this value, preventing bricked storage.
 const STORAGE_LAYOUT_VERSION: u32 = 1;
+/// Maximum number of recipients that can claim from a single airdrop.
+const MAX_AIRDROP_CLAIMS: u32 = 10_000;
+/// Maximum total amount for a single airdrop.
+const MAX_AIRDROP_AMOUNT: i128 = 1_000_000_000_000_000_000;
+/// Maximum ledgers into the future an airdrop can expire.
+const MAX_AIRDROP_LEDGERS: u32 = 518_400;
 
 // ─── Storage key enum ─────────────────────────────────────────────────────────
 
@@ -407,6 +436,10 @@ pub enum DataKey {
     AdminSigners,
     /// Number of admin approvals required for emergency withdrawal execution.
     AdminSignersThreshold,
+    // Airdrop
+    AirdropCount,
+    Airdrop(u32),
+    AirdropClaimed(u32, Address),
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -666,6 +699,45 @@ fn assert_invariants(env: &Env, domain: Symbol) {
         // enumerating all tokens, which is not feasible on-chain.
         // This is a best-effort sanity check.
     }
+}
+
+// ─── Merkle proof verification ────────────────────────────────────────────────
+
+/// Verify a Merkle proof using iterative SHA-256 hashing.
+///
+/// The proof list contains the sibling hashes along the path from the leaf
+/// to the root. At each step we hash the concatenation of the current hash
+/// and the sibling, sorting them so the smaller byte-string comes first
+/// (standard Merkle tree convention).
+///
+/// Returns `true` iff the computed root equals `root`.
+pub fn verify_merkle_proof(
+    env: &Env,
+    leaf: BytesN<32>,
+    proof: Vec<BytesN<32>>,
+    root: BytesN<32>,
+) -> bool {
+    let mut current = leaf;
+    for i in 0..proof.len() {
+        let sibling = proof.get(i).unwrap();
+        let mut combined = [0u8; 64];
+        // Sort: smaller hash first.
+        let (first, second) = if current.as_array() < sibling.as_array() {
+            (&current, &sibling)
+        } else {
+            (&sibling, &current)
+        };
+        for j in 0..32 {
+            combined[j] = first.as_array()[j];
+            combined[j + 32] = second.as_array()[j];
+        }
+        let mut bytes = Bytes::new(env);
+        for b in combined.iter() {
+            bytes.push_back(*b);
+        }
+        current = env.crypto().sha256(&bytes);
+    }
+    current == root
 }
 
 
@@ -3319,6 +3391,216 @@ impl FinchippayContract {
             claimable
         }
     }
+
+    // ─── Merkle airdrop ────────────────────────────────────────────────────
+
+    /// Create a new Merkle-based airdrop. The `funder` transfers `total_amount`
+    /// tokens to the contract, and the provided `merkle_root` commits to all
+    /// (recipient, amount) pairs. Each recipient can later claim their share by
+    /// presenting a valid Merkle proof.
+    ///
+    /// Returns the airdrop ID.
+    pub fn create_airdrop(
+        env: Env,
+        token: Address,
+        funder: Address,
+        merkle_root: BytesN<32>,
+        total_amount: i128,
+        expiration_ledger: u32,
+    ) -> u32 {
+        require_initialized(&env);
+        require_not_paused(&env);
+        funder.require_auth();
+        if total_amount <= 0 {
+            panic!("airdrop total_amount must be positive");
+        }
+        if total_amount > MAX_AIRDROP_AMOUNT {
+            panic!("airdrop total_amount exceeds maximum");
+        }
+        if expiration_ledger <= env.ledger().sequence() {
+            panic!("expiration_ledger must be in the future");
+        }
+        if expiration_ledger > env.ledger().sequence() + MAX_AIRDROP_LEDGERS {
+            panic!("expiration_ledger is too far in the future");
+        }
+
+        let token_client = get_token_client(&env, &token);
+        let contract_address = env.current_contract_address();
+        require_transfer_succeeded(&env, &token_client, &funder, &contract_address, &total_amount);
+        increase_locked_balance(&env, &token, total_amount);
+
+        let id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AirdropCount)
+            .unwrap_or(0);
+
+        let airdrop = MerkleAirdrop {
+            id,
+            funder: funder.clone(),
+            token: token.clone(),
+            merkle_root: merkle_root.clone(),
+            total_amount,
+            claimed_amount: 0,
+            expiration_ledger,
+            cancelled: false,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Airdrop(id), &airdrop);
+        bump(&env, &DataKey::Airdrop(id));
+        env.storage()
+            .persistent()
+            .set(&DataKey::AirdropCount, &(id + 1));
+        bump(&env, &DataKey::AirdropCount);
+
+        env.events().publish(
+            (Symbol::new(&env, "airdrop_created"), id),
+            (funder, token, total_amount, merkle_root),
+        );
+        id
+    }
+
+    /// Claim tokens from an airdrop by providing a valid Merkle proof for the
+    /// pair `(recipient, amount)`.
+    ///
+    /// The leaf pre-image is `SHA-256(recipient || amount_bytes)`.
+    /// Each (recipient, id) combination may only be claimed once.
+    pub fn claim_airdrop(
+        env: Env,
+        id: u32,
+        recipient: Address,
+        amount: i128,
+        proof: Vec<BytesN<32>>,
+    ) {
+        require_not_paused(&env);
+        recipient.require_auth();
+
+        let mut airdrop: MerkleAirdrop = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Airdrop(id))
+            .expect("airdrop not found");
+
+        if airdrop.cancelled {
+            panic!("airdrop has been cancelled");
+        }
+        if amount <= 0 {
+            panic!("claim amount must be positive");
+        }
+
+        // Build leaf: SHA-256(address_xdr || amount_be_bytes)
+        let mut preimage = Bytes::new(&env);
+        let addr_xdr = recipient.to_xdr(&env);
+        for i in 0..addr_xdr.len() {
+            preimage.push_back(addr_xdr.get(i).unwrap());
+        }
+        for byte in amount.to_be_bytes() {
+            preimage.push_back(byte);
+        }
+        let leaf = env.crypto().sha256(&preimage);
+
+        if !verify_merkle_proof(&env, leaf, proof, airdrop.merkle_root.clone()) {
+            panic!("invalid Merkle proof");
+        }
+
+        // Check not already claimed.
+        let claimed_key = DataKey::AirdropClaimed(id, recipient.clone());
+        if env.storage().persistent().has(&claimed_key) {
+            panic!("already claimed");
+        }
+
+        let new_claimed = airdrop
+            .claimed_amount
+            .checked_add(amount)
+            .expect("overflow");
+        if new_claimed > airdrop.total_amount {
+            panic!("claim amount exceeds remaining airdrop balance");
+        }
+        airdrop.claimed_amount = new_claimed;
+
+        env.storage().persistent().set(&claimed_key, &true);
+        bump(&env, &claimed_key);
+
+        let token_client = get_token_client(&env, &airdrop.token);
+        contract_transfer_out(&env, &token_client, &recipient, &amount);
+        decrease_locked_balance(&env, &airdrop.token, amount);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Airdrop(id), &airdrop);
+        bump(&env, &DataKey::Airdrop(id));
+
+        env.events().publish(
+            (Symbol::new(&env, "airdrop_claimed"), id),
+            (recipient, amount),
+        );
+    }
+
+    /// Cancel an airdrop after `expiration_ledger`. Only the funder may call
+    /// this. Unclaimed tokens are refunded to the funder.
+    pub fn cancel_airdrop(env: Env, id: u32, funder: Address) {
+        require_not_paused(&env);
+        funder.require_auth();
+
+        let mut airdrop: MerkleAirdrop = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Airdrop(id))
+            .expect("airdrop not found");
+
+        if airdrop.funder != funder {
+            panic!("only the funder can cancel the airdrop");
+        }
+        if airdrop.cancelled {
+            panic!("airdrop already cancelled");
+        }
+        if env.ledger().sequence() < airdrop.expiration_ledger {
+            panic!("expiration_ledger not reached");
+        }
+
+        let unclaimed = airdrop
+            .total_amount
+            .checked_sub(airdrop.claimed_amount)
+            .expect("underflow");
+
+        airdrop.cancelled = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Airdrop(id), &airdrop);
+        bump(&env, &DataKey::Airdrop(id));
+
+        if unclaimed > 0 {
+            let token_client = get_token_client(&env, &airdrop.token);
+            contract_transfer_out(&env, &token_client, &funder, &unclaimed);
+            decrease_locked_balance(&env, &airdrop.token, unclaimed);
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "airdrop_cancelled"), id),
+            (funder, unclaimed),
+        );
+    }
+
+    /// Return the airdrop record for `id`.
+    pub fn get_airdrop(env: Env, id: u32) -> MerkleAirdrop {
+        let airdrop: MerkleAirdrop = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Airdrop(id))
+            .expect("airdrop not found");
+        bump(&env, &DataKey::Airdrop(id));
+        airdrop
+    }
+
+    /// Return the total number of airdrops ever created.
+    pub fn get_airdrop_count(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::AirdropCount)
+            .unwrap_or(0)
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -5453,6 +5735,255 @@ mod tests {
 
         let dummy_hash = BytesN::from_array(&env, &[1u8; 32]);
         client.upgrade(&admin, &dummy_hash, &0);
+    }
+
+    // ─── Merkle airdrop tests ─────────────────────────────────────────────────
+
+    fn make_airdrop_leaf(env: &Env, recipient: &Address, amount: i128) -> BytesN<32> {
+        let mut preimage = Bytes::new(env);
+        let addr_xdr = recipient.to_xdr(env);
+        for i in 0..addr_xdr.len() {
+            preimage.push_back(addr_xdr.get(i).unwrap());
+        }
+        for byte in amount.to_be_bytes() {
+            preimage.push_back(byte);
+        }
+        env.crypto().sha256(&preimage)
+    }
+
+    fn hash_pair(env: &Env, a: &BytesN<32>, b: &BytesN<32>) -> BytesN<32> {
+        let mut combined = [0u8; 64];
+        let (first, second) = if a.as_array() < b.as_array() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        for j in 0..32 {
+            combined[j] = first.as_array()[j];
+            combined[j + 32] = second.as_array()[j];
+        }
+        let mut bytes = Bytes::new(env);
+        for bval in combined.iter() {
+            bytes.push_back(*bval);
+        }
+        env.crypto().sha256(&bytes)
+    }
+
+    #[test]
+    fn test_airdrop_single_recipient() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let amount: i128 = 100_0000000;
+
+        // Build a known Merkle tree for a single recipient.
+        let leaf = make_airdrop_leaf(&env, &recipient, amount);
+        // For a single leaf, the merkle root is the leaf itself.
+        let root = leaf.clone();
+
+        let expiration = env.ledger().sequence() + 1000;
+        let airdrop_id = client.create_airdrop(&token, &funder, &root, &amount, &expiration);
+        assert_eq!(airdrop_id, 0);
+
+        // Claim with empty proof (single leaf tree)
+        let proof = Vec::new(&env);
+        client.claim_airdrop(&airdrop_id, &recipient, &amount, &proof);
+
+        let stored = client.get_airdrop(&airdrop_id);
+        assert_eq!(stored.claimed_amount, amount);
+        assert_eq!(stored.cancelled, false);
+    }
+
+    #[test]
+    fn test_airdrop_invalid_proof_rejected() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let amount: i128 = 100_0000000;
+
+        let leaf = make_airdrop_leaf(&env, &recipient, amount);
+        let root = leaf.clone();
+
+        let expiration = env.ledger().sequence() + 1000;
+        let airdrop_id = client.create_airdrop(&token, &funder, &root, &amount, &expiration);
+
+        // Try to claim with a bogus proof (non-empty for single-leaf)
+        let bogus_proof = vec![&env, BytesN::from_array(&env, &[1u8; 32])];
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.claim_airdrop(&airdrop_id, &recipient, &amount, &bogus_proof);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_airdrop_double_claim_rejected() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let amount: i128 = 100_0000000;
+
+        let leaf = make_airdrop_leaf(&env, &recipient, amount);
+        let root = leaf.clone();
+
+        let expiration = env.ledger().sequence() + 1000;
+        let airdrop_id = client.create_airdrop(&token, &funder, &root, &amount, &expiration);
+
+        let proof = Vec::new(&env);
+        client.claim_airdrop(&airdrop_id, &recipient, &amount, &proof);
+
+        // Second claim should fail
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.claim_airdrop(&airdrop_id, &recipient, &amount, &proof);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_airdrop_cancel_after_expiration() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let amount: i128 = 100_0000000;
+        let dummy_root = BytesN::from_array(&env, &[0u8; 32]);
+
+        let expiration = env.ledger().sequence() + 5;
+        let airdrop_id = client.create_airdrop(&token, &funder, &dummy_root, &amount, &expiration);
+
+        // Advance past expiration
+        advance(&env, env.ledger().sequence() + 10);
+
+        let funder_balance_before = token::Client::new(&env, &token).balance(&funder);
+        client.cancel_airdrop(&airdrop_id, &funder);
+        let funder_balance_after = token::Client::new(&env, &token).balance(&funder);
+
+        assert_eq!(funder_balance_after, funder_balance_before + amount);
+
+        let stored = client.get_airdrop(&airdrop_id);
+        assert_eq!(stored.cancelled, true);
+    }
+
+    #[test]
+    fn test_airdrop_cancel_before_expiration_fails() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let amount: i128 = 100_0000000;
+        let dummy_root = BytesN::from_array(&env, &[0u8; 32]);
+
+        let expiration = env.ledger().sequence() + 100;
+        let airdrop_id = client.create_airdrop(&token, &funder, &dummy_root, &amount, &expiration);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.cancel_airdrop(&airdrop_id, &funder);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_airdrop_only_funder_can_cancel() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let other = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let amount: i128 = 100_0000000;
+        let dummy_root = BytesN::from_array(&env, &[0u8; 32]);
+
+        let expiration = env.ledger().sequence() + 5;
+        let airdrop_id = client.create_airdrop(&token, &funder, &dummy_root, &amount, &expiration);
+
+        advance(&env, env.ledger().sequence() + 10);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.cancel_airdrop(&airdrop_id, &other);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_airdrop_create_with_invalid_params() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let root = BytesN::from_array(&env, &[0u8; 32]);
+
+        // Zero amount
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.create_airdrop(&token, &funder, &root, &0, &(env.ledger().sequence() + 100));
+        }));
+        assert!(result.is_err());
+
+        // Expiration in the past
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.create_airdrop(&token, &funder, &root, &100, &(env.ledger().sequence()));
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_airdrop_three_recipient_tree() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let funder = Address::generate(&env);
+        let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
+        let r3 = Address::generate(&env);
+        let token = create_token(&env, &admin, &funder, 200_0000000);
+
+        let a1: i128 = 50_0000000;
+        let a2: i128 = 30_0000000;
+        let a3: i128 = 20_0000000;
+        let total = a1 + a2 + a3;
+
+        let leaf1 = make_airdrop_leaf(&env, &r1, a1);
+        let leaf2 = make_airdrop_leaf(&env, &r2, a2);
+        let leaf3 = make_airdrop_leaf(&env, &r3, a3);
+
+        // Build a 3-leaf tree: hash(hash(L1, L2), L3)
+        let node12 = hash_pair(&env, &leaf1, &leaf2);
+        let root = hash_pair(&env, &node12, &leaf3);
+
+        let expiration = env.ledger().sequence() + 1000;
+        let airdrop_id = client.create_airdrop(&token, &funder, &root, &total, &expiration);
+
+        // Claim for r1: proof = [L2, L3]
+        let proof1 = vec![&env, leaf2.clone(), leaf3.clone()];
+        client.claim_airdrop(&airdrop_id, &r1, &a1, &proof1);
+
+        // Claim for r2: proof = [L1, L3]
+        let proof2 = vec![&env, leaf1.clone(), leaf3.clone()];
+        client.claim_airdrop(&airdrop_id, &r2, &a2, &proof2);
+
+        // Claim for r3: proof = [node12]
+        let proof3 = vec![&env, node12.clone()];
+        client.claim_airdrop(&airdrop_id, &r3, &a3, &proof3);
+
+        let stored = client.get_airdrop(&airdrop_id);
+        assert_eq!(stored.claimed_amount, total);
     }
 }
 
