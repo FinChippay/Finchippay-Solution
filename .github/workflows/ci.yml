@@ -571,7 +571,7 @@ jobs:
       - name: Regenerate error code docs
         run: node scripts/generate-error-codes-doc.js
 
-            - name: Verify docs are up to date (--check mode)
+      - name: Verify docs are up to date (--check mode)
         run: node scripts/generate-error-codes-doc.js --check
 # --- Validate Config -------------------------------------------------------
   validate:
