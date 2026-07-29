@@ -10,7 +10,6 @@
 const logger = require("../utils/logger");
 
 const stellarService = require("./stellarService");
-const logger = require("../utils/logger");
 
 // Lazy-loaded cache service (avoids circular dependency at parse time)
 function getCache() {
@@ -203,7 +202,7 @@ async function getTotalReceiptCount() {
     }
 
     try {
-      const { Server } = require("@stellar/soroban-sdk");
+      const { Server, Contract, TransactionBuilder, Account } = require("@stellar/soroban-sdk");
 
       const server = new Server(process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org");
       const contract = new Contract(contractAddress);

@@ -10,6 +10,16 @@ const {
   ERROR_CODES,
 } = require("../../../shared/errorCodes");
 
+async function snapshotValue(metric) {
+  if (!metric) return 0;
+  const snap = await metric.get();
+  if (snap.values && snap.values.length > 0) {
+    return snap.values.reduce((sum, v) => sum + (v.value || 0), 0);
+  }
+  if (snap.value !== undefined) return snap.value;
+  return 0;
+}
+
 router.get("/", requireMetricsToken, async (req, res) => {
   try {
     const body = await metrics.getMetrics();
@@ -29,18 +39,9 @@ router.get("/business", async (req, res) => {
     const paymentsCounter = metrics.register.getSingleMetric("finchippay_payments_volume_total");
     const eventsCounter = metrics.register.getSingleMetric("finchippay_contract_events_indexed_total");
     const webhookCounter = metrics.register.getSingleMetric("finchippay_webhook_deliveries_total");
-    const requestsCounter = metrics.register.getSingleMetric("finchippay_http_requests_total");
     const durationHistogram = metrics.register.getSingleMetric("finchippay_http_request_duration_seconds");
 
-    async function snapshotValue(metric) {
-      if (!metric) return 0;
-      const snap = await metric.get();
-      if (snap.values && snap.values.length > 0) {
-        return snap.values.reduce((sum, v) => sum + (v.value || 0), 0);
-      }
-      if (snap.value !== undefined) return snap.value;
-      return 0;
-    }
+
 
     const activeUsers24h = await snapshotValue(activeGauge);
     const paymentsToday = await snapshotValue(paymentsCounter);

@@ -266,7 +266,7 @@ function startMonitoring(webhook) {
   const closeStream = server.payments().forAccount(webhook.publicKey).cursor("now").stream({
     onmessage: async (payment) => {
       if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
-      try { const cache = getCache(); if (cache) { await cache.del(`account:${webhook.publicKey}`); await cache.delPattern(`payments:${webhook.publicKey}:*`); } } catch {}
+      try { const cache = getCache(); if (cache) { await cache.del(`account:${webhook.publicKey}`); await cache.delPattern(`payments:${webhook.publicKey}:*`); } } catch { /* cache clear failure is non-critical */ }
       const payload = { event: "payment.received", publicKey: webhook.publicKey, payment: { id: payment.id, from: payment.from, to: payment.to, amount: payment.amount, asset: payment.asset_type === "native" ? "XLM" : payment.asset_code, createdAt: payment.created_at } };
       const hooks = await getWebhooksByPublicKey(webhook.publicKey);
       const deliveries = hooks.map((h) => { const promise = deliverWebhook(h, payload, "payment.received").finally(() => pendingDeliveries.delete(promise)); pendingDeliveries.add(promise); return promise; });

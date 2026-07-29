@@ -5,8 +5,6 @@
 
 "use strict";
 
-const logger = require("../utils/logger");
-
 const VALID_NETWORKS = ["testnet", "mainnet"];
 
 /**

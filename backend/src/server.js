@@ -4,7 +4,6 @@
  */
 
 "use strict";
-const crypto = require("crypto");
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 // dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
@@ -50,7 +49,6 @@ const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
 const tokensRoutes = require("./routes/tokens");
 const pushRoutes = require("./routes/push");
-const contactRoutes = require("./routes/contacts");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -59,10 +57,6 @@ const {
   startRetryWorker,
   closeAllStreams: closeWebhookStreams,
 } = require("./services/webhookSubscriptionService");
-const {
-  startCleanupWorker,
-  stopCleanupWorker,
-} = require("./services/eventCleanupService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
@@ -70,7 +64,6 @@ const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const {
   correlationMiddleware,
-  getRequestId,
 } = require("./utils/correlationId");
 const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
