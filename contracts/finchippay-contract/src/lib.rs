@@ -28,6 +28,9 @@
 //! - **Bounded inputs**: escrow release ledgers, stream deposits, and
 //!   multi-sig amounts are capped to prevent griefing and permanent lock-up.
 
+#[cfg(test)]
+extern crate std;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec,
 };
@@ -3583,7 +3586,7 @@ impl FinchippayContract {
             panic!("only the escrow recipient can claim milestones");
         }
 
-        let rkey = DataKey::EscrowByRecipient(recipient);
+        let rkey = DataKey::EscrowByRecipient(recipient.clone());
         let mut r_escrows: Vec<Escrow> = env
             .storage()
             .persistent()
