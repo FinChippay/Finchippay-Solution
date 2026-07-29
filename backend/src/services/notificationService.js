@@ -253,13 +253,13 @@ async function notifySubscribers(eventType, data) {
   var sent = 0;
   var failed = 0;
   for (var j = 0; j < matching.length; j++) {
-    var row = matching[j];
+    var matchRow = matching[j];
     try {
-      var result = await sendEventNotification(row.email, eventType, {
+      var result = await sendEventNotification(matchRow.email, eventType, {
         amount: data.amount,
         asset: data.asset,
         sender: data.sender,
-        recipient: data.recipient || row.public_key,
+        recipient: data.recipient || matchRow.public_key,
         timestamp: data.timestamp,
         memo: data.memo,
         txHash: data.txHash,

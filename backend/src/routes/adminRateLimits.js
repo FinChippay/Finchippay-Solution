@@ -10,7 +10,6 @@ const router = express.Router();
 const knex = require("../db/connection");
 const { verifyJWT, requireAdmin } = require("../middleware/auth");
 const rateLimitConfigService = require("../services/rateLimitConfigService");
-const rateLimitAlertService = require("../services/rateLimitAlertService");
 const { getRateLimitStats } = require("../middleware/rateLimitMetrics");
 const logger = require("../utils/logger");
 

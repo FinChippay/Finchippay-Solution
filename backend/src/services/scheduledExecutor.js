@@ -17,7 +17,6 @@ const crypto = require("crypto");
 const { TransactionBuilder } = require("@stellar/stellar-sdk");
 
 const knex = require("../db/connection");
-const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
 const scheduledTransactionService = require("./scheduledTransactionService");
 const webhookService = require("./webhookService");
@@ -141,7 +140,7 @@ async function submitScheduledTransaction(schedule) {
     });
 
     // Convert XDR string to transaction object
-    const tx = TransactionBuilder.fromXDR(
+    TransactionBuilder.fromXDR(
       xdr,
       process.env.STELLAR_NETWORK === "mainnet"
         ? require("@stellar/stellar-sdk").Networks.PUBLIC
@@ -269,7 +268,7 @@ async function executeDueTransaction(schedule) {
 
   if (result.success) {
     // Success: log and update schedule
-    const execution = await logExecution({
+    await logExecution({
       scheduleId: schedule.id,
       ownerId: schedule.owner_pk,
       status: "submitted",

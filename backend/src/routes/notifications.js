@@ -18,7 +18,6 @@ const {
   registerEmailSchema,
   updateEmailSchema,
   publicKeyParamSchema,
-  emailEventsQuerySchema,
 } = require("../validation/schemas");
 const logger = require("../utils/logger");
 
@@ -154,8 +153,6 @@ const EVENT_TYPES = [
   "scheduled_payment",
   "contract_event",
 ];
-
-const EVENT_CHANNELS = ["push", "email", "in_app"];
 
 /**
  * Default event-channel config — all events on all channels.
