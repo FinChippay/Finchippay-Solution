@@ -37,12 +37,6 @@ import {
 const Joyride = dynamic(() => import("react-joyride"), { ssr: false });
 
 // Compute filtered steps based on persisted onboarding progress
-const filteredSteps: Step[] = useMemo(() => {
-  const { completedSteps } = getTourProgress();
-  // Exclude steps that have already been completed
-  return TOUR_STEPS.filter((_, idx) => !completedSteps.includes(idx));
-}, []);
-
 // ─── Tour steps ───────────────────────────────────────────────────────────────
 
 export const TOUR_STEPS: Step[] = [
@@ -145,6 +139,12 @@ export default function OnboardingTour({ tour: externalTour, isVisible, onComple
   // Use internal hook when no external tour state is provided (props-based API)
   const internalTour = useOnboardingTour();
   const tour = externalTour || internalTour;
+
+  // Compute filtered steps based on persisted onboarding progress
+  const filteredSteps: Step[] = useMemo(() => {
+    const { completedSteps } = getTourProgress();
+    return TOUR_STEPS.filter((_, idx) => !completedSteps.includes(idx));
+  }, []);
 
   const handleJoyrideCallback = useCallback(
     (data: CallBackProps) => {
