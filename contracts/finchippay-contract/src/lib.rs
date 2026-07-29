@@ -28,9 +28,13 @@
 //! - **Bounded inputs**: escrow release ledgers, stream deposits, and
 //!   multi-sig amounts are capped to prevent griefing and permanent lock-up.
 
+#[cfg(test)]
+extern crate std;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Symbol, Vec,
 };
+use soroban_sdk::xdr::ToXdr;
 
 // ─── Storage lifetime constants ───────────────────────────────────────────────
 
@@ -722,20 +726,20 @@ pub fn verify_merkle_proof(
         let sibling = proof.get(i).unwrap();
         let mut combined = [0u8; 64];
         // Sort: smaller hash first.
-        let (first, second) = if current.as_array() < sibling.as_array() {
+        let (first, second) = if current.to_array() < sibling.to_array() {
             (&current, &sibling)
         } else {
             (&sibling, &current)
         };
         for j in 0..32 {
-            combined[j] = first.as_array()[j];
-            combined[j + 32] = second.as_array()[j];
+            combined[j] = first.to_array()[j];
+            combined[j + 32] = second.to_array()[j];
         }
         let mut bytes = Bytes::new(env);
         for b in combined.iter() {
             bytes.push_back(*b);
         }
-        current = env.crypto().sha256(&bytes);
+        current = env.crypto().sha256(&bytes).into();
     }
     current == root
 }
@@ -3492,7 +3496,7 @@ impl FinchippayContract {
 
         // Build leaf: SHA-256(address_xdr || amount_be_bytes)
         let mut preimage = Bytes::new(&env);
-        let addr_xdr = recipient.to_xdr(&env);
+        let addr_xdr = recipient.clone().to_xdr(&env);
         for i in 0..addr_xdr.len() {
             preimage.push_back(addr_xdr.get(i).unwrap());
         }
@@ -3501,7 +3505,7 @@ impl FinchippayContract {
         }
         let leaf = env.crypto().sha256(&preimage);
 
-        if !verify_merkle_proof(&env, leaf, proof, airdrop.merkle_root.clone()) {
+        if !verify_merkle_proof(&env, leaf.into(), proof, airdrop.merkle_root.clone()) {
             panic!("invalid Merkle proof");
         }
 
@@ -5748,25 +5752,25 @@ mod tests {
         for byte in amount.to_be_bytes() {
             preimage.push_back(byte);
         }
-        env.crypto().sha256(&preimage)
+        env.crypto().sha256(&preimage).into()
     }
 
     fn hash_pair(env: &Env, a: &BytesN<32>, b: &BytesN<32>) -> BytesN<32> {
         let mut combined = [0u8; 64];
-        let (first, second) = if a.as_array() < b.as_array() {
+        let (first, second) = if a.to_array() < b.to_array() {
             (a, b)
         } else {
             (b, a)
         };
         for j in 0..32 {
-            combined[j] = first.as_array()[j];
-            combined[j + 32] = second.as_array()[j];
+            combined[j] = first.to_array()[j];
+            combined[j + 32] = second.to_array()[j];
         }
         let mut bytes = Bytes::new(env);
         for bval in combined.iter() {
             bytes.push_back(*bval);
         }
-        env.crypto().sha256(&bytes)
+        env.crypto().sha256(&bytes).into()
     }
 
     #[test]
