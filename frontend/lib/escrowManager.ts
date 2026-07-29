@@ -2,6 +2,7 @@ import {
   FinchippayContractClient,
   EscrowStatus,
   type Escrow,
+  type Milestone,
 } from "@/lib/contract-bindings";
 import { CONTRACT_ID, submitTransaction, getCurrentLedger } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
@@ -14,6 +15,8 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+export { type Milestone } from "@/lib/contract-bindings";
+
 export interface EscrowRecord {
   id: number;
   from: string;
@@ -23,6 +26,9 @@ export interface EscrowRecord {
   releaseLedger: number;
   status: EscrowStatus;
   memo: string;
+  agent: string | null;
+  milestones: Milestone[];
+  isMilestoneBased: boolean;
 }
 
 export type EscrowTab = "active" | "completed" | "incoming";
@@ -137,6 +143,48 @@ export async function getEscrowDetail(
   } catch {
     return null;
   }
+}
+
+export async function getEscrowMilestones(
+  publicKey: string,
+  escrowId: number,
+): Promise<Milestone[]> {
+  if (!CONTRACT_ID) return [];
+  try {
+    const client = getClient();
+    return await client.getMilestones(escrowId, publicKey);
+  } catch {
+    return [];
+  }
+}
+
+export async function approveMilestone(
+  fromPublicKey: string,
+  escrowId: number,
+  milestoneId: number,
+  approver: string,
+): Promise<string> {
+  const client = getClient();
+  const tx = await client.approveMilestone(fromPublicKey, escrowId, milestoneId, approver);
+  const signed = await signTransactionWithWallet(tx.toXDR());
+  if (signed.error || !signed.signedXDR) throw new Error(signed.error || "Signing failed");
+  const result = await submitTransaction(signed.signedXDR);
+  invalidateCacheForUser(fromPublicKey);
+  return result.hash || result.returnValue?.toString() || "ok";
+}
+
+export async function claimEscrowMilestone(
+  fromPublicKey: string,
+  escrowId: number,
+  milestoneId: number,
+): Promise<string> {
+  const client = getClient();
+  const tx = await client.claimMilestone(fromPublicKey, escrowId, milestoneId, fromPublicKey);
+  const signed = await signTransactionWithWallet(tx.toXDR());
+  if (signed.error || !signed.signedXDR) throw new Error(signed.error || "Signing failed");
+  const result = await submitTransaction(signed.signedXDR);
+  invalidateCacheForUser(fromPublicKey);
+  return result.hash || result.returnValue?.toString() || "ok";
 }
 
 function invalidateCacheForUser(publicKey: string) {

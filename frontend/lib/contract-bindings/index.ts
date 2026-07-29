@@ -107,6 +107,15 @@ export interface ReceiptMetadata {
   ledger: number;
 }
 
+export interface Milestone {
+  id: number;
+  description: string;
+  amount: string;
+  approved: boolean;
+  claimed: boolean;
+  approvalDeadlineLedger: number;
+}
+
 export interface Escrow {
   id: number;
   from: string;
@@ -116,6 +125,9 @@ export interface Escrow {
   releaseLedger: number;
   status: EscrowStatus;
   memo: string;
+  agent: string | null;
+  milestones: Milestone[];
+  isMilestoneBased: boolean;
 }
 
 export interface Stream {
@@ -175,6 +187,24 @@ function scvI128Vec(vals: (bigint | number | string)[]) {
 
 function scvSymbolVec(vals: string[]) {
   return scvVec(vals.map(scvSymbol));
+}
+
+function scvMilestone(m: Milestone): xdr.ScVal {
+  return nativeToScVal(
+    {
+      id: m.id,
+      description: m.description,
+      amount: BigInt(m.amount),
+      approved: m.approved,
+      claimed: m.claimed,
+      approval_deadline_ledger: m.approvalDeadlineLedger,
+    },
+    { type: "map" },
+  );
+}
+
+function scvMilestoneVec(milestones: Milestone[]): xdr.ScVal {
+  return scvVec(milestones.map(scvMilestone));
 }
 
 // ─── Decoders ──────────────────────────────────────────────────────────────
@@ -243,6 +273,28 @@ function decodeStream(m: Record<string, unknown>): Stream {
   };
 }
 
+function decodeOptionalAddress(m: Record<string, unknown>, key: string): string | null {
+  const v = m[key];
+  if (v === null || v === undefined) return null;
+  return String(v);
+}
+
+function decodeMilestone(m: Record<string, unknown>): Milestone {
+  return {
+    id: u32(m, "id"),
+    description: String(m["description"] ?? ""),
+    amount: big(m, "amount"),
+    approved: bool(m, "approved"),
+    claimed: bool(m, "claimed"),
+    approvalDeadlineLedger: u32(m, "approval_deadline_ledger"),
+  };
+}
+
+function decodeMilestones(val: unknown): Milestone[] {
+  if (!Array.isArray(val)) return [];
+  return val.map((item: unknown) => decodeMilestone(item as Record<string, unknown>));
+}
+
 function decodeEscrow(m: Record<string, unknown>): Escrow {
   return {
     id: u32(m, "id"),
@@ -253,6 +305,9 @@ function decodeEscrow(m: Record<string, unknown>): Escrow {
     releaseLedger: u32(m, "release_ledger"),
     status: decodeEscrowStatus(m["status"]),
     memo: String(m["memo"] ?? ""),
+    agent: decodeOptionalAddress(m, "agent"),
+    milestones: decodeMilestones(m["milestones"]),
+    isMilestoneBased: bool(m, "is_milestone_based"),
   };
 }
 
@@ -847,6 +902,81 @@ export class FinchippayContractClient {
     );
     if (!sim) return 0;
     return decodeU32(sim.result!.retval);
+  }
+
+  // ── Milestone Escrow ────────────────────────────────────────────────────
+
+  async createMilestoneEscrow(
+    source: string,
+    tokenAddress: string,
+    from: string,
+    to: string,
+    agent: string,
+    milestones: Milestone[],
+    memo: string,
+  ): Promise<Transaction> {
+    return buildAndPrepare(this.contractId, source, "create_milestone_escrow", [
+      scvAddress(tokenAddress),
+      scvAddress(from),
+      scvAddress(to),
+      scvAddress(agent),
+      scvMilestoneVec(milestones),
+      scvSymbol(memo),
+    ]);
+  }
+
+  async approveMilestone(
+    source: string,
+    escrowId: number,
+    milestoneId: number,
+    approver: string,
+  ): Promise<Transaction> {
+    return buildAndPrepare(this.contractId, source, "approve_milestone", [
+      scvU32(escrowId),
+      scvU32(milestoneId),
+      scvAddress(approver),
+    ]);
+  }
+
+  async claimMilestone(
+    source: string,
+    escrowId: number,
+    milestoneId: number,
+    recipient: string,
+  ): Promise<Transaction> {
+    return buildAndPrepare(this.contractId, source, "claim_milestone", [
+      scvU32(escrowId),
+      scvU32(milestoneId),
+      scvAddress(recipient),
+    ]);
+  }
+
+  async getMilestones(
+    escrowId: number,
+    source?: string,
+  ): Promise<Milestone[]> {
+    const sim = await simulateView(
+      this.contractId,
+      "get_milestones",
+      [scvU32(escrowId)],
+      source,
+    );
+    if (!sim) return [];
+    return decodeMilestones(scValToNative(sim.result!.retval));
+  }
+
+  async getEscrowSummary(
+    escrowId: number,
+    source?: string,
+  ): Promise<Escrow | null> {
+    const sim = await simulateView(
+      this.contractId,
+      "get_escrow_summary",
+      [scvU32(escrowId)],
+      source,
+    );
+    if (!sim) return null;
+    return decodeEscrow(decodeMap(sim.result!.retval));
   }
 
   // ── Diagnostics ─────────────────────────────────────────────────────────
