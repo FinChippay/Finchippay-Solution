@@ -22,7 +22,7 @@ on:
     branches: [main]
 
 env:
-  NODE_VERSION: '20.19.5'
+  NODE_VERSION: '22'
   HEALTH_CHECK_URL: 'https://finchippay.vercel.app/api/health'
   STAGING_ALIAS: 'staging-${{ github.sha }}.finchippay.vercel.app'
 
