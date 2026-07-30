@@ -10,6 +10,16 @@ const {
   ERROR_CODES,
 } = require("../../../shared/errorCodes");
 
+async function snapshotValue(metric) {
+  if (!metric) return 0;
+  const snap = await metric.get();
+  if (snap.values && snap.values.length > 0) {
+    return snap.values.reduce((sum, v) => sum + (v.value || 0), 0);
+  }
+  if (snap.value !== undefined) return snap.value;
+  return 0;
+}
+
 router.get("/", requireMetricsToken, async (req, res) => {
   try {
     const body = await metrics.getMetrics();
@@ -25,22 +35,21 @@ router.get("/", requireMetricsToken, async (req, res) => {
 
 router.get("/business", async (req, res) => {
   try {
-    const activeGauge = metrics.register.getSingleMetric("finchippay_active_users");
-    const paymentsCounter = metrics.register.getSingleMetric("finchippay_payments_volume_total");
-    const eventsCounter = metrics.register.getSingleMetric("finchippay_contract_events_indexed_total");
-    const webhookCounter = metrics.register.getSingleMetric("finchippay_webhook_deliveries_total");
-    const requestsCounter = metrics.register.getSingleMetric("finchippay_http_requests_total");
-    const durationHistogram = metrics.register.getSingleMetric("finchippay_http_request_duration_seconds");
-
-    async function snapshotValue(metric) {
-      if (!metric) return 0;
-      const snap = await metric.get();
-      if (snap.values && snap.values.length > 0) {
-        return snap.values.reduce((sum, v) => sum + (v.value || 0), 0);
-      }
-      if (snap.value !== undefined) return snap.value;
-      return 0;
-    }
+    const activeGauge = metrics.register.getSingleMetric(
+      "finchippay_active_users",
+    );
+    const paymentsCounter = metrics.register.getSingleMetric(
+      "finchippay_payments_volume_total",
+    );
+    const eventsCounter = metrics.register.getSingleMetric(
+      "finchippay_contract_events_indexed_total",
+    );
+    const webhookCounter = metrics.register.getSingleMetric(
+      "finchippay_webhook_deliveries_total",
+    );
+    const durationHistogram = metrics.register.getSingleMetric(
+      "finchippay_http_request_duration_seconds",
+    );
 
     const activeUsers24h = await snapshotValue(activeGauge);
     const paymentsToday = await snapshotValue(paymentsCounter);
@@ -49,9 +58,13 @@ router.get("/business", async (req, res) => {
     let webhookSuccessRate = 0;
     if (webhookCounter) {
       const snap = await webhookCounter.get();
-      const total = snap.values ? snap.values.reduce((s, v) => s + (v.value || 0), 0) : 0;
+      const total = snap.values
+        ? snap.values.reduce((s, v) => s + (v.value || 0), 0)
+        : 0;
       const success = snap.values
-        ? snap.values.filter((v) => v.labels?.status === "success").reduce((s, v) => s + (v.value || 0), 0)
+        ? snap.values
+            .filter((v) => v.labels?.status === "success")
+            .reduce((s, v) => s + (v.value || 0), 0)
         : 0;
       webhookSuccessRate = total > 0 ? success / total : 0;
     }
@@ -60,10 +73,17 @@ router.get("/business", async (req, res) => {
     if (durationHistogram) {
       const snap = await durationHistogram.get();
       const totalCount = snap.values
-        ? snap.values.filter((v) => v.metricName?.endsWith("_count") || v.labels?.le === "+Inf").reduce((s, v) => s + (v.value || 0), 0)
+        ? snap.values
+            .filter(
+              (v) =>
+                v.metricName?.endsWith("_count") || v.labels?.le === "+Inf",
+            )
+            .reduce((s, v) => s + (v.value || 0), 0)
         : 0;
       const totalSum = snap.values
-        ? snap.values.filter((v) => v.metricName?.endsWith("_sum")).reduce((s, v) => s + (v.value || 0), 0)
+        ? snap.values
+            .filter((v) => v.metricName?.endsWith("_sum"))
+            .reduce((s, v) => s + (v.value || 0), 0)
         : 0;
       averageResponseTime = totalCount > 0 ? totalSum / totalCount : 0;
     }

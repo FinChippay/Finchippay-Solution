@@ -52,7 +52,6 @@ const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
 const tokensRoutes = require("./routes/tokens");
 const pushRoutes = require("./routes/push");
-const contactRoutes = require("./routes/contacts");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -66,9 +65,7 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const {
-  correlationMiddleware,
-} = require("./utils/correlationId");
+const { correlationMiddleware } = require("./utils/correlationId");
 const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const shutdownState = require("./services/shutdownState");
@@ -78,11 +75,12 @@ const {
 const { zodErrorHandler } = require("./validation/middleware");
 // Requiring errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider (#270).
-const { errorLogFields } = require("./utils/errorResponse");
 const traceContextMiddleware = require("./middleware/tracing");
 
 const { ApolloServer } = require("apollo-server-express");
-const { ApolloServerPluginLandingPageGraphQLPlayground } = require("apollo-server-core");
+const {
+  ApolloServerPluginLandingPageGraphQLPlayground,
+} = require("apollo-server-core");
 const typeDefs = require("./graphql/schema");
 const resolvers = require("./graphql/resolvers");
 
@@ -470,9 +468,11 @@ if (require.main === module) {
     initRedis().catch((err) => {
       logger.error({ err }, "Redis initialisation failed");
     });
-    require("./services/scheduledTransactionService").loadActiveSchedules().catch((err) => {
-      logger.error({ err }, "Failed to load active scheduled transactions");
-    });
+    require("./services/scheduledTransactionService")
+      .loadActiveSchedules()
+      .catch((err) => {
+        logger.error({ err }, "Failed to load active scheduled transactions");
+      });
     // Start scheduled transaction executor and data retention cron
     require("./services/scheduledExecutor").start();
     require("./services/dataRetentionService").startRetentionCron();
@@ -491,7 +491,10 @@ if (require.main === module) {
               token,
               process.env.JWT_SECRET || "finchippay_secret_key",
             );
-            if (decoded.publicKey && /^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
+            if (
+              decoded.publicKey &&
+              /^G[A-Z0-9]{55}$/.test(decoded.publicKey)
+            ) {
               user = decoded;
             }
           } catch {
@@ -510,7 +513,7 @@ if (require.main === module) {
     await apolloServer.start();
     apolloServer.applyMiddleware({ app, path: "/api/graphql" });
 
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, async () => {
       logger.info(
         { port: PORT, network: process.env.STELLAR_NETWORK || "testnet" },
         "Finchippay Solution API server started",

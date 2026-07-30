@@ -5,8 +5,6 @@
 
 "use strict";
 
-const logger = require("../utils/logger");
-
 const VALID_NETWORKS = ["testnet", "mainnet"];
 
 /**
@@ -66,11 +64,11 @@ function parseAllowedOrigins(raw) {
 }
 
 function collectErrors(env) {
-  if (!env.JWT_SECRET && env.NODE_ENV === 'production') {
-    throw new Error('FATAL: JWT_SECRET must be set in production.');
+  if (!env.JWT_SECRET && env.NODE_ENV === "production") {
+    throw new Error("FATAL: JWT_SECRET must be set in production.");
   }
-  if (env.JWT_SECRET === 'finchippay_secret_key') {
-    throw new Error('FATAL: JWT_SECRET is set to the insecure default value.');
+  if (env.JWT_SECRET === "finchippay_secret_key") {
+    throw new Error("FATAL: JWT_SECRET is set to the insecure default value.");
   }
 
   const errors = [];
@@ -199,7 +197,7 @@ function collectErrors(env) {
       );
     }
   }
-    // ANCHORS_CONFIG is optional but if set must be valid JSON.
+  // ANCHORS_CONFIG is optional but if set must be valid JSON.
   if (env.ANCHORS_CONFIG) {
     try {
       JSON.parse(env.ANCHORS_CONFIG);
@@ -212,12 +210,12 @@ function collectErrors(env) {
   // SMTP configuration for email notifications
   // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
   if (env.NODE_ENV === "production" && !env.WEBHOOK_ENCRYPTION_KEY?.trim()) {
-  // SMTP configuration for email notifications
-  // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
+    // SMTP configuration for email notifications
+    // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
     errors.push(
-      'WEBHOOK_ENCRYPTION_KEY is required in production — generate one with: openssl rand -hex 32',
-  // SMTP configuration for email notifications
-  // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
+      "WEBHOOK_ENCRYPTION_KEY is required in production — generate one with: openssl rand -hex 32",
+      // SMTP configuration for email notifications
+      // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
     );
   }
 
@@ -288,10 +286,10 @@ function collectErrors(env) {
   }
 
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PUBLIC_KEY.trim()) {
-    errors.push('VAPID_PUBLIC_KEY is required for push notifications.');
+    errors.push("VAPID_PUBLIC_KEY is required for push notifications.");
   }
   if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PRIVATE_KEY.trim()) {
-    errors.push('VAPID_PRIVATE_KEY is required for push notifications.');
+    errors.push("VAPID_PRIVATE_KEY is required for push notifications.");
   }
 
   return errors;
@@ -310,12 +308,15 @@ function validateEnv(env = process.env) {
     return;
   }
 
+  const logger = require("../utils/logger");
   logger.error(
     { errors, count: errors.length },
     "Environment validation failed — copy backend/.env.example to backend/.env and set the required values",
   );
-  const logger = require("../utils/logger");
-  logger.fatal({ errors }, "Environment validation failed. Copy backend/.env.example to backend/.env and set the required values.");
+  logger.fatal(
+    { errors },
+    "Environment validation failed. Copy backend/.env.example to backend/.env and set the required values.",
+  );
   process.exit(1);
 }
 

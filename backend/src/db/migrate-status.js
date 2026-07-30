@@ -38,13 +38,6 @@ async function main() {
     pending.forEach((m) =>
       logger.info({ migration: label(m), status: "pending" }),
     );
-    const logger = require("../utils/logger");
-
-    logger.info(`Completed migrations: ${completed.length}`);
-    completed.forEach((m) => logger.info(`  ✔ ${label(m)}`));
-
-    logger.info(`Pending migrations: ${pending.length}`);
-    pending.forEach((m) => logger.info(`  ✗ ${label(m)}`));
 
     await knex.destroy();
 
@@ -60,10 +53,6 @@ async function main() {
     logger.info("Database schema is up to date");
     process.exit(0);
   } catch (err) {
-    logger.info("\nDatabase schema is up to date.");
-    process.exit(0);
-  } catch (err) {
-    const logger = require("../utils/logger");
     logger.error({ err }, "Failed to read migration status");
     await knex.destroy();
     process.exit(1);
