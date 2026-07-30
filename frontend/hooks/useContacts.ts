@@ -1,4 +1,4 @@
-"use client"; import { useState, useEffect, useCallback } from "react"; import { isValidStellarAddress } from "@/lib/stellar"; import { addContact as dbAdd, getAllContacts, updateContact as dbUpdate, deleteContact as dbDelete, searchContacts as dbSearch, importContacts as dbImport, createGroup as dbCreateGroup, getAllGroups as dbGetAllGroups, deleteGroup as dbDeleteGroup, addToGroup as dbAddToGroup, removeFromGroup as dbRemoveFromGroup, getContactsByGroup as dbGetContactsByGroup, type Contact, type ContactGroup } from "@/lib/contactsDB";
+"use client"; import { useState, useEffect, useCallback } from "react"; import { isValidStellarAddress } from "@/lib/stellar"; import { addContact as dbAdd, getAllContacts, updateContact as dbUpdate, deleteContact as dbDelete, clearAllContacts as dbClearAll, searchContacts as dbSearch, importContacts as dbImport, createGroup as dbCreateGroup, getAllGroups as dbGetAllGroups, deleteGroup as dbDeleteGroup, addToGroup as dbAddToGroup, removeFromGroup as dbRemoveFromGroup, getContactsByGroup as dbGetContactsByGroup, type Contact, type ContactGroup } from "@/lib/contactsDB";
 
 export function useContacts() {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -33,6 +33,11 @@ export function useContacts() {
 
   const search = useCallback(async (query: string) => { return dbSearch(query); }, []);
 
+  const clear = useCallback(async () => {
+    await dbClearAll();
+    await refresh();
+  }, [refresh]);
+
   const importItems = useCallback(async (items: Omit<Contact, "id" | "createdAt" | "updatedAt">[]) => {
     const count = await dbImport(items);
     await refresh();
@@ -63,7 +68,7 @@ export function useContacts() {
 
   return {
     contacts, groups, loading,
-    add, update, remove, search, import: importItems, refresh,
+    add, update, remove, search, import: importItems, clear, refresh,
     createGroup, deleteGroup, addToGroup, removeFromGroup, getContactsByGroup,
   };
 }

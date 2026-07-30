@@ -43,7 +43,7 @@ export default function TipPage() {
       message: `Looking up @${routeUsername}...`,
     });
 
-    fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(routeUsername)}`)
+    fetch(`${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(routeUsername)}`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
 

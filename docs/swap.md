@@ -179,3 +179,38 @@ const impact = calculatePriceImpact(
 | `frontend/components/TradeForm.tsx` | **Redesigned** — full swap UI with all Issue #249 features |
 | `frontend/__tests__/TradeForm.test.tsx` | **Replaced** — comprehensive test suite (7 path-payment tests) |
 | `docs/swap.md` | **Created** — this document |
+
+---
+
+## On-Chain Contract Swap (Issue #9 / #479)
+
+TradeForm also offers a **"Swap Via" toggle** — *Horizon Swap* (default, described above) vs. *Contract Swap*, which settles through `FinchippayContract` instead of a Horizon path payment.
+
+### Contract functions
+
+| Function | Purpose |
+|---|---|
+| `swap_exact_tokens_for_tokens(caller, token_in, token_out, amount_in, min_amount_out, path)` | Swap an exact input for at least `min_amount_out`, enforcing slippage protection |
+| `swap_tokens_for_exact_tokens(caller, token_in, token_out, amount_out, max_amount_in, path)` | Swap up to `max_amount_in` for an exact output |
+| `set_fee_collector(admin, collector)` / `get_fee_collector()` | Admin-configurable protocol fee recipient (defaults to admin) |
+| `set_swap_fee(admin, new_fee_bps)` / `get_swap_fee()` | Admin-configurable protocol fee, 0–1000 bps (default 30 bps = 0.3%) |
+
+A protocol fee (default 0.3%) is deducted from `amount_in` and sent to the fee collector before the swap executes; the remainder is settled against the contract's token reserves.
+
+### ⚠️ Pricing-model limitation
+
+Soroban contracts have no host function to invoke the classic Stellar DEX's `path_payment_strict_send`/`strict_receive` operations, and building a full on-chain AMM was explicitly **out of scope** for issue #9/#479. As a result, `swap_exact_tokens_for_tokens` / `swap_tokens_for_exact_tokens` settle the post-fee amount **1:1** against the contract's own pre-funded `token_out` reserves — they do not (yet) source live prices from an AMM or DEX order book. `path` is validated for shape (must start with `token_in`, end with `token_out`, length ≥ 2) but intermediate hops are not separately transferred, since the contract holds no inventory of intermediate tokens.
+
+This makes the contract path a legitimate fee-collecting, slippage-protected settlement primitive today, but **not yet a priced router**. Real price discovery (via an AMM pool or a wrapped external router contract) is tracked as follow-up work; the Horizon path-payment flow remains the source of real market pricing until then, and the "Contract Swap" mode reuses the Horizon-derived preview for its quote while settling on-chain.
+
+### Frontend integration
+
+`frontend/hooks/useContractSwap.ts` builds, signs (via Freighter), and submits a `swap_exact_tokens_for_tokens` transaction using the contract bindings in `frontend/lib/contract-bindings/index.ts`. `TradeForm.tsx` exposes the toggle and calls this hook instead of `buildPathPaymentTransaction` when "Contract Swap" is selected.
+
+| File | Change |
+|---|---|
+| `contracts/finchippay-contract/src/lib.rs` | **Added** — `swap_exact_tokens_for_tokens`, `swap_tokens_for_exact_tokens`, fee-collector/fee-bps admin functions, 15 new tests |
+| `frontend/hooks/useContractSwap.ts` | **Created** — drives the on-chain swap transaction |
+| `frontend/components/TradeForm.tsx` | **Updated** — Horizon/Contract swap toggle |
+| `frontend/lib/contract-bindings/index.ts` | **Updated** — swap + fee-admin client methods |
+| `scripts/gen-contract-bindings.sh` | **Updated** — documents the new swap methods in its example output |

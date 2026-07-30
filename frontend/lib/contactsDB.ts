@@ -120,6 +120,16 @@ export async function deleteContact(id: number): Promise<void> {
   });
 }
 
+export async function clearAllContacts(): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CONTACTS_STORE, "readwrite");
+    tx.objectStore(CONTACTS_STORE).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function searchContacts(query: string): Promise<Contact[]> {
   const all = await getAllContacts();
   const q = query.toLowerCase();

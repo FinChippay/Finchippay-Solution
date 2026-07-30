@@ -15,7 +15,7 @@ import {
   PaymentHistoryResponse,
 } from "@/lib/stellar";
 import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
-import { loadAddressBookContacts, upsertAddressBookContact } from "@/lib/addressBook";
+import { useContacts } from "@/hooks/useContacts";
 import {
   HistoryIcon,
   ArrowUpIcon,
@@ -140,6 +140,7 @@ function TransactionList({
   onSendAgain,
 }: TransactionListProps) {
   const { t } = useTranslation("common");
+  const { contacts, add: addContact, update: updateContact } = useContacts();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -341,15 +342,19 @@ function TransactionList({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleSaveContact = (address: string) => {
-    const existing = loadAddressBookContacts().find((contact) => contact.address === address);
+  const handleSaveContact = async (address: string) => {
+    const existing = contacts.find((contact) => contact.publicKey === address);
     const nickname = window.prompt(
       existing ? "Update contact nickname:" : "Nickname for this contact:",
-      existing?.nickname || address.slice(0, 8)
+      existing?.name || address.slice(0, 8)
     );
 
     if (!nickname) return;
-    upsertAddressBookContact({ nickname, address });
+    if (existing?.id !== undefined) {
+      await updateContact(existing.id, { name: nickname });
+    } else {
+      await addContact({ name: nickname, publicKey: address });
+    }
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {

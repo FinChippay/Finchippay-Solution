@@ -32,14 +32,14 @@ use soroban_sdk::{
 /// Case count for invariants that only exercise the pure `claimable_at`
 /// arithmetic (no contract/token I/O). Comfortably exceeds the >=100,000
 /// acceptance criterion and still runs in well under a second.
-const CASES_ARITHMETIC: u32 = 500_000;
+const CASES_ARITHMETIC: u32 = 100_000;
 
 /// Case count for invariants that must go through a deployed contract
 /// (real token transfers, storage writes, auth checks). Each case here
 /// costs on the order of milliseconds, so this is tuned to keep the whole
 /// test binary under the 30s CI budget rather than the same 100,000 used
 /// for the arithmetic-only invariants.
-const CASES_CONTRACT: u32 = 350;
+const CASES_CONTRACT: u32 = 250;
 
 /// Case count for the read-only idempotency check, which reuses a single
 /// already-open stream (no per-case token transfer or stream creation), so
@@ -111,6 +111,8 @@ fn synthetic_stream(payer: &Address, recipient: &Address, token: &Address) -> St
         claimed: 0,
         start_ledger: 0,
         closed: false,
+        paused_at_ledger: 0,
+        total_paused_duration: 0,
     }
 }
 

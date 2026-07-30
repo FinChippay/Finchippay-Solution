@@ -186,3 +186,127 @@ export async function fetchTokenPrices(
   }
   return result;
 }
+
+
+// --- Price cache (localStorage, 5-minute TTL) ---
+
+const PRICE_CACHE_KEY = "finchippay:portfolio-price-cache";
+const PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface PriceCacheEntry {
+  prices: Record<string, TokenPriceSnapshot>;
+  cachedAt: number;
+}
+
+function loadPriceCache(): PriceCacheEntry | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PRICE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PriceCacheEntry;
+    if (!parsed?.prices || typeof parsed.cachedAt !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function savePriceCache(prices: Record<string, TokenPriceSnapshot>): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify({ prices, cachedAt: Date.now() }));
+}
+
+export async function fetchTokenPricesCached(
+  codes: string[]
+): Promise<{ prices: Record<string, TokenPriceSnapshot>; stale: boolean }> {
+  const cached = loadPriceCache();
+  const isFresh = cached !== null && Date.now() - cached.cachedAt < PRICE_CACHE_TTL_MS;
+
+  if (isFresh) {
+    return { prices: cached.prices, stale: false };
+  }
+
+  try {
+    const prices = await fetchTokenPrices(codes);
+    savePriceCache(prices);
+    return { prices, stale: false };
+  } catch (err) {
+    if (cached) {
+      return { prices: cached.prices, stale: true };
+    }
+    throw err;
+  }
+}
+
+
+// --- P&L tracking (daily portfolio value snapshots, localStorage) ---
+
+export interface PortfolioValueSnapshot {
+  date: string;
+  totalValue: number;
+}
+
+const PORTFOLIO_HISTORY_KEY = "finchippay:portfolio-value-history";
+const MAX_HISTORY_DAYS = 90;
+
+function todayDateKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function loadPortfolioHistory(): PortfolioValueSnapshot[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PORTFOLIO_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is PortfolioValueSnapshot =>
+        typeof s?.date === "string" && typeof s?.totalValue === "number"
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Records today's total portfolio value, replacing any existing snapshot
+ * for today (idempotent per calendar day) and trimming to the last 90 days.
+ */
+export function recordPortfolioValueSnapshot(totalValue: number): void {
+  if (typeof window === "undefined") return;
+  const history = loadPortfolioHistory();
+  const today = todayDateKey();
+  const withoutToday = history.filter((s) => s.date !== today);
+  const updated = [...withoutToday, { date: today, totalValue }]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-MAX_HISTORY_DAYS);
+  localStorage.setItem(PORTFOLIO_HISTORY_KEY, JSON.stringify(updated));
+}
+
+export interface PnLResult {
+  absolute: number;
+  percent: number | null;
+}
+
+/**
+ * Computes P&L over the last N days by comparing the current total value
+ * against the closest available snapshot at or before that many days ago.
+ * Returns null percent (only absolute, treated as 0) when there's no
+ * baseline snapshot old enough to compare against yet.
+ */
+export function calculatePnL(currentValue: number, days: number): PnLResult {
+  const history = loadPortfolioHistory();
+  if (history.length === 0) return { absolute: 0, percent: null };
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffKey = cutoff.toISOString().slice(0, 10);
+
+  const baseline = [...history].reverse().find((s) => s.date <= cutoffKey);
+  if (!baseline) return { absolute: 0, percent: null };
+
+  const absolute = currentValue - baseline.totalValue;
+  const percent = baseline.totalValue > 0 ? (absolute / baseline.totalValue) * 100 : null;
+  return { absolute, percent };
+}

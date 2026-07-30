@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createInvoice, InvoiceFormData } from "@/lib/invoices";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface InvoiceModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export default function InvoiceModal({
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
 
   useEffect(() => {
     if (isOpen && prefilledData) {
@@ -118,16 +120,21 @@ export default function InvoiceModal({
           onClick={onClose}
         >
           <motion.div
+            ref={panelRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invoice-modal-title"
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg rounded-2xl border border-white/20 bg-white/95 p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900/95 max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-lg rounded-2xl border border-white/20 bg-white/95 p-6 shadow-2xl outline-none dark:border-white/10 dark:bg-slate-900/95 max-h-[90vh] overflow-y-auto"
           >
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                <h2 id="invoice-modal-title" className="text-xl font-bold text-slate-900 dark:text-white">
                   Generate Invoice
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -135,10 +142,12 @@ export default function InvoiceModal({
                 </p>
               </div>
               <button
+                type="button"
                 onClick={onClose}
+                aria-label="Close invoice dialog"
                 className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -147,15 +156,18 @@ export default function InvoiceModal({
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <label htmlFor="invoice-clientName" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Client Name *
                   </label>
                   <input
+                    id="invoice-clientName"
                     type="text"
                     name="clientName"
                     value={formData.clientName}
                     onChange={handleChange}
                     placeholder="e.g. Acme Corp"
+                    aria-invalid={!!errors.clientName}
+                    aria-describedby={errors.clientName ? "invoice-clientName-error" : undefined}
                     className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 dark:bg-slate-800 dark:text-white ${
                       errors.clientName
                         ? "border-red-500 focus:border-red-500"
@@ -163,19 +175,22 @@ export default function InvoiceModal({
                     }`}
                   />
                   {errors.clientName && (
-                    <p className="mt-1 text-xs text-red-500">{errors.clientName}</p>
+                    <p id="invoice-clientName-error" role="alert" className="mt-1 text-xs text-red-500">{errors.clientName}</p>
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <label htmlFor="invoice-clientEmail" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Client Email *
                   </label>
                   <input
+                    id="invoice-clientEmail"
                     type="email"
                     name="clientEmail"
                     value={formData.clientEmail}
                     onChange={handleChange}
                     placeholder="client@example.com"
+                    aria-invalid={!!errors.clientEmail}
+                    aria-describedby={errors.clientEmail ? "invoice-clientEmail-error" : undefined}
                     className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 dark:bg-slate-800 dark:text-white ${
                       errors.clientEmail
                         ? "border-red-500 focus:border-red-500"
@@ -183,21 +198,24 @@ export default function InvoiceModal({
                     }`}
                   />
                   {errors.clientEmail && (
-                    <p className="mt-1 text-xs text-red-500">{errors.clientEmail}</p>
+                    <p id="invoice-clientEmail-error" role="alert" className="mt-1 text-xs text-red-500">{errors.clientEmail}</p>
                   )}
                 </div>
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                <label htmlFor="invoice-description" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                   Description *
                 </label>
                 <input
+                  id="invoice-description"
                   type="text"
                   name="description"
                   value={formData.description}
                   onChange={handleChange}
                   placeholder="e.g. Web Development Services"
+                  aria-invalid={!!errors.description}
+                  aria-describedby={errors.description ? "invoice-description-error" : undefined}
                   className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 dark:bg-slate-800 dark:text-white ${
                     errors.description
                       ? "border-red-500 focus:border-red-500"
@@ -205,16 +223,17 @@ export default function InvoiceModal({
                   }`}
                 />
                 {errors.description && (
-                  <p className="mt-1 text-xs text-red-500">{errors.description}</p>
+                  <p id="invoice-description-error" role="alert" className="mt-1 text-xs text-red-500">{errors.description}</p>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <label htmlFor="invoice-amount" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Amount *
                   </label>
                   <input
+                    id="invoice-amount"
                     type="number"
                     name="amount"
                     value={formData.amount}
@@ -222,6 +241,8 @@ export default function InvoiceModal({
                     step="0.0000001"
                     min="0"
                     placeholder="0.00"
+                    aria-invalid={!!errors.amount}
+                    aria-describedby={errors.amount ? "invoice-amount-error" : undefined}
                     className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 dark:bg-slate-800 dark:text-white ${
                       errors.amount
                         ? "border-red-500 focus:border-red-500"
@@ -229,14 +250,15 @@ export default function InvoiceModal({
                     }`}
                   />
                   {errors.amount && (
-                    <p className="mt-1 text-xs text-red-500">{errors.amount}</p>
+                    <p id="invoice-amount-error" role="alert" className="mt-1 text-xs text-red-500">{errors.amount}</p>
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <label htmlFor="invoice-asset" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Asset
                   </label>
                   <select
+                    id="invoice-asset"
                     name="asset"
                     value={formData.asset}
                     onChange={handleChange}
@@ -250,14 +272,17 @@ export default function InvoiceModal({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                <label htmlFor="invoice-dueDate" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                   Due Date *
                 </label>
                 <input
+                  id="invoice-dueDate"
                   type="date"
                   name="dueDate"
                   value={formData.dueDate}
                   onChange={handleChange}
+                  aria-invalid={!!errors.dueDate}
+                  aria-describedby={errors.dueDate ? "invoice-dueDate-error" : undefined}
                   className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-colors dark:bg-slate-800 dark:text-white ${
                     errors.dueDate
                       ? "border-red-500 focus:border-red-500"
@@ -265,15 +290,16 @@ export default function InvoiceModal({
                   }`}
                 />
                 {errors.dueDate && (
-                  <p className="mt-1 text-xs text-red-500">{errors.dueDate}</p>
+                  <p id="invoice-dueDate-error" role="alert" className="mt-1 text-xs text-red-500">{errors.dueDate}</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                <label htmlFor="invoice-notes" className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                   Notes
                 </label>
                 <textarea
+                  id="invoice-notes"
                   name="notes"
                   value={formData.notes}
                   onChange={handleChange}
@@ -285,9 +311,9 @@ export default function InvoiceModal({
 
               {formData.transactionHash && (
                 <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <span className="mb-1 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Linked Transaction
-                  </label>
+                  </span>
                   <p className="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">
                     {formData.transactionHash}
                   </p>

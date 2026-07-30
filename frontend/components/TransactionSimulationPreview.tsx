@@ -29,6 +29,7 @@ import type {
   SimulationResult,
   BalanceChange,
 } from "@/hooks/useTransactionSimulation";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ export default function TransactionSimulationPreview({
   description = "Review the estimated effects of this transaction before signing.",
 }: TransactionSimulationPreviewProps) {
   const [confirmed, setConfirmed] = useState(false);
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
 
   // Reset confirmation state when modal opens
   useMemo(() => {
@@ -84,10 +86,12 @@ export default function TransactionSimulationPreview({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sim-preview-title"
-        className="w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl"
+        className="w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl outline-none"
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="border-b border-white/10 px-6 py-5">

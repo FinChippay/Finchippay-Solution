@@ -62,7 +62,10 @@ function verifyJWT(req, res, next) {
         }),
       );
     }
-    req.user = decoded; // { publicKey: "G...", iat, exp }
+    req.user = {
+      ...decoded,
+      sub: decoded.publicKey, // Add sub for userRateLimit middleware
+    }; // { publicKey: "G...", sub, iat, exp }
     next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {

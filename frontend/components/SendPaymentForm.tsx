@@ -34,13 +34,7 @@ import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import FeeEstimator from "@/components/FeeEstimator";
 import { Transaction } from "@stellar/stellar-sdk";
-import {
-  type AddressBookContact,
-  loadAddressBookContacts,
-  saveAddressBookContacts,
-  subscribeToAddressBookContacts,
-  upsertAddressBookContact,
-} from "@/lib/addressBook";
+import { useContacts } from "@/hooks/useContacts";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import ContactPicker from "@/components/ContactPicker";
 import {
@@ -56,6 +50,7 @@ import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useToastContext } from "@/lib/ToastContext";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface SendPaymentFormProps {
   publicKey: string;
@@ -160,6 +155,10 @@ function SendPaymentForm({
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const scannerPanelRef = useFocusTrap<HTMLDivElement>({
+    active: isScannerOpen,
+    onEscape: () => closeScanner(),
+  });
   const [destAccountWarning, setDestAccountWarning] = useState<string | null>(null);
   const [isCheckingDest, setIsCheckingDest] = useState(false);
   const [selectedFeeStroops, setSelectedFeeStroops] = useState<number>(100);
@@ -293,20 +292,14 @@ function SendPaymentForm({
     }
   });
 
-  const [contacts, setContacts] = useState<AddressBookContact[]>(loadAddressBookContacts);
+  const { contacts, add: addContact, remove: removeContact } = useContacts();
   const [isContactsDropdownOpen, setIsContactsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
 
-  useEffect(() => subscribeToAddressBookContacts(setContacts), []);
-
-  const saveContacts = (items: AddressBookContact[]) => {
-    setContacts(items);
-    saveAddressBookContacts(items);
-  };
-
   const deleteContactByAddress = (address: string) => {
-    saveContacts(contacts.filter((contact) => contact.address !== address));
+    const existing = contacts.find((contact) => contact.publicKey === address);
+    if (existing?.id !== undefined) void removeContact(existing.id);
   };
 
   useEffect(() => {
@@ -588,7 +581,7 @@ function SendPaymentForm({
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
+    const response = await fetch(`${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
@@ -633,8 +626,8 @@ function SendPaymentForm({
     const query = destination.trim().toLowerCase();
     if (!query) return true;
     return (
-      contact.nickname.toLowerCase().includes(query) ||
-      contact.address.toLowerCase().includes(query)
+      contact.name.toLowerCase().includes(query) ||
+      contact.publicKey.toLowerCase().includes(query)
     );
   });
 
@@ -991,19 +984,25 @@ function SendPaymentForm({
                 {isValidDest && (
                   <button
                     type="button"
-                    onClick={() => {
-                      const existing = contacts.find((contact) => contact.address === destination);
+                    onClick={async () => {
+                      const existing = contacts.find((contact) => contact.publicKey === destination);
                       if (existing) deleteContactByAddress(destination);
                       else {
                         const nickname = prompt("Nickname for this contact:", destination.slice(0, 8));
-                        if (nickname) setContacts(upsertAddressBookContact({ nickname, address: destination }));
+                        if (nickname) {
+                          try {
+                            await addContact({ name: nickname, publicKey: destination });
+                          } catch (err) {
+                            addToast(err instanceof Error ? err.message : "Failed to save contact", "error");
+                          }
+                        }
                       }
                     }}
                     className="text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
-                    title={contacts.some((contact) => contact.address === destination) ? t("sendPayment.removeContact") : t("sendPayment.saveContact")}
-                    aria-label={contacts.some((contact) => contact.address === destination) ? "Remove address from contacts" : "Save address as contact"}
+                    title={contacts.some((contact) => contact.publicKey === destination) ? t("sendPayment.removeContact") : t("sendPayment.saveContact")}
+                    aria-label={contacts.some((contact) => contact.publicKey === destination) ? "Remove address from contacts" : "Save address as contact"}
                   >
-                    <StarIcon className="h-5 w-5" filled={contacts.some((contact) => contact.address === destination)} />
+                    <StarIcon className="h-5 w-5" filled={contacts.some((contact) => contact.publicKey === destination)} />
                   </button>
                 )}
                 {isScannerSupported && status === "idle" && (
@@ -1066,11 +1065,11 @@ function SendPaymentForm({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => handleSelectContact(item.address)}
+                    onClick={() => handleSelectContact(item.publicKey)}
                     className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left rtl:items-end rtl:text-right hover:bg-slate-50 dark:hover:bg-white/5"
                   >
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-200">{item.nickname}</span>
-                    <span className="text-xs text-slate-600 dark:text-slate-400">{shortenAddress(item.address, 8)}</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-200">{item.name}</span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400">{shortenAddress(item.publicKey, 8)}</span>
                   </button>
                 ))}
               </div>
@@ -1192,7 +1191,7 @@ function SendPaymentForm({
 
       {isScannerOpen && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="QR code scanner">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden">
+          <div ref={scannerPanelRef} tabIndex={-1} className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden outline-none">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/5">
               <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">Scan QR Code</h3>
               <button onClick={closeScanner} className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5" aria-label="Close scanner">
@@ -1225,6 +1224,18 @@ function SendPaymentForm({
         timeoutSeconds={60}
         onClose={closeStatusModal}
       />
+
+      {isContactPickerOpen && (
+        <ContactPicker
+          isOpen={isContactPickerOpen}
+          onClose={() => setIsContactPickerOpen(false)}
+          onSelect={(publicKey: string, name: string, memo?: string) => {
+            setDestination(publicKey);
+            if (memo) setMemo(memo);
+            setIsContactPickerOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1243,11 +1254,12 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, isTipOnChain, onCancel, onConfirm, t }: SendConfirmationModalProps) {
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onCancel });
   if (!isOpen) return null;
   const shortened = shortenAddress(destination, 8);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-payment-title">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 border border-slate-200 dark:border-white/10 shadow-2xl">
+      <div ref={panelRef} tabIndex={-1} className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 border border-slate-200 dark:border-white/10 shadow-2xl outline-none">
         <h3 id="confirm-payment-title" className="text-xl font-bold text-slate-900 dark:text-white mb-4">{t("sendPayment.confirmPayment")}</h3>
         <div className="space-y-4">
           <div>
@@ -1277,17 +1289,6 @@ function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estim
           <button onClick={onConfirm} className="flex-1 btn-primary py-3">{t("sendPayment.confirmAndSign")}</button>
         </div>
       </div>
-      {isContactPickerOpen && (
-        <ContactPicker
-          isOpen={isContactPickerOpen}
-          onClose={() => setIsContactPickerOpen(false)}
-          onSelect={(publicKey: string, name: string, memo?: string) => {
-            setDestination(publicKey);
-            if (memo) setMemo(memo);
-            setIsContactPickerOpen(false);
-          }}
-        />
-      )}
     </div>
   )
 }

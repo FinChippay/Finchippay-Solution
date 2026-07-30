@@ -16,6 +16,15 @@ const TIP_KEYSET = [
   ["id", "desc"],
 ];
 
+// Helper to derive a human-readable amount string from a DB row. Prefer
+// integer `amount_stroops` (exact), falling back to legacy `amount` string.
+function amountFromRow(row) {
+  if (row && row.amount_stroops != null) {
+    return Number(row.amount_stroops / 1e7).toFixed(7);
+  }
+  return row && row.amount != null ? String(row.amount) : null;
+}
+
 /**
  * Record a tip sent to a creator.
  * @param {string} senderPublicKey - The Stellar public key of the sender
@@ -42,23 +51,51 @@ async function recordTip({
     throw error;
   }
 
-  const [id] = await knex("tips").insert({
+  // Prepare insert object. Use amount_stroops when the DB supports it for exact integer storage.
+  const insertObj = {
     sender_pk: senderPublicKey,
     creator_pk: creatorPublicKey,
-    amount: String(amount),
     asset,
     memo,
     tx_hash: txHash,
-    created_at: new Date().toISOString(),
-  });
+  };
+
+  // Always store the human-readable amount string for backward compatibility
+  insertObj.amount = String(amount);
+
+  // If the database has an `amount_stroops` column, populate it too (stroops = amount * 10^7)
+  try {
+    const hasAmountStroops = await knex.schema.hasColumn("tips", "amount_stroops");
+    if (hasAmountStroops) {
+      const amountStroops = Math.round(parseFloat(amount) * 1e7);
+      insertObj.amount_stroops = Number.isFinite(amountStroops) ? amountStroops : null;
+    }
+
+    const hasCreatedAt = await knex.schema.hasColumn("tips", "created_at");
+    if (hasCreatedAt) {
+      insertObj.created_at = new Date().toISOString();
+    }
+  } catch (e) {
+    // Feature-detect failures are non-fatal; proceed with the basic insert
+  }
+
+  const [id] = await knex("tips").insert(insertObj);
 
   const tip = await knex("tips").where("id", id).first();
+
+  // Derive the API amount string from amount_stroops when present, otherwise use stored amount
+  const amountFromRow = (row) => {
+    if (row.amount_stroops != null) {
+      return Number(row.amount_stroops / 1e7).toFixed(7);
+    }
+    return row.amount != null ? String(row.amount) : null;
+  };
 
   return {
     id: tip.id,
     senderPublicKey: tip.sender_pk,
     creatorPublicKey: tip.creator_pk,
-    amount: tip.amount,
+    amount: amountFromRow(tip),
     asset: tip.asset,
     memo: tip.memo,
     txHash: tip.tx_hash,
@@ -97,7 +134,7 @@ async function getTipsReceived(creatorPublicKey, options = {}) {
     id: row.id,
     senderPublicKey: row.sender_pk,
     creatorPublicKey: row.creator_pk,
-    amount: row.amount,
+    amount: amountFromRow(row),
     asset: row.asset,
     memo: row.memo,
     txHash: row.tx_hash,
@@ -122,9 +159,10 @@ async function getTipsStats(creatorPublicKey) {
     throw error;
   }
 
+  // Read both legacy `amount` string and optional `amount_stroops` integer for accuracy
   const rows = await knex("tips")
     .where("creator_pk", creatorPublicKey)
-    .select("amount", "asset");
+    .select("amount", "amount_stroops", "asset");
 
   const stats = {
     totalTips: rows.length,
@@ -134,28 +172,33 @@ async function getTipsStats(creatorPublicKey) {
     smallestTip: null,
   };
 
-  // Calculate totals by asset
+  // Calculate totals by asset using stroops when available
+  const numericAmounts = [];
   for (const row of rows) {
     const asset = row.asset || "XLM";
     if (!stats.totalByAsset[asset]) {
       stats.totalByAsset[asset] = { count: 0, amount: 0 };
     }
     stats.totalByAsset[asset].count++;
-    stats.totalByAsset[asset].amount += parseFloat(row.amount);
+
+    const amt =
+      row.amount_stroops != null
+        ? Number(row.amount_stroops) / 1e7
+        : parseFloat(row.amount) || 0;
+    stats.totalByAsset[asset].amount += amt;
+    numericAmounts.push(amt);
   }
 
-  // Convert amounts to strings with proper precision
+  // Convert totals to strings
   for (const asset of Object.keys(stats.totalByAsset)) {
     stats.totalByAsset[asset].amount = String(stats.totalByAsset[asset].amount);
   }
 
-  // Calculate average, largest, smallest
-  if (rows.length > 0) {
-    const amounts = rows.map((r) => parseFloat(r.amount));
-    const totalAmount = amounts.reduce((sum, a) => sum + a, 0);
-    stats.averageTip = String(totalAmount / rows.length);
-    stats.largestTip = String(Math.max(...amounts));
-    stats.smallestTip = String(Math.min(...amounts));
+  if (numericAmounts.length > 0) {
+    const totalAmount = numericAmounts.reduce((sum, a) => sum + a, 0);
+    stats.averageTip = String(totalAmount / numericAmounts.length);
+    stats.largestTip = String(Math.max(...numericAmounts));
+    stats.smallestTip = String(Math.min(...numericAmounts));
   }
 
   return stats;
@@ -191,7 +234,7 @@ async function getTipsSent(senderPublicKey, options = {}) {
     id: row.id,
     senderPublicKey: row.sender_pk,
     creatorPublicKey: row.creator_pk,
-    amount: row.amount,
+    amount: amountFromRow(row),
     asset: row.asset,
     memo: row.memo,
     txHash: row.tx_hash,

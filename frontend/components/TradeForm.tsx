@@ -30,7 +30,9 @@ import {
   pathAssetsToStellarAssets,
   type PathFinderResult,
 } from "@/lib/pathFinder";
+import { useContractSwap } from "@/hooks/useContractSwap";
 import { SwapIcon, AlertCircleIcon, Spinner } from "@/components/icons";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,10 @@ type TokenCode = (typeof SUPPORTED_TOKENS)[number];
 
 /** Preset slippage options shown as quick-select buttons. */
 const SLIPPAGE_PRESETS = ["0.5", "1", "3"] as const;
+
+/** Swap execution backend: Horizon path payment vs. the on-chain contract. */
+const SWAP_MODES = ["horizon", "contract"] as const;
+type SwapMode = (typeof SWAP_MODES)[number];
 
 /** Debounce delay (ms) before triggering a Horizon path lookup. */
 const PATH_DEBOUNCE_MS = 600;
@@ -96,6 +102,10 @@ export default function TradeForm({
   const [payToken, setPayToken] = useState<TokenCode>("XLM");
   const [receiveToken, setReceiveToken] = useState<TokenCode>("USDC");
 
+  // ── Swap execution mode ──────────────────────────────────────────────────
+  const [swapMode, setSwapMode] = useState<SwapMode>("horizon");
+  const contractSwap = useContractSwap();
+
   // ── Amounts ──────────────────────────────────────────────────────────────
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
@@ -114,6 +124,10 @@ export default function TradeForm({
   // ── Transaction state ────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const confirmModalRef = useFocusTrap<HTMLDivElement>({
+    active: showConfirmModal,
+    onEscape: () => setShowConfirmModal(false),
+  });
 
   // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -279,44 +293,67 @@ export default function TradeForm({
     setShowConfirmModal(true);
   };
 
-  /** Sign and submit the path-payment transaction. */
+  /** Sign and submit via Horizon path payment. */
+  const submitHorizonSwap = async (minReceived: string) => {
+    if (!publicKey || !pathResult?.bestPath) return;
+
+    const srcAsset = tokenToAsset(payToken);
+    const dstAsset = tokenToAsset(receiveToken);
+    const intermediateAssets = pathAssetsToStellarAssets(
+      pathResult.bestPath.path
+    );
+
+    // Build path payment (strict-receive so user gets at least minReceived)
+    const tx = await buildPathPaymentTransaction({
+      fromPublicKey: publicKey,
+      toPublicKey: publicKey,
+      sendAsset: srcAsset,
+      sendMax: payAmount,           // maximum we are willing to pay
+      destAsset: dstAsset,
+      destAmount: minReceived,      // minimum we must receive (slippage applied)
+      path: intermediateAssets,
+    });
+
+    const { signTransaction } = await import("@stellar/freighter-api");
+    const signed = await signTransaction(tx.toXDR(), {
+      networkPassphrase: NETWORK_PASSPHRASE,
+    });
+    if (signed.error) {
+      throw new Error(signed.error.message || "Transaction signing failed");
+    }
+
+    await submitTransaction(signed.signedTxXdr);
+  };
+
+  /** Sign and submit via the FinchippayContract on-chain swap. */
+  const submitContractSwap = async (minReceived: string) => {
+    if (!publicKey) return;
+    await contractSwap.swap({
+      publicKey,
+      payToken,
+      receiveToken,
+      payAmount,
+      minReceiveAmount: minReceived,
+    });
+  };
+
+  /** Execute the swap through the selected backend (Horizon or contract). */
   const handleConfirmSwap = async () => {
     if (!publicKey || !pathResult?.bestPath || !swapPreview) return;
     setShowConfirmModal(false);
     setIsSubmitting(true);
 
     try {
-      const srcAsset = tokenToAsset(payToken);
-      const dstAsset = tokenToAsset(receiveToken);
-      const intermediateAssets = pathAssetsToStellarAssets(
-        pathResult.bestPath.path
-      );
-
       const minReceived = applySlippage(
         swapPreview.destinationAmount,
         activeSlippage
       );
 
-      // Build path payment (strict-receive so user gets at least minReceived)
-      const tx = await buildPathPaymentTransaction({
-        fromPublicKey: publicKey,
-        toPublicKey: publicKey,
-        sendAsset: srcAsset,
-        sendMax: payAmount,           // maximum we are willing to pay
-        destAsset: dstAsset,
-        destAmount: minReceived,      // minimum we must receive (slippage applied)
-        path: intermediateAssets,
-      });
-
-      const { signTransaction } = await import("@stellar/freighter-api");
-      const signed = await signTransaction(tx.toXDR(), {
-        networkPassphrase: NETWORK_PASSPHRASE,
-      });
-      if (signed.error) {
-        throw new Error(signed.error.message || "Transaction signing failed");
+      if (swapMode === "contract") {
+        await submitContractSwap(minReceived);
+      } else {
+        await submitHorizonSwap(minReceived);
       }
-
-      await submitTransaction(signed.signedTxXdr);
 
       onSuccess("Swap executed successfully!");
       onTradeComplete();
@@ -339,6 +376,49 @@ export default function TradeForm({
   return (
     <>
       <div className="card space-y-6">
+        {/* ── Swap mode toggle ──────────────────────────────────────────────── */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+            Swap Via
+          </label>
+          <div
+            role="group"
+            aria-label="Swap execution mode"
+            className="flex gap-2"
+          >
+            <button
+              type="button"
+              onClick={() => setSwapMode("horizon")}
+              aria-pressed={swapMode === "horizon"}
+              className={`flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                swapMode === "horizon"
+                  ? "bg-stellar-500 text-white"
+                  : "bg-stellar-500/10 text-slate-700 dark:text-slate-300 hover:bg-stellar-500/20"
+              }`}
+            >
+              Horizon Swap
+            </button>
+            <button
+              type="button"
+              onClick={() => setSwapMode("contract")}
+              aria-pressed={swapMode === "contract"}
+              className={`flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                swapMode === "contract"
+                  ? "bg-stellar-500 text-white"
+                  : "bg-stellar-500/10 text-slate-700 dark:text-slate-300 hover:bg-stellar-500/20"
+              }`}
+            >
+              Contract Swap
+            </button>
+          </div>
+          {swapMode === "contract" && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+              Settles on-chain via FinchippayContract. A protocol fee applies;
+              route pricing above is still sourced from Horizon.
+            </p>
+          )}
+        </div>
+
         {/* ── You Pay ──────────────────────────────────────────────────────── */}
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -597,7 +677,7 @@ export default function TradeForm({
           aria-labelledby="confirm-swap-title"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md bg-white dark:bg-cosmos-900 rounded-2xl shadow-xl p-6 space-y-5">
+          <div ref={confirmModalRef} tabIndex={-1} className="w-full max-w-md bg-white dark:bg-cosmos-900 rounded-2xl shadow-xl p-6 space-y-5 outline-none">
             <h2
               id="confirm-swap-title"
               className="text-xl font-semibold text-slate-900 dark:text-white"

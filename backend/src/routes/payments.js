@@ -8,6 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
+const { userLimiter } = require("../middleware/userRateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
 const { validate } = require("../validation/middleware");
 const {
@@ -30,6 +31,7 @@ const logger = require("../utils/logger");
 router.get(
   "/:publicKey",
   strictLimiter,
+  userLimiter,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
@@ -43,6 +45,7 @@ router.get(
 router.get(
   "/:publicKey/stats",
   strictLimiter,
+  userLimiter,
   validate(publicKeyParamSchema, "params"),
   paymentController.getStats,
 );
@@ -53,7 +56,7 @@ router.get(
  * Uses multer for streaming file upload (configurable via CSV_UPLOAD_MAX_SIZE).
  * Parses CSV with papaparse and returns parsed rows.
  */
-router.post("/batch/upload", csvUploadMiddleware, async (req, res, next) => {
+router.post("/batch/upload", strictLimiter, userLimiter, csvUploadMiddleware, async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No CSV file uploaded" });

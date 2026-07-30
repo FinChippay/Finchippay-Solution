@@ -20,6 +20,10 @@ import {
   getPreferredFiatCurrency,
   setPreferredFiatCurrency,
   fetchTokenPrices,
+  fetchTokenPricesCached,
+  recordPortfolioValueSnapshot,
+  loadPortfolioHistory,
+  calculatePnL,
 } from "@/lib/portfolio";
 
 const mockGetBalances = stellarModule.getBalances as jest.Mock;
@@ -152,5 +156,91 @@ describe("fetchTokenPrices", () => {
     global.fetch = jest.fn();
     expect(await fetchTokenPrices([])).toEqual({});
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchTokenPricesCached", () => {
+  const ORIGINAL_FETCH = global.fetch;
+  afterEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  it("fetches fresh and caches on first call", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ stellar: { usd: 0.1 } }),
+    });
+    const { prices, stale } = await fetchTokenPricesCached(["XLM"]);
+    expect(prices.XLM.prices.USD).toBe(0.1);
+    expect(stale).toBe(false);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns cached prices without refetching within the TTL", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ stellar: { usd: 0.1 } }),
+    });
+    await fetchTokenPricesCached(["XLM"]);
+    const { prices, stale } = await fetchTokenPricesCached(["XLM"]);
+    expect(prices.XLM.prices.USD).toBe(0.1);
+    expect(stale).toBe(false);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a stale cache entry when a refetch fails", async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ stellar: { usd: 0.1 } }),
+    });
+    await fetchTokenPricesCached(["XLM"]);
+
+    jest.spyOn(Date, "now").mockReturnValue(Date.now() + 10 * 60 * 1000);
+    global.fetch = jest.fn().mockRejectedValue(new Error("network down"));
+
+    const { prices, stale } = await fetchTokenPricesCached(["XLM"]);
+    expect(prices.XLM.prices.USD).toBe(0.1);
+    expect(stale).toBe(true);
+    (Date.now as jest.Mock).mockRestore();
+  });
+});
+
+describe("portfolio value history and P&L", () => {
+  it("records and loads a daily snapshot", () => {
+    recordPortfolioValueSnapshot(100);
+    const history = loadPortfolioHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0].totalValue).toBe(100);
+  });
+
+  it("replaces, rather than duplicates, today's snapshot on a second call", () => {
+    recordPortfolioValueSnapshot(100);
+    recordPortfolioValueSnapshot(150);
+    const history = loadPortfolioHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0].totalValue).toBe(150);
+  });
+
+  it("returns a null percent and zero absolute P&L with no history", () => {
+    const pnl = calculatePnL(500, 7);
+    expect(pnl).toEqual({ absolute: 0, percent: null });
+  });
+
+  it("computes 7d P&L against the closest snapshot at or before 7 days ago", () => {
+    const eightDaysAgo = new Date();
+    eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
+    localStorage.setItem(
+      "finchippay:portfolio-value-history",
+      JSON.stringify([{ date: eightDaysAgo.toISOString().slice(0, 10), totalValue: 100 }])
+    );
+    const pnl = calculatePnL(150, 7);
+    expect(pnl.absolute).toBe(50);
+    expect(pnl.percent).toBeCloseTo(50, 5);
+  });
+
+  it("returns null percent when no snapshot is old enough for the requested window", () => {
+    recordPortfolioValueSnapshot(100);
+    const pnl = calculatePnL(150, 30);
+    expect(pnl).toEqual({ absolute: 0, percent: null });
   });
 });

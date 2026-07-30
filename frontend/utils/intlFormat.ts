@@ -5,7 +5,7 @@
  * dates and relative times follow the conventions of the user's locale.
  */
 
-export type SupportedLocale = 'en' | 'es' | 'fr';
+export type SupportedLocale = 'en' | 'es' | 'fr' | 'ja' | 'pt' | 'ar' | 'he';
 
 const DEFAULT_LOCALE: SupportedLocale = 'en';
 
@@ -14,6 +14,10 @@ const LOCALE_TAGS: Record<SupportedLocale, string> = {
   en: 'en-US',
   es: 'es-ES',
   fr: 'fr-FR',
+  ja: 'ja-JP',
+  pt: 'pt-BR',
+  ar: 'ar-SA',
+  he: 'he-IL',
 };
 
 // ---- Intl feature detection (graceful fallback for older browsers) ----

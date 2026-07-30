@@ -19,6 +19,8 @@ backend/logs/
 
 # ─── Rust / Cargo ─────────────────────────────────────────────────────────────
 target/
+# Written to the repository root by the gas_profile test.
+gas-report.json
 
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
@@ -81,4 +83,5 @@ test_snapshots
 # ─── Local scripts (never push) ───────────────────────────────────────────────
 scripts/create_issues.py
 
+# Webhook SQLite database (runtime artifact, never commit)
 backend/data/

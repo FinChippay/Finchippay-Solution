@@ -9,7 +9,7 @@ fn deploy(env: &Env) -> (Address, FinchippayContractClient<'_>) {
     let id = env.register(FinchippayContract, ());
     let client = FinchippayContractClient::new(env, &id);
     let admin = Address::generate(env);
-    client.initialize(&admin);
+    client.initialize(&Vec::from_array(env, [admin.clone()]), &1);
     (id, client)
 }
 

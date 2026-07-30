@@ -133,7 +133,7 @@ export const test = base.extend<{
     });
 
     // --- Backend payment stats API ---
-    await page.route('**/api/payments/**/stats', route => {
+    await page.route('**/api/v1/payments/**/stats', route => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -152,9 +152,9 @@ export const test = base.extend<{
     });
 
     // --- Backend auth API mocks ---
-    await page.route('**/api/auth**', route => {
+    await page.route('**/api/v1/auth**', route => {
       if (route.request().method() === 'GET') {
-        // GET /api/auth?account=... returns challenge transaction
+        // GET /api/v1/auth?account=... returns challenge transaction
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -163,7 +163,7 @@ export const test = base.extend<{
           }),
         });
       } else if (route.request().method() === 'POST') {
-        // POST /api/auth with signed transaction returns JWT
+        // POST /api/v1/auth with signed transaction returns JWT
         route.fulfill({
           status: 200,
           contentType: 'application/json',

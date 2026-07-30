@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface PaymentIntent {
   amount: string;
@@ -29,13 +30,11 @@ export default function AIPaymentAssistant({
   const [parsedIntent, setParsedIntent] = useState<PaymentIntent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Focus input when opened
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isOpen]);
+  const panelRef = useFocusTrap<HTMLDivElement>({
+    active: isOpen,
+    onEscape: onClose,
+    initialFocusRef: inputRef,
+  });
 
   // Reset state when closed
   useEffect(() => {
@@ -56,7 +55,7 @@ export default function AIPaymentAssistant({
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-      const response = await fetch(`${apiUrl}/api/parse-payment`, {
+      const response = await fetch(`${apiUrl}/api/v1/parse-payment`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -86,9 +85,7 @@ export default function AIPaymentAssistant({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       handleSubmit(e);
     }
   };
@@ -96,12 +93,17 @@ export default function AIPaymentAssistant({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-assistant-title"
-        className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl animate-slide-up"
+        className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl animate-slide-up outline-none"
       >
         <div className="flex items-center justify-between mb-4">
           <h3 id="ai-assistant-title" className="font-display text-lg font-semibold text-white flex items-center gap-2">

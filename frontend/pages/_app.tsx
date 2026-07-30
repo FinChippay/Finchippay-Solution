@@ -14,6 +14,8 @@ import { ThemeProvider } from "@/lib/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import OnboardingTour from "@/components/OnboardingTour";
+import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
+import SkipToContentLink from "@/components/SkipToContentLink";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
 import { getStellarURIFromURL, registerProtocolHandler, type URIParseResult } from "@/lib/sep0007";
 import { I18nextProvider } from "react-i18next";
@@ -64,9 +66,11 @@ function AppShellInner({ Component, pageProps, stellarURI, isQuickSendOpen, setI
   const tour = useOnboardingTour();
   return (
     <MotionConfig reducedMotion="user">
+      <SkipToContentLink />
+      <ScreenReaderAnnouncements />
       <div className="min-h-screen bg-[var(--color-bg-primary)] bg-grid transition-colors duration-300">
         <OfflineBanner /><Navbar onTakeTour={tour.startTour} /><OnboardingTour tour={tour} />
-        <main className="pb-20 md:pb-0"><AnimatePresence mode="wait"><motion.div key={router.route} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}><Component {...pageProps} stellarURI={stellarURI} /></motion.div></AnimatePresence></main>
+        <main id="main-content" tabIndex={-1} className="pb-20 md:pb-0 focus:outline-none"><AnimatePresence mode="wait"><motion.div key={router.route} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}><Component {...pageProps} stellarURI={stellarURI} /></motion.div></AnimatePresence></main>
         <MobileBottomNav />
       </div>
       {publicKey && <QuickSendModal isOpen={isQuickSendOpen} onClose={() => setIsQuickSendOpen(false)} publicKey={publicKey} xlmBalance="0" usdcBalance={null} />}

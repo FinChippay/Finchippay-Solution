@@ -350,6 +350,13 @@ async function pollOnce() {
       return;
     }
 
+    // Backlog signal: how far behind the network we are right now (#272).
+    // Recorded before the early return so a caught-up indexer reports 0 rather
+    // than holding its last non-zero value.
+    metrics.contractEventIndexerLagLedgers.set(
+      lastProcessedLedger > 0 ? Math.max(0, latestLedger - lastProcessedLedger) : 0,
+    );
+
     const startLedger = lastProcessedLedger > 0 ? lastProcessedLedger + 1 : 1;
     if (startLedger > latestLedger) {
       // No new ledgers to process
@@ -367,6 +374,7 @@ async function pollOnce() {
         try {
           parsed.push(parseEvent(raw));
         } catch (parseErr) {
+          metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
           logger.warn(
             { parseErr, eventId: raw.id },
             "Failed to parse individual Soroban event — skipping",
@@ -374,6 +382,7 @@ async function pollOnce() {
         }
       }
       const inserted = await storeEvents(parsed);
+      metrics.contractEventsProcessedTotal.inc({ outcome: "indexed" }, inserted);
       logger.info(
         {
           eventCount: rawEvents.length,
@@ -450,6 +459,17 @@ function stop() {
     pollTimer = null;
     logger.info("Event indexer stopped");
   }
+}
+
+/**
+ * Whether the indexer has completed startup — either its polling interval is
+ * active, or it intentionally never started because CONTRACT_ID is unset.
+ * Used by the startup probe so deployments without a configured contract
+ * aren't stuck waiting for an indexer that will never run.
+ * @returns {boolean}
+ */
+function isRunning() {
+  return !!pollTimer || !CONTRACT_ID;
 }
 
 // ─── Query helpers (used by eventController) ─────────────────────────────────
@@ -652,6 +672,7 @@ function isAvailable() {
 module.exports = {
   start,
   stop,
+  isRunning,
   queryEventsByPublicKey,
   queryEventsByType,
   getEventStats,

@@ -13,7 +13,7 @@ import { isValidStellarAddress } from "@/lib/stellar";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** Minimal shape of a contact row — maps directly to AddressBookContact fields. */
+/** Minimal shape of a contact row — maps directly to the contactsDB Contact fields. */
 export interface ContactRow {
   /** Human-readable label for the contact (maps to `nickname`). */
   name: string;

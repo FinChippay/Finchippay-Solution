@@ -251,6 +251,12 @@
     @apply text-xs font-medium px-2.5 py-1 rounded-full;
   }
 
+  /* Skip-to-content link — hidden off-screen until keyboard-focused (WCAG 2.4.1) */
+  .skip-to-content-link {
+    @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-lg bg-stellar-500 px-4 py-3 text-sm font-semibold text-white opacity-0
+           transition-transform duration-150 focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-white;
+  }
+
   /* Onboarding Tour Highlight */
   .tour-highlight {
     position: relative;

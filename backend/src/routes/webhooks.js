@@ -26,6 +26,15 @@ const {
  * Register a webhook for a Stellar account.
  *
  * Body: { publicKey: "G...", url: "https://...", secret: "whsec_...", topics?: string[] }
+ *
+ * Validation:
+ *   - publicKey must be a valid 56-char Stellar address.
+ *   - url must be an HTTPS endpoint (reject http:// in production).
+ *   - secret must be at least 8 characters (HMAC-SHA256 signing secret).
+ *
+ * Secrets are stored encrypted (AES-256-GCM) and a keyed HMAC-SHA256 hash
+ * is also persisted for verification. The server restores all webhooks on
+ * startup — re-registration is not required after a restart.
  */
 router.post("/", validate(registerWebhookSchema), async (req, res, next) => {
   try {
@@ -38,7 +47,9 @@ router.post("/", validate(registerWebhookSchema), async (req, res, next) => {
     );
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
-    next(err);
+    return res
+      .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
+      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
   }
 });
 

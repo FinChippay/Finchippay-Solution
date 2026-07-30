@@ -34,6 +34,21 @@ import {
   ONBOARDING_KEY_STEP,
 } from "@/hooks/useOnboardingTour";
 import OnboardingTour, { TOUR_STEPS, STEP_COUNT } from "@/components/OnboardingTour";
+import { STORAGE_KEY as ONBOARDING_STATE_STORAGE_KEY } from "@/lib/onboardingState";
+
+// ── Mock useWallet (transitively pulls in lib/wallet.ts -> @finchippay/sdk,
+// which isn't resolvable in this workspace's test environment) ──────────────
+const mockUseWalletOptional = jest.fn();
+jest.mock("@/lib/useWallet", () => ({
+  useWalletOptional: () => mockUseWalletOptional(),
+}));
+
+// ── Mock getPaymentHistory so the conditional-skip effect never fires a
+// real network request ───────────────────────────────────────────────────────
+const mockGetPaymentHistory = jest.fn();
+jest.mock("@/lib/stellar", () => ({
+  getPaymentHistory: (...args: unknown[]) => mockGetPaymentHistory(...args),
+}));
 
 // ── Mock react-joyride (DOM-only, not available in jsdom) ───────────────────
 jest.mock("react-joyride", () => {
@@ -117,6 +132,7 @@ function clearStorage() {
   localStorage.removeItem(ONBOARDING_KEY_COMPLETED);
   localStorage.removeItem(ONBOARDING_KEY_DISMISSED);
   localStorage.removeItem(ONBOARDING_KEY_STEP);
+  localStorage.removeItem(ONBOARDING_STATE_STORAGE_KEY);
 }
 
 // ── Test suite: useOnboardingTour hook ───────────────────────────────────────
@@ -325,6 +341,8 @@ describe("useOnboardingTour hook", () => {
 describe("OnboardingTour component", () => {
   beforeEach(() => {
     clearStorage();
+    mockUseWalletOptional.mockReturnValue(undefined);
+    mockGetPaymentHistory.mockResolvedValue({ records: [], hasMore: false });
   });
 
   afterEach(() => {
@@ -448,6 +466,81 @@ describe("OnboardingTour component", () => {
       />
     );
     expect(screen.queryByTestId("onboarding-resume-banner")).not.toBeInTheDocument();
+  });
+
+  // ── Conditional step logic (Issue #375) ──────────────────────────────────
+
+  it("skips the wallet-connect step when a wallet is already connected", async () => {
+    mockUseWalletOptional.mockReturnValue({ publicKey: "GABC123" });
+
+    render(<OnboardingTour tour={makeTourState({ isRunning: true })} />);
+
+    expect(screen.getByTestId("joyride-mock")).toHaveAttribute(
+      "data-step-count",
+      String(STEP_COUNT - 1)
+    );
+
+    // Let the payment-history effect settle so it can't leak into later tests.
+    await waitFor(() => expect(mockGetPaymentHistory).toHaveBeenCalled());
+  });
+
+  it("does not skip the wallet-connect step when no wallet is connected", () => {
+    mockUseWalletOptional.mockReturnValue(undefined);
+
+    render(<OnboardingTour tour={makeTourState({ isRunning: true })} />);
+
+    expect(screen.getByTestId("joyride-mock")).toHaveAttribute(
+      "data-step-count",
+      String(STEP_COUNT)
+    );
+  });
+
+  it("skips the send-payment step once the connected wallet has payment history", async () => {
+    mockUseWalletOptional.mockReturnValue({ publicKey: "GABC123" });
+    mockGetPaymentHistory.mockResolvedValue({
+      records: [{ id: "1" }],
+      hasMore: false,
+    });
+
+    render(<OnboardingTour tour={makeTourState({ isRunning: true })} />);
+
+    // wallet-connect is skipped immediately; send-payment is skipped once the
+    // async history check resolves.
+    await waitFor(() => {
+      expect(screen.getByTestId("joyride-mock")).toHaveAttribute(
+        "data-step-count",
+        String(STEP_COUNT - 2)
+      );
+    });
+    expect(mockGetPaymentHistory).toHaveBeenCalledWith("GABC123", 1);
+  });
+
+  it("does not skip the send-payment step when the wallet has no payment history", async () => {
+    mockUseWalletOptional.mockReturnValue({ publicKey: "GABC123" });
+    mockGetPaymentHistory.mockResolvedValue({ records: [], hasMore: false });
+
+    render(<OnboardingTour tour={makeTourState({ isRunning: true })} />);
+
+    await waitFor(() => expect(mockGetPaymentHistory).toHaveBeenCalled());
+    // Only wallet-connect is skipped; send-payment step remains.
+    expect(screen.getByTestId("joyride-mock")).toHaveAttribute(
+      "data-step-count",
+      String(STEP_COUNT - 1)
+    );
+  });
+
+  it("excludes steps already completed in a previous session", () => {
+    localStorage.setItem(
+      "finchippay:onboarding",
+      JSON.stringify({ completedSteps: [0, 1], completed: false, lastSeen: Date.now(), featureVersions: {} })
+    );
+
+    render(<OnboardingTour tour={makeTourState({ isRunning: true })} />);
+
+    expect(screen.getByTestId("joyride-mock")).toHaveAttribute(
+      "data-step-count",
+      String(STEP_COUNT - 2)
+    );
   });
 });
 

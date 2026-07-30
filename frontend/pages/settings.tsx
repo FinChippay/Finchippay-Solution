@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
-import { clearAddressBook, loadAddressBookContacts } from "@/lib/addressBook";
+import { useContacts } from "@/hooks/useContacts";
 import {
   createTurretsChallenge,
   deployTurretsFunction,
@@ -42,6 +42,7 @@ export default function SettingsPage({
   // The active account owns every setting on this page (#147).
   const { publicKey: activePublicKey, disconnectWallet } = useWallet();
   const publicKey = activePublicKey ?? publicKeyProp ?? null;
+  const { contacts, clear: clearContacts } = useContacts();
   const [currentLanguage, setCurrentLanguage] = useState<SupportedLanguage>(getCurrentLanguage);
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
@@ -89,7 +90,7 @@ export default function SettingsPage({
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
       try {
         const response = await fetch(
-          `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
+          `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
         );
         if (response.ok) {
           const payload = await response.json();
@@ -302,7 +303,7 @@ export default function SettingsPage({
 
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/accounts/register`, {
+      const response = await fetch(`${apiBase}/api/v1/accounts/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -333,8 +334,8 @@ export default function SettingsPage({
     }
   };
 
-  const handleClearAddressBook = () => {
-    clearAddressBook();
+  const handleClearAddressBook = async () => {
+    await clearContacts();
     setShowClearAddressBookConfirm(false);
   };
 
@@ -762,12 +763,12 @@ export default function SettingsPage({
                 Address Book
               </h2>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Manage your locally stored contacts. Contacts are stored in your browser&apos;s local storage and will be cleared when you disconnect your wallet.
+                Manage your locally stored contacts. Contacts are stored in this browser and persist across sessions.
               </p>
               <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-cosmos-900 rounded-lg border border-slate-200 dark:border-slate-700">
                 <div>
                   <p className="text-sm font-medium text-slate-900 dark:text-white">
-                    {loadAddressBookContacts().length} saved contact{loadAddressBookContacts().length !== 1 ? "s" : ""}
+                    {contacts.length} saved contact{contacts.length !== 1 ? "s" : ""}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     Stored locally on this device
@@ -775,7 +776,7 @@ export default function SettingsPage({
                 </div>
                 <button
                   onClick={() => setShowClearAddressBookConfirm(true)}
-                  disabled={loadAddressBookContacts().length === 0}
+                  disabled={contacts.length === 0}
                   className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors"
                 >
                   Clear Address Book
@@ -801,7 +802,7 @@ export default function SettingsPage({
               </h3>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-6">
-              This will permanently delete all {loadAddressBookContacts().length} contact{loadAddressBookContacts().length !== 1 ? "s" : ""} from your local storage. This action cannot be undone.
+              This will permanently delete all {contacts.length} contact{contacts.length !== 1 ? "s" : ""} from your local storage. This action cannot be undone.
             </p>
             <div className="flex gap-3">
               <button
