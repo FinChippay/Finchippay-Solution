@@ -79,11 +79,11 @@ function validate(schema, source = "body", options = {}) {
  * Register in server.js BEFORE the generic error handler:
  *   app.use(zodErrorHandler);
  */
-function zodErrorHandler(err, req, res, next) {
+function zodErrorHandler(err, req, res, _next) {
   if (err instanceof ZodError) {
     return res.status(400).json(formatZodError(err));
   }
-  return next(err);
+  return _next(err);
 }
 
 module.exports = { validate, zodErrorHandler, formatZodError };

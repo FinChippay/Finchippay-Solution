@@ -131,8 +131,8 @@ function createTurretsApp() {
   Sentry.setupExpressErrorHandler(app);
 
   // ─── Error handler ──────────────────────────────────────────────────────────
-  app.use((err, req, res, next) => {
-    void next;
+  app.use((err, req, res, _next) => {
+    void _next;
     if (err.errorCode) {
       const status =
         err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;

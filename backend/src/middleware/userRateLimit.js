@@ -1,7 +1,6 @@
 "use strict";
 
 const rateLimit = require("express-rate-limit");
-const { formatErrorResponse } = require("../../../shared/errorCodes");
 
 // We intentionally do not use `createInstrumentedLimiter` from rateLimit.js
 // because we want precise control over the headers so they don't overwrite
