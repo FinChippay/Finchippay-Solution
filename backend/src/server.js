@@ -394,8 +394,6 @@ async function gracefulShutdown(signal, server, otelSdk) {
   logger.info({ signal }, "Received shutdown signal — draining…");
 
   // Fail readiness immediately so /api/health/ready starts returning 503
-  // before any in-flight work is torn down.
-  shutdownState.markShuttingDown();
 
   server.close((err) => {
     if (err) logger.error({ err }, "Error closing HTTP server");
