@@ -5,6 +5,9 @@
 
 "use strict";
 
+/* global getRequestId */
+const crypto = require("crypto");
+
 // ─── Environment ─────────────────────────────────────────────────────────────
 // dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
 // set in .env is visible when the OpenTelemetry SDK initialises.
@@ -22,7 +25,6 @@ require("./config/fetchInterceptor");
 
 const express = require("express");
 const cors = require("cors");
-const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
 const { limitHandler } = require("./middleware/rateLimit");
@@ -65,7 +67,6 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const { correlationMiddleware } = require("./utils/correlationId");
 const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const shutdownState = require("./services/shutdownState");
@@ -76,6 +77,7 @@ const { zodErrorHandler } = require("./validation/middleware");
 // Requiring errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider (#270).
 const traceContextMiddleware = require("./middleware/tracing");
+const { requestIdMiddleware } = require("./middleware/requestId");
 
 const { ApolloServer } = require("apollo-server-express");
 const {
@@ -196,7 +198,7 @@ bodyParsing(app);
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 
 // JSON body parsing error handler — uses standardized error codes
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
     return res
       .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
@@ -207,7 +209,7 @@ app.use((err, req, res, next) => {
       .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
       .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
   }
-  next();
+  _next();
 });
 
 // CORS
@@ -354,8 +356,8 @@ Sentry.setupExpressErrorHandler(app);
 // the standard 400 payload.
 app.use(zodErrorHandler);
 
-app.use((err, req, res, next) => {
-  void next;
+app.use((err, req, res, _next) => {
+  void _next;
   const log = req.log || logger;
   if (err.errorCode) {
     const entry = formatErrorResponse(err.errorCode, err.details);
@@ -389,12 +391,8 @@ app.use((err, req, res, next) => {
 const SHUTDOWN_DRAIN_MS = parseInt(process.env.SHUTDOWN_DRAIN_MS, 10) || 10_000;
 
 async function gracefulShutdown(signal, server, otelSdk) {
-  markShuttingDown();
-  logger.info({ signal }, "Received shutdown signal — draining…");
-
-  // Fail readiness immediately so /api/health/ready starts returning 503
-  // before any in-flight work is torn down.
   shutdownState.markShuttingDown();
+  logger.info({ signal }, "Received shutdown signal — draining…");
 
   server.close((err) => {
     if (err) logger.error({ err }, "Error closing HTTP server");
