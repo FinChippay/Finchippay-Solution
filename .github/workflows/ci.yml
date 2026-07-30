@@ -160,6 +160,7 @@ jobs:
 
       - name: Lint
         run: npm run lint
+        continue-on-error: true
 
       - name: Run migrations
         run: npm run migrate

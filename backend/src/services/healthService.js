@@ -29,21 +29,6 @@ const HEALTH_TIMEOUT_MS = parseInt(process.env.HEALTH_TIMEOUT_MS, 10) || 5_000;
 let startupComplete = false;
 let startupCompletedAt = null;
 let startupStartedAt = Date.now();
-let shuttingDown = false;
-
-function normalizeStatus(ok, degraded = false) {
-  if (ok) return "healthy";
-  return degraded ? "degraded" : "unhealthy";
-}
-
-function markStartupComplete() {
-  startupComplete = true;
-  startupCompletedAt = Date.now();
-}
-
-function markShuttingDown() {
-  shuttingDown = true;
-}
 
 function getStartupState() {
   return {
@@ -466,6 +451,8 @@ async function checkStartupComplete() {
 }
 
 module.exports = {
+  getStartupState,
+  getLivenessState,
   checkPostgres,
   checkRedis,
   checkHorizon,
