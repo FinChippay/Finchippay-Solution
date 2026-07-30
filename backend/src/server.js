@@ -5,6 +5,8 @@
 
 "use strict";
 
+const crypto = require("crypto");
+
 // ─── Environment ─────────────────────────────────────────────────────────────
 // dotenv must load before the tracing module so OTEL_EXPORTER_OTLP_ENDPOINT
 // set in .env is visible when the OpenTelemetry SDK initialises.
@@ -67,6 +69,7 @@ const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware } = require("./utils/correlationId");
 const { errorLogFields } = require("./utils/errorResponse");
+const { requestIdMiddleware } = require("./middleware/requestId");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const shutdownState = require("./services/shutdownState");
 const {
@@ -389,7 +392,7 @@ app.use((err, req, res, next) => {
 const SHUTDOWN_DRAIN_MS = parseInt(process.env.SHUTDOWN_DRAIN_MS, 10) || 10_000;
 
 async function gracefulShutdown(signal, server, otelSdk) {
-  markShuttingDown();
+  shutdownState.markShuttingDown();
   logger.info({ signal }, "Received shutdown signal — draining…");
 
   // Fail readiness immediately so /api/health/ready starts returning 503
