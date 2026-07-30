@@ -21,7 +21,9 @@
     "docs:errors:check": "node scripts/generate-error-codes-doc.js --check",
     "lint": "npm run lint --workspace=frontend",
     "type-check": "npm run type-check --workspace=sdk --workspace=frontend",
-    "test": "npm run test --workspace=frontend"
+    "test": "npm run test --workspace=frontend",
+    "docs:errors": "node scripts/generate-error-codes-doc.js",
+    "docs:errors:check": "node scripts/generate-error-codes-doc.js --check"
   },
   "devDependencies": {
     "openapi-typescript": "^7.0.0"

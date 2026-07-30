@@ -122,4 +122,56 @@ async function getStats(req, res, next) {
   }
 }
 
-module.exports = { getEvents, getStats };
+/**
+ * GET /api/events/:publicKey/:eventType
+ *
+ * Return paginated contract events filtered by both participant address
+ * and event type.
+ *
+ * Query params:
+ *   - limit  {number} 1–100 (default 20)
+ *   - offset {number} 0-based (default 0)
+ *   - since  {string} ISO 8601 timestamp
+ *
+ * @param {import('express').Request}  req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+async function getEventsByType(req, res, next) {
+  try {
+    const { publicKey, eventType } = req.params;
+    const { limit = 20, offset = 0, since } = req.validated || req.query;
+
+    const { events, total } = await eventIndexer.queryEventsByType(
+      publicKey,
+      eventType,
+      { limit: Number(limit), offset: Number(offset), since },
+    );
+
+    const hasMore = offset + limit < total;
+    const nextCursor = hasMore
+      ? encodeCursor({ offset: offset + limit })
+      : null;
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+
+    res.json({
+      success: true,
+      data: events,
+      pagination: {
+        limit,
+        offset,
+        total,
+        hasMore,
+        nextCursor,
+      },
+    });
+  } catch (err) {
+    logger.error(
+      { err, publicKey: req.params.publicKey, eventType: req.params.eventType },
+      "getEventsByType error",
+    );
+    next(err);
+  }
+}
+
+module.exports = { getEvents, getStats, getEventsByType };

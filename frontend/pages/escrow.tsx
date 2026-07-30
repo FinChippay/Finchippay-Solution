@@ -28,11 +28,13 @@ import {
   submitTransaction,
   isValidStellarAddress,
   getXLMBalance,
+  getEscrow as getStellarEscrow,
   CONTRACT_ID,
+  NETWORK_PASSPHRASE,
   EscrowRecord,
   STELLAR_STROOPS_PER_XLM,
 } from "@/lib/stellar";
-import { Horizon } from "@stellar/stellar-sdk";
+import { Horizon, Asset } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
 type LookupState =
@@ -55,7 +57,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const publicKey = walletPublicKey === undefined ? connectedPublicKey : walletPublicKey;
   const loadXLMBalance = services?.getXLMBalance ?? getXLMBalance;
   const loadCurrentLedger = services?.getCurrentLedger ?? getCurrentLedger;
-  const loadEscrow = services?.getEscrow ?? getEscrow;
+  const loadEscrow = services?.getEscrow ?? getStellarEscrow;
 
   // Transaction simulation flow for create, claim, cancel
   const simFlow = useSimulatedTransactionFlow({ publicKey });
@@ -76,6 +78,15 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<null | "claim" | "cancel" | "partialClaim">(null);
   const [partialClaimAmount, setPartialClaimAmount] = useState("");
+
+  // Soroban client instance (lazy singleton)
+  const getSorobanClient = () => {
+    try {
+      return getClient();
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -162,10 +173,11 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     setLookup({ kind: "loading" });
     setActionError(null);
     try {
-      const [escrow, ledger] = await Promise.all([
-        loadEscrow(publicKey, id),
-        loadCurrentLedger(),
-      ]);
+      const client = getSorobanClient();
+      const escrow = client
+        ? await client.getEscrow(id, publicKey)
+        : await loadEscrow(publicKey, id);
+      const ledger = await loadCurrentLedger();
       if (!escrow) {
         setLookup({ kind: "missing" });
         return;

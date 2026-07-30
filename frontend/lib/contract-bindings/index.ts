@@ -897,4 +897,93 @@ export class FinchippayContractClient {
       scvSymbolVec(memos),
     ]);
   }
+
+  // ── Swap / DEX ─────────────────────────────────────────────────────────
+
+  async swapExactTokensForTokens(
+    source: string,
+    caller: string,
+    tokenIn: string,
+    tokenOut: string,
+    amountIn: bigint | number | string,
+    minAmountOut: bigint | number | string,
+    path: string[],
+  ): Promise<Transaction> {
+    return buildAndPrepare(
+      this.contractId,
+      source,
+      "swap_exact_tokens_for_tokens",
+      [
+        scvAddress(caller),
+        scvAddress(tokenIn),
+        scvAddress(tokenOut),
+        scvI128(amountIn),
+        scvI128(minAmountOut),
+        scvAddressVec(path),
+      ],
+    );
+  }
+
+  async swapTokensForExactTokens(
+    source: string,
+    caller: string,
+    tokenIn: string,
+    tokenOut: string,
+    amountOut: bigint | number | string,
+    maxAmountIn: bigint | number | string,
+    path: string[],
+  ): Promise<Transaction> {
+    return buildAndPrepare(
+      this.contractId,
+      source,
+      "swap_tokens_for_exact_tokens",
+      [
+        scvAddress(caller),
+        scvAddress(tokenIn),
+        scvAddress(tokenOut),
+        scvI128(amountOut),
+        scvI128(maxAmountIn),
+        scvAddressVec(path),
+      ],
+    );
+  }
+
+  async setFeeCollector(
+    source: string,
+    admin: string,
+    collector: string,
+  ): Promise<Transaction> {
+    return buildAndPrepare(this.contractId, source, "set_fee_collector", [
+      scvAddress(admin),
+      scvAddress(collector),
+    ]);
+  }
+
+  async getFeeCollector(source?: string): Promise<string | null> {
+    const sim = await simulateView(
+      this.contractId,
+      "get_fee_collector",
+      [],
+      source,
+    );
+    if (!sim) return null;
+    return String(scValToNative(sim.result!.retval));
+  }
+
+  async setSwapFee(
+    source: string,
+    admin: string,
+    newFeeBps: number,
+  ): Promise<Transaction> {
+    return buildAndPrepare(this.contractId, source, "set_swap_fee", [
+      scvAddress(admin),
+      scvU32(newFeeBps),
+    ]);
+  }
+
+  async getSwapFee(source?: string): Promise<number> {
+    const sim = await simulateView(this.contractId, "get_swap_fee", [], source);
+    if (!sim) return 0;
+    return decodeU32(sim.result!.retval);
+  }
 }

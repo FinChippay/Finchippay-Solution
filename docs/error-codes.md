@@ -2,15 +2,46 @@
   GENERATED FILE — do not edit by hand.
   Source: shared/errorCodes.js
   Regenerate: node scripts/generate-error-codes-doc.js
+  Generated: 2026-07-29 04:44:15 UTC
 -->
 
 # Error codes
+
+> **Last generated:** 2026-07-29 04:44:15 UTC
 
 Every error Finchippay returns carries a machine-readable code from a single
 catalogue shared by the contract, the API, and the frontend. This document is
 generated from that catalogue, so it cannot drift from the code.
 
 **76 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
+
+
+---
+
+## Table of contents
+
+- [Response format](#response-format)
+- [Correlation IDs](#correlation-ids)
+- [Naming conventions](#naming)
+- [Category overview](#category-overview)
+- [Common errors](#common-errors)
+- [Using the catalogue](#using-the-catalogue)
+  - [Backend](#backend)
+  - [Frontend](#frontend)
+  - [Contract](#contract)
+- [Full catalogue](#catalogue)
+  - [`AUTH_*` — Authentication and authorization](#auth-authentication-and-authorization)
+  - [`CONTRACT_*` — Soroban contract](#contract-soroban-contract)
+  - [`GEN_*` — Generic](#gen-generic)
+  - [`PAY_*` — Payments and transactions](#pay-payments-and-transactions)
+  - [`RATE_*` — Rate limiting](#rate-rate-limiting)
+  - [`RES_*` — Resource lifecycle](#res-resource-lifecycle)
+  - [`SRV_*` — Server and infrastructure](#srv-server-and-infrastructure)
+  - [`TOKEN_*` — Legacy aliases](#token-legacy-aliases)
+  - [`VAL_*` — Request validation](#val-request-validation)
+  - [`WALLET_*` — Browser wallet](#wallet-browser-wallet)
+
+---
 
 ## Response format
 
@@ -55,6 +86,19 @@ Codes are `CATEGORY_SPECIFIC`. The category prefix determines the owning
 layer, so the layer never has to be repeated in the code itself — use
 `getErrorLayer(code)` to resolve it programmatically.
 
+**Message template placeholders:** Some messages contain placeholders that are
+replaced at runtime with context-specific values:
+
+| Placeholder | Meaning |
+| --- | --- |
+| `<token>` | An authentication token value |
+| `<destination>` | A Stellar address or account ID |
+| `<amount>` | A numeric amount in stroops or lumen |
+| `<field>` | A request body field name |
+| `<limit>` | A maximum allowed value (rate, size, count) |
+
+## Category overview
+
 | Prefix | Layer | Codes | Meaning |
 | --- | --- | --- | --- |
 | `AUTH_*` | api | 6 | Authentication and authorization |
@@ -67,6 +111,84 @@ layer, so the layer never has to be repeated in the code itself — use
 | `TOKEN_*` | api | 1 | Legacy aliases |
 | `VAL_*` | api | 17 | Request validation |
 | `WALLET_*` | frontend | 7 | Browser wallet |
+
+## Common errors
+
+The following **10 error codes** are the most commonly
+encountered by API consumers. Check this section first when troubleshooting.
+
+| Code | HTTP | Message |
+| --- | --- | --- |
+| `AUTH_MISSING_TOKEN` | 401 | Authentication token is required. |
+| `AUTH_EXPIRED_TOKEN` | 401 | Token has expired. Please re-authenticate. |
+| `AUTH_INVALID_TOKEN` | 401 | Token is invalid or malformed. |
+| `VAL_INVALID_PUBLIC_KEY` | 400 | Invalid Stellar public key format. |
+| `VAL_INVALID_AMOUNT` | 400 | Amount must be a positive number. |
+| `VAL_MISSING_FIELD` | 400 | Required field is missing. |
+| `RES_NOT_FOUND` | 404 | The requested resource was not found. |
+| `RATE_LIMITED_GLOBAL` | 429 | Too many requests. Please try again later. |
+| `PAY_INSUFFICIENT_BALANCE` | 400 | Insufficient balance for this transaction. |
+| `GEN_NETWORK_ERROR` | n/a | Network error. Please check your connection. |
+
+### Example response (auth)
+
+```json
+{
+  "error": {
+    "code": "AUTH_MISSING_TOKEN",
+    "message": "Authentication token is required.",
+    "correlationId": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+  }
+}
+```
+
+### Example response (validation)
+
+```json
+{
+  "error": {
+    "code": "VAL_INVALID_PUBLIC_KEY",
+    "message": "Invalid Stellar public key format.",
+    "correlationId": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+  }
+}
+```
+
+### Example response (not found)
+
+```json
+{
+  "error": {
+    "code": "RES_NOT_FOUND",
+    "message": "The requested resource was not found.",
+    "correlationId": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+  }
+}
+```
+
+### Example response (rate limited)
+
+```json
+{
+  "error": {
+    "code": "RATE_LIMITED_GLOBAL",
+    "message": "Too many requests. Please try again later.",
+    "correlationId": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+  }
+}
+```
+
+### Example response (payment failure)
+
+```json
+{
+  "error": {
+    "code": "PAY_INSUFFICIENT_BALANCE",
+    "message": "Insufficient balance for this transaction.",
+    "correlationId": "6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+  }
+}
+```
 
 ## Using the catalogue
 
@@ -95,10 +217,10 @@ user-facing copy and a recovery action:
 
 ```ts
 const handled = await handleApiError(response);
-// handled.title        → "Not enough balance"
-// handled.userMessage  → "Your balance will not cover this payment ..."
-// handled.action       → { kind: "fund", label: "Add funds" }
-// handled.correlationId → "6f1a2b3c-..."
+// handled.title        -> "Not enough balance"
+// handled.userMessage  -> "Your balance will not cover this payment ..."
+// handled.action       -> { kind: "fund", label: "Add funds" }
+// handled.correlationId -> "6f1a2b3c-..."
 ```
 
 Recovery actions are `retry`, `reconnect`, `reauth`, `fix_input`,
@@ -116,6 +238,8 @@ from; `getContractErrorCode(n)` performs the lookup.
 
 Layer: **api**
 
+Authentication and authorization failures: missing, expired, or invalid tokens, forbidden access, and SEP-0010 challenge verification.
+
 | Code | HTTP | Message |
 | --- | --- | --- |
 | `AUTH_CHALLENGE_FAILED` | 401 | SEP-0010 challenge verification failed. |
@@ -128,6 +252,8 @@ Layer: **api**
 ### `CONTRACT_*` — Soroban contract
 
 Layer: **contract**
+
+Soroban smart contract errors: authorization, state, arithmetic, and transfer failures returned by on-chain contract calls.
 
 | Code | HTTP | ContractError | Message |
 | --- | --- | --- | --- |
@@ -153,6 +279,8 @@ Layer: **contract**
 
 Layer: **shared**
 
+Generic and catch-all errors: unexpected failures, network connectivity issues, and offline detection.
+
 | Code | HTTP | Message |
 | --- | --- | --- |
 | `GEN_NETWORK_ERROR` | n/a | Network error. Please check your connection. |
@@ -162,6 +290,8 @@ Layer: **shared**
 ### `PAY_*` — Payments and transactions
 
 Layer: **api**
+
+Payment and transaction errors: building, signing, submitting, confirming, and balance-check failures through the Stellar network.
 
 | Code | HTTP | Message |
 | --- | --- | --- |
@@ -179,6 +309,8 @@ Layer: **api**
 
 Layer: **api**
 
+Rate limiting enforcement: requests throttled globally, per sensitive route, or per user account.
+
 | Code | HTTP | Message |
 | --- | --- | --- |
 | `RATE_LIMITED_GLOBAL` | 429 | Too many requests. Please try again later. |
@@ -188,6 +320,8 @@ Layer: **api**
 ### `RES_*` — Resource lifecycle
 
 Layer: **api**
+
+Resource lifecycle errors: resources not found, already exist (conflict), or are no longer available (gone).
 
 | Code | HTTP | Message |
 | --- | --- | --- |
@@ -203,6 +337,8 @@ Layer: **api**
 
 Layer: **api**
 
+Server and infrastructure errors: internal failures, upstream unavailability, missing configuration, and unimplemented features.
+
 | Code | HTTP | Message |
 | --- | --- | --- |
 | `SRV_AI_NOT_CONFIGURED` | 501 | AI payment parsing is not configured. |
@@ -216,13 +352,17 @@ Layer: **api**
 
 Layer: **api**
 
+Legacy error code aliases maintained for backward compatibility with existing consumers.
+
 | Code | HTTP | Message |
 | --- | --- | --- |
-| `TOKEN_EXPIRED` | 401 | Token has expired. Please refresh or re-authenticate. **Deprecated** — use `AUTH_EXPIRED_TOKEN`. |
+| `TOKEN_EXPIRED` | 401 | Token has expired. Please refresh or re-authenticate. **Deprecated** -- use `AUTH_EXPIRED_TOKEN`. |
 
 ### `VAL_*` — Request validation
 
 Layer: **api**
+
+Request validation failures: malformed input, missing required fields, invalid formats, and constraint violations.
 
 | Code | HTTP | Message |
 | --- | --- | --- |
@@ -248,6 +388,8 @@ Layer: **api**
 
 Layer: **frontend**
 
+Browser wallet (Freighter) interaction errors: not installed, not connected, rejected, locked, or network/account mismatches.
+
 | Code | HTTP | Message |
 | --- | --- | --- |
 | `WALLET_ACCOUNT_MISMATCH` | n/a | The wallet's selected account differs from the active account in this app. |
@@ -257,3 +399,7 @@ Layer: **frontend**
 | `WALLET_NOT_CONNECTED` | n/a | No wallet is connected. Connect a wallet to continue. |
 | `WALLET_NOT_INSTALLED` | n/a | Freighter is not installed. Install it from freighter.app. |
 | `WALLET_SIGNATURE_REJECTED` | n/a | The transaction signature was rejected in the wallet. |
+
+---
+
+*Document auto-generated on 2026-07-29 04:44:15 UTC from [`shared/errorCodes.js`](../shared/errorCodes.js).*

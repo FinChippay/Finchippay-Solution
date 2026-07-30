@@ -101,7 +101,8 @@
 }
 
 :root[data-theme="high-contrast"] .btn-primary,
-:root[data-theme="high-contrast"] [class*="bg-stellar"] {
+:root[data-theme="high-contrast"] [class*="bg-stellar"],
+:root[data-theme="high-contrast"] [style*="--color-accent"] {
   background-color: var(--hc-primary) !important;
   color: var(--hc-bg) !important;
   border: 2px solid var(--hc-border) !important;

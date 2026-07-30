@@ -7,11 +7,15 @@ import esCommon from "@/public/locales/es/common.json";
 import frCommon from "@/public/locales/fr/common.json";
 import arCommon from "@/public/locales/ar/common.json";
 import heCommon from "@/public/locales/he/common.json";
+import jaCommon from "@/public/locales/ja/common.json";
+import ptCommon from "@/public/locales/pt/common.json";
 
 export const SUPPORTED_LANGUAGES = [
   { code: "en", name: "English", nativeName: "English" },
   { code: "es", name: "Spanish", nativeName: "Español" },
   { code: "fr", name: "French", nativeName: "Français" },
+  { code: "ja", name: "Japanese", nativeName: "日本語" },
+  { code: "pt", name: "Portuguese", nativeName: "Português" },
   { code: "ar", name: "Arabic", nativeName: "العربية", direction: "rtl" },
   { code: "he", name: "Hebrew", nativeName: "עברית", direction: "rtl" },
 ] as const;
@@ -27,6 +31,8 @@ i18n.use(LanguageDetector).use(initReactI18next).init({
     fr: { common: frCommon },
     ar: { common: arCommon },
     he: { common: heCommon },
+    ja: { common: jaCommon },
+    pt: { common: ptCommon },
   },
   fallbackLng: "en",
   defaultNS: "common",
@@ -41,7 +47,7 @@ i18n.use(LanguageDetector).use(initReactI18next).init({
 
 export function getCurrentLanguage(): SupportedLanguage {
   const lang = i18n.language?.split("-")[0];
-  if (lang === "es" || lang === "fr" || lang === "ar" || lang === "he") return lang;
+  if (lang === "es" || lang === "fr" || lang === "ja" || lang === "pt" || lang === "ar" || lang === "he") return lang;
   return "en";
 }
 

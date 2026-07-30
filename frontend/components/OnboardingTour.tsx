@@ -18,30 +18,23 @@
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CallBackProps, Step } from "react-joyride";
 import type { OnboardingTourState } from "@/hooks/useOnboardingTour";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
+import { useWalletOptional } from "@/lib/useWallet";
+import { getPaymentHistory } from "@/lib/stellar";
 
 // Import onboarding state utilities for progress tracking and analytics
 import {
   getTourProgress,
   markStepComplete,
   markTourComplete,
-  resetTour,
-  shouldShowTour,
   trackOnboardingEvent,
 } from "@/lib/onboardingState";
 
 // ─── react-joyride is client-only (uses DOM APIs) ────────────────────────────
 const Joyride = dynamic(() => import("react-joyride"), { ssr: false });
-
-// Compute filtered steps based on persisted onboarding progress
-const filteredSteps: Step[] = useMemo(() => {
-  const { completedSteps } = getTourProgress();
-  // Exclude steps that have already been completed
-  return TOUR_STEPS.filter((_, idx) => !completedSteps.includes(idx));
-}, []);
 
 // ─── Tour steps ───────────────────────────────────────────────────────────────
 
@@ -145,6 +138,44 @@ export default function OnboardingTour({ tour: externalTour, isVisible, onComple
   // Use internal hook when no external tour state is provided (props-based API)
   const internalTour = useOnboardingTour();
   const tour = externalTour || internalTour;
+
+  // `useWalletOptional` never throws, so the tour still renders (without
+  // wallet-aware skipping) when mounted outside a WalletProvider, e.g. in tests.
+  const wallet = useWalletOptional();
+  const walletConnected = Boolean(wallet?.publicKey);
+  const [hasPaymentHistory, setHasPaymentHistory] = useState(false);
+
+  // Check for existing payment history once a wallet is connected, so the
+  // "Send your first payment" step can be skipped for returning users.
+  useEffect(() => {
+    const publicKey = wallet?.publicKey;
+    if (!publicKey) return;
+
+    let cancelled = false;
+    getPaymentHistory(publicKey, 1)
+      .then((history) => {
+        if (!cancelled) setHasPaymentHistory(history.records.length > 0);
+      })
+      .catch(() => {
+        // Network/Horizon errors just mean we keep showing the step.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [wallet?.publicKey]);
+
+  // Compute filtered steps: exclude steps already completed in a previous
+  // tour session, plus steps whose goal the user has already accomplished.
+  const filteredSteps: Step[] = useMemo(() => {
+    const { completedSteps } = getTourProgress();
+    return TOUR_STEPS.filter((step, idx) => {
+      if (completedSteps.includes(idx)) return false;
+      if (walletConnected && step.target === '[data-tour="wallet-connect"]') return false;
+      if (hasPaymentHistory && step.target === '[data-tour="send-payment"]') return false;
+      return true;
+    });
+  }, [walletConnected, hasPaymentHistory]);
 
   const handleJoyrideCallback = useCallback(
     (data: CallBackProps) => {

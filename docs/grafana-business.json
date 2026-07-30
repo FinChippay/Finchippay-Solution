@@ -1,0 +1,70 @@
+{
+  "title": "Finchippay Business Dashboard",
+  "uid": "finchippay-business",
+  "tags": ["finchippay", "business"],
+  "timezone": "utc",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Active Users (24h)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "finchippay_active_users" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } } }
+    },
+    {
+      "title": "Payment Volume (XLM)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "finchippay_payments_volume_total{asset=\"XLM\"}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } } }
+    },
+    {
+      "title": "Payment Volume (USDC)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "finchippay_payments_volume_total{asset=\"USDC\"}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } } }
+    },
+    {
+      "title": "Contract Events Indexed",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(finchippay_contract_events_indexed_total)" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } } }
+    },
+    {
+      "title": "Payment Volume Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "rate(finchippay_payments_volume_total{asset=\"XLM\"}[5m])", "legendFormat": "XLM" },
+        { "expr": "rate(finchippay_payments_volume_total{asset=\"USDC\"}[5m])", "legendFormat": "USDC" }
+      ]
+    },
+    {
+      "title": "Transaction Count Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [{ "expr": "rate(http_requests_total{route=~\".*api/payments.*\"}[5m])", "legendFormat": "payments" }]
+    },
+    {
+      "title": "Contract Events by Type",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [{ "expr": "increase(finchippay_contract_events_indexed_total[24h])", "legendFormat": "{{event_type}}" }]
+    },
+    {
+      "title": "Webhook Delivery Success Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [{
+        "expr": "rate(webhook_deliveries_total{status=\"success\"}[5m]) / (rate(webhook_deliveries_total[5m]) > 0)",
+        "legendFormat": "success rate"
+      }]
+    }
+  ],
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "schemaVersion": 36
+}

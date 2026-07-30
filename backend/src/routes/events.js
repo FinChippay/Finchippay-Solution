@@ -45,4 +45,21 @@ router.get(
   eventController.getStats,
 );
 
+/**
+ * GET /api/events/:publicKey/:eventType
+ * Contract events filtered by participant address and event type.
+ *
+ * Query params:
+ *   limit  — number of results (default: 20, max: 100)
+ *   offset — 0-based offset for pagination
+ *   since  — ISO 8601 timestamp filter (events emitted >= since)
+ */
+router.get(
+  "/:publicKey/:eventType",
+  strictLimiter,
+  sanitizePublicKey,
+  validate(publicKeyParamSchema, "params"),
+  eventController.getEventsByType,
+);
+
 module.exports = router;

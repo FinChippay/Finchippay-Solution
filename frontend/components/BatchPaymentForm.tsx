@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   buildPaymentTransaction,
   isValidStellarAddress,
@@ -11,10 +11,10 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
 import QuickAddPanel from "@/components/QuickAddPanel";
 import BatchSummary from "@/components/BatchSummary";
+import { useContacts } from "@/hooks/useContacts";
 
 const MAX_RECIPIENTS = 10;
 
-// Supported token types for batch payments
 type TokenType = "XLM" | "USDC" | "custom";
 
 type TokenInfo = {
@@ -57,7 +57,7 @@ function createRecipient(): BatchRecipient {
     address: "",
     amount: "",
     memo: "",
-    token: AVAILABLE_TOKENS[0], // Default to XLM
+    token: AVAILABLE_TOKENS[0],
     status: "idle",
   };
 }
@@ -69,19 +69,18 @@ export default function BatchPaymentForm({
   onBatchSuccess,
   services,
 }: BatchPaymentFormProps) {
-  const [recipients, setRecipients] = useState<BatchRecipient[]>([
-    createRecipient(),
-  ]);
+  const { contacts, groups, getContactsByGroup } = useContacts();
+  const [recipients, setRecipients] = useState<BatchRecipient[]>([createRecipient()]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [useBuilderMode, setUseBuilderMode] = useState(false);
   const [builderRecipients, setBuilderRecipients] = useState<BuilderRecipient[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [distributionMode, setDistributionMode] = useState<"per-recipient" | "total">("per-recipient");
+  const [groupTotalAmount, setGroupTotalAmount] = useState("");
 
   const xlmBalanceValue = parseFloat(xlmBalance || "0");
-  const availableXLM = Math.max(
-    0,
-    xlmBalanceValue - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM
-  );
+  const availableXLM = Math.max(0, xlmBalanceValue - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM);
 
   const totalByToken = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -96,28 +95,18 @@ export default function BatchPaymentForm({
   }, [recipients]);
 
   const totalXLM = totalByToken["XLM"] || 0;
-
   const hasFailed = recipients.some((recipient) => recipient.status === "failed");
   const hasPending = recipients.some((recipient) => recipient.status === "pending");
-  const hasSuccess = recipients.some((recipient) => recipient.status === "success");
   const canSubmit =
     !isProcessing &&
     recipients.some(
-      (recipient) =>
-        isValidStellarAddress(recipient.address) &&
-        parseFloat(recipient.amount) > 0 &&
-        recipient.address !== publicKey
+      (r) => isValidStellarAddress(r.address) && parseFloat(r.amount) > 0 && r.address !== publicKey
     );
   const exceedsBalance = totalXLM > availableXLM;
 
-  const updateRecipient = (
-    id: string,
-    update: Partial<BatchRecipient>
-  ) => {
+  const updateRecipient = (id: string, update: Partial<BatchRecipient>) => {
     setRecipients((current) =>
-      current.map((recipient) =>
-        recipient.id === id ? { ...recipient, ...update } : recipient
-      )
+      current.map((r) => (r.id === id ? { ...r, ...update } : r))
     );
   };
 
@@ -128,39 +117,65 @@ export default function BatchPaymentForm({
   };
 
   const handleRemoveRecipient = (id: string) => {
-    setRecipients((current) => current.filter((recipient) => recipient.id !== id));
+    setRecipients((current) => current.filter((r) => r.id !== id));
     setBatchMessage(null);
+  };
+
+  const handleGroupSelect = async (groupId: string) => {
+    const gid = parseInt(groupId, 10);
+    if (isNaN(gid)) {
+      setSelectedGroupId(null);
+      return;
+    }
+    setSelectedGroupId(gid);
+    const groupContacts = await getContactsByGroup(gid);
+    const newRecipients = groupContacts.map((c) => ({
+      ...createRecipient(),
+      id: `${Date.now()}-${c.id}`,
+      address: c.publicKey,
+      memo: c.memo || "",
+    }));
+    const remaining = MAX_RECIPIENTS - newRecipients.length;
+    if (remaining > 0) {
+      newRecipients.push(createRecipient());
+    }
+    setRecipients(newRecipients.slice(0, MAX_RECIPIENTS));
+  };
+
+  const handleApplyGroupAmount = () => {
+    if (!selectedGroupId) return;
+    const amount = parseFloat(groupTotalAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const groupRecipients = recipients.filter((r) => r.address);
+    if (groupRecipients.length === 0) return;
+    if (distributionMode === "per-recipient") {
+      setRecipients((current) =>
+        current.map((r) => (r.address ? { ...r, amount: groupTotalAmount } : r))
+      );
+    } else {
+      const perRecipient = amount / groupRecipients.length;
+      setRecipients((current) =>
+        current.map((r) => (r.address ? { ...r, amount: perRecipient.toFixed(7) } : r))
+      );
+    }
   };
 
   const validateRecipient = (recipient: BatchRecipient) => {
     const amount = parseFloat(recipient.amount);
-    if (!isValidStellarAddress(recipient.address)) {
-      return "Invalid Stellar address.";
-    }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return "Amount must be greater than 0.";
-    }
-    if (recipient.address === publicKey) {
-      return "Recipient address cannot be the same as your wallet.";
-    }
+    if (!isValidStellarAddress(recipient.address)) return "Invalid Stellar address.";
+    if (!Number.isFinite(amount) || amount <= 0) return "Amount must be greater than 0.";
+    if (recipient.address === publicKey) return "Recipient address cannot be the same as your wallet.";
     return null;
   };
 
   const processRows = async (retryOnlyFailed = false) => {
     setBatchMessage(null);
     setIsProcessing(true);
-
-    let nextRecipients = recipients.map((recipient) => ({ ...recipient }));
+    let nextRecipients = recipients.map((r) => ({ ...r }));
     setRecipients(nextRecipients);
-
     for (const recipient of nextRecipients) {
-      if (recipient.status === "success") {
-        continue;
-      }
-      if (retryOnlyFailed && recipient.status !== "failed") {
-        continue;
-      }
-
+      if (recipient.status === "success") continue;
+      if (retryOnlyFailed && recipient.status !== "failed") continue;
       const validationError = validateRecipient(recipient);
       if (validationError) {
         recipient.status = "failed";
@@ -168,11 +183,9 @@ export default function BatchPaymentForm({
         setRecipients([...nextRecipients]);
         continue;
       }
-
       recipient.status = "pending";
       recipient.error = undefined;
       setRecipients([...nextRecipients]);
-
       try {
         const tx = await (services?.buildPaymentTransaction ?? buildPaymentTransaction)({
           fromPublicKey: publicKey,
@@ -180,24 +193,18 @@ export default function BatchPaymentForm({
           amount: parseFloat(recipient.amount).toFixed(7),
           memo: recipient.memo.trim() || undefined,
         });
-
-        const { signedXDR, error: signError } =
-          await signTransactionWithWallet(tx.toXDR());
-
+        const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
         if (signError || !signedXDR) {
           recipient.status = "failed";
           recipient.error = signError || "Transaction signing was rejected.";
           setRecipients([...nextRecipients]);
           continue;
         }
-
         const result = await submitTransaction(signedXDR);
-
         recipient.status = "success";
         recipient.error = undefined;
         recipient.transactionHash = result.hash;
         setRecipients([...nextRecipients]);
-
         onBatchSuccess?.();
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Batch payment failed.";
@@ -206,53 +213,98 @@ export default function BatchPaymentForm({
         setRecipients([...nextRecipients]);
       }
     }
-
     setIsProcessing(false);
-    const failedRows = nextRecipients.some((recipient) => recipient.status === "failed");
-    const successRows = nextRecipients.some((recipient) => recipient.status === "success");
-
-    if (!failedRows) {
-      setBatchMessage("Batch payment complete.");
-    } else if (successRows) {
-      setBatchMessage(
-        "Batch completed with some failures. Retry individual failed payments below."
-      );
-    }
+    const failedRows = nextRecipients.some((r) => r.status === "failed");
+    const successRows = nextRecipients.some((r) => r.status === "success");
+    if (!failedRows) setBatchMessage("Batch payment complete.");
+    else if (successRows) setBatchMessage("Batch completed with some failures. Retry individual failed payments below.");
   };
 
-  const handleSendBatch = async () => {
-    await processRows(false);
-  };
-
-  const handleRetryFailed = async () => {
-    if (!hasFailed) return;
-    await processRows(true);
-  };
+  const handleSendBatch = async () => { await processRows(false); };
+  const handleRetryFailed = async () => { if (!hasFailed) return; await processRows(true); };
 
   const recipientCount = recipients.length;
+  const selectedGroup = groups.find((g) => g.id === selectedGroupId);
+  const groupMemberCount = selectedGroupId ? contacts.filter((c) => (c.groupIds || []).includes(selectedGroupId)).length : 0;
 
   return (
     <div className="card animate-fade-in border-stellar-400/20">
       <div className="flex items-center justify-between mb-6 gap-3">
         <div>
-          <h2 className="font-display text-lg font-semibold text-white">
-            Batch Send
-          </h2>
-          <p className="text-sm text-slate-400">
-            Send multiple tokens (XLM, USDC) to up to {MAX_RECIPIENTS} recipients in a single transaction.
-          </p>
+          <h2 className="font-display text-lg font-semibold text-white">Batch Send</h2>
+          <p className="text-sm text-slate-400">Send multiple tokens (XLM, USDC) to up to {MAX_RECIPIENTS} recipients.</p>
         </div>
-        <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">
-          {recipientCount} / {MAX_RECIPIENTS}
-        </div>
+        <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">{recipientCount} / {MAX_RECIPIENTS}</div>
       </div>
+
+      {/* Group selection */}
+      {groups.length > 0 && (
+        <div className="mb-6 p-4 rounded-2xl border border-white/10 bg-white/5">
+          <div className="flex items-center gap-3 mb-3">
+            <svg className="w-5 h-5 text-stellar-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            <span className="text-sm font-medium text-white">Select Group</span>
+            {selectedGroup && (
+              <span className="text-xs text-slate-400">
+                {groupMemberCount} member{groupMemberCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {groups.map((g) => (
+              <button
+                key={g.id}
+                onClick={() => handleGroupSelect(String(g.id!))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                  selectedGroupId === g.id
+                    ? "bg-stellar-500/20 text-stellar-300 border-stellar-500/30"
+                    : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
+                }`}
+                style={selectedGroupId === g.id ? { borderColor: g.color } : undefined}
+              >
+                {g.name}
+              </button>
+            ))}
+            {selectedGroupId && (
+              <button
+                onClick={() => setSelectedGroupId(null)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10 transition-colors"
+              >Clear</button>
+            )}
+          </div>
+          {selectedGroup && (
+            <div className="flex items-center gap-2">
+              <select
+                value={distributionMode}
+                onChange={(e) => setDistributionMode(e.target.value as "per-recipient" | "total")}
+                className="px-2 py-1 rounded text-xs bg-white/5 border border-white/10 text-slate-300"
+              >
+                <option value="per-recipient">Amount per recipient</option>
+                <option value="total">Total distribution</option>
+              </select>
+              <input
+                type="number"
+                step="0.0000001"
+                min="0"
+                value={groupTotalAmount}
+                onChange={(e) => setGroupTotalAmount(e.target.value)}
+                placeholder="Amount"
+                className="flex-1 px-2 py-1 rounded text-xs bg-white/5 border border-white/10 text-white placeholder:text-slate-500"
+              />
+              <button
+                onClick={handleApplyGroupAmount}
+                disabled={!groupTotalAmount || parseFloat(groupTotalAmount) <= 0}
+                className="px-3 py-1 rounded text-xs font-medium bg-stellar-500/20 text-stellar-300 border border-stellar-500/30 hover:bg-stellar-500/30 transition-colors disabled:opacity-40"
+              >Apply</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-4">
         {recipients.map((recipient, index) => (
-          <div
-            key={recipient.id}
-            className="rounded-3xl border border-white/10 bg-white/5 p-4"
-          >
+          <div key={recipient.id} className="rounded-3xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-col gap-3">
               <div className="grid gap-3 sm:grid-cols-3">
                 <label className="block">
@@ -260,22 +312,14 @@ export default function BatchPaymentForm({
                   <select
                     value={recipient.token.code}
                     onChange={(event) => {
-                      const selectedToken = AVAILABLE_TOKENS.find(
-                        (t) => t.code === event.target.value
-                      );
-                      if (selectedToken) {
-                        updateRecipient(recipient.id, {
-                          token: selectedToken,
-                        });
-                      }
+                      const selectedToken = AVAILABLE_TOKENS.find((t) => t.code === event.target.value);
+                      if (selectedToken) updateRecipient(recipient.id, { token: selectedToken });
                     }}
                     disabled={isProcessing}
                     className="input-field w-full"
                   >
                     {AVAILABLE_TOKENS.map((token) => (
-                      <option key={token.code} value={token.code}>
-                        {token.code}
-                      </option>
+                      <option key={token.code} value={token.code}>{token.code}</option>
                     ))}
                   </select>
                 </label>
@@ -284,11 +328,7 @@ export default function BatchPaymentForm({
                   <input
                     type="text"
                     value={recipient.address}
-                    onChange={(event) =>
-                      updateRecipient(recipient.id, {
-                        address: event.target.value,
-                      })
-                    }
+                    onChange={(event) => updateRecipient(recipient.id, { address: event.target.value })}
                     disabled={isProcessing}
                     className="input-field w-full"
                     placeholder="G..."
@@ -301,50 +341,32 @@ export default function BatchPaymentForm({
                     step="0.0000001"
                     min="0"
                     value={recipient.amount}
-                    onChange={(event) =>
-                      updateRecipient(recipient.id, {
-                        amount: event.target.value,
-                      })
-                    }
+                    onChange={(event) => updateRecipient(recipient.id, { amount: event.target.value })}
                     disabled={isProcessing}
                     className="input-field w-full"
                     placeholder="0.5"
                   />
                 </label>
               </div>
-
               <label className="block">
                 <span className="label">Memo (optional)</span>
                 <input
                   type="text"
                   value={recipient.memo}
-                  onChange={(event) =>
-                    updateRecipient(recipient.id, {
-                      memo: truncateMemoText(event.target.value),
-                    })
-                  }
+                  onChange={(event) => updateRecipient(recipient.id, { memo: truncateMemoText(event.target.value) })}
                   disabled={isProcessing}
                   className="input-field w-full"
                   placeholder="Payment note"
                   maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
                 />
               </label>
-
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-slate-300">
-                  Status: 
-                  {recipient.status === "idle" && (
-                    <span className="text-slate-400">Waiting</span>
-                  )}
-                  {recipient.status === "pending" && (
-                    <span className="text-amber-300">Processing</span>
-                  )}
-                  {recipient.status === "success" && (
-                    <span className="text-emerald-400">Sent ✓</span>
-                  )}
-                  {recipient.status === "failed" && (
-                    <span className="text-rose-400">Failed</span>
-                  )}
+                  Status:{" "}
+                  {recipient.status === "idle" && <span className="text-slate-400">Waiting</span>}
+                  {recipient.status === "pending" && <span className="text-amber-300">Processing</span>}
+                  {recipient.status === "success" && <span className="text-emerald-400">Sent ✓</span>}
+                  {recipient.status === "failed" && <span className="text-rose-400">Failed</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -352,16 +374,11 @@ export default function BatchPaymentForm({
                     onClick={() => handleRemoveRecipient(recipient.id)}
                     disabled={isProcessing || recipients.length <= 1}
                     className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
+                  >Remove</button>
                 </div>
               </div>
-
               {recipient.error && (
-                <div className="rounded-2xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-100">
-                  {recipient.error}
-                </div>
+                <div className="rounded-2xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-100">{recipient.error}</div>
               )}
             </div>
           </div>
@@ -373,20 +390,15 @@ export default function BatchPaymentForm({
             onClick={handleAddRecipient}
             disabled={isProcessing || recipients.length >= MAX_RECIPIENTS}
             className="btn-secondary w-full py-2.5"
-          >
-            Add recipient
-          </button>
+          >Add recipient</button>
           <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
             Total:{" "}
             <span className="font-semibold text-white">
-              {Object.entries(totalByToken)
-                .map(([token, amount]) => `${(amount as number).toFixed(7)} ${token}`)
-                .join(", ")}
+              {Object.entries(totalByToken).map(([token, amount]) => `${(amount as number).toFixed(7)} ${token}`).join(", ")}
             </span>
           </div>
         </div>
 
-        {/* Builder mode toggle */}
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
             type="button"
@@ -397,51 +409,40 @@ export default function BatchPaymentForm({
           </button>
         </div>
 
-        {/* Builder mode content */}
         {useBuilderMode && (
-          <>
-            <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-              <div className="space-y-4">
-                <PaymentBuilder
-                  publicKey={publicKey}
-                  onRecipientsChange={(bRecipients) => {
-                    setBuilderRecipients(bRecipients);
-                    // Sync builder recipients to form state for processing
-                    const synced = bRecipients
-                      .filter((r) => r.address && r.amount)
-                      .map((r) => {
-                        const existing = recipients.find((er) => er.id === r.id);
-                        return {
-                          id: r.id,
-                          address: r.address,
-                          amount: r.amount,
-                          memo: r.memo,
-                          token: { code: r.token.code, issuer: r.token.issuer, type: r.token.code === "XLM" ? "XLM" as const : "USDC" as const },
-                          status: existing?.status || ("idle" as RecipientStatus),
-                          error: existing?.error,
-                          transactionHash: existing?.transactionHash,
-                        };
-                      });
-                    setRecipients(synced);
-                  }}
-                />
-              </div>
-              <div className="space-y-4">
-                <QuickAddPanel
-                  xlmBalance={xlmBalance}
-                  usdcBalance={usdcBalance}
-                />
-                <BatchSummary
-                  recipients={builderRecipients.map((r) => ({
-                    token: { code: r.token.code, issuer: r.token.issuer },
-                    amount: r.amount,
-                    address: r.address,
-                  }))}
-                  maxRecipients={MAX_RECIPIENTS}
-                />
-              </div>
+          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+            <div className="space-y-4">
+              <PaymentBuilder
+                publicKey={publicKey}
+                onRecipientsChange={(bRecipients) => {
+                  setBuilderRecipients(bRecipients);
+                  const synced = bRecipients
+                    .filter((r) => r.address && r.amount)
+                    .map((r) => {
+                      const existing = recipients.find((er) => er.id === r.id);
+                      return {
+                        id: r.id,
+                        address: r.address,
+                        amount: r.amount,
+                        memo: r.memo,
+                        token: { code: r.token.code, issuer: r.token.issuer, type: r.token.code === "XLM" ? "XLM" as const : "USDC" as const },
+                        status: existing?.status || ("idle" as RecipientStatus),
+                        error: existing?.error,
+                        transactionHash: existing?.transactionHash,
+                      };
+                    });
+                  setRecipients(synced);
+                }}
+              />
             </div>
-          </>
+            <div className="space-y-4">
+              <QuickAddPanel xlmBalance={xlmBalance} usdcBalance={usdcBalance} />
+              <BatchSummary
+                recipients={builderRecipients.map((r) => ({ token: { code: r.token.code, issuer: r.token.issuer }, amount: r.amount, address: r.address }))}
+                maxRecipients={MAX_RECIPIENTS}
+              />
+            </div>
+          </div>
         )}
 
         {exceedsBalance ? (
@@ -451,9 +452,7 @@ export default function BatchPaymentForm({
         ) : null}
 
         {batchMessage && (
-          <div className="rounded-2xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">
-            {batchMessage}
-          </div>
+          <div className="rounded-2xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">{batchMessage}</div>
         )}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -462,17 +461,13 @@ export default function BatchPaymentForm({
             onClick={handleSendBatch}
             disabled={!canSubmit || isProcessing || exceedsBalance}
             className="btn-primary w-full sm:w-auto py-2.5"
-          >
-            {isProcessing ? "Sending batch..." : "Send batch"}
-          </button>
+          >{isProcessing ? "Sending batch..." : "Send batch"}</button>
           <button
             type="button"
             onClick={handleRetryFailed}
             disabled={!hasFailed || isProcessing}
             className="btn-outline w-full sm:w-auto py-2.5"
-          >
-            Retry failed payments
-          </button>
+          >Retry failed payments</button>
         </div>
       </div>
     </div>

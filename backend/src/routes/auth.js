@@ -24,6 +24,9 @@ const {
 const tokenService = require("../services/tokenService");
 const { sendError } = require("../utils/errorResponse");
 
+const { verifyJWT } = require("../middleware/auth");
+const { authRefreshLimiter } = require("../middleware/rateLimit");
+
 const router = express.Router();
 
 const HOME_DOMAIN = process.env.HOME_DOMAIN || "localhost:4000";
@@ -66,7 +69,7 @@ router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
 });
 
 // POST /api/auth — verify signed challenge and issue JWT (and refresh token)
-router.post("/", validate(authTokenBodySchema), (req, res) => {
+router.post("/", validate(authTokenBodySchema), async (req, res, next) => {
   const { transaction } = req.validated;
 
   try {
@@ -80,7 +83,11 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
     );
 
     // Issue both an access token and a refresh token via the token service.
-    const { accessToken, refreshToken } = tokenService.issueTokens(accountId);
+    const { accessToken, refreshToken } = await tokenService.issueTokens(
+      accountId,
+      req.headers["user-agent"],
+      req.ip,
+    );
 
     res.cookie("jwt", accessToken, {
       httpOnly: true,
@@ -103,6 +110,9 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
       refreshToken,
     });
   } catch (e) {
+    if (typeof next === "function" && e.status) {
+      return next(e);
+    }
     res
       .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
       .json(
@@ -112,7 +122,7 @@ router.post("/", validate(authTokenBodySchema), (req, res) => {
 });
 
 // POST /api/auth/refresh — rotate access + refresh tokens
-router.post("/refresh", (req, res) => {
+router.post("/refresh", authRefreshLimiter, async (req, res) => {
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
   if (!refreshToken) {
     return res
@@ -122,7 +132,11 @@ router.post("/refresh", (req, res) => {
       );
   }
 
-  const rotated = tokenService.rotateRefreshToken(refreshToken);
+  const rotated = await tokenService.rotateRefreshToken(
+    refreshToken,
+    req.headers["user-agent"],
+    req.ip,
+  );
   if (!rotated) {
     res.clearCookie("jwt");
     res.clearCookie("refreshToken");
@@ -155,8 +169,60 @@ router.post("/refresh", (req, res) => {
   });
 });
 
+// POST /api/auth/revoke — revoke specific session, token, or all sessions
+router.post("/revoke", async (req, res) => {
+  const { refreshToken, sessionId, all } = req.body || {};
+  let publicKey = null;
+
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split(" ")[1];
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.publicKey) {
+        publicKey = decoded.publicKey;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  if (all && publicKey) {
+    await tokenService.revokeAllUserTokens(publicKey);
+    res.clearCookie("jwt");
+    res.clearCookie("refreshToken");
+    return res.json({ success: true, message: "All sessions revoked successfully." });
+  }
+
+  if (sessionId && publicKey) {
+    const revoked = await tokenService.revokeSessionById(sessionId, publicKey);
+    return res.json({ success: revoked, message: revoked ? "Session revoked." : "Session not found." });
+  }
+
+  const tokenToRevoke = refreshToken || req.cookies?.refreshToken;
+  if (tokenToRevoke) {
+    await tokenService.revokeToken(tokenToRevoke);
+    res.clearCookie("jwt");
+    res.clearCookie("refreshToken");
+    return res.json({ success: true, message: "Token revoked successfully." });
+  }
+
+  return res.status(400).json({ success: false, message: "Missing sessionId or refreshToken." });
+});
+
+// GET /api/auth/sessions — list active sessions for authenticated user
+router.get("/sessions", verifyJWT, async (req, res) => {
+  try {
+    const publicKey = req.user.publicKey;
+    const sessions = await tokenService.getActiveSessions(publicKey);
+    res.json({ success: true, sessions });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/auth/logout — revoke the token family
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
   let publicKey = null;
 
@@ -174,14 +240,14 @@ router.post("/logout", (req, res) => {
   }
 
   if (refreshToken) {
-    const tokenData = tokenService.getRefreshTokenData(refreshToken);
+    const tokenData = await tokenService.getRefreshTokenData(refreshToken);
     if (tokenData) {
       publicKey = tokenData.publicKey;
     }
   }
 
   if (publicKey) {
-    tokenService.revokeTokenFamily(publicKey);
+    await tokenService.revokeTokenFamily(publicKey);
   }
 
   res.clearCookie("jwt");
@@ -190,4 +256,4 @@ router.post("/logout", (req, res) => {
   res.json({ success: true, message: "Logged out successfully." });
 });
 
-module.exports = router;
+module.exports = router;

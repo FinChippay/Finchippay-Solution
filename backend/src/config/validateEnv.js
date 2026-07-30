@@ -5,6 +5,8 @@
 
 "use strict";
 
+const logger = require("../utils/logger");
+
 const VALID_NETWORKS = ["testnet", "mainnet"];
 
 /**
@@ -285,6 +287,13 @@ function collectErrors(env) {
     }
   }
 
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PUBLIC_KEY.trim()) {
+    errors.push('VAPID_PUBLIC_KEY is required for push notifications.');
+  }
+  if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PRIVATE_KEY.trim()) {
+    errors.push('VAPID_PRIVATE_KEY is required for push notifications.');
+  }
+
   return errors;
 }
 
@@ -301,6 +310,10 @@ function validateEnv(env = process.env) {
     return;
   }
 
+  logger.error(
+    { errors, count: errors.length },
+    "Environment validation failed — copy backend/.env.example to backend/.env and set the required values",
+  );
   const logger = require("../utils/logger");
   logger.fatal({ errors }, "Environment validation failed. Copy backend/.env.example to backend/.env and set the required values.");
   process.exit(1);

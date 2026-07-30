@@ -1,11 +1,11 @@
 /**
  * components/ThemeToggle.tsx
- * Accessible light, dark, and system theme selector.
+ * Accessible light, dark, and system theme selector with accent colour indicator.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { MoonIcon, SunIcon } from "@/components/icons";
-import { useTheme, type Theme } from "@/lib/ThemeContext";
+import { useTheme, ACCENT_COLOURS, type ThemeMode } from "@/lib/ThemeContext";
 
 interface SystemIconProps {
   className?: string;
@@ -35,11 +35,13 @@ function SystemIcon({ className }: SystemIconProps) {
   );
 }
 
-const themeOptions: Array<{
-  value: Theme;
+interface ThemeOption {
+  value: ThemeMode;
   label: string;
   description: string;
-}> = [
+}
+
+const themeOptions: ThemeOption[] = [
   {
     value: "light",
     label: "Light",
@@ -51,9 +53,9 @@ const themeOptions: Array<{
     description: "Always use the dark theme",
   },
   {
-    value: "highContrast",
-    label: "High Contrast",
-    description: "Force high‑contrast mode (WCAG AAA)",
+    value: "system",
+    label: "System",
+    description: "Follow your device preference",
   },
 ];
 
@@ -82,29 +84,20 @@ function ThemeOptionIcon({
   theme,
   className,
 }: {
-  theme: Theme;
+  theme: ThemeMode;
   className?: string;
 }) {
-  if (theme === "light") {
-    return <SunIcon className={className} />;
-  }
-
-  if (theme === "dark") {
-    return <MoonIcon className={className} />;
-  }
-
-  if (theme === "highContrast" || theme === "high-contrast") {
-    return <ContrastIcon className={className} />;
-  }
-
+  if (theme === "light") return <SunIcon className={className} />;
+  if (theme === "dark") return <MoonIcon className={className} />;
   return <SystemIcon className={className} />;
 }
 
 export default function ThemeToggle() {
-  const { theme, resolved, setTheme } = useTheme();
+  const { theme, resolved, accent, highContrast, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const accentColour = ACCENT_COLOURS[accent];
 
   useEffect(() => {
     setIsMounted(true);
@@ -148,12 +141,13 @@ export default function ThemeToggle() {
     );
   }
 
+  const effectiveTheme = highContrast ? "high-contrast" : theme;
   const currentThemeLabel =
-    theme === "system"
-      ? `System theme, currently ${resolved}`
-      : theme === "high-contrast"
+    effectiveTheme === "system"
+      ? `System theme, currently ${resolved}, accent: ${accentColour.label}`
+      : effectiveTheme === "high-contrast"
       ? "High contrast theme"
-      : `${theme} theme`;
+      : `${effectiveTheme} theme, accent: ${accentColour.label}`;
 
   return (
     <div ref={containerRef} className="relative">
@@ -164,9 +158,14 @@ export default function ThemeToggle() {
         aria-haspopup="menu"
         aria-expanded={isOpen}
         title={`Theme: ${currentThemeLabel}`}
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition-colors duration-200 hover:border-stellar-400 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-stellar-400 focus:ring-offset-2 focus:ring-offset-white dark:border-slate-700 dark:bg-cosmos-800 dark:text-slate-100 dark:hover:border-stellar-500 dark:hover:bg-cosmos-700 dark:focus:ring-offset-cosmos-900"
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition-colors duration-200 hover:border-[var(--color-accent)] hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-white dark:border-slate-700 dark:bg-cosmos-800 dark:text-slate-100 dark:hover:border-[var(--color-accent)] dark:hover:bg-cosmos-700 dark:focus:ring-offset-cosmos-900"
       >
-        <ThemeOptionIcon theme={theme} className="h-4 w-4" />
+        <ThemeOptionIcon theme={effectiveTheme === "high-contrast" ? "dark" : theme} className="h-4 w-4" />
+        <span
+          className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-cosmos-800"
+          style={{ backgroundColor: accentColour.base }}
+          aria-hidden="true"
+        />
       </button>
 
       {isOpen && (
@@ -176,7 +175,7 @@ export default function ThemeToggle() {
           className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-cosmos-800"
         >
           {themeOptions.map((option) => {
-            const isSelected = theme === option.value;
+            const isSelected = theme === option.value && !highContrast;
 
             return (
               <button
@@ -193,9 +192,10 @@ export default function ThemeToggle() {
                 <span
                   className={
                     isSelected
-                      ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-stellar-100 text-stellar-700 dark:bg-stellar-500/15 dark:text-stellar-300"
+                      ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white"
                       : "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-cosmos-700 dark:text-slate-300"
                   }
+                  style={isSelected ? { backgroundColor: accentColour.base } : undefined}
                 >
                   <ThemeOptionIcon
                     theme={option.value}
@@ -213,11 +213,8 @@ export default function ThemeToggle() {
                 </span>
 
                 <span
-                  className={
-                    isSelected
-                      ? "h-2 w-2 rounded-full bg-stellar-500"
-                      : "h-2 w-2 rounded-full bg-transparent"
-                  }
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: isSelected ? accentColour.base : "transparent" }}
                   aria-hidden="true"
                 />
               </button>

@@ -206,9 +206,16 @@ function closeAll() {
   streams.clear();
 }
 
+function notify(publicKey, event) {
+  const entry = streams.get(publicKey);
+  if (!entry) return;
+  broadcast(entry, event.type || "balance", event.data || event);
+}
+
 module.exports = {
   subscribe,
   refreshBalance,
+  notify,
   activeStreamCount,
   subscriberCount,
   closeAll,

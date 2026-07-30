@@ -37,6 +37,22 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const helpMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close mobile menu on Escape and return focus to the toggle button.
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsMobileMenuOpen(false);
+        mobileMenuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobileMenuOpen]);
 
   // ── Price alert badge ────────────────────────────────────────────────────
   /** Number of recently triggered (≤ 24 h) price alerts shown as a badge. */
@@ -116,7 +132,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
     };
   }, []);
 
-  // Close help menu when clicking outside.
+  // Close help menu when clicking outside or pressing Escape.
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -127,12 +143,21 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsHelpMenuOpen(false);
+        helpMenuRef.current?.querySelector("button")?.focus();
+      }
+    };
+
     if (isHelpMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isHelpMenuOpen]);
 
@@ -163,7 +188,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
   };
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 backdrop-blur-xl transition-colors duration-300 dark:bg-cosmos-900/80">
+    <nav className="sticky top-0 z-50 border-b border-[var(--color-accent-border)] bg-[var(--color-bg-surface)]/80 backdrop-blur-xl transition-colors duration-300">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-4">
           <Link href="/" className="group flex items-center gap-2">
@@ -202,6 +227,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
               <Link
                 key={link.href}
                 href={link.href}
+                aria-current={router.pathname === link.href ? "page" : undefined}
                 className={clsx(
                   "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
                   router.pathname === link.href
@@ -340,11 +366,14 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
 
           {/* Hamburger Menu Toggle */}
           <button
+            ref={mobileMenuButtonRef}
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-cosmos-800 dark:hover:text-slate-200 md:hidden"
             aria-label="Toggle mobile menu"
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="mobile-nav-menu"
           >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               {isMobileMenuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -357,12 +386,18 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
 
       {/* Mobile Menu Dropdown */}
       {isMobileMenuOpen && (
-        <div className="absolute left-0 right-0 top-full border-b border-[rgba(14,165,233,0.12)] bg-white p-4 shadow-lg dark:bg-cosmos-900 md:hidden">
+        <div
+          id="mobile-nav-menu"
+          role="navigation"
+          aria-label="Mobile"
+          className="absolute left-0 right-0 top-full border-b border-[var(--color-accent-border)] bg-[var(--color-bg-surface)] p-4 shadow-lg md:hidden"
+        >
           <div className="flex flex-col gap-2">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
+                aria-current={router.pathname === link.href ? "page" : undefined}
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block min-h-[44px] rounded-lg px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-cosmos-800"
               >
@@ -400,5 +435,6 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
         </div>
       )}
     </nav>
+    </>
   );
 }

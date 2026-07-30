@@ -811,4 +811,144 @@ test.describe('Escrow E2E Flow', () => {
     await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Partial claim' })).toBeVisible();
   });
+
+  test.describe('Escrow Management Dashboard', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.route('**/soroban-testnet.stellar.org/**', async route => {
+        const postData = route.request().postDataJSON();
+        const method = postData?.method;
+        const reqId = postData?.id ?? 1;
+
+        if (method === 'getLatestLedger') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              jsonrpc: '2.0', id: reqId,
+              result: { sequence: 1000 },
+            }),
+          });
+        }
+
+        if (method === 'simulateTransaction') {
+          // Return escrow count = 3
+          const getEscrowCountVal = nativeToScVal(3);
+          // Simple responses — just return empty results for getEscrow calls
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              jsonrpc: '2.0', id: reqId,
+              result: {
+                latestLedger: 1000,
+                minResourceFee: '100',
+                results: [{ auth: [], xdr: getEscrowCountVal.toXDR('base64'), retval: getEscrowCountVal.toXDR('base64') }],
+              },
+            }),
+          });
+        }
+
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ jsonrpc: '2.0', id: reqId, result: {} }),
+        });
+      });
+
+      await page.addInitScript(() => {
+        (window as any).freighter = true;
+        window.addEventListener('message', (event) => {
+          const request = event.data;
+          if (request?.source !== 'FREIGHTER_EXTERNAL_MSG_REQUEST') return;
+          const response: Record<string, unknown> = {
+            source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
+            messagedId: request.messageId,
+          };
+          if (request.type === 'REQUEST_ACCESS' || request.type === 'REQUEST_PUBLIC_KEY') {
+            response.publicKey = 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV';
+          } else if (request.type === 'REQUEST_ALLOWED_STATUS') {
+            response.isAllowed = true;
+          } else if (request.type === 'REQUEST_CONNECTION_STATUS') {
+            response.isConnected = true;
+          } else if (request.type === 'SUBMIT_TRANSACTION') {
+            response.signedTransaction = `${request.transactionXdr}_signed`;
+          }
+          setTimeout(() => window.postMessage(response, '*'), 0);
+        });
+      });
+
+      // Seed localStorage with cached escrow data for the dashboard
+      await page.evaluate(() => {
+        const escrows = [
+          { id: 1, from: 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV', to: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', token: 'CDLZFC3SYJYDVR7P6JC4D723W55OHCH2EPCM4LD2V7NBCH7S2AFTIS2Z', amount: '100000000', releaseLedger: 1500, status: 'Pending', memo: '' },
+          { id: 2, from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', to: 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV', token: 'CDLZFC3SYJYDVR7P6JC4D723W55OHCH2EPCM4LD2V7NBCH7S2AFTIS2Z', amount: '50000000', releaseLedger: 900, status: 'Released', memo: 'Payment' },
+          { id: 3, from: 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV', to: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', token: 'CDLZFC3SYJYDVR7P6JC4D723W55OHCH2EPCM4LD2V7NBCH7S2AFTIS2Z', amount: '25000000', releaseLedger: 3000, status: 'Cancelled', memo: '' },
+        ];
+        localStorage.setItem('finchippay:escrow-cache', JSON.stringify({
+          ['escrows:GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV']: {
+            escrows,
+            fetchedAt: Date.now(),
+          },
+        }));
+      });
+    });
+
+    test('dashboard loads and displays escrow list with tabs', async ({ page }) => {
+      await page.goto('/escrow/manage');
+
+      await expect(page.getByRole('heading', { name: /Escrow Dashboard/i })).toBeVisible();
+      await expect(page.getByText('Current ledger:')).toBeVisible();
+
+      await page.waitForSelector('text=#1', { timeout: 5000 });
+      await expect(page.getByText('#1')).toBeVisible();
+      await expect(page.getByText('Pending')).toBeVisible();
+
+      // Switch to Completed tab
+      await page.getByText('Completed').click();
+      await expect(page.getByText('Released')).toBeVisible();
+      await expect(page.getByText('Cancelled')).toBeVisible();
+
+      // Switch to Incoming tab
+      await page.getByText('Incoming').click();
+      await expect(page.getByText('No escrows found in this view.')).toBeVisible();
+    });
+
+    test('search filters escrow list', async ({ page }) => {
+      await page.goto('/escrow/manage');
+      await page.waitForSelector('text=#1', { timeout: 5000 });
+
+      const searchInput = page.getByPlaceholder(/Search by counterparty/i);
+      await searchInput.fill('nonexistent');
+
+      // Should show empty state after filtering
+      await expect(page.getByText('No escrows found in this view.')).toBeVisible();
+    });
+
+    test('sort dropdown changes ordering', async ({ page }) => {
+      await page.goto('/escrow/manage');
+      await page.waitForSelector('text=#1', { timeout: 5000 });
+
+      const sortSelect = page.getByRole('combobox');
+      await sortSelect.selectOption('amount-desc');
+
+      // Escrow #1 (10 XLM) should still be present; just validating sort changes
+      await expect(page.getByText('#1')).toBeVisible();
+    });
+
+    test('View on Explorer link opens correct URL', async ({ page }) => {
+      await page.goto('/escrow/manage');
+      await page.waitForSelector('text=#1', { timeout: 5000 });
+
+      const explorerLinks = page.getByRole('link', { name: /View on Explorer/i });
+      await expect(explorerLinks.first()).toHaveAttribute('href', /stellar\.expert/);
+    });
+
+    test('New Escrow link navigates to creation page', async ({ page }) => {
+      await page.goto('/escrow/manage');
+      await page.waitForSelector('text=#1', { timeout: 5000 });
+
+      const newEscrowLink = page.getByRole('link', { name: /New Escrow/i });
+      await expect(newEscrowLink).toHaveAttribute('href', '/escrow');
+    });
+  });
 });

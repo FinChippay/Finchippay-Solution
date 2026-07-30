@@ -230,6 +230,15 @@ describe("signPayload", () => {
     const sig = webhookService.signPayload("mysecret", { event: "test" });
     expect(sig).toBe("sig-mysecret");
   });
+
+  it("builds a SEP-0045 compatible payload and headers", () => {
+    const payload = webhookService.buildPayload("payment.received", { amount: "1" }, "secret", "v2");
+    expect(payload).toHaveProperty("id");
+    expect(payload).toHaveProperty("timestamp");
+    expect(payload).toHaveProperty("type", "payment.received");
+    expect(payload).toHaveProperty("data");
+    expect(payload.data).toEqual({ amount: "1" });
+  });
 });
 
 describe("closeAllStreams (graceful shutdown on SIGTERM/SIGINT)", () => {

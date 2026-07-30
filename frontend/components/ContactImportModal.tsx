@@ -1,432 +1,233 @@
-/**
- * @file components/ContactImportModal.tsx
- * @description Modal for importing contacts from a CSV file.
- *
- * Features:
- * - Drag-and-drop or click-to-browse file upload
- * - Per-row validation with inline error highlighting
- * - Skip-duplicates / overwrite-duplicates option
- * - Preview of parsed rows before committing to the address book
- */
-
-import { useState, useCallback, useRef, DragEvent, ChangeEvent } from "react";
+"use client";
+import { useState, useCallback, useRef } from "react";
+import { useContacts } from "@/hooks/useContacts";
 import {
   parseContactsCSVAnnotated,
   readFileAsText,
   type AnnotatedRow,
+  type ContactRow,
 } from "@/lib/contactImportExport";
+import { parseVCard } from "@/lib/contactsDB";
 import { isValidStellarAddress } from "@/lib/stellar";
-import type { AddressBookContact } from "@/lib/addressBook";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
-export interface ContactImportModalProps {
-  /** Currently saved contacts — used for duplicate detection. */
-  existingContacts: AddressBookContact[];
-  /** Called when the user confirms the import with the list of valid rows. */
-  onImport: (
-    contacts: Array<{ name: string; address: string; federation?: string }>,
-    overwriteDuplicates: boolean
-  ) => void;
-  /** Called when the modal should be closed without importing. */
+interface Props {
+  existingContacts: Array<{ id: string; nickname: string; address: string }>;
+  onImport: (contacts: Array<{ name: string; address: string; federation?: string }>, overwriteDuplicates: boolean) => void;
   onClose: () => void;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export default function ContactImportModal({
-  existingContacts,
-  onImport,
-  onClose,
-}: ContactImportModalProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
+export default function ContactImportModal({ existingContacts, onImport, onClose }: Props) {
+  const { groups } = useContacts();
   const [rows, setRows] = useState<AnnotatedRow[]>([]);
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [overwrite, setOverwrite] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [overwriteDuplicates, setOverwriteDuplicates] = useState(true);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | "">("");
+  const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: true, onEscape: onClose });
 
-  // Build a set of existing addresses for duplicate detection
-  const existingAddresses = new Set(existingContacts.map((c) => c.address));
-
-  // ── File parsing ──────────────────────────────────────────────────────────
-
-  const processFile = useCallback(async (file: File) => {
-    const name = file.name.toLowerCase();
-
+  const handleFile = useCallback(async (file: File) => {
+    setLoading(true);
+    setErrors([]);
     try {
       const text = await readFileAsText(file);
-
-      if (name.endsWith(".csv") || name.endsWith(".txt")) {
-        const annotated = parseContactsCSVAnnotated(text);
-        if (annotated.length === 0) {
-          setParseError(
-            'The file has no data rows or is missing the required "Name" and "Stellar Address" columns.'
-          );
-          setRows([]);
-        } else {
-          setParseError(null);
-          setRows(annotated);
-        }
-        setFileName(file.name);
-        return;
+      if (file.name.endsWith(".vcf")) {
+        const parsed = parseVCard(text);
+        setRows(
+          parsed.map((c, i) => ({
+            rowNumber: i + 2,
+            contact: { name: c.name, address: c.publicKey, federation: c.federationAddress },
+            error: isValidStellarAddress(c.publicKey) ? "" : "Invalid Stellar address",
+          }))
+        );
+      } else {
+        const result = parseContactsCSVAnnotated(text);
+        setRows(result);
       }
-
-      if (name.endsWith(".vcf") || name.endsWith(".vcard")) {
-        // Parse vCard blocks and convert into the AnnotatedRow shape used by the UI
-        const parsed = await import("@/lib/contactsDB").then((m) => m.parseVCard(text));
-        const annotated = parsed.map((c: any, i: number) => {
-          const rowNumber = i + 1;
-          const contact = c.publicKey ? { name: c.name || "Imported Contact", address: c.publicKey, federation: c.federation } : null;
-          const error = contact && !isValidStellarAddress(contact.address) ? `"${contact?.address}" is not a valid Stellar public key.` : "";
-          return { rowNumber, contact, error } as AnnotatedRow;
-        });
-
-        if (annotated.length === 0) {
-          setParseError("No valid vCard contacts found in the file.");
-          setRows([]);
-        } else {
-          setParseError(null);
-          setRows(annotated);
-        }
-        setFileName(file.name);
-        return;
-      }
-
-      setParseError("Unsupported file type. Please select a CSV or vCard (.vcf) file.");
-      setRows([]);
-      setFileName(null);
     } catch (err) {
-      console.error(err);
-      setParseError("Could not read the file. Please try again.");
-      setRows([]);
-      setFileName(null);
+      setErrors([err instanceof Error ? err.message : "Failed to read file"]);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  // ── Drag-and-drop handlers ────────────────────────────────────────────────
-
-  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const handleBrowse = () => fileInputRef.current?.click();
+
+  const handleConfirm = () => {
+    if (selectedGroupId) {
+      const gid = Number(selectedGroupId);
+      const validContacts = rows
+        .filter((r) => !r.error && r.contact)
+        .map((r) => r.contact!);
+      const groupContacts = groups.find((g) => g.id === gid);
+      if (groupContacts) {
+        for (const contact of existingContacts) {
+          const existingGroupIds = (contact as any).groupIds || [];
+          if (validContacts.find((vc) => vc.address === contact.address)) {
+            (contact as any).groupIds = [...new Set([...existingGroupIds, gid])];
+          }
+        }
+      }
+    }
+    onImport(
+      rows.filter((r) => !r.error && r.contact).map((r) => r.contact!),
+      overwriteDuplicates
+    );
   };
 
-  const handleFileInput = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
-    // Reset so the same file can be re-selected after clearing
-    e.target.value = "";
-  };
-
-  // ── Import confirmation ───────────────────────────────────────────────────
-
-  const validRows = rows.filter((r) => r.contact && !r.error);
-  const duplicateRows = validRows.filter((r) =>
-    existingAddresses.has(r.contact!.address)
-  );
-  const newRows = validRows.filter(
-    (r) => !existingAddresses.has(r.contact!.address)
-  );
-
-  const importableCount = overwrite ? validRows.length : newRows.length;
-
-  const handleConfirmImport = () => {
-    const toImport = (overwrite ? validRows : newRows).map((r) => r.contact!);
-    onImport(toImport, overwrite);
-  };
-
-  // ── Render ────────────────────────────────────────────────────────────────
+  const validCount = rows.filter((r) => !r.error && r.contact).length;
+  const errorCount = rows.filter((r) => r.error).length;
 
   return (
-    /* Backdrop */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="import-modal-title"
+      aria-labelledby="import-contacts-title"
     >
-      {/* Panel */}
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 shrink-0">
-          <h2
-            id="import-modal-title"
-            className="font-display text-lg font-semibold text-white flex items-center gap-2"
-          >
-            <UploadIcon className="w-5 h-5 text-stellar-400" />
-            Import Contacts
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close import modal"
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
-          >
-            <XIcon className="w-5 h-5" />
-          </button>
-        </div>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-white/10 max-h-[80vh] overflow-y-auto focus:outline-none"
+      >
+        <h3 id="import-contacts-title" className="text-lg font-bold text-white mb-4">Import Contacts</h3>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {/* Drop zone */}
+        {rows.length === 0 && !loading && (
           <div
-            role="button"
-            tabIndex={0}
-            aria-label="Upload CSV file"
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
+            onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click();
-            }}
-            className={`
-              flex flex-col items-center justify-center gap-3 p-8 rounded-xl border-2 border-dashed
-              cursor-pointer transition-colors select-none
-              ${isDragging
-                ? "border-stellar-400 bg-stellar-500/10"
-                : "border-slate-600 hover:border-slate-500 bg-slate-800/30"
-              }
-            `}
+            onClick={handleBrowse}
+            className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center cursor-pointer hover:border-stellar-500/50 transition-colors"
           >
-            <UploadIcon className="w-10 h-10 text-slate-500" />
-            {fileName ? (
-              <p className="text-sm text-white font-medium">{fileName}</p>
-            ) : (
-              <>
-                <p className="text-sm text-slate-300 font-medium">
-                  Drag &amp; drop a CSV file here, or click to browse
-                </p>
-                <p className="text-xs text-slate-500">
-                  Format: Name, Stellar Address, Federation Username (optional)
-                </p>
-              </>
-            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.vcf"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+            <svg className="w-10 h-10 mx-auto mb-3 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            <p className="text-sm text-slate-400">Drop a CSV or vCard file here, or click to browse</p>
           </div>
+        )}
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={handleFileInput}
-            className="sr-only"
-            aria-hidden="true"
-          />
+        {loading && (
+          <div className="text-center py-8">
+            <svg className="animate-spin w-8 h-8 mx-auto text-stellar-400" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-sm text-slate-400 mt-2">Parsing file...</p>
+          </div>
+        )}
 
-          {/* Parse error */}
-          {parseError && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">
-              {parseError}
-            </div>
-          )}
+        {rows.length > 0 && (
+          <>
+            {/* Group assignment */}
+            {groups.length > 0 && (
+              <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
+                <label className="text-xs font-medium text-slate-400 block mb-1.5">Assign imported contacts to group (optional):</label>
+                <select
+                  value={selectedGroupId}
+                  onChange={(e) => setSelectedGroupId(e.target.value ? Number(e.target.value) : "")}
+                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                >
+                  <option value="">No group</option>
+                  {groups.filter((g) => g.name !== "All").map((g) => (
+                    <option key={g.id} value={g.id!}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-          {/* Preview table */}
-          {rows.length > 0 && (
-            <div className="space-y-4">
-              {/* Summary chips */}
-              <div className="flex flex-wrap gap-2 text-xs font-medium">
-                <span className="px-2.5 py-1 rounded-full bg-slate-700 text-slate-200">
-                  {rows.length} row{rows.length !== 1 ? "s" : ""} parsed
+            {/* Summary chips */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 text-slate-300">
+                {rows.length} rows
+              </span>
+              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300">
+                {validCount} valid
+              </span>
+              {errorCount > 0 && (
+                <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/20 text-rose-300">
+                  {errorCount} errors
                 </span>
-                {validRows.length > 0 && (
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300">
-                    {validRows.length} valid
-                  </span>
-                )}
-                {rows.filter((r) => r.error).length > 0 && (
-                  <span className="px-2.5 py-1 rounded-full bg-red-500/20 text-red-300">
-                    {rows.filter((r) => r.error).length} error
-                    {rows.filter((r) => r.error).length !== 1 ? "s" : ""}
-                  </span>
-                )}
-                {duplicateRows.length > 0 && (
-                  <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300">
-                    {duplicateRows.length} duplicate
-                    {duplicateRows.length !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </div>
-
-              {/* Table */}
-              <div className="overflow-x-auto rounded-xl border border-slate-700">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-800 text-left text-xs text-slate-400 uppercase tracking-wide">
-                      <th className="px-3 py-2.5 font-medium">#</th>
-                      <th className="px-3 py-2.5 font-medium">Name</th>
-                      <th className="px-3 py-2.5 font-medium">Stellar Address</th>
-                      <th className="px-3 py-2.5 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/50">
-                    {rows.map((row) => {
-                      const isDuplicate =
-                        !row.error &&
-                        row.contact &&
-                        existingAddresses.has(row.contact.address);
-
-                      return (
-                        <tr
-                          key={row.rowNumber}
-                          className={`
-                            transition-colors
-                            ${row.error
-                              ? "bg-red-500/5 text-red-300"
-                              : isDuplicate
-                              ? "bg-amber-500/5 text-amber-200"
-                              : "text-slate-200"}
-                          `}
-                        >
-                          <td className="px-3 py-2 text-xs text-slate-500 tabular-nums">
-                            {row.rowNumber}
-                          </td>
-                          <td className="px-3 py-2 font-medium">
-                            {row.contact?.name ?? <span className="italic text-slate-500">—</span>}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs break-all">
-                            {row.contact?.address ?? <span className="italic text-slate-500">—</span>}
-                          </td>
-                          <td className="px-3 py-2 text-xs whitespace-nowrap">
-                            {row.error ? (
-                              <span className="flex items-center gap-1 text-red-400">
-                                <ErrorIcon className="w-3.5 h-3.5 shrink-0" />
-                                {row.error}
-                              </span>
-                            ) : isDuplicate ? (
-                              <span className="flex items-center gap-1 text-amber-400">
-                                <WarningIcon className="w-3.5 h-3.5 shrink-0" />
-                                Duplicate
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1 text-emerald-400">
-                                <CheckIcon className="w-3.5 h-3.5 shrink-0" />
-                                OK
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Duplicate handling */}
-              {duplicateRows.length > 0 && (
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                  <WarningIcon className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm text-amber-200 font-medium mb-2">
-                      {duplicateRows.length} duplicate address
-                      {duplicateRows.length !== 1 ? "es" : ""} found
-                    </p>
-                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={overwrite}
-                        onChange={(e) => setOverwrite(e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-500 bg-slate-700 text-stellar-500 focus:ring-stellar-500"
-                        aria-label="Overwrite duplicate contacts"
-                      />
-                      <span className="text-sm text-amber-200">
-                        Overwrite existing contacts with duplicate addresses
-                      </span>
-                    </label>
-                    {!overwrite && (
-                      <p className="mt-1.5 text-xs text-slate-400">
-                        {duplicateRows.length} duplicate
-                        {duplicateRows.length !== 1 ? "s" : ""} will be skipped.
-                        Only {newRows.length} new contact
-                        {newRows.length !== 1 ? "s" : ""} will be imported.
-                      </p>
-                    )}
-                  </div>
-                </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-700 shrink-0 bg-slate-900">
+            {/* Duplicate handling */}
+            <label className="flex items-center gap-2 mb-4 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={overwriteDuplicates}
+                onChange={(e) => setOverwriteDuplicates(e.target.checked)}
+                className="rounded border-white/20"
+              />
+              Overwrite existing contacts with same address
+            </label>
+
+            {/* Preview table */}
+            <div className="max-h-48 overflow-y-auto mb-4 border border-white/10 rounded-xl">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-white/5">
+                    <th className="text-left px-3 py-2 text-slate-400 font-medium">#</th>
+                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Name</th>
+                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Address</th>
+                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.rowNumber} className="border-t border-white/5">
+                      <td className="px-3 py-2 text-slate-500">{row.rowNumber}</td>
+                      <td className="px-3 py-2 text-white">{row.contact?.name || "—"}</td>
+                      <td className="px-3 py-2 text-slate-300 font-mono">{row.contact?.address || "—"}</td>
+                      <td className="px-3 py-2">
+                        {row.error ? (
+                          <span className="text-rose-400" title={row.error}>Error</span>
+                        ) : (
+                          <span className="text-emerald-400">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {errors.length > 0 && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                {errors.map((err, i) => (
+                  <p key={i} className="text-xs text-rose-300">{err}</p>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="flex gap-3 mt-4">
           <button
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-lg text-sm font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors"
+            onClick={handleConfirm}
+            disabled={validCount === 0}
+            className="btn-primary flex-1"
           >
-            Cancel
+            Import {validCount > 0 ? `${validCount} contact${validCount !== 1 ? "s" : ""}` : ""}
           </button>
-          <button
-            onClick={handleConfirmImport}
-            disabled={importableCount === 0}
-            className="px-4 py-2.5 rounded-lg text-sm font-medium btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Import {importableCount > 0 ? `${importableCount} ` : ""}
-            contact{importableCount !== 1 ? "s" : ""}
+          <button onClick={onClose} className="flex-1 rounded-xl border border-white/10 py-2.5 text-sm text-white hover:bg-white/5 transition-colors">
+            Cancel
           </button>
         </div>
       </div>
     </div>
-  );
-}
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-
-function UploadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-    </svg>
-  );
-}
-
-function XIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  );
-}
-
-function ErrorIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-    </svg>
-  );
-}
-
-function WarningIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-    </svg>
   );
 }

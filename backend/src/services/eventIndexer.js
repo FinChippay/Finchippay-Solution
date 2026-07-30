@@ -27,6 +27,7 @@
 
 const logger = require("../utils/logger");
 const { getRequestIdHeader } = require("../utils/correlationId");
+const { parseEvent } = require("./eventParser");
 require("dotenv").config();
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -227,61 +228,9 @@ async function getEvents(startLedger) {
 
 // ─── Event parsing ────────────────────────────────────────────────────────────
 
-/**
- * Parse a raw Soroban event into our standard payload shape.
- *
- * Soroban events have:
- *  - type: "contract" | "diagnostic" | "system"
- *  - ledger: number
- *  - ledgerClosedAt: ISO 8601 string
- *  - contractId: string
- *  - id: string (unique event ID)
- *  - pagingToken: string
- *  - topic: Array<SCVal>
- *  - data: SCVal
- *
- * We extract a human-readable event_type from the first topic symbol,
- * then put the remaining topics and data into the JSONB payload.
- */
-function parseEvent(raw) {
-  const topics = raw.topic ?? [];
-  const data = raw.data;
-
-  // The first topic is typically a Symbol containing the event name.
-  let eventType = "unknown";
-  if (topics.length > 0) {
-    const first = topics[0];
-    // Soroban SCVal Symbol is either a string (in decoded form) or an object.
-    if (typeof first === "string") {
-      eventType = first;
-    } else if (first && typeof first === "object") {
-      // Handle SCVal object shapes returned by different RPC versions.
-      eventType =
-        first.symbol || first.str || first.value || String(first) || "unknown";
-    }
-  }
-
-  // Build payload: include raw topics and data so API consumers can
-  // extract participant addresses and amounts.
-  const payload = {
-    topics: topics,
-    data: data ?? null,
-    eventId: raw.id ?? null,
-    pagingToken: raw.pagingToken ?? null,
-  };
-
-  return {
-    event_type: String(eventType)
-      .replace(/[^a-zA-Z0-9_]/g, "_")
-      .slice(0, 64),
-    contract_id: raw.contractId || CONTRACT_ID,
-    ledger_sequence: raw.ledger ?? 0,
-    emitted_at: raw.ledgerClosedAt
-      ? new Date(raw.ledgerClosedAt).toISOString()
-      : new Date().toISOString(),
-    payload,
-  };
-}
+// Event parsing is delegated to eventParser.js, which handles
+// SCVal extraction, participant address mapping, and amount parsing
+// for all known FinchippayContract event types.
 
 // ─── Event storage ────────────────────────────────────────────────────────────
 
@@ -305,8 +254,9 @@ async function storeEvents(events) {
         try {
           await client.query(
             `INSERT INTO contract_events
-               (event_type, contract_id, ledger_sequence, emitted_at, payload)
-             VALUES ($1, $2, $3, $4, $5)
+               (event_type, contract_id, ledger_sequence, emitted_at,
+                from_addr, to_addr, amount_raw, payload)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (ledger_sequence, contract_id, event_type, (payload->>'id'))
              DO NOTHING`,
             [
@@ -314,6 +264,9 @@ async function storeEvents(events) {
               ev.contract_id,
               ev.ledger_sequence,
               ev.emitted_at,
+              ev.from_addr || null,
+              ev.to_addr || null,
+              ev.amount_raw || null,
               JSON.stringify(ev.payload),
             ],
           );
@@ -397,6 +350,13 @@ async function pollOnce() {
       return;
     }
 
+    // Backlog signal: how far behind the network we are right now (#272).
+    // Recorded before the early return so a caught-up indexer reports 0 rather
+    // than holding its last non-zero value.
+    metrics.contractEventIndexerLagLedgers.set(
+      lastProcessedLedger > 0 ? Math.max(0, latestLedger - lastProcessedLedger) : 0,
+    );
+
     const startLedger = lastProcessedLedger > 0 ? lastProcessedLedger + 1 : 1;
     if (startLedger > latestLedger) {
       // No new ledgers to process
@@ -414,6 +374,7 @@ async function pollOnce() {
         try {
           parsed.push(parseEvent(raw));
         } catch (parseErr) {
+          metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
           logger.warn(
             { parseErr, eventId: raw.id },
             "Failed to parse individual Soroban event — skipping",
@@ -421,6 +382,7 @@ async function pollOnce() {
         }
       }
       const inserted = await storeEvents(parsed);
+      metrics.contractEventsProcessedTotal.inc({ outcome: "indexed" }, inserted);
       logger.info(
         {
           eventCount: rawEvents.length,
@@ -499,7 +461,86 @@ function stop() {
   }
 }
 
+/**
+ * Whether the indexer has completed startup — either its polling interval is
+ * active, or it intentionally never started because CONTRACT_ID is unset.
+ * Used by the startup probe so deployments without a configured contract
+ * aren't stuck waiting for an indexer that will never run.
+ * @returns {boolean}
+ */
+function isRunning() {
+  return !!pollTimer || !CONTRACT_ID;
+}
+
 // ─── Query helpers (used by eventController) ─────────────────────────────────
+
+/**
+ * Query events filtered by event type for a given public key.
+ *
+ * @param {string} publicKey - Stellar public key (GÔÇª)
+ * @param {string} eventType - event type to filter by
+ * @param {{ limit?: number, offset?: number, since?: string }} options
+ * @returns {Promise<{ events: Array<object>, total: number }>}
+ */
+async function queryEventsByType(
+  publicKey,
+  eventType,
+  { limit = 20, offset = 0, since } = {},
+) {
+  const pool = getPgPool();
+
+  if (pool) {
+    let where = `payload::text ILIKE $1 AND event_type = $2`;
+    const params = [`%${publicKey}%`, eventType];
+
+    if (since) {
+      where += ` AND emitted_at >= $${params.length + 1}`;
+      params.push(since);
+    }
+
+    const result = await pool.query(
+      `SELECT id, event_type, contract_id, ledger_sequence,
+              emitted_at, payload, created_at
+       FROM contract_events
+       WHERE ${where}
+       ORDER BY ledger_sequence DESC, id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM contract_events
+       WHERE ${where}`,
+      params,
+    );
+
+    return {
+      events: result.rows,
+      total: parseInt(countResult?.rows?.[0]?.total ?? "0", 10),
+    };
+  }
+
+  // In-memory fallback
+  let filtered = memoryStore.filter((ev) => {
+    const payloadStr = JSON.stringify(ev.payload).toLowerCase();
+    const match = payloadStr.includes(publicKey.toLowerCase()) &&
+      ev.event_type === eventType;
+    if (!match) return false;
+    if (since && new Date(ev.emitted_at) < new Date(since)) return false;
+    return true;
+  });
+
+  const paged = filtered
+    .sort(
+      (a, b) =>
+        (b.ledger_sequence ?? 0) - (a.ledger_sequence ?? 0) ||
+        (b.id ?? 0) - (a.id ?? 0),
+    )
+    .slice(offset, offset + limit);
+
+  return { events: paged, total: filtered.length };
+}
 
 /**
  * Query events where a given public key appears as a participant.
@@ -513,26 +554,34 @@ function stop() {
  */
 async function queryEventsByPublicKey(
   publicKey,
-  { limit = 20, offset = 0 } = {},
+  { limit = 20, offset = 0, since } = {},
 ) {
   const pool = getPgPool();
 
   if (pool) {
+    let where = `payload::text ILIKE $1`;
+    const params = [`%${publicKey}%`];
+
+    if (since) {
+      where += ` AND emitted_at >= $${params.length + 1}`;
+      params.push(since);
+    }
+
     const result = await pool.query(
       `SELECT id, event_type, contract_id, ledger_sequence,
-              emitted_at, payload, created_at
+              emitted_at, from_addr, to_addr, amount_raw, payload, created_at
        FROM contract_events
-       WHERE payload::text ILIKE $1
+       WHERE ${where}
        ORDER BY ledger_sequence DESC, id DESC
-       LIMIT $2 OFFSET $3`,
-      [`%${publicKey}%`, limit, offset],
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
     );
 
     const countResult = await pool.query(
       `SELECT COUNT(*) AS total
        FROM contract_events
-       WHERE payload::text ILIKE $1`,
-      [`%${publicKey}%`],
+       WHERE ${where}`,
+      params,
     );
 
     return {
@@ -623,7 +672,9 @@ function isAvailable() {
 module.exports = {
   start,
   stop,
+  isRunning,
   queryEventsByPublicKey,
+  queryEventsByType,
   getEventStats,
   getTotalEventCount,
   isAvailable,

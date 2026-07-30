@@ -137,6 +137,22 @@ function getRedisStatus() {
   return redisStatus;
 }
 
+/**
+ * Ping the Redis server directly (bypasses the LRU fallback) — used by the
+ * readiness/dependency health checks to measure real round-trip latency.
+ *
+ * @returns {Promise<string|null>} "PONG", or null when REDIS_URL is not configured.
+ */
+async function ping() {
+  if (!REDIS_URL) {
+    return null;
+  }
+  if (!redis || !redisReady) {
+    throw new Error("Redis client is not connected");
+  }
+  return redis.ping();
+}
+
 // ─── In-memory LRU fallback ──────────────────────────────────────────────────
 
 /** @type {Map<string, { value: string, expiresAt: number }>} */
@@ -395,6 +411,7 @@ module.exports = {
   initRedis,
   closeRedis,
   getRedisStatus,
+  ping,
   get,
   set,
   del,

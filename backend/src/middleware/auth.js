@@ -12,6 +12,7 @@
 "use strict";
 
 const jwt = require("jsonwebtoken");
+const logger = require("../utils/logger");
 const {
   formatErrorResponse,
   ERROR_CODES,
@@ -21,8 +22,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
 
 // Warn loudly in development if the default secret is in use.
 if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
-  console.warn(
-    "⚠️  JWT_SECRET is not set — using insecure default. " +
+  logger.warn(
+    "JWT_SECRET is not set — using insecure default. " +
       "Generate a production secret: openssl rand -hex 32",
   );
 }
@@ -61,7 +62,10 @@ function verifyJWT(req, res, next) {
         }),
       );
     }
-    req.user = decoded; // { publicKey: "G...", iat, exp }
+    req.user = {
+      ...decoded,
+      sub: decoded.publicKey, // Add sub for userRateLimit middleware
+    }; // { publicKey: "G...", sub, iat, exp }
     next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {

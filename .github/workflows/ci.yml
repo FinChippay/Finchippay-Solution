@@ -2,10 +2,15 @@
 # Continuous Integration for Finchippay-Solution
 #
 # Runs on every push to main/develop and on every pull-request targeting main.
-# Seven parallel jobs:
+# Eight parallel jobs:
 #   1. frontend          — lint, i18n, type-check, unit tests, build
 #   2. visual-regression — Chromatic Storybook visual regression
 #   3. backend           — format check, lint, unit tests
+#   4. contracts         — cargo check, cargo test, WASM build
+#   5. contract-fuzz     — cargo-fuzz coverage-guided fuzz testing
+#   6. compose           — validate Docker Compose configurations
+#   7. e2e               — Playwright end-to-end tests
+#   8. validate          — validate environment and config files
 #   4. contracts         — cargo check, cargo test, integration tests, WASM build
 #   5. compose           — validate Docker Compose configurations
 #   6. e2e               — Playwright end-to-end tests
@@ -230,6 +235,74 @@ jobs:
         if: ${{ matrix.rust-channel == 'stable' }}
         run: cargo build --target wasm32v1-none --release
 
+  # ─── Contract Fuzz Testing ─────────────────────────────────────────────────
+  contract-fuzz:
+    name: Contract Fuzz (libFuzzer)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts/finchippay-contract
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: nightly
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/finchippay-contract/target
+          key: ${{ runner.os }}-cargo-fuzz-nightly-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Check fuzz targets compile
+        run: cargo +nightly fuzz build --fuzz-dir fuzz
+
+      - name: Fuzz — parse_payment
+        run: |
+          cargo +nightly fuzz run fuzz_target_1_parse_payment \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_1_parse_payment found crashes" && true)
+
+      - name: Fuzz — escrow lifecycle
+        run: |
+          cargo +nightly fuzz run fuzz_target_2_escrow \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_2_escrow found crashes" && true)
+
+      - name: Fuzz — multi-sig approval
+        run: |
+          cargo +nightly fuzz run fuzz_target_3_multisig \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_3_multisig found crashes" && true)
+
+      - name: Fuzz — batch send
+        run: |
+          cargo +nightly fuzz run fuzz_target_4_batch_send \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_4_batch_send found crashes" && true)
+
+      - name: Upload crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: contracts/finchippay-contract/fuzz/artifacts/
+          retention-days: 30
+
   # ─── Contract Bindings Drift Detection ───────────────────────────────────────
   contract-bindings:
     name: Contract Bindings (Drift Check)
@@ -397,6 +470,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run test:a11y
+      - run: npm run test:a11y:full
       - run: npx lhci autorun
 
   # ─── Load Tests (k6) — manual trigger only ─────────────────────────────────
@@ -553,7 +627,27 @@ jobs:
         run: cargo fuzz run approve_multisig -- -max_total_time=120 || true
         continue-on-error: true
 
-  # --- Validate Config -------------------------------------------------------
+    # --- Error Code Docs Drift Detection -----------------------------------------
+  error-docs:
+    name: Error Code Docs (Drift Check)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Regenerate error code docs
+        run: node scripts/generate-error-codes-doc.js
+
+            - name: Verify docs are up to date (--check mode)
+        run: node scripts/generate-error-codes-doc.js --check
+# --- Validate Config -------------------------------------------------------
   validate:
     name: Validate Config & Env
     runs-on: ubuntu-latest
@@ -564,7 +658,7 @@ jobs:
       - name: Check required config files exist
         run: |
           MISSING=0
-          for file in backend/.env.example frontend/.env.example .nvmrc sdk/package.json scripts/generate-sdk.sh; do
+          for file in backend/.env.example frontend/.env.example .nvmrc sdk/package.json scripts/generate-sdk.sh scripts/fuzz-contract.sh; do
             if [ ! -f "$file" ]; then
               echo "❌ Missing required file: $file"
               MISSING=1

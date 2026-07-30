@@ -16,12 +16,12 @@ import {
   getActiveStreamsForRecipient,
   getCurrentLedger,
   computeStreamClaimable,
-  buildClaimStreamTransaction,
   submitTransaction,
   STELLAR_STROOPS_PER_XLM,
   shortenAddress,
   type StreamRecord,
 } from "@/lib/stellar";
+import { getClient } from "@/lib/soroban";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { useCountUp } from "@/lib/useCountUp";
 import { useToastContext } from "@/lib/ToastContext";

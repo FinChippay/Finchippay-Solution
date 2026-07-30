@@ -145,3 +145,95 @@ export function withAuth(fetchFn: typeof fetch): typeof fetch {
     return response;
   };
 }
+
+/**
+ * Return a guaranteed valid access token, refreshing automatically if needed.
+ */
+export async function getAccessToken(): Promise<string | null> {
+  return ensureAccessToken();
+}
+
+export interface SessionInfo {
+  id: number;
+  publicKey: string;
+  deviceInfo?: string;
+  ipAddress?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt: string;
+}
+
+/**
+ * Get active sessions for current user
+ */
+export async function getSessions(): Promise<SessionInfo[]> {
+  const token = await ensureAccessToken();
+  if (!token) return [];
+
+  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${API_URL}/api/auth/sessions`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.sessions || [];
+    }
+  } catch (err) {
+    console.error("Failed to fetch sessions:", err);
+  }
+  return [];
+}
+
+/**
+ * Revoke specific session by session ID
+ */
+export async function revokeSession(sessionId: number | string): Promise<boolean> {
+  const token = await ensureAccessToken();
+  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${API_URL}/api/auth/revoke`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ sessionId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Boolean(data.success);
+    }
+  } catch (err) {
+    console.error("Failed to revoke session:", err);
+  }
+  return false;
+}
+
+/**
+ * Revoke all active sessions for current user
+ */
+export async function revokeAllSessions(): Promise<boolean> {
+  const token = await ensureAccessToken();
+  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${API_URL}/api/auth/revoke`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ all: true }),
+    });
+    if (res.ok) {
+      clearJwtToken();
+      return true;
+    }
+  } catch (err) {
+    console.error("Failed to revoke all sessions:", err);
+  }
+  return false;
+}
+

@@ -19,6 +19,8 @@ backend/logs/
 
 # ─── Rust / Cargo ─────────────────────────────────────────────────────────────
 target/
+# Written to the repository root by the gas_profile test.
+gas-report.json
 
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store

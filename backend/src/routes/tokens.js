@@ -39,4 +39,18 @@ router.get(
   },
 );
 
+// SIP-010 token metadata endpoint
+const tokenMetadataService = require("../services/tokenMetadataService");
+const { tokenContractIdParamSchema: contractParam } = require("../validation/schemas");
+
+router.get("/:contractId/metadata", validate(contractParam, "params"), async (req, res, next) => {
+  try {
+    const { contractId } = req.validated;
+    const meta = await tokenMetadataService.getTokenMetadata(contractId);
+    res.json({ success: true, data: meta });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

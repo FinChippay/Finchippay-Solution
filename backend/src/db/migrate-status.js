@@ -15,6 +15,7 @@
 
 require("dotenv").config();
 
+const logger = require("../utils/logger");
 const knex = require("./connection");
 
 async function main() {
@@ -27,6 +28,16 @@ async function main() {
 
     const [completed, pending] = await knex.migrate.list();
 
+    logger.info(
+      { completed: completed.length, pending: pending.length },
+      "Migration status",
+    );
+    completed.forEach((m) =>
+      logger.info({ migration: label(m), status: "completed" }),
+    );
+    pending.forEach((m) =>
+      logger.info({ migration: label(m), status: "pending" }),
+    );
     const logger = require("../utils/logger");
 
     logger.info(`Completed migrations: ${completed.length}`);
@@ -39,11 +50,16 @@ async function main() {
 
     if (pending.length > 0) {
       logger.error(
+        { pendingCount: pending.length },
+        "Pending migrations detected — run `npm run migrate`",
         `\n${pending.length} pending migration(s). Run \`npm run migrate\`.`,
       );
       process.exit(1);
     }
 
+    logger.info("Database schema is up to date");
+    process.exit(0);
+  } catch (err) {
     logger.info("\nDatabase schema is up to date.");
     process.exit(0);
   } catch (err) {

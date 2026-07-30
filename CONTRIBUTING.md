@@ -35,6 +35,7 @@ cd contracts/finchippay-contract && cargo test
 | Frontend unit tests | `cd frontend && npm test` |
 | Contract tests | `cd contracts/finchippay-contract && cargo test` |
 | SBOM / vuln scan (optional) | `make sbom-scan` (requires [syft](https://github.com/anchore/syft) + [grype](https://github.com/anchore/grype)) |
+| Error code docs | `npm run docs:errors` |
 
 All checks must pass before a PR will be merged.
 

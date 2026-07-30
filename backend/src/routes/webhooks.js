@@ -155,6 +155,53 @@ router.post(
 );
 
 /**
+ * GET /api/webhooks/:publicKey/deliveries
+ * Paginated delivery history, optionally filtered by status.
+ */
+router.get(
+  "/:publicKey/deliveries",
+  validate(publicKeyParamSchema, "params"),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const { status, page, limit } = req.query;
+      const result = await webhookService.getDeliveries(publicKey, {
+        status,
+        page: page ? parseInt(page, 10) : 1,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      return res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /api/webhooks/:publicKey/deliveries/:id
+ * Single delivery detail with retry timeline (attempts, last status, error).
+ */
+router.get(
+  "/:publicKey/deliveries/:id",
+  validate(publicKeyParamSchema, "params"),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const { id } = req.params;
+      const delivery = await webhookService.getDeliveryById(publicKey, id);
+      if (!delivery) {
+        return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
+          formatErrorResponse("RES_NOT_FOUND", { resourceType: "delivery", id }),
+        );
+      }
+      return res.json({ delivery });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */

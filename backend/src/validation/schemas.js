@@ -339,6 +339,28 @@ const federationQuerySchema = z.object({
   }),
 });
 
+// ─── contacts ─────────────────────────────────────────────────────────────────
+
+const contactGroupSchema = z.object({
+  name: z.string().min(1, "Group name is required"),
+  color: z.string().optional(),
+  icon: z.string().optional(),
+});
+
+const contactItemSchema = z.object({
+  name: z.string().min(1, "Contact name is required"),
+  stellar_address: z.string().min(1, "Stellar address is required"),
+  federation_address: z.string().optional().nullable(),
+  memo: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional(),
+  groups: z.array(z.string()).optional(),
+});
+
+const contactSyncSchema = z.object({
+  groups: z.array(contactGroupSchema).optional().default([]),
+  contacts: z.array(contactItemSchema).optional().default([]),
+});
+
 // ─── events ───────────────────────────────────────────────────────────────────
 
 /** Query params for GET /api/events/:publicKey */
@@ -509,4 +531,6 @@ module.exports = {
   registerEmailSchema,
   updateEmailSchema,
   emailEventsQuerySchema,
+  // contacts
+  contactSyncSchema,
 };

@@ -1,0 +1,57 @@
+{
+  "title": "Finchippay System Dashboard",
+  "uid": "finchippay-system",
+  "tags": ["finchippay", "system"],
+  "timezone": "utc",
+  "editable": true,
+  "panels": [
+    {
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total[5m])", "legendFormat": "CPU" }]
+    },
+    {
+      "title": "Memory Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "targets": [{ "expr": "process_resident_memory_bytes", "legendFormat": "RSS" }]
+    },
+    {
+      "title": "Node.js Event Loop Lag",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [{ "expr": "nodejs_eventloop_lag_seconds", "legendFormat": "lag" }]
+    },
+    {
+      "title": "Heap Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "nodejs_heap_size_used_bytes", "legendFormat": "used" },
+        { "expr": "nodejs_heap_size_total_bytes", "legendFormat": "total" }
+      ]
+    },
+    {
+      "title": "GC Pause Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{ "expr": "rate(nodejs_gc_duration_seconds_sum[5m])", "legendFormat": "{{gc}}" }]
+    },
+    {
+      "title": "HTTP Connection Count",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [{ "expr": "finchippay_http_requests_in_flight", "legendFormat": "{{method}} {{route}}" }]
+    },
+    {
+      "title": "Error Rate by Service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [{ "expr": "rate(finchippay_error_count_total[5m])", "legendFormat": "{{service}}" }]
+    }
+  ],
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 36
+}
