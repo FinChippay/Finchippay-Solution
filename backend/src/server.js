@@ -24,7 +24,6 @@ require("./config/fetchInterceptor");
 
 const express = require("express");
 const cors = require("cors");
-const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
 const { limitHandler } = require("./middleware/rateLimit");
@@ -67,7 +66,6 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const { correlationMiddleware } = require("./utils/correlationId");
 const { errorLogFields } = require("./utils/errorResponse");
 const { requestIdMiddleware } = require("./middleware/requestId");
 const { initRedis, closeRedis } = require("./services/cacheService");
