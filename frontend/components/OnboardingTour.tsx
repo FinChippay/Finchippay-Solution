@@ -179,7 +179,7 @@ export default function OnboardingTour({ tour: externalTour, isVisible, onComple
 
   const handleJoyrideCallback = useCallback(
     (data: CallBackProps) => {
-      const { action, index, status, type, step } = data;
+      const { action, index, status, type } = data;
 
       // Emit analytics events for step navigation
       if (type === "step:after") {
