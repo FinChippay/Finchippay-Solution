@@ -14,7 +14,8 @@ if (process.env.npm_lifecycle_event !== "lint") {
 const nextConfig = {
   reactStrictMode: true,
   // Required for the production Docker image (copies only what's needed)
-  output: "export",
+  // Vercel sets VERCEL=1 during builds, so use server mode there instead.
+  output: process.env.VERCEL ? undefined : "export",
   images: {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],
     imageSizes: [16, 32, 48, 64, 96, 128],
