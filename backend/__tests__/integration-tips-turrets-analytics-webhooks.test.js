@@ -78,7 +78,7 @@ describe("POST /api/tips", () => {
   it("records a tip and returns 201", async () => {
     tipsService.recordTip.mockResolvedValue({ id: 1, ...validTip() });
     const res = await request(app).post("/api/tips").send(validTip());
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200)1);
     expect(res.body.success).toBe(true);
     expect(res.body.tip.id).toBe(1);
   });
@@ -92,7 +92,7 @@ describe("GET /api/tips/received/:key", () => {
   it("returns received tips (200)", async () => {
     tipsService.getTipsReceived.mockResolvedValue({ data: [{ id: 1 }], total: 1 });
     const res = await request(app).get(`/api/tips/received/${VALID_KEY}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data).toHaveLength(1);
   });
   it("rejects invalid key (400)", async () => {
@@ -105,7 +105,7 @@ describe("GET /api/tips/stats/:key", () => {
   it("returns stats (200)", async () => {
     tipsService.getTipsStats.mockResolvedValue({ totalTips: 5, totalAmount: "50" });
     const res = await request(app).get(`/api/tips/stats/${VALID_KEY}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data.totalTips).toBe(5);
   });
 });
@@ -115,7 +115,7 @@ describe("POST /api/turrets/challenge", () => {
   it("creates challenge (200)", async () => {
     turretsService.createSigningChallenge.mockResolvedValue({ challengeXDR: "AAAA" });
     const res = await request(app).post("/api/turrets/challenge").send({ ownerPublicKey: VALID_KEY, type: "swap", config: {} });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data.challengeXDR).toBe("AAAA");
   });
 });
@@ -124,7 +124,7 @@ describe("POST /api/turrets/deploy", () => {
   it("deploys and returns 201", async () => {
     turretsService.deployTxFunction.mockResolvedValue({ id: "d1", status: "active" });
     const res = await request(app).post("/api/turrets/deploy").send(validTurretDeploy());
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200)1);
     expect(res.body.data.id).toBe("d1");
   });
 });
@@ -133,7 +133,7 @@ describe("GET /api/turrets", () => {
   it("lists deployments (200)", async () => {
     turretsService.listDeployments.mockResolvedValue([{ id: "d1" }]);
     const res = await request(app).get("/api/turrets");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data).toHaveLength(1);
   });
 });
@@ -142,7 +142,7 @@ describe("GET /api/turrets/:id", () => {
   it("returns deployment by id (200)", async () => {
     turretsService.getDeploymentById.mockResolvedValue({ id: "d1" });
     const res = await request(app).get("/api/turrets/d1");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data.id).toBe("d1");
   });
 });
@@ -151,7 +151,7 @@ describe("GET /api/turrets/:id/history", () => {
   it("returns history (200)", async () => {
     turretsService.getDeploymentHistory.mockResolvedValue([{ event: "deployed" }]);
     const res = await request(app).get("/api/turrets/d1/history");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data).toHaveLength(1);
   });
 });
@@ -161,7 +161,7 @@ describe("GET /api/analytics/:key/summary", () => {
   it("returns summary (200)", async () => {
     analyticsService.getSummary.mockResolvedValue({ totalTransactions: 8 });
     const res = await request(app).get(`/api/analytics/${VALID_KEY}/summary`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data.totalTransactions).toBe(8);
   });
   it("rejects invalid key (400)", async () => {
@@ -174,7 +174,7 @@ describe("GET /api/analytics/:key/top-recipients", () => {
   it("returns top recipients (200)", async () => {
     analyticsService.getTopRecipients.mockResolvedValue({ topRecipients: [{ address: "G...", totalXLMSent: "100" }] });
     const res = await request(app).get(`/api/analytics/${VALID_KEY}/top-recipients`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data.topRecipients).toHaveLength(1);
   });
 });
@@ -183,7 +183,7 @@ describe("GET /api/analytics/:key/activity", () => {
   it("returns activity (200)", async () => {
     analyticsService.getActivityByDay.mockResolvedValue({ activityByDay: [{ day: "Monday", transactionCount: 5 }] });
     const res = await request(app).get(`/api/analytics/${VALID_KEY}/activity`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.data.activityByDay).toHaveLength(1);
   });
 });
@@ -193,7 +193,7 @@ describe("POST /api/webhooks", () => {
   it("registers webhook (201)", async () => {
     webhookService.registerWebhook.mockResolvedValue({ id: "wh-1" });
     const res = await request(app).post("/api/webhooks").send(validWebhook());
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200)1);
     expect(res.body.webhook.id).toBe("wh-1");
   });
   it("rejects missing URL (400)", async () => {
@@ -206,7 +206,7 @@ describe("GET /api/webhooks/:publicKey", () => {
   it("returns webhooks (200)", async () => {
     webhookService.getWebhooksByPublicKey.mockResolvedValue([{ id: "wh-1" }]);
     const res = await request(app).get(`/api/webhooks/${VALID_KEY}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)0);
     expect(res.body.webhooks).toHaveLength(1);
   });
 });
@@ -215,4 +215,4 @@ describe("DELETE /api/webhooks/:id", () => {
   it("deletes webhook (200)", async () => {
     webhookService.deleteWebhook.mockResolvedValue(true);
     const res = await request(app).delete("/api/webhooks/wh-1");
-    expect(res.status).toBe(20
+    expect(res.status).toBe(200)
