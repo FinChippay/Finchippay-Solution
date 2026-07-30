@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useContacts } from "@/hooks/useContacts";
 import { generateCSV, generateVCard } from "@/lib/contactsDB";
 import { downloadFile } from "@/lib/contactImportExport";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface Props {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export default function ContactExportModal({ isOpen, onClose }: Props) {
   const { contacts, groups } = useContacts();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [includeGroups, setIncludeGroups] = useState(true);
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -48,9 +50,19 @@ export default function ContactExportModal({ isOpen, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10">
-        <h3 className="text-lg font-bold text-white mb-4">Export Contacts</h3>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-contacts-title"
+        className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 focus:outline-none"
+      >
+        <h3 id="export-contacts-title" className="text-lg font-bold text-white mb-4">Export Contacts</h3>
 
         <div className="mb-4">
           <label className="flex items-center gap-2 mb-3 text-sm text-slate-300">

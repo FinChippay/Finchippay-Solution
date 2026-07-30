@@ -23,6 +23,7 @@ import AccountSwitcher from "@/components/AccountSwitcher";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { NavStarIcon } from "@/components/icons";
 import { loadAlerts, PRICE_ALERTS_STORAGE_KEY } from "@/lib/priceAlerts";
+import { getQueueCount, processQueue, registerBackgroundSync } from "@/lib/offlineQueue";
 
 /** Prop interface allowing _app.tsx to wire the tour launcher. */
 export interface NavbarProps {
@@ -37,6 +38,22 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const helpMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close mobile menu on Escape and return focus to the toggle button.
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsMobileMenuOpen(false);
+        mobileMenuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobileMenuOpen]);
 
   // ── Price alert badge ────────────────────────────────────────────────────
   /** Number of recently triggered (≤ 24 h) price alerts shown as a badge. */
@@ -71,6 +88,49 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  // ── Offline queue badge ──────────────────────────────────────────────────
+  /** Number of transactions waiting to be submitted while offline. */
+  const [queueBadgeCount, setQueueBadgeCount] = useState(0);
+
+  useEffect(() => {
+    const refreshCount = async () => {
+      try {
+        setQueueBadgeCount(await getQueueCount());
+      } catch {
+        // IndexedDB unavailable — keep previous value.
+      }
+    };
+
+    void refreshCount();
+
+    // Re-check every 30 s (matches the price-alert polling interval).
+    const intervalId = window.setInterval(() => void refreshCount(), 30_000);
+
+    // Also update immediately when the service worker finishes processing.
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === "QUEUE_PROCESSED") {
+        void refreshCount();
+      }
+    };
+    navigator.serviceWorker?.addEventListener("message", handleSwMessage);
+
+    return () => {
+      window.clearInterval(intervalId);
+      navigator.serviceWorker?.removeEventListener("message", handleSwMessage);
+    };
+  }, []);
+
+  const handleQueueRetry = async () => {
+    try {
+      await registerBackgroundSync();
+    } catch {
+      void processQueue();
+    }
+    try {
+      setQueueBadgeCount(await getQueueCount());
+    } catch { /* ignore */ }
+  };
 
   const config = getNetworkConfig();
   const isMainnet = config.network === "mainnet";
@@ -116,7 +176,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
     };
   }, []);
 
-  // Close help menu when clicking outside.
+  // Close help menu when clicking outside or pressing Escape.
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -127,12 +187,21 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsHelpMenuOpen(false);
+        helpMenuRef.current?.querySelector("button")?.focus();
+      }
+    };
+
     if (isHelpMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isHelpMenuOpen]);
 
@@ -202,6 +271,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
               <Link
                 key={link.href}
                 href={link.href}
+                aria-current={router.pathname === link.href ? "page" : undefined}
                 className={clsx(
                   "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
                   router.pathname === link.href
@@ -254,6 +324,40 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
               </span>
             )}
           </Link>
+
+          {/* ── Offline queue badge ── */}
+          {queueBadgeCount > 0 && (
+            <button
+              onClick={() => void handleQueueRetry()}
+              title={`${queueBadgeCount} transaction${queueBadgeCount > 1 ? "s" : ""} queued offline — click to retry`}
+              aria-label={`${queueBadgeCount} queued offline transaction${queueBadgeCount > 1 ? "s" : ""}. Click to retry submission.`}
+              className="relative flex items-center justify-center rounded-lg p-2 text-amber-500 transition-all duration-150 hover:bg-amber-50 hover:text-amber-600 dark:text-amber-400 dark:hover:bg-amber-400/10"
+              data-testid="offline-queue-badge-btn"
+            >
+              {/* Cloud-upload icon */}
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              <span
+                className="absolute top-0.5 right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-0.5 text-[10px] font-bold text-white leading-none"
+                aria-hidden="true"
+                data-testid="offline-queue-badge"
+              >
+                {queueBadgeCount > 9 ? "9+" : queueBadgeCount}
+              </span>
+            </button>
+          )}
 
           {/* ── Help menu (contains "Take a Tour") ── */}
           <div className="relative hidden md:block" ref={helpMenuRef}>
@@ -340,11 +444,14 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
 
           {/* Hamburger Menu Toggle */}
           <button
+            ref={mobileMenuButtonRef}
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-cosmos-800 dark:hover:text-slate-200 md:hidden"
             aria-label="Toggle mobile menu"
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="mobile-nav-menu"
           >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               {isMobileMenuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -357,12 +464,18 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
 
       {/* Mobile Menu Dropdown */}
       {isMobileMenuOpen && (
-        <div className="absolute left-0 right-0 top-full border-b border-[var(--color-accent-border)] bg-[var(--color-bg-surface)] p-4 shadow-lg md:hidden">
+        <div
+          id="mobile-nav-menu"
+          role="navigation"
+          aria-label="Mobile"
+          className="absolute left-0 right-0 top-full border-b border-[var(--color-accent-border)] bg-[var(--color-bg-surface)] p-4 shadow-lg md:hidden"
+        >
           <div className="flex flex-col gap-2">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
+                aria-current={router.pathname === link.href ? "page" : undefined}
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block min-h-[44px] rounded-lg px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-cosmos-800"
               >

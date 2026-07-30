@@ -90,7 +90,10 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -186,7 +189,10 @@
       "id": 2,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -265,7 +271,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -331,7 +339,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -393,7 +403,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -455,7 +467,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -471,14 +485,15 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "finchippay_process_heap_bytes",
+          "expr": "finchippay_nodejs_heap_size_used_bytes",
           "legendFormat": "",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Heap Memory",
-      "type": "stat"
+      "type": "stat",
+      "description": "Node.js V8 heap in use. Was querying finchippay_process_heap_bytes, a metric prom-client does not emit, so the panel rendered No data; corrected to the nodejs_heap_size_used_bytes gauge (#272). A heap that climbs steadily rather than sawtoothing suggests a leak."
     },
     {
       "datasource": {
@@ -549,7 +564,10 @@
       "id": 7,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -645,7 +663,10 @@
       "id": 8,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true

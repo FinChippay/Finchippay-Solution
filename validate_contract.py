@@ -147,6 +147,72 @@ def validate_cargo(workspace: str, contract: str) -> bool:
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+def validate_fuzz() -> bool:
+    """Validate that fuzz targets and configuration exist."""
+    ok = True
+    print("\n📋 Fuzz testing infrastructure")
+
+    fuzz_dir = "contracts/finchippay-contract/fuzz"
+    fuzz_cargo = os.path.join(fuzz_dir, "Cargo.toml")
+    fuzz_targets_dir = os.path.join(fuzz_dir, "fuzz_targets")
+
+    if os.path.exists(fuzz_cargo):
+        print(f"  {PASS} {fuzz_cargo} exists")
+        fuzz_cargo_content = read_file(fuzz_cargo)
+        if fuzz_cargo_content:
+            ok &= check("cargo-fuzz metadata", r"cargo-fuzz\s*=\s*true", fuzz_cargo_content)
+            ok &= check("libfuzzer-sys dependency", r"libfuzzer-sys", fuzz_cargo_content)
+            ok &= check("testutils feature", r"testutils", fuzz_cargo_content)
+    else:
+        ok = False
+        print(f"  {FAIL} {fuzz_cargo} not found")
+
+    targets = [
+        "fuzz_target_1_parse_payment.rs",
+        "fuzz_target_2_escrow.rs",
+        "fuzz_target_3_multisig.rs",
+        "fuzz_target_4_batch_send.rs",
+    ]
+
+    for target in targets:
+        path = os.path.join(fuzz_targets_dir, target)
+        if os.path.exists(path):
+            content = read_file(path)
+            if content:
+                ok &= check(f"{target} — uses libfuzzer_sys", r"libfuzzer_sys", content)
+                ok &= check(f"{target} — uses finchippay_contract", r"finchippay_contract", content)
+        else:
+            ok = False
+            print(f"  {FAIL} {path} not found")
+
+    # Validate fuzz script
+    script_path = "scripts/fuzz-contract.sh"
+    if os.path.exists(script_path):
+        script_content = read_file(script_path)
+        if script_content:
+            if os.access(script_path, os.X_OK):
+                print(f"  {PASS} fuzz-contract.sh — executable")
+            else:
+                ok = False
+                print(f"  {FAIL} fuzz-contract.sh is not executable")
+            ok &= check("fuzz-contract.sh — contains fuzz_target names", r"fuzz_target_1_parse_payment", script_content)
+    else:
+        ok = False
+        print(f"  {FAIL} {script_path} not found")
+
+    # Validate FUZZING.md
+    fuzzing_doc = "FUZZING.md"
+    if os.path.exists(fuzzing_doc):
+        doc_content = read_file(fuzzing_doc)
+        if doc_content:
+            ok &= check("FUZZING.md — contains usage instructions", r"cargo-fuzz", doc_content)
+    else:
+        ok = False
+        print(f"  {FAIL} {fuzzing_doc} not found")
+
+    return ok
+
+
 def main() -> int:
     print("🔍 Finchippay-Solution — Static Contract Validator")
     print("=" * 52)
@@ -161,9 +227,10 @@ def main() -> int:
 
     contract_ok = validate_contract(contract)
     cargo_ok = validate_cargo(workspace_cargo, contract_cargo)
+    fuzz_ok = validate_fuzz()
 
     print("\n" + "=" * 52)
-    if contract_ok and cargo_ok:
+    if contract_ok and cargo_ok and fuzz_ok:
         print("🎉 All validation checks passed!")
         print("\nThe FinchippayContract is structurally complete with:")
         for feat in [
@@ -171,6 +238,7 @@ def main() -> int:
             "require_auth() on every mutating entry-point",
             "Checked arithmetic (no silent overflows)",
             "Comprehensive test suite (13+ tests)",
+            "Coverage-guided fuzz testing (4 targets)",
         ]:
             print(f"  {PASS} {feat}")
         print("\n🚀 Ready to build: cargo build --target wasm32-unknown-unknown --release")

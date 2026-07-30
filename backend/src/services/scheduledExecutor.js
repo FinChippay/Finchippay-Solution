@@ -541,6 +541,17 @@ function stop() {
 }
 
 /**
+ * Whether the executor's polling interval is currently active (i.e. start()
+ * has been called and stop() has not). Distinct from the `isRunning` module
+ * variable above, which tracks whether a single cycle is in flight right now.
+ * Used by the startup probe to confirm boot completed.
+ * @returns {boolean}
+ */
+function isStarted() {
+  return !!executorTimer;
+}
+
+/**
  * Manually trigger a scheduled transaction for immediate execution.
  * @param {string} scheduleId - The scheduled transaction ID
  * @returns {Promise<object>} Execution result
@@ -600,6 +611,7 @@ async function getExecutionHistory(scheduleId) {
 module.exports = {
   start,
   stop,
+  isStarted,
   executeNow,
   getExecutionHistory,
 };

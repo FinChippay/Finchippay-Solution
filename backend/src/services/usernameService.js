@@ -94,11 +94,25 @@ async function registerUsername(username, publicKey) {
     throw err;
   }
 
-  await knex("usernames").insert({
+  // Build insert object compatible with both legacy and newer schemas.
+  const insertObj = {
     username,
     public_key: publicKey,
     registered_at: new Date().toISOString(),
-  });
+  };
+
+  try {
+    if (await knex.schema.hasColumn("usernames", "created_at")) {
+      insertObj.created_at = new Date().toISOString();
+    }
+    if (await knex.schema.hasColumn("usernames", "updated_at")) {
+      insertObj.updated_at = new Date().toISOString();
+    }
+  } catch (e) {
+    // If feature detection fails, continue with the basic insertObj
+  }
+
+  await knex("usernames").insert(insertObj);
 
   return { username, publicKey };
 }

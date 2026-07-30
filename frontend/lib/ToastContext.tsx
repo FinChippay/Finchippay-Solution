@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { announce } from "@/lib/announce";
 
 export interface ToastItem {
   id: string;
@@ -57,6 +58,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     ) => {
       const id = `toast-${++_counter}`;
       setToasts((prev) => [...prev, { id, message, type, onRetry, duration }]);
+      announce(message, type === "error" ? "assertive" : "polite");
 
       const timer = setTimeout(() => removeToast(id), duration);
       timersRef.current.set(id, timer);

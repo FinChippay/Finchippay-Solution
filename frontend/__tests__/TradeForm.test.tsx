@@ -48,6 +48,16 @@ jest.mock("@stellar/freighter-api", () => ({
   signTransaction: jest.fn(),
 }));
 
+const mockContractSwap = jest.fn();
+jest.mock("@/hooks/useContractSwap", () => ({
+  useContractSwap: () => ({
+    isSwapping: false,
+    error: null,
+    swap: mockContractSwap,
+    fetchSwapFeeBps: jest.fn().mockResolvedValue(30),
+  }),
+}));
+
 jest.mock("@/components/icons", () => ({
   SwapIcon: ({ className }: { className?: string }) => (
     <span data-testid="swap-icon" className={className} />
@@ -141,6 +151,7 @@ beforeEach(() => {
   mockBuildPathPayment.mockResolvedValue({ toXDR: () => "mock-tx-xdr" });
   mockSignTransaction.mockResolvedValue({ signedTxXdr: "mock-signed-xdr" });
   mockSubmitTransaction.mockResolvedValue({ hash: "tx-hash-abc" });
+  mockContractSwap.mockResolvedValue({ hash: "contract-tx-hash", minAmountOut: "12.0" });
 });
 
 afterEach(() => {
@@ -649,5 +660,98 @@ describe("Edge cases", () => {
 
     // Path-finder should not be called for zero amount
     expect(mockFindStrictSendPaths).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Swap mode toggle (Horizon vs. Contract)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Swap mode toggle", () => {
+  it("defaults to Horizon Swap", () => {
+    render(<TradeForm {...DEFAULT_PROPS} />);
+    expect(screen.getByRole("button", { name: "Horizon Swap" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByRole("button", { name: "Contract Swap" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+
+  it("switches to Contract Swap when clicked", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<TradeForm {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getByRole("button", { name: "Contract Swap" }));
+
+    expect(screen.getByRole("button", { name: "Contract Swap" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByText(/Settles on-chain via FinchippayContract/i)).toBeInTheDocument();
+  });
+
+  it("Confirm Swap uses the contract hook when Contract Swap is selected", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<TradeForm {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getByRole("button", { name: "Contract Swap" }));
+    await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
+    act(() => { jest.advanceTimersByTime(700); });
+    await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /Review Swap/i }));
+    await user.click(screen.getByRole("button", { name: /Confirm Swap/i }));
+
+    await waitFor(() => {
+      expect(mockContractSwap).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicKey: DEFAULT_PROPS.publicKey,
+          payToken: "XLM",
+          receiveToken: "USDC",
+          payAmount: "100",
+        })
+      );
+      expect(mockBuildPathPayment).not.toHaveBeenCalled();
+      expect(DEFAULT_PROPS.onSuccess).toHaveBeenCalledWith("Swap executed successfully!");
+    });
+  });
+
+  it("Confirm Swap still uses Horizon when Horizon Swap is selected", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<TradeForm {...DEFAULT_PROPS} />);
+
+    await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
+    act(() => { jest.advanceTimersByTime(700); });
+    await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /Review Swap/i }));
+    await user.click(screen.getByRole("button", { name: /Confirm Swap/i }));
+
+    await waitFor(() => {
+      expect(mockBuildPathPayment).toHaveBeenCalled();
+      expect(mockContractSwap).not.toHaveBeenCalled();
+    });
+  });
+
+  it("calls onError when the contract swap rejects", async () => {
+    mockContractSwap.mockRejectedValueOnce(new Error("Contract call failed"));
+
+    const user = userEvent.setup({ delay: null });
+    render(<TradeForm {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getByRole("button", { name: "Contract Swap" }));
+    await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
+    act(() => { jest.advanceTimersByTime(700); });
+    await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /Review Swap/i }));
+    await user.click(screen.getByRole("button", { name: /Confirm Swap/i }));
+
+    await waitFor(() =>
+      expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("Contract call failed")
+    );
   });
 });

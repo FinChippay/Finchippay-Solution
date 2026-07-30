@@ -168,7 +168,16 @@
     "range90d": "90D",
     "noHoldings": "No token holdings yet.",
     "priceUnavailable": "Price unavailable",
-    "priceHistoryUnavailable": "Price history unavailable for this token."
+    "priceHistoryUnavailable": "Price history unavailable for this token.",
+    "assetCount": "Assets",
+    "pnl7d": "7d P&L",
+    "pnl30d": "30d P&L",
+    "pricesUnavailableBanner": "Prices are temporarily unavailable. Balances are shown, but USD values cannot be calculated right now.",
+    "pricesStale": "Showing cached prices; live prices are temporarily unavailable.",
+    "refreshPrices": "Refresh Prices",
+    "lastRefreshed": "Last refreshed",
+    "valueOverTime": "Portfolio Value Over Time",
+    "historyBuilding": "Portfolio history is building. Check back after a few days of activity."
   },
   "sendPayment": {
     "title": "Send Payment",

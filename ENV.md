@@ -23,6 +23,8 @@ cp frontend/.env.example frontend/.env.local
 | `PORT` | ❌ | `4000` | HTTP port to listen on |
 | `NODE_ENV` | ❌ | `development` | `development`, `test`, or `production` |
 | `SENTRY_DSN` | ❌ | — | Sentry DSN for error tracking (disabled if unset) |
+| `USER_RATE_LIMIT_MAX` | ❌ | `30` | Maximum requests allowed per user within the window |
+| `USER_RATE_LIMIT_WINDOW_MS` | ❌ | `60000` | Window size in milliseconds for user rate limiting |
 | `FEDERATION_DOMAIN` | ❌ | — | Domain used in SEP-0002 TOML discovery |
 | `FEDERATION_SERVER_URL` | ❌ | — | Override federation server URL |
 | `TURRETS_PORT` | ❌ | `4100` | Port for the Turrets side-server |

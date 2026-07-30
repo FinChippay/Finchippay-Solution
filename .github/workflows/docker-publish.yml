@@ -1,10 +1,12 @@
-# .github/workflows/docker-publish.yml
 # Build and push Docker images to GitHub Container Registry (ghcr.io)
 # on every push to main, and on version tags (v*.*.*).
 #
 # Images published:
 #   ghcr.io/finchippay/finchippay-backend:<tag>
 #   ghcr.io/finchippay/finchippay-frontend:<tag>
+#
+# Each image is scanned with Trivy before being pushed.
+# The push is blocked if CRITICAL vulnerabilities are found.
 
 name: Docker Publish
 
@@ -20,11 +22,12 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & Push Docker Images
+    name: Build, Scan & Push Docker Images
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      security-events: write   # SARIF upload
 
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +39,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Backend ──────────────────────────────────────────────────────────────
       - name: Extract Docker metadata (backend)
         id: meta-backend
         uses: docker/metadata-action@v5
@@ -46,6 +53,46 @@ jobs:
             type=ref,event=tag
             type=sha,prefix=sha-
 
+      - name: Build backend image (local, for scanning)
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: backend/Dockerfile.prod
+          push: false
+          load: true
+          tags: finchippay-backend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan backend image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: finchippay-backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload backend Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend-publish
+
+      - name: Push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: backend/Dockerfile.prod
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Frontend ─────────────────────────────────────────────────────────────
       - name: Extract Docker metadata (frontend)
         id: meta-frontend
         uses: docker/metadata-action@v5

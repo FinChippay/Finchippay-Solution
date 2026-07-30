@@ -9,6 +9,7 @@ import {
 } from "@/lib/contactImportExport";
 import { parseVCard } from "@/lib/contactsDB";
 import { isValidStellarAddress } from "@/lib/stellar";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface Props {
   existingContacts: Array<{ id: string; nickname: string; address: string }>;
@@ -24,6 +25,7 @@ export default function ContactImportModal({ existingContacts, onImport, onClose
   const [selectedGroupId, setSelectedGroupId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: true, onEscape: onClose });
 
   const handleFile = useCallback(async (file: File) => {
     setLoading(true);
@@ -84,9 +86,18 @@ export default function ContactImportModal({ existingContacts, onImport, onClose
   const errorCount = rows.filter((r) => r.error).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-white/10 max-h-[80vh] overflow-y-auto">
-        <h3 className="text-lg font-bold text-white mb-4">Import Contacts</h3>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="import-contacts-title"
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-white/10 max-h-[80vh] overflow-y-auto focus:outline-none"
+      >
+        <h3 id="import-contacts-title" className="text-lg font-bold text-white mb-4">Import Contacts</h3>
 
         {rows.length === 0 && !loading && (
           <div

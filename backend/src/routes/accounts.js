@@ -8,6 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter, sensitiveLimiter } = require("../middleware/rateLimit");
+const { userLimiter } = require("../middleware/userRateLimit");
 const {
   sanitizePublicKey,
   sanitizeUsername,
@@ -68,6 +69,7 @@ router.get(
 router.get(
   "/:publicKey",
   sensitiveLimiter,
+  userLimiter,
   verifyJWT,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
@@ -82,6 +84,7 @@ router.get(
 router.get(
   "/:publicKey/balance",
   sensitiveLimiter,
+  userLimiter,
   verifyJWT,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
@@ -124,6 +127,7 @@ router.post(
 router.post(
   "/:publicKey/gdpr-delete",
   sensitiveLimiter,
+  userLimiter,
   verifyJWT,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
@@ -138,6 +142,7 @@ router.post(
 router.get(
   "/:publicKey/gdpr-export",
   sensitiveLimiter,
+  userLimiter,
   verifyJWT,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),

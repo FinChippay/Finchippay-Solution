@@ -23,7 +23,6 @@ import {
   clearJwtToken as clearAuthToken,
 } from "./auth";
 import { sdk } from "./sdk-instance";
-import { clearAddressBook } from "./addressBook";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -243,6 +242,45 @@ export async function signTransactionWithWallet(
   }
 }
 
+// ─── Encrypted local-data session ────────────────────────────────────────────
+
+/**
+ * Derive the AES-GCM session key from the connected public key (+ stored salt)
+ * and decrypt the local encrypted stores (contacts, payment templates) into
+ * memory. Silent — no wallet prompt. Safe to call on every account change; a
+ * different public key derives a different key, which drives key rotation.
+ */
+export async function initEncryptionSession(publicKey: string): Promise<void> {
+  if (typeof window === "undefined" || !publicKey) return;
+  try {
+    const salt = getOrCreateSalt();
+    const key = await deriveKey(publicKey, salt);
+    setSessionKey(key, publicKey);
+    await Promise.all([
+      unlockAddressBook(key, publicKey),
+      unlockPaymentTemplates(key, publicKey),
+      unlockFederationCache(key, publicKey),
+    ]);
+  } catch (err) {
+    console.error("Failed to initialise encryption session:", err);
+  }
+}
+
+/**
+ * Re-encrypt the currently-decrypted local data under the active session key.
+ * Used after a wallet switch to migrate ciphertext from the previous key.
+ */
+export async function reEncryptLocalData(): Promise<void> {
+  const key = getSessionKey();
+  const owner = getSessionOwner();
+  if (!key || !owner) return;
+  await Promise.all([
+    reEncryptAddressBook(key, owner),
+    reEncryptPaymentTemplates(key, owner),
+    reEncryptFederationCache(key, owner),
+  ]);
+}
+
 /**
  * Disconnect the wallet. Since Freighter doesn't provide a disconnect API,
  * this clears the local connection state. The actual disconnect happens
@@ -270,7 +308,6 @@ export function disconnectWallet(): void {
 
   setJwtToken(null);
   clearAuthToken();
-  clearAddressBook();
 }
 
 /**

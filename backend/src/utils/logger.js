@@ -1,3 +1,15 @@
+/**
+ * src/utils/logger.js
+ * Shared Pino structured JSON logger.
+ *
+ * A mixin pulls `requestId` / `sessionId` (and `correlationId` alias) from
+ * AsyncLocalStorage so every log line emitted during a request is automatically
+ * correlated — including calls that still use the root `logger` instead of
+ * `req.log`.
+ */
+
+"use strict";
+
 const pino = require("pino");
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -6,19 +18,33 @@ const STELLAR_SECRET_KEY_PATTERN = /S[A-Z2-7]{55}/g;
 const REDACTED_STELLAR = "[REDACTED_STELLAR_SECRET]";
 
 function redactStellarKeys(obj) {
-  if (typeof obj === "string") return obj.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
+  if (typeof obj === "string") {
+    return obj.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
+  }
   if (obj instanceof Error) {
-    obj.message = obj.message.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
-    if (obj.stack) obj.stack = obj.stack.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
+    obj.message = obj.message.replace(
+      STELLAR_SECRET_KEY_PATTERN,
+      REDACTED_STELLAR,
+    );
+    if (obj.stack) {
+      obj.stack = obj.stack.replace(
+        STELLAR_SECRET_KEY_PATTERN,
+        REDACTED_STELLAR,
+      );
+    }
     return obj;
   }
   if (obj && typeof obj === "object") {
     try {
       const str = JSON.stringify(obj);
       if (STELLAR_SECRET_KEY_PATTERN.test(str)) {
-        return JSON.parse(str.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR));
+        return JSON.parse(
+          str.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR),
+        );
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return obj;
 }
@@ -34,7 +60,15 @@ const logger = pino({
       return { service: "finchippay-backend", ...bindings };
     },
   },
-  timestamp: pino.stdTimeFunctions.isoTime,
+  mixin() {
+    const { getRequestId } = require("./correlationId");
+    const correlationId = getRequestId();
+    return correlationId ? { correlationId } : {};
+  },
+  serializers: {
+    err: (err) => redactStellarKeys(err),
+    error: (err) => redactStellarKeys(err),
+  },
   redact: {
     paths: [
       "privateKey",
@@ -52,15 +86,6 @@ const logger = pino({
       "refresh_token",
     ],
     censor: "[REDACTED]",
-  },
-  mixin() {
-    const { getRequestId } = require("./correlationId");
-    const correlationId = getRequestId();
-    return correlationId ? { correlationId } : {};
-  },
-  serializers: {
-    err: (err) => redactStellarKeys(err),
-    error: (err) => redactStellarKeys(err),
   },
   hooks: {
     logMethod(inputArgs, method) {

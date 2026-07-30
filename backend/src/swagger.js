@@ -24,7 +24,8 @@ const options = {
         "| Limiter | Window | Limit | Routes |\n" +
         "|---------|--------|-------|--------|\n" +
         "| Global | 15 minutes | 100 req/IP | All routes |\n" +
-        "| Strict | 1 minute | 20 req/IP | `/api/turrets/*` |\n\n" +
+        "| Strict | 1 minute | 20 req/IP | `/api/v1/turrets/*` |\n\n" +
+        "Legacy unversioned `/api/*` routes remain available for backwards compatibility but return a `Deprecation: true` response header. New clients should use `/api/v1/*`.\n\n" +
         "Every response includes the following headers so clients can implement back-off:\n\n" +
         "| Header | Description |\n" +
         "|--------|-------------|\n" +
@@ -485,6 +486,7 @@ const options = {
                     type: "object",
                     properties: {
                       status: { type: "string", example: "ok" },
+                      API_VERSION: { type: "string", example: "v1" },
                       timestamp: { type: "string", format: "date-time" },
                     },
                   },
@@ -494,7 +496,7 @@ const options = {
           },
         },
       },
-      "/api/auth": {
+      "/api/v1/auth": {
         get: {
           tags: ["Authentication"],
           summary: "Get SEP-0010 challenge transaction",
@@ -562,7 +564,7 @@ const options = {
           },
         },
       },
-      "/api/accounts/{publicKey}": {
+      "/api/v1/accounts/{publicKey}": {
         get: {
           tags: ["Accounts"],
           summary: "Get account details and balances",
@@ -604,7 +606,7 @@ const options = {
           },
         },
       },
-      "/api/accounts/{publicKey}/balance": {
+      "/api/v1/accounts/{publicKey}/balance": {
         get: {
           tags: ["Accounts"],
           summary: "Get native XLM balance",
@@ -639,7 +641,7 @@ const options = {
           },
         },
       },
-      "/api/accounts/resolve/{username}": {
+      "/api/v1/accounts/resolve/{username}": {
         get: {
           tags: ["Accounts"],
           summary: "Resolve a username to a Stellar public key",
@@ -676,7 +678,7 @@ const options = {
           },
         },
       },
-      "/api/accounts/register": {
+      "/api/v1/accounts/register": {
         post: {
           tags: ["Accounts"],
           summary: "Register a username for an account",
@@ -704,7 +706,7 @@ const options = {
           },
         },
       },
-      "/api/payments/{publicKey}": {
+      "/api/v1/payments/{publicKey}": {
         get: {
           tags: ["Payments"],
           summary: "Fetch payment history for an account",
@@ -763,7 +765,7 @@ const options = {
           },
         },
       },
-      "/api/payments/{publicKey}/stats": {
+      "/api/v1/payments/{publicKey}/stats": {
         get: {
           tags: ["Payments"],
           summary: "Get aggregate payment statistics",
@@ -793,7 +795,7 @@ const options = {
           },
         },
       },
-      "/api/analytics/{publicKey}/summary": {
+      "/api/v1/analytics/{publicKey}/summary": {
         get: {
           tags: ["Analytics"],
           summary: "Get payment summary for an account",
@@ -823,7 +825,7 @@ const options = {
           },
         },
       },
-      "/api/analytics/{publicKey}/top-recipients": {
+      "/api/v1/analytics/{publicKey}/top-recipients": {
         get: {
           tags: ["Analytics"],
           summary: "Get top payment recipients",
@@ -858,7 +860,7 @@ const options = {
           },
         },
       },
-      "/api/analytics/{publicKey}/activity": {
+      "/api/v1/analytics/{publicKey}/activity": {
         get: {
           tags: ["Analytics"],
           summary: "Get payment activity by day",
@@ -891,7 +893,7 @@ const options = {
           },
         },
       },
-      "/api/tips/received/{creatorPublicKey}": {
+      "/api/v1/tips/received/{creatorPublicKey}": {
         get: {
           tags: ["Tips"],
           summary: "Get tips received by a creator (cursor-paginated)",
@@ -938,7 +940,7 @@ const options = {
           },
         },
       },
-      "/api/tips/sent/{senderPublicKey}": {
+      "/api/v1/tips/sent/{senderPublicKey}": {
         get: {
           tags: ["Tips"],
           summary: "Get tips sent by an account (cursor-paginated)",
@@ -1142,7 +1144,7 @@ const options = {
           },
         },
       },
-      "/api/tips/stats/{creatorPublicKey}": {
+      "/api/v1/tips/stats/{creatorPublicKey}": {
         get: {
           tags: ["Tips"],
           summary: "Get tip statistics for a creator",
@@ -1172,7 +1174,7 @@ const options = {
           },
         },
       },
-      "/api/tips": {
+      "/api/v1/tips": {
         post: {
           tags: ["Tips"],
           summary: "Record a new tip",
@@ -1344,12 +1346,12 @@ const options = {
           },
         },
       },
-      "/api/turrets/challenge": {
+      "/api/v1/turrets/challenge": {
         post: {
           tags: ["Turrets"],
           summary: "Create a txFunction signing challenge",
           description:
-            "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/turrets/deploy`.",
+            "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/v1/turrets/deploy`.",
           requestBody: {
             required: true,
             content: {
@@ -1390,7 +1392,7 @@ const options = {
           },
         },
       },
-      "/api/turrets/deploy": {
+      "/api/v1/turrets/deploy": {
         post: {
           tags: ["Turrets"],
           summary: "Deploy a signed txFunction",
@@ -1436,7 +1438,7 @@ const options = {
           },
         },
       },
-      "/api/turrets/{id}": {
+      "/api/v1/turrets/{id}": {
         get: {
           tags: ["Turrets"],
           summary: "Get a single txFunction deployment",
@@ -1475,7 +1477,7 @@ const options = {
           },
         },
       },
-      "/api/turrets/{id}/history": {
+      "/api/v1/turrets/{id}/history": {
         get: {
           tags: ["Turrets"],
           summary: "Get execution history for a deployment",
@@ -1517,7 +1519,7 @@ const options = {
           },
         },
       },
-      "/api/turrets/{id}/pause": {
+      "/api/v1/turrets/{id}/pause": {
         post: {
           tags: ["Turrets"],
           summary: "Pause a txFunction deployment",
@@ -1543,7 +1545,7 @@ const options = {
           },
         },
       },
-      "/api/turrets/{id}/resume": {
+      "/api/v1/turrets/{id}/resume": {
         post: {
           tags: ["Turrets"],
           summary: "Resume a paused txFunction deployment",
@@ -1589,7 +1591,7 @@ const options = {
           },
         },
       },
-      "/api/parse-payment": {
+      "/api/v1/parse-payment": {
         post: {
           tags: ["AI Parsing"],
           summary: "Parse natural language into payment intent",
@@ -1637,7 +1639,7 @@ const options = {
           },
         },
       },
-      "/api/scheduled-txns": {
+      "/api/v1/scheduled-txns": {
         post: {
           tags: ["Scheduled Transactions"],
           summary: "Schedule a transaction for future submission",
@@ -1674,7 +1676,7 @@ const options = {
           },
         },
       },
-      "/api/scheduled-txns/{publicKey}": {
+      "/api/v1/scheduled-txns/{publicKey}": {
         get: {
           tags: ["Scheduled Transactions"],
           summary: "List scheduled transactions for a public key",
@@ -1703,7 +1705,7 @@ const options = {
           },
         },
       },
-      "/api/scheduled-txns/{id}": {
+      "/api/v1/scheduled-txns/{id}": {
         delete: {
           tags: ["Scheduled Transactions"],
           summary: "Cancel a scheduled transaction",
@@ -1765,7 +1767,7 @@ const options = {
           },
         },
       },
-      "/api/sep24/transactions/deposit/interactive": {
+      "/api/v1/sep24/transactions/deposit/interactive": {
         post: {
           tags: ["SEP-0024"],
           summary: "Initiate an interactive deposit session",
@@ -1797,7 +1799,7 @@ const options = {
           },
         },
       },
-      "/api/sep24/transactions/withdraw/interactive": {
+      "/api/v1/sep24/transactions/withdraw/interactive": {
         post: {
           tags: ["SEP-0024"],
           summary: "Initiate an interactive withdrawal session",
@@ -1829,7 +1831,7 @@ const options = {
           },
         },
       },
-      "/api/sep24/transaction": {
+      "/api/v1/sep24/transaction": {
         get: {
           tags: ["SEP-0024"],
           summary: "Poll transaction status",
@@ -1862,6 +1864,172 @@ const options = {
             },
             400: { description: "Missing id query parameter" },
             404: { description: "Transaction not found" },
+          },
+        },
+      },
+
+      // ─── Webhooks ──────────────────────────────────────────────────────────
+      "/api/webhooks": {
+        post: {
+          tags: ["Webhooks"],
+          summary: "Register a webhook",
+          description:
+            "Register an HTTPS endpoint to receive a signed `POST` notification whenever\n" +
+            "a registered Stellar account receives a payment.\n\n" +
+            "### Payload signing\n\n" +
+            "Every delivery includes an `X-Webhook-Signature` header containing\n" +
+            "`HMAC-SHA256(secret, JSON.stringify(payload))` as a hex digest.\n" +
+            "Consumers must verify this signature before processing the payload.\n\n" +
+            "### ⚠️ Session-scoped secret\n\n" +
+            "The signing `secret` is **never stored on disk**. It is held in memory for\n" +
+            "the lifetime of the server process only. If the server restarts, previously\n" +
+            "registered webhooks will continue to receive events but **deliveries will\n" +
+            "not be signed** until the merchant re-registers the webhook (providing the\n" +
+            "secret again). Re-registration is non-destructive: the same URL can be\n" +
+            "registered multiple times; simply delete the old entry afterwards.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["publicKey", "url", "secret"],
+                  properties: {
+                    publicKey: {
+                      type: "string",
+                      pattern: "^G[A-Z0-9]{55}$",
+                      description: "Stellar public key to monitor (G…)",
+                      example: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA",
+                    },
+                    url: {
+                      type: "string",
+                      format: "uri",
+                      description: "HTTPS endpoint that will receive POST payloads (HTTP allowed in non-production)",
+                      example: "https://merchant.example.com/stellar/webhook",
+                    },
+                    secret: {
+                      type: "string",
+                      minLength: 8,
+                      description:
+                        "Shared secret for HMAC-SHA256 payload signing. " +
+                        "Must be ≥ 8 characters. **Never logged or stored in plaintext.** " +
+                        "Session-scoped — must be re-provided after a server restart to restore signed delivery.",
+                      example: "whsec_change_me_to_a_long_random_value",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Webhook registered. The secret is not echoed back.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      webhook: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string", format: "uuid" },
+                          publicKey: { type: "string" },
+                          url: { type: "string" },
+                          createdAt: { type: "string", format: "date-time" },
+                        },
+                      },
+                      _note: {
+                        type: "string",
+                        description: "Runtime reminder about session-scoped secret lifecycle",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing or invalid field (publicKey, url, or secret)" },
+            500: { description: "Internal server error" },
+          },
+        },
+      },
+      "/api/webhooks/{publicKey}": {
+        get: {
+          tags: ["Webhooks"],
+          summary: "List webhooks for an account",
+          description:
+            "Returns all active webhook registrations for the given Stellar public key.\n\n" +
+            "Secrets are **never** included in the response.",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+              description: "Stellar public key",
+              example: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA",
+            },
+          ],
+          responses: {
+            200: {
+              description: "List of active webhooks (secrets omitted)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      webhooks: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string", format: "uuid" },
+                            publicKey: { type: "string" },
+                            url: { type: "string" },
+                            createdAt: { type: "string", format: "date-time" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Invalid Stellar public key format" },
+          },
+        },
+      },
+      "/api/webhooks/{id}": {
+        delete: {
+          tags: ["Webhooks"],
+          summary: "Delete a webhook",
+          description: "Soft-deactivates the webhook. The registration is retained in the database for audit purposes but will no longer receive deliveries.",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+              description: "Webhook ID returned by the registration endpoint",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Webhook deleted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Webhook ID is required" },
+            404: { description: "Webhook not found" },
           },
         },
       },

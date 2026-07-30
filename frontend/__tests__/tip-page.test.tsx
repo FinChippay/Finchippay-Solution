@@ -55,7 +55,7 @@ describe("tip page", () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/accounts/resolve/alice")
+      expect.stringContaining("/api/v1/accounts/resolve/alice")
     );
   });
 

@@ -30,7 +30,24 @@ function verifyWebhookSignature(payload, secret, signature) {
   );
 }
 
+function buildSep45Payload(eventType, data, secret) {
+  const payload = {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    type: eventType,
+    data,
+  };
+  const signature = generateWebhookSignature(JSON.stringify(payload), secret);
+  return { ...payload, signature };
+}
+
+function getSep45Signature(payload, secret) {
+  return generateWebhookSignature(JSON.stringify(payload), secret);
+}
+
 module.exports = {
   generateWebhookSignature,
   verifyWebhookSignature,
+  buildSep45Payload,
+  getSep45Signature,
 };

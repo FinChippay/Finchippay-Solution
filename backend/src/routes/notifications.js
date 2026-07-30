@@ -327,7 +327,10 @@ router.get(
     try {
       const { publicKey } = req.validated;
       const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+      const limit = Math.min(
+        100,
+        Math.max(1, parseInt(req.query.limit, 10) || 20),
+      );
       const offset = (page - 1) * limit;
 
       const [{ count }] = await knex("notification_history")

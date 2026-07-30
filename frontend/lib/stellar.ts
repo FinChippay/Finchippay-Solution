@@ -24,6 +24,7 @@ import {
   rpc,
   Federation,
 } from "@stellar/stellar-sdk";
+import { logRpcCorrelation } from "@/lib/correlation";
 
 import { FinchippayContractClient } from "./contract-bindings";
 
@@ -163,6 +164,7 @@ let _sorobanServer: rpc.Server | null = null;
 export function getSorobanServer(): rpc.Server {
   const currentUrl = getSorobanRpcUrl();
   if (!_sorobanServer || _sorobanServer.serverURL.toString() !== currentUrl) {
+    logRpcCorrelation("soroban", "connect", { url: currentUrl });
     _sorobanServer = new rpc.Server(currentUrl);
   }
   return _sorobanServer;

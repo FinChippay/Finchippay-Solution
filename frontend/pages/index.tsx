@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 const FEATURE_KEYS = [
   { icon: "⚡", key: "instantSettlement" },
@@ -29,6 +30,10 @@ export default function Home() {
   const router = useRouter();
   const { t } = useTranslation("common");
   const [showConnect, setShowConnect] = useState(false);
+  const connectPanelRef = useFocusTrap<HTMLDivElement>({
+    active: showConnect,
+    onEscape: () => setShowConnect(false),
+  });
 
   const handleWalletConnect = (_publicKey: string) => {
     setShowConnect(false);
@@ -266,8 +271,18 @@ export default function Home() {
         </section>
 
         {showConnect && !publicKey && (
-          <div className="fixed inset-0 z-50 bg-cosmos-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-md">
+          <div
+            className="fixed inset-0 z-50 bg-cosmos-900/90 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowConnect(false); }}
+          >
+            <div
+              ref={connectPanelRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("home.connectWallet") || "Connect wallet"}
+              className="w-full max-w-md outline-none"
+            >
               <WalletConnect onConnectSuccess={handleWalletConnect} />
               <button onClick={() => setShowConnect(false)} className="mt-4 w-full text-center text-sm text-slate-400 hover:text-slate-300 transition-colors cursor-pointer">
                 {t("home.cancel")}
@@ -282,6 +297,10 @@ export default function Home() {
             <a href="https://github.com/FinChippay/Finchippay-Solution" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors cursor-pointer">
               {t("home.footerContribute")}
             </a>
+            {" · "}
+            <Link href="/accessibility" className="hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors cursor-pointer">
+              Accessibility
+            </Link>
           </p>
         </div>
       </div>

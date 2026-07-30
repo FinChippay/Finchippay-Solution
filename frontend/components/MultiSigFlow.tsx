@@ -21,7 +21,7 @@
  *  https://developers.stellar.org/docs/learn/encyclopedia/security/signatures-multisig
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
 import clsx from "clsx";
 import {
@@ -86,6 +86,19 @@ export default function MultiSigFlow({
   services,
 }: MultiSigFlowProps) {
   const [step, setStep] = useState<Step>("build");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Focus management when step changes
+  useEffect(() => {
+    // Focus the first heading or button in the new step
+    const container = containerRef.current;
+    if (container) {
+      const focusable = container.querySelector<HTMLElement>(
+        "button, input, [tabindex]:not([tabindex='-1'])",
+      );
+      focusable?.focus();
+    }
+  }, [step]);
 
   // Build step
   const [destination, setDestination] = useState(prefill?.destination ?? "");
@@ -363,19 +376,21 @@ export default function MultiSigFlow({
               <span className="ml-1 text-slate-500 font-normal">(minimum 2)</span>
             </label>
             <input
+              id="multisig-threshold"
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(Math.max(2, parseInt(e.target.value) || 2))}
               min="2"
-              className="input-field"
+              className="input-field focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
             />
           </div>
           <button
             onClick={handleBuild}
             disabled={!canBuild || loading}
-            className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
+            aria-busy={loading}
+            className="btn-primary w-full py-2.5 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
           >
-            {loading ? <Spinner /> : null}
+            {loading ? <Spinner aria-hidden="true" /> : null}
             {loading ? "Building..." : "Build Transaction"}
           </button>
         </div>
@@ -492,7 +507,8 @@ export default function MultiSigFlow({
                   value={pastedXDR}
                   onChange={(e) => setPastedXDR(e.target.value)}
                   placeholder="AAAA..."
-                  className="input-field h-24 font-mono text-xs"
+                  aria-label="Paste signed XDR from co-signer"
+                  className="input-field h-24 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
                 />
               </div>
               <button
@@ -506,12 +522,12 @@ export default function MultiSigFlow({
           )}
 
           {thresholdMet && (
-            <button
-              onClick={() => setStep("submit")}
-              className="btn-primary w-full py-2.5"
-            >
-              Proceed to Submit →
-            </button>
+          <button
+            onClick={() => setStep("submit")}
+            className="btn-primary w-full py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
+          >
+            Proceed to Submit →
+          </button>
           )}
         </div>
       )}
@@ -556,9 +572,10 @@ export default function MultiSigFlow({
             href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="btn-secondary w-full py-2.5 flex items-center justify-center gap-2"
+            aria-label={`View transaction on Stellar Explorer: ${txHash}`}
+            className="btn-secondary w-full py-2.5 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
           >
-            View on Explorer <ExternalLinkIcon className="w-4 h-4" />
+            View on Explorer <ExternalLinkIcon className="w-4 h-4" aria-hidden="true" />
           </a>
           <button onClick={handleReset} className="btn-primary w-full py-2.5">
             New Multi-Sig Payment
