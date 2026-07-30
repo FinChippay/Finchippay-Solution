@@ -392,6 +392,9 @@ const SHUTDOWN_DRAIN_MS = parseInt(process.env.SHUTDOWN_DRAIN_MS, 10) || 10_000;
 
 async function gracefulShutdown(signal, server, otelSdk) {
   shutdownState.markShuttingDown();
+
+  // Fail readiness immediately so /api/health/ready starts returning 503
+  // before any in-flight work is torn down.
   logger.info({ signal }, "Received shutdown signal — draining…");
 
   server.close((err) => {
