@@ -261,7 +261,18 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// Sensitive rate limiting — 10 requests per minute per IP.
+// Applied to endpoints that call external APIs (e.g. Anthropic Claude)
+// to prevent budget exhaustion from abusive clients.
+const sensitiveLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+});
+
+// ─── Routes ──────────────────────────────────────────────────────────
 
 app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
@@ -271,7 +282,7 @@ app.use("/api/webhooks", webhookRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
-app.use("/api/parse-payment", parsePaymentRoutes);
+app.use("/api/parse-payment", sensitiveLimiter, parsePaymentRoutes);
 app.use("/api/scheduled-transactions", scheduledTransactionRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/notifications", notificationRoutes);
