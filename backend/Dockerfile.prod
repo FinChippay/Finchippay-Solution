@@ -2,14 +2,24 @@ FROM node:20.19.5-alpine
 
 WORKDIR /app
 
+# Create non-root user and app directories
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S node -u 1001 && \
+    mkdir -p /app/logs && \
+    chown -R node:nodejs /app
+
 # Install dependencies
-COPY package*.json ./
-RUN npm install --production
+COPY --chown=node:nodejs package*.json ./
+RUN npm install --production && \
+    npm cache clean --force
 
 # Copy source code
-COPY . .
+COPY --chown=node:nodejs . .
 
 # Expose port 4000
 EXPOSE 4000
+
+# Run as non-root user
+USER node
 
 CMD ["node", "src/server.js"]
