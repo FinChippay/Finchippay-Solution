@@ -27,16 +27,22 @@ describe("POST /api/parse-payment", () => {
     it("returns 400 when input is missing", async () => {
       const res = await request(app).post("/api/parse-payment").send({});
       expect(res.status).toBe(400);
-      expect(res.body.clarification).toBe("Please provide a payment description.");
+      expect(res.body.clarification).toBe(
+        "Please provide a payment description.",
+      );
     });
 
     it("returns 400 when input is not a string", async () => {
-      const res = await request(app).post("/api/parse-payment").send({ input: 123 });
+      const res = await request(app)
+        .post("/api/parse-payment")
+        .send({ input: 123 });
       expect(res.status).toBe(400);
     });
 
     it("returns 400 when input is an empty string", async () => {
-      const res = await request(app).post("/api/parse-payment").send({ input: "" });
+      const res = await request(app)
+        .post("/api/parse-payment")
+        .send({ input: "" });
       expect(res.status).toBe(400);
     });
   });
@@ -160,7 +166,9 @@ describe("POST /api/parse-payment", () => {
       expect(callArgs[1].max_tokens).toBe(300);
       expect(callArgs[1].messages).toHaveLength(1);
       expect(callArgs[1].messages[0].role).toBe("user");
-      expect(callArgs[1].messages[0].content).toContain("Pay 10 XLM to GDEF456 for coffee");
+      expect(callArgs[1].messages[0].content).toContain(
+        "Pay 10 XLM to GDEF456 for coffee",
+      );
       expect(callArgs[2].headers["x-api-key"]).toBe("test-key");
       expect(callArgs[2].headers["anthropic-version"]).toBe("2023-06-01");
     });

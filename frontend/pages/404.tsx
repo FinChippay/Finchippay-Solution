@@ -26,7 +26,7 @@ export default function Custom404() {
             {/* Star icon with glow */}
             <div className="w-20 h-20 rounded-full bg-stellar-500/10 border border-stellar-500/20 flex items-center justify-center glow-sm">
               <svg
-                className="w-10 h-10 text-stellar-400"
+                className="w-10 h-10 text-stellar-700 dark:text-stellar-400"
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -49,11 +49,11 @@ export default function Custom404() {
         </h1>
 
         {/* Error message */}
-        <h2 className="font-display text-2xl font-semibold text-white mb-4">
+        <h2 className="font-display text-2xl font-semibold text-slate-900 dark:text-white mb-4">
           {`Lost in the cosmos?`}
         </h2>
 
-        <p className="text-slate-400 text-base mb-8 leading-relaxed">
+        <p className="text-slate-600 dark:text-slate-400 text-base mb-8 leading-relaxed">
           {`The stellar path you're looking for seems to have drifted into deep space.`} 
           <br />
           {`Let's get you back to safety.`}
@@ -73,14 +73,14 @@ export default function Custom404() {
         </div>
 
         {/* Help text */}
-        <div className="mt-12 pt-8 border-t border-white/5">
+        <div className="mt-12 pt-8 border-t border-slate-200 dark:border-white/5">
           <p className="text-slate-600 text-sm">
             {`If you think this is an error, please `}
             <a
               href="https://github.com/FinChippay/Finchippay-Solution/issues"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-stellar-400 hover:text-stellar-300 transition-colors"
+              className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 transition-colors"
             >
               {`report an issue on GitHub`}
             </a>

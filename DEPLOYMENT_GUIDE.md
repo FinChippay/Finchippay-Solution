@@ -255,6 +255,153 @@ The `FinchippayContract` v2 includes:
 4. **Mainnet Deployment**: Deploy to production after testing
 5. **Documentation**: Create user guides and API documentation
 
+## Canary Deployment Strategy
+
+Finchippay-Solution uses a canary release strategy to minimize deployment risk.
+New versions are gradually exposed to a subset of traffic while health metrics
+are monitored. If metrics degrade, the deployment is automatically rolled back.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Canary Deployment Flow                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────────┐  │
+│  │  Deploy  │───▶│ Health Check │───▶│ Monitor (5 min)  │  │
+│  │  Staging │    │   (30 retries)│    │                  │  │
+│  └──────────┘    └──────────────┘    └───────┬──────────┘  │
+│                                               │             │
+│                              ┌────────────────┼──────────┐  │
+│                              │                │          │  │
+│                              ▼                ▼          │  │
+│                        ┌──────────┐    ┌──────────┐      │  │
+│                        │ Promote  │    │ Rollback │      │  │
+│                        │ 10→50→100│    │ Auto     │      │  │
+│                        └──────────┘    └──────────┘      │  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Two-Target Strategy
+
+| Target    | Strategy        | Mechanism                                      |
+|-----------|-----------------|------------------------------------------------|
+| Frontend  | Blue-Green      | Vercel staging alias → health check → promote   |
+| Backend   | Weighted Canary | AWS ALB listener rules: 10% → 50% → 100%       |
+
+**Frontend (Vercel):** The frontend uses a Blue-Green pattern. A new deployment
+is built and assigned a staging alias (`canary-<sha>.finchippay.vercel.app`).
+Health checks verify the staging deployment, then `vercel promote` promotes it
+to production. Production traffic is never split — the flip is atomic.
+
+**Backend (ECS/ALB):** The backend uses true weighted traffic routing. A new
+ECS task set is registered alongside the existing one, and the ALB listener
+rule is modified to shift traffic gradually:
+
+- **Stage 1:** 10% of traffic → new version (monitor 5 min)
+- **Stage 2:** 50% of traffic → new version (monitor 5 min)
+- **Stage 3:** 100% of traffic → new version (monitor 5 min)
+
+At any stage, if health thresholds are breached, traffic is immediately routed
+back to 100% on the old target group.
+
+### Health Metric Monitoring
+
+During each canary stage, `scripts/canary-monitor.js` polls the following:
+
+| Metric            | Source             | Threshold                    | Action              |
+|-------------------|--------------------|------------------------------|---------------------|
+| Error rate        | Health endpoint    | > 1% 5xx responses           | Degraded → rollback |
+| 5xx count         | Health endpoint    | > 5 per minute               | Critical → rollback |
+| Latency (p95)     | Health endpoint    | > 2× baseline p50            | Degraded → rollback |
+| Sentry error rate | Sentry API         | > 50% increase vs baseline   | Degraded → rollback |
+| Consecutive fails | Health endpoint    | ≥ 3 consecutive failures     | Critical → rollback |
+
+### Scripts
+
+| Script                        | Purpose                                                   |
+|-------------------------------|-----------------------------------------------------------|
+| `scripts/canary-deploy.sh`    | Orchestrates canary deployment for frontend or backend     |
+| `scripts/canary-monitor.js`   | Polls health metrics and Sentry during canary window       |
+| `scripts/canary-check.js`     | One-shot Sentry error rate comparison (legacy)             |
+| `scripts/rollback.sh`         | Reverts to previous stable version                        |
+
+### Triggering a Canary Deployment
+
+**Automatic:** Publishing a GitHub Release triggers the canary workflow for
+both frontend and backend.
+
+**Manual:** Run the workflow with custom parameters:
+
+1. Go to **Actions → Canary Deploy → Run workflow**
+2. Select target: `backend`, `frontend`, or `both`
+3. Set `canary_duration` (minutes per stage, default: 5)
+4. Set `canary_weight_start` (initial traffic %, backend only, default: 10)
+
+### Rollback
+
+Rollback is automatic when health metrics degrade. It can also be triggered
+manually:
+
+```bash
+# Rollback frontend (Vercel)
+bash scripts/rollback.sh frontend <commit-sha>
+
+# Rollback backend (ECS ALB)
+bash scripts/rollback.sh backend <commit-sha>
+```
+
+The rollback script:
+- **Frontend:** Removes the canary alias. Production remains on the previous
+deployment.
+- **Backend:** Immediately routes 100% ALB traffic to the old target group,
+reverts ECS service to the old task definition, and cleans up the canary
+target group and task definition.
+
+### Required GitHub Secrets
+
+| Secret                  | Used By    | Purpose                                 |
+|-------------------------|------------|-----------------------------------------|
+| `VERCEL_TOKEN`          | Frontend   | Vercel API authentication               |
+| `VERCEL_ORG_ID`         | Frontend   | Vercel organization identifier          |
+| `VERCEL_PROJECT_ID`     | Frontend   | Vercel project identifier               |
+| `AWS_ACCESS_KEY_ID`     | Backend    | AWS IAM access key                      |
+| `AWS_SECRET_ACCESS_KEY` | Backend    | AWS IAM secret key                      |
+| `AWS_REGION`            | Backend    | AWS region for ECS/ALB                  |
+| `ECS_CLUSTER`           | Backend    | ECS cluster name                        |
+| `ECS_SERVICE`           | Backend    | ECS service name                        |
+| `ALB_LISTENER_ARN`      | Backend    | ALB listener ARN for traffic routing    |
+| `SENTRY_AUTH_TOKEN`     | Monitoring | Sentry API auth token                   |
+| `SENTRY_ORG`            | Monitoring | Sentry organization slug                |
+| `SENTRY_PROJECT`        | Monitoring | Sentry project slug                     |
+
+### Local Testing
+
+```bash
+# Test canary deploy script (dry-run mode checks prereqs)
+bash scripts/canary-deploy.sh frontend
+
+# Test monitor standalone against local backend
+node scripts/canary-monitor.js \
+  --duration 1 \
+  --health-url http://localhost:4000/health \
+  --stage local-test
+
+# Test rollback script (requires Vercel/AWS credentials)
+bash scripts/rollback.sh frontend
+```
+
+### CI Workflow
+
+The canary deployment workflow (`.github/workflows/canary-deploy.yml`)
+includes:
+
+- **Environment gating:** Requires `production` environment approval
+- **Result reporting:** Posts deployment status as issue/PR comments
+- **Workflow summaries:** Results written to GitHub Actions step summary
+- **State persistence:** Saves deployment info to temp files for rollback
+
 ## Support
 
 For questions or issues:

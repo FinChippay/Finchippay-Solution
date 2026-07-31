@@ -2,6 +2,7 @@
   "nav": {
     "home": "Inicio",
     "dashboard": "Panel",
+    "portfolio": "Portafolio",
     "trade": "Comercio",
     "transactions": "Transacciones",
     "network": "Red",
@@ -13,7 +14,14 @@
     "cancel": "Cancelar",
     "switchToLight": "Cambiar a modo claro",
     "switchToDark": "Cambiar a modo oscuro",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Cuentas",
+    "addAccount": "Anadir cuenta",
+    "removeAccount": "Eliminar cuenta",
+    "removeLastAccountWarning": "Es tu unica cuenta. Al eliminarla se desconectara tu billetera. Haz clic de nuevo para confirmar.",
+    "switchAccount": "Cambiar de cuenta",
+    "switchAccountShortcut": "Pulsa Ctrl+K (Cmd+K) para cambiar de cuenta",
+    "primary": "Principal"
   },
   "home": {
     "badge": "Construido en Stellar Testnet · Código Abierto",
@@ -139,7 +147,28 @@
     "upwardTrend": "▲ Tendencia al alza",
     "downwardTrend": "▼ Tendencia a la baja",
     "balanceTrendUpward": "Tendencia del saldo: al alza",
-    "balanceTrendDownward": "Tendencia del saldo: a la baja"
+    "balanceTrendDownward": "Tendencia del saldo: a la baja",
+    "balanceLive": "En vivo",
+    "balancePolling": "Actualizando cada 30 s",
+    "viewPortfolio": "Ver cartera →"
+  },
+  "portfolio": {
+    "title": "Portafolio",
+    "addToken": "Agregar token",
+    "addTokenPlaceholder": "Contract ID (C...)",
+    "addTokenInvalid": "Eso no parece un contract ID de Soroban válido.",
+    "addTokenButton": "Agregar",
+    "currency": "Moneda",
+    "totalValue": "Valor Total",
+    "change24h": "Cambio 24h",
+    "allocation": "Asignación",
+    "priceHistory": "Historial de Precio",
+    "range7d": "7D",
+    "range30d": "30D",
+    "range90d": "90D",
+    "noHoldings": "Todavía no hay tokens en el portafolio.",
+    "priceUnavailable": "Precio no disponible",
+    "priceHistoryUnavailable": "Historial de precio no disponible para este token."
   },
   "sendPayment": {
     "title": "Enviar Pago",
@@ -165,6 +194,10 @@
     "confirmPayment": "Confirmar Pago",
     "to": "Para",
     "estimatedFee": "Comisión Estimada",
+    "networkFee": "Comisión de Red",
+    "feeEconomy": "Económica",
+    "feeStandard": "Estándar",
+    "feeFast": "Rápida",
     "confirmAndSign": "Confirmar y Firmar",
     "successTitle": "¡Pago enviado!",
     "successMessage": "Tu pago ha sido confirmado en la red Stellar.",
@@ -269,6 +302,7 @@
     "yourAddress": "Tu dirección:",
     "registerStellarName": "Registra tu nombre en StellarNames →",
     "languageTitle": "Idioma",
-    "languageDescription": "Selecciona tu idioma preferido para la interfaz de la aplicación."
+    "languageDescription": "Selecciona tu idioma preferido para la interfaz de la aplicación.",
+    "rtlSupportNote": "Compatibilidad RTL: los diseños en árabe y hebreo se muestran en espejo."
   }
 }

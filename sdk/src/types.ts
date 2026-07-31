@@ -190,6 +190,8 @@ export interface ChallengeResponse {
 
 export interface TokenResponse {
   token: string;
+  accessToken: string;
+  refreshToken: string;
 }
 
 export interface AuthRequest {

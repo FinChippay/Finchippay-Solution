@@ -1,22 +1,27 @@
-# docs/prometheus.yml
-# Prometheus scrape configuration for Finchippay Solution.
-#
-# Scrapes the backend /metrics endpoint every 15 seconds.
-#
-# When METRICS_TOKEN is set in the backend environment, uncomment the
-# `authorization` block below and replace YOUR_METRICS_TOKEN with the
-# actual token value:
-#
-#   authorization:
-#     type: "Bearer"
-#     credentials: "YOUR_METRICS_TOKEN"
-#
-# In local development the /metrics endpoint is open by default
-# (no token required) so no authorization block is needed.
-
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    # Surfaced in alert notifications so one Alertmanager can serve several
+    # deployments without an operator having to guess which one paged.
+    environment: "production"
+    service: "finchippay"
+
+# ─── Alerting rules ───────────────────────────────────────────────────────────
+# Path is container-internal — see the volume mounts above.
+
+rule_files:
+  - "/etc/prometheus/alerts.yml"
+
+# ─── Alertmanager ─────────────────────────────────────────────────────────────
+# Prometheus evaluates the rules; Alertmanager routes the notifications.
+# Grafana's own alerting can consume the same metrics instead — see
+# docs/grafana-notifiers.yml for the email and Slack channel provisioning.
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   - job_name: "finchippay-backend"
@@ -24,3 +29,26 @@ scrape_configs:
     scheme: "http"
     static_configs:
       - targets: ["backend:4000"]
+    relabel_configs:
+      - source_labels: ["__address__"]
+        target_label: "instance"
+        regex: "(.*):.*"
+        replacement: "${1}"
+
+  - job_name: "finchippay-backend-kubernetes"
+    kubernetes_sd_configs:
+      - role: pod
+    metrics_path: "/metrics"
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: finchippay-backend
+      - source_labels: [__address__]
+        action: replace
+        regex: ([^:]+)(?::\d+)?
+        replacement: "${1}:4000"
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace

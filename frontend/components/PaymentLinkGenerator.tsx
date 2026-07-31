@@ -48,8 +48,8 @@ export default function PaymentLinkGenerator() {
 
   return (
     <div className="card animate-fade-in border-stellar-400/20">
-      <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
-        <LinkIcon className="w-5 h-5 text-stellar-400" />
+      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+        <LinkIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
         Create Payment Link
       </h2>
 
@@ -114,12 +114,12 @@ export default function PaymentLinkGenerator() {
         {generatedLink && (
           <div className="mt-4 p-4 rounded-xl bg-stellar-400/5 border border-stellar-400/20 animate-slide-up">
             <div className="flex justify-between items-center mb-2">
-              <p className="text-[10px] uppercase tracking-wider text-stellar-400 font-bold">
+              <p className="text-[10px] uppercase tracking-wider text-stellar-700 dark:text-stellar-400 font-bold">
                 Generated URL
               </p>
               <button
                 onClick={() => setShowQR(!showQR)}
-                className="text-[10px] text-slate-400 hover:text-white underline"
+                className="text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white underline"
               >
                 {showQR ? "Hide QR" : "Show QR"}
               </button>

@@ -12,7 +12,11 @@
 "use strict";
 
 const metrics = require("../services/metricsService");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const logger = require("../utils/logger");
+const {
+  formatErrorResponse,
+  ERROR_CODES,
+} = require("../../../shared/errorCodes");
 
 // ─── Route normalisation ──────────────────────────────────────────────────────
 
@@ -49,19 +53,29 @@ function normalisedRoute(req) {
  * @param {import("express").NextFunction} next
  */
 function trackHttpMetrics(req, res, next) {
-  const start = process.hrtime.bigint();
+  // Exclude /api/metrics path from self-recording to avoid recursion
+  if (req.path === "/api/metrics" || req.path === "/metrics") {
+    return next();
+  }
 
-  // Capture the matched route *after* Express resolves it (the "finish" event).
+  const start = process.hrtime.bigint();
+  const route = normalisedRoute(req);
+
+  metrics.httpRequestsInFlight.inc({ method: req.method, route });
+
   res.once("finish", () => {
-    const route = normalisedRoute(req);
     const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
 
-    metrics.httpRequestDurationSeconds.observe({ method: req.method, route }, durationSec);
+    metrics.httpRequestDurationSeconds.observe(
+      { method: req.method, route, status_code: res.statusCode },
+      durationSec,
+    );
     metrics.httpRequestsTotal.inc({
       method: req.method,
       route,
       status_code: res.statusCode,
     });
+    metrics.httpRequestsInFlight.dec({ method: req.method, route });
   });
 
   next();
@@ -86,9 +100,9 @@ function requireMetricsToken(req, res, next) {
   if (!expectedToken) {
     // No token configured — allow open access with a loud warning.
     if (process.env.NODE_ENV !== "test") {
-      console.warn(
-        "⚠️  METRICS_TOKEN is not set — /metrics endpoint is unprotected. " +
-          "Set METRICS_TOKEN in production to secure Prometheus scraping."
+      logger.warn(
+        "METRICS_TOKEN is not set — /metrics endpoint is unprotected. " +
+          "Set METRICS_TOKEN in production to secure Prometheus scraping.",
       );
     }
     return next();
@@ -104,9 +118,11 @@ function requireMetricsToken(req, res, next) {
 
   const token = authHeader.split(" ")[1];
   if (token !== expectedToken) {
-    return res
-      .status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus)
-      .json(formatErrorResponse("AUTH_INVALID_TOKEN", { reason: "Invalid metrics token." }));
+    return res.status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus).json(
+      formatErrorResponse("AUTH_INVALID_TOKEN", {
+        reason: "Invalid metrics token.",
+      }),
+    );
   }
 
   next();

@@ -1,11 +1,22 @@
 # .github/workflows/codeql.yml
 # CodeQL security analysis for Finchippay-Solution.
-# Scans JavaScript/TypeScript code on every push to main and weekly.
+# Scans JavaScript/TypeScript and Rust code on every push to main and weekly.
+#
+# Runs two scan jobs:
+#   1. javascript-typescript — default security-extended queries PLUS the
+#      custom Finchippay JS query pack (.github/codeql/javascript/).
+#   2. rust — default security-extended queries PLUS the custom Finchippay
+#      Rust query pack (.github/codeql/rust/).
 #
 # CodeQL identifies vulnerabilities such as:
 #   - SQL injection, XSS, path traversal
 #   - Hardcoded credentials, insecure cryptography
-#   - Insecure deserialization, prototype pollution
+#   - Hardcoded Stellar secret keys (custom query)
+#   - Sensitive data in localStorage (custom query)
+#   - Missing webhook signature verification (custom query)
+#   - Missing checked arithmetic in Soroban contracts (custom query)
+#   - Unbounded loops in Soroban contracts (custom query)
+#   - Raw panic! without structured ContractError (custom query)
 
 name: CodeQL Security Scan
 
@@ -30,21 +41,48 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ["javascript-typescript"]
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: manual
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── Rust toolchain setup (required for the Rust CodeQL build) ──────────
+      - name: Set up Rust toolchain
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # ── Initialize CodeQL with default + custom query suites ───────────────
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          queries: security-extended,security-and-quality
+          build-mode: ${{ matrix.build-mode }}
+          # Run the built-in security suites AND the local custom query pack.
+          # The local pack path is relative to the repository root.
+          queries: >-
+            security-extended,security-and-quality,
+            ${{ matrix.language == 'javascript-typescript' && './.github/codeql/javascript' || './.github/codeql/rust' }}
 
+      # ── Build step for Rust (manual build mode) ───────────────────────────
+      - name: Build Rust contract (for CodeQL)
+        if: matrix.language == 'rust'
+        run: |
+          cd contracts/finchippay-contract
+          cargo build 2>&1 | head -200
+
+      # ── Build step for JavaScript (autobuild) ─────────────────────────────
       - name: Autobuild
+        if: matrix.language == 'javascript-typescript'
         uses: github/codeql-action/autobuild@v3
 
+      # ── Run CodeQL Analysis ────────────────────────────────────────────────
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:

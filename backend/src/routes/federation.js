@@ -8,6 +8,8 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
+const { validate } = require("../validation/middleware");
+const { federationQuerySchema } = require("../validation/schemas");
 const federationController = require("../controllers/federationController");
 
 /**
@@ -16,6 +18,11 @@ const federationController = require("../controllers/federationController");
  * type=name: resolve stellar address to account ID
  * type=id: resolve account ID to stellar address
  */
-router.get("/", strictLimiter, federationController.resolveFederation);
+router.get(
+  "/",
+  strictLimiter,
+  validate(federationQuerySchema, "query"),
+  federationController.resolveFederation,
+);
 
 module.exports = router;

@@ -53,10 +53,26 @@ Key design decisions:
 - **Auth first**: every mutating function calls `require_auth()` before touching state.
 - **Checked arithmetic**: all additions, subtractions, and multiplications use `checked_*` methods.
 - **Event emission**: every state change emits a structured Soroban event for off-chain indexers.
-- **Storage TTL**: persistent entries are bumped to 500,000 ledgers (~1 year) to prevent expiry.
-- **Emergency pause**: admin can call `pause()` to freeze all value-transferring operations (circuit breaker). Read-only queries remain accessible during pause.
+- **Storage TTL**: persistent entries are created at a floor of 535,680 ledgers (~31 days) and refreshed by any read or update that finds them below 100,000 ledgers, so in-use state cannot expire. Cold entries are covered by `bump_all_ttls(admin, max_keys)`, an admin sweep that resumes across calls via a stored cursor; `get_min_ttl()` returns the lowest guaranteed lifetime and the class holding it, so an off-chain job knows when a sweep is due.
+- **Emergency pause**: the admin *or* a designated pauser can call `pause()`/`unpause()` to freeze all value-transferring operations (circuit breaker). Read-only queries remain accessible during pause.
 - **Upgradability**: admin can call `upgrade(new_wasm_hash)` to deploy security patches without state migration. Version counter is incremented on each upgrade.
 - **Bounded inputs**: escrow timelocks, stream deposits/rates, and multi-sig amounts are capped to prevent griefing, overflow, and permanent fund lock-up.
+
+#### Roles
+
+The contract separates privileged authority into two roles so that emergency
+response does not require exposing the highest-privilege key.
+
+| Role | Set by | Capabilities | Cannot |
+|---|---|---|---|
+| **Admin** | `initialize` (once); rotated via `transfer_admin` | Everything: `transfer_admin`, `set_pauser`, `upgrade`, `rescue_tokens`, `pause`/`unpause` | — |
+| **Pauser** | `set_pauser` (admin only) | `pause` / `unpause` only | `transfer_admin`, `set_pauser`, `upgrade`, `rescue_tokens` |
+
+The pauser is intended to be a low-exposure "hot key" that can trigger the
+circuit breaker during an incident without the admin key ever coming online.
+`pause` and `unpause` accept either the stored admin or the stored pauser;
+every other privileged entry point checks the admin only. The pauser is
+optional — if `set_pauser` has never been called, only the admin can pause.
 
 #### Event Catalogue
 
@@ -105,7 +121,8 @@ Key components:
 - `middleware/auth.js` — SEP-0010 JWT verification.
 - `middleware/rateLimit.js` — 100 req/15 min globally; 20 req/min on sensitive routes.
 - `middleware/sanitization.js` — strips HTML/script injection from all user inputs.
-- `utils/logger.js` — Pino structured JSON logger; Stellar secret keys are redacted before any output.
+- `utils/logger.js` — Pino structured JSON logger; Stellar secret keys are redacted before any output. Request-scoped `requestId` / `sessionId` are mixed in automatically (see [logging.md](./logging.md)).
+- `middleware/requestId.js` — adopts/generates `X-Request-ID`, attaches `req.log`, propagates correlation via AsyncLocalStorage.
 - `swagger.js` — OpenAPI 3.0 spec auto-generated from JSDoc annotations.
 
 ### Frontend (`frontend/`)
@@ -159,7 +176,8 @@ Key components:
 | CSP | Helmet enforces strict Content-Security-Policy on all API responses |
 | Auth | SEP-0010 JWT — signed by Freighter, verified by backend middleware |
 | Contract auth | Every mutating entry-point calls `require_auth()` |
-| Emergency pause | Admin `pause()`/`unpause()` freezes value-transferring operations |
+| Emergency pause | Admin or designated pauser `pause()`/`unpause()` freezes value-transferring operations |
+| Least-privilege pauser | Separate pause-only role (`set_pauser`) keeps the admin key offline during incident response; pauser cannot upgrade or transfer admin |
 | Upgradability | Admin `upgrade()` replaces contract WASM; version tracked on-chain |
 | Bounded inputs | Deposit caps, rate limits, timelock maximums prevent griefing |
 | Top-up enforcement | Cumulative stream deposit checked against `MAX_STREAM_DEPOSIT` |

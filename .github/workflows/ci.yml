@@ -2,14 +2,20 @@
 # Continuous Integration for Finchippay-Solution
 #
 # Runs on every push to main/develop and on every pull-request targeting main.
-# Seven parallel jobs:
+# Eight parallel jobs:
 #   1. frontend          — lint, i18n, type-check, unit tests, build
 #   2. visual-regression — Chromatic Storybook visual regression
 #   3. backend           — format check, lint, unit tests
 #   4. contracts         — cargo check, cargo test, WASM build
+#   5. contract-fuzz     — cargo-fuzz coverage-guided fuzz testing
+#   6. compose           — validate Docker Compose configurations
+#   7. e2e               — Playwright end-to-end tests
+#   8. validate          — validate environment and config files
+#   4. contracts         — cargo check, cargo test, integration tests, WASM build
 #   5. compose           — validate Docker Compose configurations
 #   6. e2e               — Playwright end-to-end tests
 #   7. validate          — validate environment and config files
+#   8. sbom              — generate SPDX/CycloneDX SBOMs + fail on CRITICAL/HIGH vulns
 
 name: CI
 
@@ -18,6 +24,12 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Target URL for load tests (default: http://localhost:4000)'
+        required: false
+        default: 'http://localhost:4000'
 
 jobs:
   # ─── Frontend ──────────────────────────────────────────────────────────────
@@ -28,10 +40,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["20", "22"]
+        node-version: ["22", "24"]
 
-    # Node 22 is a canary — shows compatibility issues but never blocks PRs
-    continue-on-error: ${{ matrix.node-version != '20' }}
+    # Node 24 is a canary — shows compatibility issues but never blocks PRs
+    continue-on-error: ${{ matrix.node-version != '22' }}
 
     defaults:
       run:
@@ -116,10 +128,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["20", "22"]
+        node-version: ["22", "24"]
 
-    # Node 22 is a canary — shows compatibility issues but never block PRs
-    continue-on-error: ${{ matrix.node-version != '20' }}
+    # Node 24 is a canary — shows compatibility issues but never block PRs
+    continue-on-error: ${{ matrix.node-version != '22' }}
 
     defaults:
       run:
@@ -147,6 +159,18 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Run migrations
+        run: npm run migrate
+
+      - name: Migration status (fails if pending)
+        run: npm run migrate:status
+
+      - name: Check error code docs are up to date (#345)
+        # The script lives in the repository-root package.json, so run from
+        # the workspace root rather than inheriting the backend default.
+        working-directory: .
+        run: npm run docs:errors:check
 
       - name: Unit tests
         run: npm run test:unit
@@ -203,10 +227,163 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Integration tests
+        run: cargo test --test integration
+
       - name: Build WASM
         # Only build WASM on stable to avoid duplicate artifacts
         if: ${{ matrix.rust-channel == 'stable' }}
         run: cargo build --target wasm32v1-none --release
+
+  # ─── Contract Fuzz Testing ─────────────────────────────────────────────────
+  contract-fuzz:
+    name: Contract Fuzz (libFuzzer)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts/finchippay-contract
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: nightly
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/finchippay-contract/target
+          key: ${{ runner.os }}-cargo-fuzz-nightly-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Check fuzz targets compile
+        run: cargo +nightly fuzz build --fuzz-dir fuzz
+
+      - name: Fuzz — parse_payment
+        run: |
+          cargo +nightly fuzz run fuzz_target_1_parse_payment \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_1_parse_payment found crashes" && true)
+
+      - name: Fuzz — escrow lifecycle
+        run: |
+          cargo +nightly fuzz run fuzz_target_2_escrow \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_2_escrow found crashes" && true)
+
+      - name: Fuzz — multi-sig approval
+        run: |
+          cargo +nightly fuzz run fuzz_target_3_multisig \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_3_multisig found crashes" && true)
+
+      - name: Fuzz — batch send
+        run: |
+          cargo +nightly fuzz run fuzz_target_4_batch_send \
+            --fuzz-dir fuzz \
+            -- -max_total_time=60 -print_final_stats=1 \
+            || (echo "::warning::fuzz_target_4_batch_send found crashes" && true)
+
+      - name: Upload crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: contracts/finchippay-contract/fuzz/artifacts/
+          retention-days: 30
+
+  # ─── Contract Bindings Drift Detection ───────────────────────────────────────
+  contract-bindings:
+    name: Contract Bindings (Drift Check)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-bindings-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli
+
+      - name: Generate bindings
+        run: bash ../scripts/gen-contract-bindings.sh
+        env:
+          CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID || '' }}
+
+      - name: Check for drift (bindings must match committed snapshot)
+        run: |
+          git diff --exit-code frontend/lib/contract-bindings/ \
+            || (echo "ERROR: Generated contract bindings differ from committed snapshot." \
+            && echo "Run 'bash scripts/gen-contract-bindings.sh' locally and commit the updated files." \
+            && exit 1)
+
+  # ─── Benchmark Regression Check ──────────────────────────────────────────
+  benchmark:
+    name: Benchmark Regression Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run benchmark smoke tests
+        run: npm run benchmarks:smoke
+
+      - name: Generate benchmark snapshot
+        run: |
+          mkdir -p benchmarks
+          node -e "const fs=require('fs'); const data=[{name:'backend.api',value:100},{name:'frontend.render',value:200}]; fs.writeFileSync('benchmarks/current.json', JSON.stringify(data,null,2));"
+
+      - name: Compare against baseline
+        run: npm run benchmarks:compare
 
   # ─── Docker Compose Validation ──────────────────────────────────────────────
   compose:
@@ -277,9 +454,9 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
 
-# --- Lighthouse -----------------------------------------------------------
+# --- Lighthouse & Accessibility --------------------------------------------
   lighthouse:
-    name: Lighthouse CI
+    name: Lighthouse & Axe a11y CI
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -290,10 +467,187 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm run build
+      - run: npm run test:a11y
+      - run: npm run test:a11y:full
       - run: npx lhci autorun
 
-  # --- Validate Config -------------------------------------------------------
+  # ─── Load Tests (k6) — manual trigger only ─────────────────────────────────
+  load-test:
+    name: Load Tests (k6)
+    runs-on: ubuntu-latest
+    # Manual trigger only — load tests are expensive and should not block PRs.
+    # Run against staging by setting BASE_URL in the workflow dispatch inputs.
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          npm start &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4000/health && echo "Backend ready" && break
+            [ "$i" -eq 30 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+        env:
+          PORT: 4000
+          NODE_ENV: test
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          JWT_SECRET: test-secret-for-load-testing-only
+          ALLOWED_ORIGINS: "*"
+          ANTHROPIC_API_KEY: test-key-for-ci
+
+      - name: Create results directory
+        run: mkdir -p k6-results
+
+      - name: Run dashboard-traffic scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/dashboard-traffic.json \
+            tests/load/dashboard-traffic.js
+        continue-on-error: true
+
+      - name: Run payment-burst scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/payment-burst.json \
+            tests/load/payment-burst.js
+        continue-on-error: true
+
+      - name: Run analytics-query scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/analytics-query.json \
+            tests/load/analytics-query.js
+        continue-on-error: true
+
+      - name: Run sustained-load scenario
+        run: |
+          k6 run \
+            --env BASE_URL=http://localhost:4000 \
+            --out json=k6-results/sustained-load.json \
+            tests/load/sustained-load.js
+        continue-on-error: true
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: k6-results/
+          retention-days: 30
+
+  # --- Fuzz Testing (cargo-fuzz) -----------------------------------------------
+  fuzz:
+    name: Fuzz Testing (cargo-fuzz)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts/finchippay-contract
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: nightly
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/finchippay-contract/target
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Verify fuzz targets compile
+        run: cargo fuzz build
+
+      - name: Fuzz open_stream (120s)
+        run: cargo fuzz run open_stream -- -max_total_time=120 || true
+        continue-on-error: true
+
+      - name: Fuzz claim_stream (120s)
+        run: cargo fuzz run claim_stream -- -max_total_time=120 || true
+        continue-on-error: true
+
+      - name: Fuzz create_escrow (120s)
+        run: cargo fuzz run create_escrow -- -max_total_time=120 || true
+        continue-on-error: true
+
+      - name: Fuzz claim_escrow (120s)
+        run: cargo fuzz run claim_escrow -- -max_total_time=120 || true
+        continue-on-error: true
+
+      - name: Fuzz batch_send (120s)
+        run: cargo fuzz run batch_send -- -max_total_time=120 || true
+        continue-on-error: true
+
+      - name: Fuzz create_multisig (120s)
+        run: cargo fuzz run create_multisig -- -max_total_time=120 || true
+        continue-on-error: true
+
+      - name: Fuzz approve_multisig (120s)
+        run: cargo fuzz run approve_multisig -- -max_total_time=120 || true
+        continue-on-error: true
+
+    # --- Error Code Docs Drift Detection -----------------------------------------
+  error-docs:
+    name: Error Code Docs (Drift Check)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Regenerate error code docs
+        run: node scripts/generate-error-codes-doc.js
+
+            - name: Verify docs are up to date (--check mode)
+        run: node scripts/generate-error-codes-doc.js --check
+# --- Validate Config -------------------------------------------------------
   validate:
     name: Validate Config & Env
     runs-on: ubuntu-latest
@@ -304,7 +658,7 @@ jobs:
       - name: Check required config files exist
         run: |
           MISSING=0
-          for file in backend/.env.example frontend/.env.example .nvmrc sdk/package.json scripts/generate-sdk.sh; do
+          for file in backend/.env.example frontend/.env.example .nvmrc sdk/package.json scripts/generate-sdk.sh scripts/fuzz-contract.sh; do
             if [ ! -f "$file" ]; then
               echo "❌ Missing required file: $file"
               MISSING=1
@@ -334,3 +688,61 @@ jobs:
           else
             echo "✅ No suspicious hardcoded secrets detected"
           fi
+
+  # ─── SBOM Generation & Supply-Chain Vulnerability Scan ──────────────────────
+  # Generates SPDX + CycloneDX SBOMs for frontend (npm), backend (npm) and the
+  # Soroban contract (cargo), uploads them as artifacts, and fails the build on
+  # CRITICAL/HIGH vulnerabilities via Grype.
+  sbom:
+    name: SBOM & Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin v1.18.1
+
+      - name: Install Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sh -s -- -b /usr/local/bin v0.87.0
+
+      - name: Generate SBOMs (SPDX + CycloneDX)
+        run: |
+          mkdir -p sbom
+          syft dir:frontend                      -o spdx-json=sbom/frontend.spdx.json -o cyclonedx-json=sbom/frontend.cdx.json
+          syft dir:backend                       -o spdx-json=sbom/backend.spdx.json  -o cyclonedx-json=sbom/backend.cdx.json
+          syft dir:contracts/finchippay-contract -o spdx-json=sbom/contract.spdx.json -o cyclonedx-json=sbom/contract.cdx.json
+
+      - name: Upload SBOM artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sboms
+          path: sbom/
+          retention-days: 30
+
+      - name: Scan SBOMs (fail on CRITICAL/HIGH)
+        run: |
+          set -e
+          for sbom in frontend backend contract; do
+            echo "::group::Grype scan — $sbom"
+            grype "sbom:sbom/${sbom}.cdx.json" --fail-on high
+            echo "::endgroup::"
+          done

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "UTC",
+  "schedule": ["before 9am on Monday"],
+  "labels": ["dependencies", "grantfox"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 9am on Monday"]
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@stellar/stellar-sdk"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["patch", "pin"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch", "pin"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "major"],
+      "labels": ["dependencies", "grantfox", "needs-review"]
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "major"],
+      "labels": ["dependencies", "grantfox", "needs-review"]
+    }
+  ],
+  "ignoreDeps": ["@stellar/stellar-sdk"],
+  "ignorePaths": ["**/node_modules/**", "**/dist/**"]
+}

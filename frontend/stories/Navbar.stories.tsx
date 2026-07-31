@@ -45,3 +45,24 @@ export const TransactionsActive: Story = {
     },
   },
 };
+
+export const DarkMode: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story: "Navbar component in dark mode",
+      },
+    },
+    nextjs: {
+      router: {
+        pathname: "/",
+      },
+    },
+  },
+  decorators: [
+    (Story) => {
+      document.documentElement.classList.add("dark");
+      return <Story />;
+    },
+  ],
+};

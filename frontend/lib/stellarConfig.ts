@@ -4,6 +4,7 @@
  */
 
 import { Horizon, Networks } from "@stellar/stellar-sdk";
+import { logRpcCorrelation } from "@/lib/correlation";
 
 export interface NetworkConfig {
   network: "testnet" | "mainnet" | "custom";
@@ -68,6 +69,7 @@ let _server: Horizon.Server | null = null;
 export function getServer(): Horizon.Server {
   const currentConfig = getNetworkConfig();
   if (!_server || _server.serverURL.toString() !== currentConfig.horizonUrl) {
+    logRpcCorrelation("horizon", "connect", { url: currentConfig.horizonUrl });
     _server = new Horizon.Server(currentConfig.horizonUrl);
   }
   return _server;

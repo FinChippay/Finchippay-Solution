@@ -1,8 +1,9 @@
-# .github/workflows/release.yml
 # Automatically creates a GitHub Release when a version tag (v*.*.*) is pushed.
 # Generates release notes from conventional commits since the previous tag.
+# Generates CycloneDX and SPDX SBOMs for all components and attaches them
+# as release assets so consumers can verify the supply chain.
 #
-# Requires: no manual steps — pushes a tag to trigger:
+# Requires: no manual steps — push a tag to trigger:
 #   git tag v1.2.3 && git push origin v1.2.3
 
 name: Release
@@ -14,16 +15,121 @@ on:
 permissions:
   contents: write
   discussions: write
+  security-events: write
 
 jobs:
+  # ─── Generate SBOMs ─────────────────────────────────────────────────────────
+  sbom:
+    name: Generate Release SBOMs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate frontend SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./frontend
+          artifact-name: sbom-frontend-cdx.json
+          output-file: sbom/frontend.cdx.json
+          format: cyclonedx-json
+
+      - name: Generate frontend SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./frontend
+          artifact-name: sbom-frontend-spdx.json
+          output-file: sbom/frontend.spdx.json
+          format: spdx-json
+
+      - name: Generate backend SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./backend
+          artifact-name: sbom-backend-cdx.json
+          output-file: sbom/backend.cdx.json
+          format: cyclonedx-json
+
+      - name: Generate backend SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./backend
+          artifact-name: sbom-backend-spdx.json
+          output-file: sbom/backend.spdx.json
+          format: spdx-json
+
+      - name: Generate contracts SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./contracts/finchippay-contract
+          artifact-name: sbom-contract-cdx.json
+          output-file: sbom/contract.cdx.json
+          format: cyclonedx-json
+
+      - name: Generate contracts SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./contracts/finchippay-contract
+          artifact-name: sbom-contract-spdx.json
+          output-file: sbom/contract.spdx.json
+          format: spdx-json
+
+      - name: Upload SBOM bundle (workflow artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-release-${{ github.ref_name }}
+          path: sbom/
+          retention-days: 365
+
+  # ─── Create GitHub Release ───────────────────────────────────────────────────
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    needs: sbom
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin v1.18.1
+
+      - name: Generate SBOMs (SPDX + CycloneDX)
+        run: |
+          mkdir -p sbom
+          syft dir:frontend                      -o spdx-json=sbom/frontend.spdx.json -o cyclonedx-json=sbom/frontend.cdx.json
+          syft dir:backend                       -o spdx-json=sbom/backend.spdx.json  -o cyclonedx-json=sbom/backend.cdx.json
+          syft dir:contracts/finchippay-contract -o spdx-json=sbom/contract.spdx.json -o cyclonedx-json=sbom/contract.cdx.json
+
+      - name: Prepare SBOM release note
+        run: |
+          {
+            echo ""
+            echo "## Software Bill of Materials (SBOM)"
+            echo ""
+            echo "SPDX and CycloneDX SBOMs for the frontend, backend, and Soroban"
+            echo "contract are attached to this release as assets:"
+            echo ""
+            echo "- \`frontend.spdx.json\` / \`frontend.cdx.json\`"
+            echo "- \`backend.spdx.json\` / \`backend.cdx.json\`"
+            echo "- \`contract.spdx.json\` / \`contract.cdx.json\`"
+          } > sbom-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -32,5 +138,8 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          append_body: true
+          body_path: sbom-notes.md
+          files: sbom/*.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

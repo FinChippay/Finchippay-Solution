@@ -74,6 +74,8 @@ export interface FinchippayClientOptions {
   fetch?: typeof fetch;
   /** Whether to automatically cache the JWT token in memory. Default true. */
   cacheToken?: boolean;
+  /** API version to use (e.g. "1"). Defaults to the latest version. */
+  apiVersion?: string;
 }
 
 /* ─── Client class ─── */
@@ -83,12 +85,14 @@ export class FinchippayClient {
   private authToken: string | null = null;
   private fetchFn: typeof fetch;
   private cacheToken: boolean;
+  private apiVersion: string;
 
   constructor(options: FinchippayClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.authToken = options.authToken || null;
     this.fetchFn = options.fetch || (globalThis as any).fetch;
     this.cacheToken = options.cacheToken ?? true;
+    this.apiVersion = options.apiVersion || "1";
 
     if (!this.fetchFn) {
       throw new Error(
@@ -116,6 +120,28 @@ export class FinchippayClient {
 
   /* ─── Core request method ─── */
 
+  /** Returns the configured API version. */
+  getApiVersion(): string {
+    return this.apiVersion;
+  }
+
+  /** Sets the API version for subsequent requests. */
+  setApiVersion(version: string): void {
+    this.apiVersion = version;
+  }
+
+  /**
+   * Build a versioned API path. If the path starts with /api/, it will be
+   * prefixed with the version (e.g. /api/v1/payments). Non-API paths
+   * (health, federation, .well-known) are left unversioned.
+   */
+  private versionPath(path: string): string {
+    if (path.startsWith("/api/") && !path.includes("/v")) {
+      return path.replace("/api/", `/api/v${this.apiVersion}/`);
+    }
+    return path;
+  }
+
   private async request<T>(
     method: string,
     path: string,
@@ -124,7 +150,8 @@ export class FinchippayClient {
       params?: Record<string, unknown>;
     }
   ): Promise<T> {
-    const url = new URL(`${this.baseUrl}${path}`);
+    const versionedPath = this.versionPath(path);
+    const url = new URL(`${this.baseUrl}${versionedPath}`);
 
     // Attach query parameters
     if (options?.params) {
@@ -137,10 +164,17 @@ export class FinchippayClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "Accept-Version": this.apiVersion,
     };
 
     if (this.authToken) {
       headers["Authorization"] = `Bearer ${this.authToken}`;
+    }
+
+    // Correlation IDs (#172) — unique per request; optional session left to
+    // the caller's fetch wrapper (frontend installs X-Session-ID globally).
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      headers["X-Request-ID"] = crypto.randomUUID();
     }
 
     const res = await this.fetchFn(url.toString(), {
@@ -148,6 +182,16 @@ export class FinchippayClient {
       headers,
       body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
+
+    // Check for deprecation warnings
+    const apiVersionHeader = res.headers.get("X-API-Version");
+    const deprecatedHeader = res.headers.get("X-API-Deprecated");
+    if (process.env.NODE_ENV !== "production" && deprecatedHeader === "true") {
+      console.warn(
+        `[Finchippay SDK] API version ${apiVersionHeader} is deprecated. ` +
+        `Consider upgrading to the latest version.`
+      );
+    }
 
     if (!res.ok) {
       const errorBody = await res.text();

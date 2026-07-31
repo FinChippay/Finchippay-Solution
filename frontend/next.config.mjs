@@ -15,6 +15,12 @@ const nextConfig = {
   reactStrictMode: true,
   // Required for the production Docker image (copies only what's needed)
   output: "export",
+  images: {
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
+    imageSizes: [16, 32, 48, 64, 96, 128],
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 60,
+  },
   // Allow Stellar SDK in browser
   webpack: (config) => {
     config.resolve.fallback = {

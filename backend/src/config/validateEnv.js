@@ -5,6 +5,8 @@
 
 "use strict";
 
+const logger = require("../utils/logger");
+
 const VALID_NETWORKS = ["testnet", "mainnet"];
 
 /**
@@ -64,7 +66,35 @@ function parseAllowedOrigins(raw) {
 }
 
 function collectErrors(env) {
+  if (!env.JWT_SECRET && env.NODE_ENV === 'production') {
+    throw new Error('FATAL: JWT_SECRET must be set in production.');
+  }
+  if (env.JWT_SECRET === 'finchippay_secret_key') {
+    throw new Error('FATAL: JWT_SECRET is set to the insecure default value.');
+  }
+
   const errors = [];
+
+  // Database provider validation
+  const dbProvider = (env.DB_PROVIDER || "sqlite").toLowerCase();
+  if (!["sqlite", "postgres"].includes(dbProvider)) {
+    errors.push(
+      `DB_PROVIDER must be "sqlite" or "postgres", got "${dbProvider}"`,
+    );
+  }
+
+  if (dbProvider === "postgres") {
+    const dbUrl = env.DATABASE_URL || env.DATABASE_URL_PROD;
+    if (!dbUrl || !dbUrl.trim()) {
+      errors.push("DATABASE_URL is required when DB_PROVIDER=postgres");
+    } else {
+      try {
+        new URL(dbUrl);
+      } catch {
+        errors.push(`DATABASE_URL must be a valid URL, got "${dbUrl}"`);
+      }
+    }
+  }
 
   const stellarNetwork = env.STELLAR_NETWORK?.trim();
   if (!stellarNetwork) {
@@ -88,6 +118,20 @@ function collectErrors(env) {
     }
   }
 
+  if (String(env.NODE_ENV || "").toLowerCase() === "production") {
+    const rateLimitHashSalt = String(env.RATE_LIMIT_IP_HASH_SALT || "").trim();
+
+    if (!rateLimitHashSalt) {
+      errors.push(
+        "RATE_LIMIT_IP_HASH_SALT is required in production for stable, privacy-preserving rate-limit analytics",
+      );
+    } else if (rateLimitHashSalt.length < 32) {
+      errors.push(
+        "RATE_LIMIT_IP_HASH_SALT must contain at least 32 characters in production",
+      );
+    }
+  }
+
   // ALLOWED_ORIGINS is optional (defaults to localhost:3000) but every entry
   // that is present must be a well-formed origin.
   const { warnings } = parseAllowedOrigins(env.ALLOWED_ORIGINS);
@@ -95,6 +139,18 @@ function collectErrors(env) {
     // Malformed origins are surfaced as errors at startup — an operator must
     // fix the value before the server is trusted to make correct CORS decisions.
     errors.push(w);
+  }
+
+  // SOROBAN_RPC_URL is optional but if set must be a valid URL.
+  if (env.SOROBAN_RPC_URL) {
+    const rpcUrl = String(env.SOROBAN_RPC_URL).trim();
+    if (rpcUrl.length > 0) {
+      try {
+        new URL(rpcUrl);
+      } catch {
+        errors.push(`SOROBAN_RPC_URL must be a valid URL, got "${rpcUrl}"`);
+      }
+    }
   }
 
   // OTEL_EXPORTER_OTLP_ENDPOINT is optional but if set must be a valid URL.
@@ -114,7 +170,11 @@ function collectErrors(env) {
   // REDIS_URL is optional but if set must be a valid redis:// URL.
   if (env.REDIS_URL) {
     const redisUrl = String(env.REDIS_URL).trim();
-    if (redisUrl.length > 0 && !redisUrl.startsWith("redis://") && !redisUrl.startsWith("rediss://")) {
+    if (
+      redisUrl.length > 0 &&
+      !redisUrl.startsWith("redis://") &&
+      !redisUrl.startsWith("rediss://")
+    ) {
       errors.push(
         `REDIS_URL must start with redis:// or rediss://, got "${redisUrl}"`,
       );
@@ -129,6 +189,109 @@ function collectErrors(env) {
         `REDIS_CACHE_TTL_DEFAULT must be a positive integer, got "${env.REDIS_CACHE_TTL_DEFAULT}"`,
       );
     }
+  }
+  // DATA_RETENTION_DAYS is optional; default is 365.
+  if (env.DATA_RETENTION_DAYS) {
+    const days = parseInt(env.DATA_RETENTION_DAYS, 10);
+    if (isNaN(days) || days < 1) {
+      errors.push(
+        `DATA_RETENTION_DAYS must be a positive integer, got "${env.DATA_RETENTION_DAYS}"`,
+      );
+    }
+  }
+    // ANCHORS_CONFIG is optional but if set must be valid JSON.
+  if (env.ANCHORS_CONFIG) {
+    try {
+      JSON.parse(env.ANCHORS_CONFIG);
+    } catch (err) {
+      errors.push(`ANCHORS_CONFIG must be valid JSON: ${err.message}`);
+    }
+  }
+
+  // WEBHOOK_ENCRYPTION_KEY is required in production for encrypting webhook secrets at rest.
+  // SMTP configuration for email notifications
+  // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
+  if (env.NODE_ENV === "production" && !env.WEBHOOK_ENCRYPTION_KEY?.trim()) {
+  // SMTP configuration for email notifications
+  // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
+    errors.push(
+      'WEBHOOK_ENCRYPTION_KEY is required in production — generate one with: openssl rand -hex 32',
+  // SMTP configuration for email notifications
+  // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM are validated at runtime in notificationService.js
+    );
+  }
+
+  // BODY_LIMIT_JSON is optional (default: "1mb").
+  if (env.BODY_LIMIT_JSON) {
+    const val = String(env.BODY_LIMIT_JSON).trim();
+    const match = val.match(/^(\d+)(kb|mb|gb)$/i);
+    if (!match) {
+      errors.push(
+        `BODY_LIMIT_JSON must be a valid size string (e.g. "1mb", "512kb"), got "${val}"`,
+      );
+    }
+  }
+
+  // BODY_LIMIT_URLENCODED is optional (default: "100kb").
+  if (env.BODY_LIMIT_URLENCODED) {
+    const val = String(env.BODY_LIMIT_URLENCODED).trim();
+    const match = val.match(/^(\d+)(kb|mb|gb)$/i);
+    if (!match) {
+      errors.push(
+        `BODY_LIMIT_URLENCODED must be a valid size string (e.g. "100kb", "1mb"), got "${val}"`,
+      );
+    }
+  }
+
+  // CSV_UPLOAD_MAX_SIZE is optional (default: 10485760 for 10MB).
+  if (env.CSV_UPLOAD_MAX_SIZE) {
+    const val = parseInt(env.CSV_UPLOAD_MAX_SIZE, 10);
+    if (isNaN(val) || val < 1) {
+      errors.push(
+        `CSV_UPLOAD_MAX_SIZE must be a positive integer (bytes), got "${env.CSV_UPLOAD_MAX_SIZE}"`,
+      );
+    }
+  }
+
+  // VAPID keys are optional — without them pushService degrades to a no-op and
+  // the app never offers notifications. They are validated as a set, because a
+  // half-configured pair is a silent misconfiguration: the client would be
+  // handed a public key for pushes the server cannot actually sign.
+  const vapidPublic = String(env.VAPID_PUBLIC_KEY || "").trim();
+  const vapidPrivate = String(env.VAPID_PRIVATE_KEY || "").trim();
+
+  if (vapidPublic && !vapidPrivate) {
+    errors.push(
+      "VAPID_PRIVATE_KEY is required when VAPID_PUBLIC_KEY is set (push notifications need both)",
+    );
+  }
+
+  if (vapidPrivate && !vapidPublic) {
+    errors.push(
+      "VAPID_PUBLIC_KEY is required when VAPID_PRIVATE_KEY is set (push notifications need both)",
+    );
+  }
+
+  // VAPID_SUBJECT identifies the sender to the push service; RFC 8292 requires
+  // a mailto: or https: URI.
+  if (env.VAPID_SUBJECT) {
+    const subject = String(env.VAPID_SUBJECT).trim();
+    if (
+      subject.length > 0 &&
+      !subject.startsWith("mailto:") &&
+      !subject.startsWith("https://")
+    ) {
+      errors.push(
+        `VAPID_SUBJECT must be a mailto: or https:// URL, got "${subject}"`,
+      );
+    }
+  }
+
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PUBLIC_KEY.trim()) {
+    errors.push('VAPID_PUBLIC_KEY is required for push notifications.');
+  }
+  if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PRIVATE_KEY.trim()) {
+    errors.push('VAPID_PRIVATE_KEY is required for push notifications.');
   }
 
   return errors;
@@ -147,13 +310,12 @@ function validateEnv(env = process.env) {
     return;
   }
 
-  console.error("\nEnvironment validation failed:\n");
-  for (const message of errors) {
-    console.error(`  - ${message}`);
-  }
-  console.error(
-    "\nCopy backend/.env.example to backend/.env and set the required values.\n",
+  logger.error(
+    { errors, count: errors.length },
+    "Environment validation failed — copy backend/.env.example to backend/.env and set the required values",
   );
+  const logger = require("../utils/logger");
+  logger.fatal({ errors }, "Environment validation failed. Copy backend/.env.example to backend/.env and set the required values.");
   process.exit(1);
 }
 

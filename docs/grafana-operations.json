@@ -1,0 +1,86 @@
+{
+  "title": "Finchippay Operations Dashboard",
+  "uid": "finchippay-operations",
+  "tags": ["finchippay", "operations"],
+  "timezone": "utc",
+  "editable": true,
+  "panels": [
+    {
+      "title": "API Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "rate(http_requests_total[5m])",
+        "legendFormat": "{{method}} {{route}}"
+      }]
+    },
+    {
+      "title": "API Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "rate(http_requests_total{status_code=~\"5..\"}[5m])",
+        "legendFormat": "{{method}} {{route}}"
+      }]
+    },
+    {
+      "title": "Latency p50 / p95 / p99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "title": "Requests In Flight",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{
+        "expr": "http_requests_in_flight",
+        "legendFormat": "{{method}} {{route}}"
+      }]
+    },
+    {
+      "title": "Horizon Request Rate & Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "rate(horizon_requests_total{status=\"success\"}[5m])", "legendFormat": "success" },
+        { "expr": "rate(horizon_requests_total{status=\"error\"}[5m])", "legendFormat": "error" }
+      ]
+    },
+    {
+      "title": "Horizon Request Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [{
+        "expr": "rate(horizon_request_duration_seconds_sum[5m]) / rate(horizon_request_duration_seconds_count[5m])",
+        "legendFormat": "avg {{operation}}"
+      }]
+    },
+    {
+      "title": "DB Query Performance",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [{
+        "expr": "rate(db_query_duration_seconds_sum[5m]) / rate(db_query_duration_seconds_count[5m])",
+        "legendFormat": "{{operation}}"
+      }]
+    },
+    {
+      "title": "Webhook Delivery Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "rate(webhook_deliveries_total{status=\"success\"}[5m])", "legendFormat": "success" },
+        { "expr": "rate(webhook_deliveries_total{status=\"failed\"}[5m])", "legendFormat": "failed" },
+        { "expr": "rate(webhook_deliveries_total{status=\"retrying\"}[5m])", "legendFormat": "retrying" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 36
+}

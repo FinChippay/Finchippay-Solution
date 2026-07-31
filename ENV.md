@@ -14,14 +14,17 @@ cp frontend/.env.example frontend/.env.local
 ## Backend (`backend/.env`)
 
 | Variable | Required | Default | Description |
-|---|---|---|---|
+|---|---|---|---|---|
 | `STELLAR_NETWORK` | ✅ | — | `testnet` or `mainnet` |
 | `HORIZON_URL` | ✅ | — | Stellar Horizon base URL |
 | `JWT_SECRET` | ✅ | — | Secret for SEP-0010 JWT signing (min 32 chars) |
+| `WEBHOOK_ENCRYPTION_KEY` | ✅ (production) | — | AES-256 key (hex, 64 chars) for encrypting webhook secrets at rest. Generate: `openssl rand -hex 32` |
 | `ALLOWED_ORIGINS` | ✅ | — | Comma-separated list of CORS-allowed origins |
 | `PORT` | ❌ | `4000` | HTTP port to listen on |
 | `NODE_ENV` | ❌ | `development` | `development`, `test`, or `production` |
 | `SENTRY_DSN` | ❌ | — | Sentry DSN for error tracking (disabled if unset) |
+| `USER_RATE_LIMIT_MAX` | ❌ | `30` | Maximum requests allowed per user within the window |
+| `USER_RATE_LIMIT_WINDOW_MS` | ❌ | `60000` | Window size in milliseconds for user rate limiting |
 | `FEDERATION_DOMAIN` | ❌ | — | Domain used in SEP-0002 TOML discovery |
 | `FEDERATION_SERVER_URL` | ❌ | — | Override federation server URL |
 | `TURRETS_PORT` | ❌ | `4100` | Port for the Turrets side-server |
@@ -30,6 +33,9 @@ cp frontend/.env.example frontend/.env.local
 | `ANTHROPIC_API_KEY` | ❌ | — | Anthropic API key for the AI payment parsing feature (`/api/parse-payment`). Returns 501 if unset. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | ❌ | — | OTLP collector endpoint for OpenTelemetry traces (e.g. `http://jaeger:4318`). Tracing is disabled when unset or in `NODE_ENV=test`. |
 | `OTEL_SERVICE_NAME` | ❌ | `finchippay-backend` | Service name reported in trace spans. |
+| `VAPID_PUBLIC_KEY` | ❌ | — | Web Push VAPID public key. Notifications stay disabled unless both keys are set; generate a pair with `npx web-push generate-vapid-keys`. |
+| `VAPID_PRIVATE_KEY` | ❌ | — | Web Push VAPID private key. Required whenever `VAPID_PUBLIC_KEY` is set. |
+| `VAPID_SUBJECT` | ❌ | `mailto:support@finchippay.com` | Sender contact passed to the push service; must be a `mailto:` or `https://` URI (RFC 8292). |
 
 ### Example `backend/.env`
 
@@ -40,6 +46,10 @@ JWT_SECRET=change-me-to-a-long-random-secret
 ALLOWED_ORIGINS=http://localhost:3000,https://finchippay.vercel.app
 PORT=4000
 NODE_ENV=development
+# Web Push (optional) — omit both to leave notifications disabled
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:support@finchippay.com
 ```
 
 ---
@@ -55,6 +65,7 @@ NODE_ENV=development
 | `NEXT_PUBLIC_SOROBAN_RPC_URL` | ❌ | — | Soroban RPC endpoint |
 | `NEXT_PUBLIC_SENTRY_DSN` | ❌ | — | Sentry DSN for client-side error tracking |
 | `NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE` | ❌ | — | Soroban network passphrase (auto-set from network) |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | ❌ | — | Web Push VAPID public key, matching the backend's. Optional: the client falls back to fetching it from `GET /api/push/public-key`, and skips the notification prompt when neither is available. |
 
 ### Example `frontend/.env.local`
 

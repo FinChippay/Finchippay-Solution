@@ -1,0 +1,20 @@
+frontend:
+  replicaCount: 1
+  image: finchippay/frontend:latest
+  service:
+    type: ClusterIP
+    port: 3000
+
+backend:
+  replicaCount: 1
+  image: finchippay/backend:latest
+  service:
+    type: ClusterIP
+    port: 4000
+
+nginx:
+  replicaCount: 1
+  image: finchippay/nginx:latest
+  service:
+    type: ClusterIP
+    port: 80

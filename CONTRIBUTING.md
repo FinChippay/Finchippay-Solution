@@ -34,6 +34,8 @@ cd contracts/finchippay-contract && cargo test
 | Frontend type-check | `cd frontend && npm run type-check` |
 | Frontend unit tests | `cd frontend && npm test` |
 | Contract tests | `cd contracts/finchippay-contract && cargo test` |
+| SBOM / vuln scan (optional) | `make sbom-scan` (requires [syft](https://github.com/anchore/syft) + [grype](https://github.com/anchore/grype)) |
+| Error code docs | `npm run docs:errors` |
 
 All checks must pass before a PR will be merged.
 
@@ -60,6 +62,13 @@ chore: bump soroban-sdk to 21.0.0
 
 - **Rust (Soroban)**: `rustfmt` default style; `clippy` with `--deny warnings`. All arithmetic must use `checked_*` methods. Every mutating contract function must authenticate the caller with `require_auth()`. New features must include tests and consider bounds/limits to prevent griefing.
 - **TypeScript/JavaScript**: Prettier + ESLint (configs in repo root). Never log or commit Stellar secret keys. Use regex redaction (`S[A-Z2-7]{55}`) before any logging.
+- **Error codes**: When you add, remove, or rename a code in `shared/errorCodes.js`, regenerate the documentation so it cannot drift from the source of truth:
+
+  ```bash
+  npm run docs:errors
+  ```
+
+  CI runs `npm run docs:errors:check` and fails if the committed `docs/error-codes.md` does not match the current catalogue.
 - **CSS**: Tailwind utility classes; avoid custom CSS unless necessary.
 
 ## Reporting Issues

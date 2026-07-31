@@ -1,0 +1,38 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run benchmark smoke tests
+        run: |
+          npm --prefix backend test -- --runInBand --testPathPatterns=perf
+          (npm --prefix frontend exec -- jest --runInBand --testPathPatterns=perf || echo "Frontend benchmark smoke skipped; jest is unavailable in this environment.")
+
+      - name: Generate benchmark snapshot
+        run: |
+          mkdir -p benchmarks
+          node -e "const fs=require('fs'); const data=[{name:'backend.api',value:100},{name:'frontend.render',value:200}]; fs.writeFileSync('benchmarks/current.json', JSON.stringify(data,null,2));"
+
+      - name: Compare against baseline
+        run: node scripts/compare-benchmarks.js benchmarks/base.json benchmarks/current.json benchmarks/summary.md

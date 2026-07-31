@@ -22,9 +22,6 @@ SDK_DIR="$PROJECT_DIR/sdk"
 API_URL="${API_URL:-http://localhost:4000}"
 SPEC_URL="$API_URL/api/docs.json"
 
-echo "==> Fetching OpenAPI spec from $SPEC_URL ..."
-
-# Verify the spec is reachable
 if ! curl -sf "$SPEC_URL" > /dev/null 2>&1; then
   echo "ERROR: Cannot reach $SPEC_URL. Is the backend running?"
   echo "  Start it with: cd backend && npm start"
@@ -35,10 +32,7 @@ fi
 echo "==> Generating TypeScript types from OpenAPI spec ..."
 npx --yes openapi-typescript "$SPEC_URL" -o "$SDK_DIR/src/types.ts"
 
-echo "==> Formatting generated types ..."
-# Ensure the generated file has the proper header
 if [ -f "$SDK_DIR/src/types.ts" ]; then
-  # Prepend a header comment if not already present
   HEADER="/**
  * @finchippay/sdk — Auto-generated types from the Finchippay OpenAPI spec.
  *
@@ -47,7 +41,6 @@ if [ -f "$SDK_DIR/src/types.ts" ]; then
  * and regenerate.
  */"
 
-  # Check if header already exists
   if ! head -1 "$SDK_DIR/src/types.ts" | grep -q "finchippay"; then
     TMP_FILE=$(mktemp)
     echo "$HEADER" > "$TMP_FILE"
@@ -59,6 +52,3 @@ fi
 
 echo "==> SDK types regenerated successfully!"
 echo "    File: $SDK_DIR/src/types.ts"
-echo ""
-echo "Next steps:"
-echo "  cd $SDK_DIR && npm run build   # Build the SDK package"

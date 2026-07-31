@@ -23,9 +23,8 @@ on:
 
 env:
   NODE_VERSION: '20.19.5'
-  CANARY_TRAFFIC_PERCENT: 10
-  CANARY_MONITOR_MINUTES: 15
-  SENTRY_ERROR_THRESHOLD: 50
+  HEALTH_CHECK_URL: 'https://finchippay.vercel.app/api/health'
+  STAGING_ALIAS: 'staging-${{ github.sha }}.finchippay.vercel.app'
 
 jobs:
   deploy-preview:
@@ -113,53 +112,73 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Deploy to Vercel Preview (Canary)
-        id: canary-deploy
+      - name: Deploy staging build
+        id: staging-deploy
         working-directory: frontend
         run: |
           DEPLOY_URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
-          echo "canary_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+          echo "staging_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Enable Canary Traffic Routing
+      - name: Alias staging deployment
         working-directory: frontend
         run: |
-          vercel alias set ${{ steps.canary-deploy.outputs.canary_url }} canary-${{ github.sha }}.finchippay.vercel.app --token=${{ secrets.VERCEL_TOKEN }}
+          vercel alias set ${{ steps.staging-deploy.outputs.staging_url }} ${{ env.STAGING_ALIAS }} --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Wait for Canary Deployment
-        run: echo "Canary deployment active at 10% traffic. Monitoring for ${{ env.CANARY_MONITOR_MINUTES }} minutes."
+      - name: Verify health endpoint
+        id: health-check
+        run: |
+          curl -fsS "${{ env.HEALTH_CHECK_URL }}" >/tmp/health.json
+          echo "health_ok=true" >> "$GITHUB_OUTPUT"
 
-      - name: Monitor Error Rate During Canary
-        working-directory: scripts
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          CANARY_DEPLOYMENT_URL: ${{ steps.canary-deploy.outputs.canary_url }}
-        run: node canary-check.js
-
-      - name: Promote Canary to Production
-        if: success()
+      - name: Promote staging to production
+        if: steps.health-check.outputs.health_ok == 'true'
         working-directory: frontend
         run: |
-          vercel promote ${{ steps.canary-deploy.outputs.canary_url }} --token=${{ secrets.VERCEL_TOKEN }}
+          vercel promote ${{ steps.staging-deploy.outputs.staging_url }} --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Cleanup Canary Alias
+      - name: Roll back on failed health check
+        if: failure()
+        working-directory: frontend
+        run: |
+          echo "Health check failed; rolling back to the previous production deployment." 
+          vercel promote ${{ github.sha }} --token=${{ secrets.VERCEL_TOKEN }} || true
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Cleanup staging alias
         if: always()
         working-directory: frontend
         run: |
-          vercel alias rm canary-${{ github.sha }}.finchippay.vercel.app --token=${{ secrets.VERCEL_TOKEN }} || true
+          vercel alias rm ${{ env.STAGING_ALIAS }} --token=${{ secrets.VERCEL_TOKEN }} || true
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Send deployment notification
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const body = status === 'success'
+              ? 'Deployment completed successfully and was promoted to production.'
+              : 'Deployment failed or rolled back after the health check gate.';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number || 1,
+              body
+            }).catch(() => {});
 
       - name: Update GitHub Deployment Status
         if: always()
@@ -173,14 +192,14 @@ jobs:
               ref: sha,
               environment: 'production',
               required_contexts: [],
-              description: 'Canary deployment processed'
+              description: 'Vercel blue-green deployment processed'
             });
             const jobStatus = '${{ job.status }}';
             await github.rest.repos.createDeploymentStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
               deployment_id: deployment.data.id,
-              state: jobStatus === 'success' ? 'success' : (jobStatus === 'cancelled' ? 'failure' : 'failure'),
+              state: jobStatus === 'success' ? 'success' : 'failure',
               environment_url: 'https://finchippay.vercel.app',
-              description: jobStatus === 'success' ? 'Canary deployment promoted to production' : 'Canary deployment failed'
+              description: jobStatus === 'success' ? 'Blue-green promotion completed' : 'Blue-green deployment failed or rolled back'
             });

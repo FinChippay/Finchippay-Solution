@@ -2,6 +2,7 @@
   "nav": {
     "home": "Home",
     "dashboard": "Dashboard",
+    "portfolio": "Portfolio",
     "trade": "Trade",
     "transactions": "Transactions",
     "network": "Network",
@@ -13,7 +14,14 @@
     "cancel": "Cancel",
     "switchToLight": "Switch to light mode",
     "switchToDark": "Switch to dark mode",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Accounts",
+    "addAccount": "Add account",
+    "removeAccount": "Remove account",
+    "removeLastAccountWarning": "This is your only account. Removing it disconnects your wallet. Click again to confirm.",
+    "switchAccount": "Switch account",
+    "switchAccountShortcut": "Press Ctrl+K (Cmd+K) to switch accounts",
+    "primary": "Primary"
   },
   "home": {
     "badge": "Built on Stellar Testnet · Open Source",
@@ -139,7 +147,37 @@
     "upwardTrend": "▲ Upward trend",
     "downwardTrend": "▼ Downward trend",
     "balanceTrendUpward": "Balance trend: upward",
-    "balanceTrendDownward": "Balance trend: downward"
+    "balanceTrendDownward": "Balance trend: downward",
+    "balanceLive": "Live",
+    "balancePolling": "Updating every 30s",
+    "viewPortfolio": "View Portfolio →"
+  },
+  "portfolio": {
+    "title": "Portfolio",
+    "addToken": "Add Token",
+    "addTokenPlaceholder": "Contract ID (C...)",
+    "addTokenInvalid": "That doesn't look like a valid Soroban contract ID.",
+    "addTokenButton": "Add",
+    "currency": "Currency",
+    "totalValue": "Total Value",
+    "change24h": "24h Change",
+    "allocation": "Allocation",
+    "priceHistory": "Price History",
+    "range7d": "7D",
+    "range30d": "30D",
+    "range90d": "90D",
+    "noHoldings": "No token holdings yet.",
+    "priceUnavailable": "Price unavailable",
+    "priceHistoryUnavailable": "Price history unavailable for this token.",
+    "assetCount": "Assets",
+    "pnl7d": "7d P&L",
+    "pnl30d": "30d P&L",
+    "pricesUnavailableBanner": "Prices are temporarily unavailable. Balances are shown, but USD values cannot be calculated right now.",
+    "pricesStale": "Showing cached prices; live prices are temporarily unavailable.",
+    "refreshPrices": "Refresh Prices",
+    "lastRefreshed": "Last refreshed",
+    "valueOverTime": "Portfolio Value Over Time",
+    "historyBuilding": "Portfolio history is building. Check back after a few days of activity."
   },
   "sendPayment": {
     "title": "Send Payment",
@@ -165,6 +203,10 @@
     "confirmPayment": "Confirm Payment",
     "to": "To",
     "estimatedFee": "Estimated Fee",
+    "networkFee": "Network Fee",
+    "feeEconomy": "Economy",
+    "feeStandard": "Standard",
+    "feeFast": "Fast",
     "confirmAndSign": "Confirm & Sign",
     "successTitle": "Payment sent!",
     "successMessage": "Your payment has been confirmed on the Stellar network.",
@@ -269,6 +311,7 @@
     "yourAddress": "Your address:",
     "registerStellarName": "Register your name on StellarNames →",
     "languageTitle": "Language",
-    "languageDescription": "Select your preferred language for the application interface."
+    "languageDescription": "Select your preferred language for the application interface.",
+    "rtlSupportNote": "RTL support: Arabic and Hebrew layouts are mirrored."
   }
 }

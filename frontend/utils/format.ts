@@ -5,6 +5,7 @@
 
 import { PaymentRecord } from "@/lib/stellar";
 import { formatDistanceToNow, format } from "date-fns";
+import { formatCurrency, formatNumber, formatRelativeTime } from './intlFormat';
 
 interface AssetFormatRule {
   minimumFractionDigits: number;
@@ -104,6 +105,14 @@ export function formatDate(dateString: string): string {
   } catch {
     return dateString;
   }
+}
+
+export function formatAmount(
+  amount: number,
+  currency: string = 'XLM',
+  locale: string = 'en'
+): string {
+  return formatCurrency(amount, currency, locale);
 }
 
 /**

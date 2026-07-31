@@ -13,8 +13,8 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: backend/Dockerfile.dev
     ports:
       - "4000:4000"
     environment:
@@ -27,11 +27,18 @@ services:
       - TURRETS_EVALUATION_INTERVAL_MS=30000
       # Enable distributed tracing to local Jaeger
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - REDIS_URL=redis://redis:6379
+      - DB_PROVIDER=${DB_PROVIDER:-sqlite}
       # Optional: set to enable AI payment parsing via Anthropic
       # - ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
+    depends_on:
+      redis:
+        condition: service_started
     volumes:
       # Mount source for hot-reload via nodemon
       - ./backend:/app
+      # Mount shared module for require("../../shared/...") paths
+      - ./shared:/shared
       # Preserve container's node_modules
       - /app/node_modules
     healthcheck:
@@ -70,6 +77,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+
+  # ─── Redis (shared rate-limit store) ──────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   # ─── Jaeger all-in-one (local distributed tracing) ───────────────────────────

@@ -35,10 +35,13 @@ async function fetchAuthChallenge(publicKey: string): Promise<string> {
   return transaction;
 }
 
-async function verifyAuthChallenge(signedXDR: string): Promise<string> {
-  const { token } = await sdk.verifyChallenge(signedXDR);
-  sdk.setToken(token);
-  return token;
+async function verifyAuthChallenge(signedXDR: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const res = await sdk.verifyChallenge(signedXDR);
+  const data = res as any;
+  const accessToken = data.accessToken || data.token;
+  const refreshToken = data.refreshToken;
+  sdk.setToken(accessToken);
+  return { accessToken, refreshToken };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -190,10 +193,13 @@ export async function performSEP0010Auth(
     if (signError || !signedXDR) {
       return { token: null, error: signError || "Failed to sign challenge transaction" };
     }
-    const token = await verifyAuthChallenge(signedXDR);
-    setJwtToken(token);
-    persistAuthToken(token);
-    return { token, error: null };
+    const { accessToken, refreshToken } = await verifyAuthChallenge(signedXDR);
+    setJwtToken(accessToken);
+    persistAuthToken(accessToken);
+    if (typeof window !== "undefined" && refreshToken) {
+      localStorage.setItem("finchippay_refresh_token", refreshToken);
+    }
+    return { token: accessToken, error: null };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { token: null, error: `Authentication failed: ${msg}` };
@@ -236,6 +242,45 @@ export async function signTransactionWithWallet(
   }
 }
 
+// ─── Encrypted local-data session ────────────────────────────────────────────
+
+/**
+ * Derive the AES-GCM session key from the connected public key (+ stored salt)
+ * and decrypt the local encrypted stores (contacts, payment templates) into
+ * memory. Silent — no wallet prompt. Safe to call on every account change; a
+ * different public key derives a different key, which drives key rotation.
+ */
+export async function initEncryptionSession(publicKey: string): Promise<void> {
+  if (typeof window === "undefined" || !publicKey) return;
+  try {
+    const salt = getOrCreateSalt();
+    const key = await deriveKey(publicKey, salt);
+    setSessionKey(key, publicKey);
+    await Promise.all([
+      unlockAddressBook(key, publicKey),
+      unlockPaymentTemplates(key, publicKey),
+      unlockFederationCache(key, publicKey),
+    ]);
+  } catch (err) {
+    console.error("Failed to initialise encryption session:", err);
+  }
+}
+
+/**
+ * Re-encrypt the currently-decrypted local data under the active session key.
+ * Used after a wallet switch to migrate ciphertext from the previous key.
+ */
+export async function reEncryptLocalData(): Promise<void> {
+  const key = getSessionKey();
+  const owner = getSessionOwner();
+  if (!key || !owner) return;
+  await Promise.all([
+    reEncryptAddressBook(key, owner),
+    reEncryptPaymentTemplates(key, owner),
+    reEncryptFederationCache(key, owner),
+  ]);
+}
+
 /**
  * Disconnect the wallet. Since Freighter doesn't provide a disconnect API,
  * this clears the local connection state. The actual disconnect happens
@@ -244,6 +289,23 @@ export async function signTransactionWithWallet(
 export function disconnectWallet(): void {
   // Freighter doesn't expose an explicit disconnect API, so the app clears
   // any local auth state and lets React own the connected wallet lifecycle.
+  const rToken = typeof window !== "undefined" ? localStorage.getItem("finchippay_refresh_token") : null;
+  const aToken = getJwtToken();
+
+  if (rToken || aToken) {
+    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+    fetch(`${API_URL}/api/auth/logout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(aToken ? { "Authorization": `Bearer ${aToken}` } : {})
+      },
+      body: JSON.stringify({ refreshToken: rToken }),
+    }).catch((err) => {
+      console.error("Failed to revoke token family on logout:", err);
+    });
+  }
+
   setJwtToken(null);
   clearAuthToken();
 }

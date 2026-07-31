@@ -2,6 +2,7 @@
   "nav": {
     "home": "Accueil",
     "dashboard": "Tableau de Bord",
+    "portfolio": "Portefeuille",
     "trade": "Échange",
     "transactions": "Transactions",
     "network": "Réseau",
@@ -13,7 +14,14 @@
     "cancel": "Annuler",
     "switchToLight": "Passer au mode clair",
     "switchToDark": "Passer au mode sombre",
-    "quickSend": "Ctrl+K"
+    "quickSend": "Ctrl+K",
+    "accounts": "Comptes",
+    "addAccount": "Ajouter un compte",
+    "removeAccount": "Supprimer le compte",
+    "removeLastAccountWarning": "C'est votre seul compte. Le supprimer deconnectera votre portefeuille. Cliquez a nouveau pour confirmer.",
+    "switchAccount": "Changer de compte",
+    "switchAccountShortcut": "Appuyez sur Ctrl+K (Cmd+K) pour changer de compte",
+    "primary": "Principal"
   },
   "home": {
     "badge": "Construit sur Stellar Testnet · Open Source",
@@ -139,7 +147,28 @@
     "upwardTrend": "▲ Tendance à la hausse",
     "downwardTrend": "▼ Tendance à la baisse",
     "balanceTrendUpward": "Tendance du solde : à la hausse",
-    "balanceTrendDownward": "Tendance du solde : à la baisse"
+    "balanceTrendDownward": "Tendance du solde : à la baisse",
+    "balanceLive": "En direct",
+    "balancePolling": "Mise a jour toutes les 30 s",
+    "viewPortfolio": "Voir le portefeuille →"
+  },
+  "portfolio": {
+    "title": "Portefeuille",
+    "addToken": "Ajouter un jeton",
+    "addTokenPlaceholder": "Contract ID (C...)",
+    "addTokenInvalid": "Cela ne ressemble pas a un contract ID Soroban valide.",
+    "addTokenButton": "Ajouter",
+    "currency": "Devise",
+    "totalValue": "Valeur Totale",
+    "change24h": "Variation 24h",
+    "allocation": "Répartition",
+    "priceHistory": "Historique des Prix",
+    "range7d": "7J",
+    "range30d": "30J",
+    "range90d": "90J",
+    "noHoldings": "Aucun jeton dans le portefeuille pour le moment.",
+    "priceUnavailable": "Prix indisponible",
+    "priceHistoryUnavailable": "Historique de prix indisponible pour ce jeton."
   },
   "sendPayment": {
     "title": "Envoyer un Paiement",
@@ -165,6 +194,10 @@
     "confirmPayment": "Confirmer le Paiement",
     "to": "À",
     "estimatedFee": "Frais Estimés",
+    "networkFee": "Frais de Réseau",
+    "feeEconomy": "Économique",
+    "feeStandard": "Standard",
+    "feeFast": "Rapide",
     "confirmAndSign": "Confirmer et Signer",
     "successTitle": "Paiement envoyé !",
     "successMessage": "Votre paiement a été confirmé sur le réseau Stellar.",
@@ -269,6 +302,7 @@
     "yourAddress": "Votre adresse :",
     "registerStellarName": "Enregistrez votre nom sur StellarNames →",
     "languageTitle": "Langue",
-    "languageDescription": "Sélectionnez votre langue préférée pour l'interface de l'application."
+    "languageDescription": "Sélectionnez votre langue préférée pour l'interface de l'application.",
+    "rtlSupportNote": "Prise en charge RTL : les mises en page arabe et hébreu sont inversées."
   }
 }

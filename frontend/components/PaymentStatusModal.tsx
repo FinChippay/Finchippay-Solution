@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 export type PaymentStepId = "building" | "signing" | "submitting" | "confirming";
 export type PaymentFlowStatus =
@@ -53,6 +54,10 @@ export default function PaymentStatusModal({
   const [now, setNow] = useState(() => Date.now());
 
   const isTerminal = status === "success" || status === "error";
+  const panelRef = useFocusTrap<HTMLDivElement>({
+    active: isOpen,
+    onEscape: isTerminal ? onClose : undefined,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -63,18 +68,15 @@ export default function PaymentStatusModal({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !isTerminal) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
+    if (status === "error" && error) {
+      const isUserCancellation = error.includes("User declined") || 
+                                 error.includes("rejected by the user") || 
+                                 error.includes("Transaction signing was rejected");
+      if (isUserCancellation) {
         onClose();
       }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, isTerminal, onClose]);
+    }
+  }, [status, error, onClose]);
 
   const progress = useMemo(() => {
     const completedCount = STEP_ORDER.filter(
@@ -97,10 +99,12 @@ export default function PaymentStatusModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="payment-status-title"
-        className="w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl"
+        tabIndex={-1}
+        className="w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl focus:outline-none"
       >
         <div className="border-b border-white/10 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
@@ -118,7 +122,7 @@ export default function PaymentStatusModal({
                     ? "Payment failed"
                     : "Processing payment"}
               </h3>
-              <p className="mt-1 text-sm text-slate-400">
+              <p id="payment-status-description" className="mt-1 text-sm text-slate-400">
                 {status === "success"
                   ? "Your transaction has been confirmed on the Stellar network."
                   : status === "error"
@@ -131,7 +135,8 @@ export default function PaymentStatusModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-sm font-medium text-slate-300 transition-colors hover:border-white/20 hover:text-white"
+                aria-label="Close payment status modal"
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-sm font-medium text-slate-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
               >
                 Close
               </button>

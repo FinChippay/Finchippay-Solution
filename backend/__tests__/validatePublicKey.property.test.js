@@ -55,7 +55,7 @@ describe("validatePublicKey — property-based tests", () => {
           return true;
         }
       }),
-      { numRuns: 2000 }
+      { numRuns: 2000 },
     );
   });
 
@@ -68,7 +68,7 @@ describe("validatePublicKey — property-based tests", () => {
       fc.property(validStellarKey, (key) => {
         expect(() => validatePublicKey(key)).not.toThrow();
       }),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   });
 
@@ -91,16 +91,16 @@ describe("validatePublicKey — property-based tests", () => {
         })
         .filter((s) => !s.startsWith("G")),
       // Contains lowercase letters
-      fc.string({ minLength: 56, maxLength: 56 }).filter((s) =>
-        /[a-z]/.test(s)
-      )
+      fc
+        .string({ minLength: 56, maxLength: 56 })
+        .filter((s) => /[a-z]/.test(s)),
     );
 
     fc.assert(
       fc.property(invalidKey, (input) => {
         expect(() => validatePublicKey(input)).toThrow();
       }),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   });
 
@@ -110,7 +110,17 @@ describe("validatePublicKey — property-based tests", () => {
    * rather than crashing with a TypeError or returning silently.
    */
   it("throws an Error (not a crash) for non-string inputs", () => {
-    const nonStrings = [null, undefined, 0, 42, true, false, {}, [], Symbol("x")];
+    const nonStrings = [
+      null,
+      undefined,
+      0,
+      42,
+      true,
+      false,
+      {},
+      [],
+      Symbol("x"),
+    ];
 
     for (const value of nonStrings) {
       expect(() => validatePublicKey(value)).toThrow(Error);
@@ -131,9 +141,9 @@ describe("validatePublicKey — property-based tests", () => {
           } catch (err) {
             expect(err.status).toBe(400);
           }
-        }
+        },
       ),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   });
 });

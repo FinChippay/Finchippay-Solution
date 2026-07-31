@@ -10,6 +10,21 @@
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
+const { validate } = require("../validation/middleware");
+const { parsePaymentSchema } = require("../validation/schemas");
+
+/**
+ * This endpoint replies 200/400/500 with a payment-intent-shaped body on
+ * purpose — its error format predates the standard { error, details }
+ * contract and is consumed directly by the chat UI.
+ */
+const INVALID_INTENT_ERROR = {
+  amount: "",
+  recipient: "",
+  memo: "",
+  isValid: false,
+  clarification: "Please provide a payment description.",
+};
 
 const CORE_EXTRACTION_PROMPT = (input) => `
 You are a payment intent parser.
@@ -100,7 +115,8 @@ const safeParse = (text) => {
       recipient: "",
       memo: "",
       isValid: false,
-      clarification: "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
+      clarification:
+        "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
     };
   }
 };
@@ -109,31 +125,25 @@ const safeParse = (text) => {
  * POST /api/parse-payment
  * Parse a natural language payment description into structured intent.
  */
-router.post("/", async (req, res) => {
-  try {
-    const { input } = req.body;
+router.post(
+  "/",
+  validate(parsePaymentSchema, "body", { errorResponse: INVALID_INTENT_ERROR }),
+  async (req, res) => {
+    try {
+      const { input } = req.validated;
 
-    if (!input || typeof input !== "string") {
-      return res.status(400).json({
-        amount: "",
-        recipient: "",
-        memo: "",
-        isValid: false,
-        clarification: "Please provide a payment description.",
-      });
-    }
+      if (!process.env.ANTHROPIC_API_KEY) {
+        return res.status(501).json({
+          amount: "",
+          recipient: "",
+          memo: "",
+          isValid: false,
+          clarification:
+            "AI payment parsing is not configured. Set ANTHROPIC_API_KEY.",
+        });
+      }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(501).json({
-        amount: "",
-        recipient: "",
-        memo: "",
-        isValid: false,
-        clarification: "AI payment parsing is not configured. Set ANTHROPIC_API_KEY.",
-      });
-    }
-
-    const prompt = `
+      const prompt = `
 ${CORE_EXTRACTION_PROMPT(input)}
 
 ${STRICT_VALIDATION_RULES}
@@ -143,41 +153,42 @@ ${WALLET_AWARENESS_RULES}
 ${MULTI_INTENT_GUARD}
 `;
 
-    const response = await axios.post(
-      "https://api.anthropic.com/v1/messages",
-      {
-        model: "claude-3-haiku-20240307",
-        max_tokens: 300,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      },
-      {
-        headers: {
-          "x-api-key": process.env.ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
+      const response = await axios.post(
+        "https://api.anthropic.com/v1/messages",
+        {
+          model: "claude-3-haiku-20240307",
+          max_tokens: 300,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
         },
-      }
-    );
+        {
+          headers: {
+            "x-api-key": process.env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+        },
+      );
 
-    const text = response.data?.content?.[0]?.text || "{}";
-    const parsed = safeParse(text);
+      const text = response.data?.content?.[0]?.text || "{}";
+      const parsed = safeParse(text);
 
-    return res.status(200).json(parsed);
-  } catch (error) {
-    req.log?.error({ err: error }, "Payment parsing error");
-    return res.status(500).json({
-      amount: "",
-      recipient: "",
-      memo: "",
-      isValid: false,
-      clarification: "Server error. Try again.",
-    });
-  }
-});
+      return res.status(200).json(parsed);
+    } catch (error) {
+      req.log?.error({ err: error }, "Payment parsing error");
+      return res.status(500).json({
+        amount: "",
+        recipient: "",
+        memo: "",
+        isValid: false,
+        clarification: "Server error. Try again.",
+      });
+    }
+  },
+);
 
 module.exports = router;

@@ -59,12 +59,12 @@ describe("POST /api/parse-payment (integration)", () => {
   });
 
   it("returns 400 when input is missing from request body", async () => {
-    const res = await request(app)
-      .post("/api/parse-payment")
-      .send({});
+    const res = await request(app).post("/api/parse-payment").send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.clarification).toBe("Please provide a payment description.");
+    expect(res.body.clarification).toBe(
+      "Please provide a payment description.",
+    );
   });
 
   it("returns 500 when Anthropic API returns an error", async () => {

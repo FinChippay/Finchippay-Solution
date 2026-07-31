@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { colors } from "./tokens/colors";
 
 const config: Config = {
   // Issue #19 — Add dark/light mode toggle | FinChippay/Finchippay-Solution
@@ -12,6 +13,41 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        textPrimary: {
+          light: colors.textPrimary.light,
+          dark: colors.textPrimary.dark,
+          high: colors.textPrimary.highContrast,
+        },
+        textSecondary: {
+          light: colors.textSecondary.light,
+          dark: colors.textSecondary.dark,
+          high: colors.textSecondary.highContrast,
+        },
+        bgPrimary: {
+          light: colors.bgPrimary.light,
+          dark: colors.bgPrimary.dark,
+          high: colors.bgPrimary.highContrast,
+        },
+        bgSecondary: {
+          light: colors.bgSecondary.light,
+          dark: colors.bgSecondary.dark,
+          high: colors.bgSecondary.highContrast,
+        },
+        border: {
+          light: colors.border.light,
+          dark: colors.border.dark,
+          high: colors.border.highContrast,
+        },
+        link: {
+          light: colors.link.light,
+          dark: colors.link.dark,
+          high: colors.link.highContrast,
+        },
+        focusRing: {
+          light: colors.focusRing.light,
+          dark: colors.focusRing.dark,
+          high: colors.focusRing.highContrast,
+        },
         stellar: {
           50:  "#f0f9ff",
           100: "#e0f2fe",
@@ -58,7 +94,12 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    ({ addVariant }: { addVariant: (name: string, selector: string) => void }) => {
+      // Prefix utilities with `rtl:` when an ancestor (normally <html>) is RTL.
+      addVariant("rtl", '[dir="rtl"] &');
+    },
+  ],
 };
 
 export default config;

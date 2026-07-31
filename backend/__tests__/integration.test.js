@@ -7,6 +7,7 @@ jest.mock("../src/middleware/auth", () => ({
     req.user = { publicKey: req.params.publicKey };
     next();
   },
+  requireAdmin: (_req, _res, next) => next(),
 }));
 
 const app = require("../src/server");
@@ -25,6 +26,7 @@ describe("API Integration Tests", () => {
       const response = await request(app).get("/health");
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty("status", "ok");
+      expect(response.body).toHaveProperty("API_VERSION", "v1");
     });
 
     it("should include X-Request-ID header", async () => {
@@ -47,8 +49,9 @@ describe("API Integration Tests", () => {
 
   describe("GET /api/accounts/:key", () => {
     it("should return 200 for a valid public key", async () => {
-      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
-      
+      const publicKey =
+        "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+
       // Mock Horizon server call
       nock("https://horizon-testnet.stellar.org")
         .get(`/accounts/${publicKey}`)
@@ -59,12 +62,19 @@ describe("API Integration Tests", () => {
           subentry_count: 0,
           balances: [{ balance: "100.0000000", asset_type: "native" }],
           thresholds: { low_threshold: 0, med_threshold: 0, high_threshold: 0 },
-          flags: { auth_required: false, auth_revocable: false, auth_immutable: false, auth_clawback_enabled: false },
+          flags: {
+            auth_required: false,
+            auth_revocable: false,
+            auth_immutable: false,
+            auth_clawback_enabled: false,
+          },
           signers: [{ weight: 1, key: publicKey, type: "ed25519_public_key" }],
           data: {},
           _links: {
-            self: { href: `https://horizon-testnet.stellar.org/accounts/${publicKey}` }
-          }
+            self: {
+              href: `https://horizon-testnet.stellar.org/accounts/${publicKey}`,
+            },
+          },
         });
 
       const response = await request(app).get(`/api/accounts/${publicKey}`);
@@ -88,14 +98,14 @@ describe("API Integration Tests", () => {
     it("should return 501 Not Implemented", async () => {
       const response = await request(app).get("/api/accounts/resolve/alice");
       expect(response.status).toBe(501);
-      expect(response.body.success).toBe(false);
-      expect(response.body.error).toBe("Not Implemented");
+      expect(response.body.error.code).toBe("SRV_NOT_IMPLEMENTED");
     });
   });
 
   describe("GET /api/payments/:key", () => {
     it("should return an array of payments", async () => {
-      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+      const publicKey =
+        "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
       const txHash = "hash123";
 
       // Mock Horizon server call for payments
@@ -115,12 +125,12 @@ describe("API Integration Tests", () => {
                 to: publicKey,
                 _links: {
                   transaction: {
-                    href: `https://horizon-testnet.stellar.org/transactions/${txHash}`
-                  }
-                }
-              }
-            ]
-          }
+                    href: `https://horizon-testnet.stellar.org/transactions/${txHash}`,
+                  },
+                },
+              },
+            ],
+          },
         });
 
       // Mock Horizon server call for the transaction (to fetch memo)
@@ -130,7 +140,7 @@ describe("API Integration Tests", () => {
           id: txHash,
           memo_type: "text",
           memo: "test memo",
-          created_at: "2023-01-01T00:00:00Z"
+          created_at: "2023-01-01T00:00:00Z",
         });
 
       const response = await request(app).get(`/api/payments/${publicKey}`);
@@ -139,6 +149,26 @@ describe("API Integration Tests", () => {
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.data.length).toBeGreaterThan(0);
       expect(response.body.data[0].id).toBe("123");
+    });
+  });
+
+  describe("API versioning (#83)", () => {
+    it("should serve routes under /api/v1 without Deprecation header", async () => {
+      const response = await request(app).get("/api/v1/accounts/resolve/alice");
+      expect(response.status).toBe(501);
+      expect(response.headers.deprecation).toBeUndefined();
+    });
+
+    it("should serve legacy /api routes with Deprecation header", async () => {
+      const response = await request(app).get("/api/accounts/resolve/alice");
+      expect(response.status).toBe(501);
+      expect(response.headers.deprecation).toBe("true");
+    });
+
+    it("should not add Deprecation header to /api/docs", async () => {
+      const response = await request(app).get("/api/docs.json");
+      expect(response.status).toBe(200);
+      expect(response.headers.deprecation).toBeUndefined();
     });
   });
 });

@@ -1,6 +1,9 @@
 /**
  * src/services/turretsService.js
- * In-memory Turrets txFunctions registry with DCA and stop-loss evaluators.
+ * Knex-backed Turrets txFunctions registry with DCA and stop-loss evaluators.
+ *
+ * Migrated from in-memory Maps/arrays to SQLite/PostgreSQL for persistence
+ * across server restarts.
  */
 
 "use strict";
@@ -16,15 +19,17 @@ const {
   Transaction,
   TransactionBuilder,
 } = require("@stellar/stellar-sdk");
+const knex = require("../db/connection");
+const priceFeedService = require("./priceFeedService");
 
-const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+const HORIZON_URL =
+  process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+  process.env.STELLAR_NETWORK === "mainnet"
+    ? Networks.PUBLIC
+    : Networks.TESTNET;
 
 const server = new Horizon.Server(HORIZON_URL);
-
-const deployments = new Map();
-const executionHistory = [];
 
 let runnerStarted = false;
 let runnerTimer = null;
@@ -120,25 +125,36 @@ function normalizeEscrowReleaseConfig(config = {}) {
   }
 
   if (!beneficiaryPublicKey || !/^G[A-Z0-9]{55}$/.test(beneficiaryPublicKey)) {
-    const err = new Error("escrow_release: valid beneficiaryPublicKey is required");
+    const err = new Error(
+      "escrow_release: valid beneficiaryPublicKey is required",
+    );
     err.status = 400;
     throw err;
   }
 
   if (!Number.isFinite(releaseAmount) || releaseAmount <= 0) {
-    const err = new Error("escrow_release: releaseAmount must be greater than 0");
+    const err = new Error(
+      "escrow_release: releaseAmount must be greater than 0",
+    );
     err.status = 400;
     throw err;
   }
 
   if (!["time", "manual"].includes(releaseCondition)) {
-    const err = new Error("escrow_release: releaseCondition must be 'time' or 'manual'");
+    const err = new Error(
+      "escrow_release: releaseCondition must be 'time' or 'manual'",
+    );
     err.status = 400;
     throw err;
   }
 
-  if (releaseCondition === "time" && (!Number.isFinite(releaseAfterMs) || releaseAfterMs <= 0)) {
-    const err = new Error("escrow_release: releaseAfterMs must be greater than 0 for time-based release");
+  if (
+    releaseCondition === "time" &&
+    (!Number.isFinite(releaseAfterMs) || releaseAfterMs <= 0)
+  ) {
+    const err = new Error(
+      "escrow_release: releaseAfterMs must be greater than 0 for time-based release",
+    );
     err.status = 400;
     throw err;
   }
@@ -158,7 +174,9 @@ function normalizeConfig(type, config) {
   if (type === "dca") return normalizeDcaConfig(config);
   if (type === "stop_loss") return normalizeStopLossConfig(config);
   if (type === "escrow_release") return normalizeEscrowReleaseConfig(config);
-  const err = new Error("Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'.");
+  const err = new Error(
+    "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'.",
+  );
   err.status = 400;
   throw err;
 }
@@ -184,7 +202,7 @@ async function createSigningChallenge({ ownerPublicKey, type, config }) {
       Operation.manageData({
         name: `turrets-deploy:${type}`,
         value: deploymentHash,
-      })
+      }),
     )
     .setTimeout(300)
     .build();
@@ -223,7 +241,9 @@ function verifySignedChallenge({ ownerPublicKey, signedChallengeXDR }) {
   });
 
   if (!hasValidSignature) {
-    const err = new Error("Signed challenge was not signed by the owner account");
+    const err = new Error(
+      "Signed challenge was not signed by the owner account",
+    );
     err.status = 401;
     throw err;
   }
@@ -232,7 +252,9 @@ function verifySignedChallenge({ ownerPublicKey, signedChallengeXDR }) {
 function toDexAsset(code, issuer) {
   if (code === "XLM") return Asset.native();
   if (!issuer) {
-    const err = new Error(`Asset issuer is required for non-native asset ${code}`);
+    const err = new Error(
+      `Asset issuer is required for non-native asset ${code}`,
+    );
     err.status = 400;
     throw err;
   }
@@ -292,50 +314,68 @@ function escrowReleaseTxFunction(config) {
   };
 }
 
-function addExecutionLog(deploymentId, status, message, result = null) {
-  executionHistory.push({
-    id: crypto.randomUUID(),
-    deploymentId,
+async function addExecutionLog(deploymentId, status, message, result = null) {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+
+  await knex("turrets_history").insert({
+    id,
+    deployment_id: deploymentId,
     status,
     message,
-    result,
-    createdAt: new Date().toISOString(),
+    result: result ? JSON.stringify(result) : null,
+    created_at: createdAt,
   });
 
-  if (executionHistory.length > 1000) {
-    executionHistory.splice(0, executionHistory.length - 1000);
+  // Prune old history entries (keep last 1000)
+  const [{ count }] = await knex("turrets_history")
+    .where("deployment_id", deploymentId)
+    .count("* as count");
+  if (Number(count) > 1000) {
+    const excess = Number(count) - 1000;
+    const oldestIds = await knex("turrets_history")
+      .where("deployment_id", deploymentId)
+      .orderBy("created_at", "asc")
+      .limit(excess)
+      .select("id");
+    if (oldestIds.length > 0) {
+      await knex("turrets_history")
+        .whereIn(
+          "id",
+          oldestIds.map((r) => r.id),
+        )
+        .del();
+    }
   }
 }
 
-let priceCache = { value: null, fetchedAt: 0 };
-
 async function getXlmUsdPrice() {
-  const now = Date.now();
-  if (priceCache.value !== null && now - priceCache.fetchedAt < 30_000) {
-    return priceCache.value;
-  }
-
-  const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd"
-  );
-
-  if (!res.ok) {
-    throw new Error(`Price lookup failed (${res.status})`);
-  }
-
-  const data = await res.json();
-  const value = Number(data?.stellar?.usd);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error("Invalid price response from upstream provider");
-  }
-
-  priceCache = { value, fetchedAt: now };
-  return value;
+  const priceQuote = await priceFeedService.getXLMPrice();
+  return priceQuote.price;
 }
 
 function nextRunIso(intervalMinutes) {
   return new Date(Date.now() + intervalMinutes * 60 * 1000).toISOString();
+}
+
+function dbRowToDeployment(row) {
+  return {
+    id: row.id,
+    ownerPublicKey: row.owner_pk,
+    type: row.type,
+    status: row.status,
+    config:
+      typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+    deploymentHash: row.deployment_hash,
+    signedChallengeXDR: row.signed_challenge_xdr,
+    createdAt: row.created_at,
+    createdAtMs: row.created_at_ms,
+    nextRunAt: row.next_run_at,
+    lastExecutedAt: row.last_executed_at,
+    lastCheckedAt: row.last_checked_at,
+    lastObservedPriceUsd: row.last_observed_price_usd,
+    lastError: row.last_error,
+  };
 }
 
 async function evaluateDeployment(deployment) {
@@ -346,41 +386,79 @@ async function evaluateDeployment(deployment) {
 
   try {
     const price = await getXlmUsdPrice();
-    deployment.lastObservedPriceUsd = price;
-    deployment.lastCheckedAt = new Date().toISOString();
+
+    const updates = {
+      last_observed_price_usd: price,
+      last_checked_at: new Date().toISOString(),
+    };
 
     if (deployment.type === "dca") {
       const result = dcaTxFunction(deployment.config, price);
-      deployment.lastExecutedAt = new Date().toISOString();
-      deployment.nextRunAt = nextRunIso(deployment.config.intervalMinutes);
-      addExecutionLog(deployment.id, "executed", "DCA txFunction generated", result);
+      updates.last_executed_at = new Date().toISOString();
+      updates.next_run_at = nextRunIso(deployment.config.intervalMinutes);
+      await knex("turrets_deployments")
+        .where("id", deployment.id)
+        .update(updates);
+      await addExecutionLog(
+        deployment.id,
+        "executed",
+        "DCA txFunction generated",
+        result,
+      );
       return;
     }
 
     if (deployment.type === "stop_loss") {
       if (price <= deployment.config.thresholdPrice) {
         const result = stopLossTxFunction(deployment.config, price);
-        deployment.lastExecutedAt = new Date().toISOString();
-        deployment.nextRunAt = nextRunIso(deployment.config.cooldownMinutes);
-        addExecutionLog(deployment.id, "executed", "Stop-loss condition met", result);
+        updates.last_executed_at = new Date().toISOString();
+        updates.next_run_at = nextRunIso(deployment.config.cooldownMinutes);
+        await knex("turrets_deployments")
+          .where("id", deployment.id)
+          .update(updates);
+        await addExecutionLog(
+          deployment.id,
+          "executed",
+          "Stop-loss condition met",
+          result,
+        );
       } else {
-        deployment.nextRunAt = new Date(Date.now() + 60 * 1000).toISOString();
+        updates.next_run_at = new Date(Date.now() + 60 * 1000).toISOString();
+        await knex("turrets_deployments")
+          .where("id", deployment.id)
+          .update(updates);
       }
     }
 
     if (deployment.type === "escrow_release") {
-      const releaseAt = deployment.createdAtMs + deployment.config.releaseAfterMs;
+      const releaseAt =
+        deployment.createdAtMs + deployment.config.releaseAfterMs;
       if (deployment.config.releaseCondition === "time" && now >= releaseAt) {
         const result = escrowReleaseTxFunction(deployment.config);
-        deployment.lastExecutedAt = new Date().toISOString();
-        deployment.status = "completed";
-        addExecutionLog(deployment.id, "executed", "Escrow time-lock expired, release triggered", result);
+        updates.last_executed_at = new Date().toISOString();
+        updates.status = "completed";
+        await knex("turrets_deployments")
+          .where("id", deployment.id)
+          .update(updates);
+        await addExecutionLog(
+          deployment.id,
+          "executed",
+          "Escrow time-lock expired, release triggered",
+          result,
+        );
+      } else {
+        // Manual release or time-based release not yet due — persist last_checked_at
+        await knex("turrets_deployments")
+          .where("id", deployment.id)
+          .update(updates);
       }
     }
   } catch (err) {
-    deployment.lastError = err.message;
-    deployment.lastCheckedAt = new Date().toISOString();
-    addExecutionLog(deployment.id, "error", err.message);
+    await knex("turrets_deployments").where("id", deployment.id).update({
+      last_error: err.message,
+      last_checked_at: new Date().toISOString(),
+    });
+    await addExecutionLog(deployment.id, "error", err.message);
   }
 }
 
@@ -388,13 +466,26 @@ function startRunner() {
   if (runnerStarted) return;
   runnerStarted = true;
 
-  const pollIntervalMs = Number(process.env.TURRETS_EVALUATION_INTERVAL_MS || 30_000);
+  const pollIntervalMs = Number(
+    process.env.TURRETS_EVALUATION_INTERVAL_MS || 30_000,
+  );
 
-  runnerTimer = setInterval(async () => {
-    for (const deployment of deployments.values()) {
-      if (deployment.status !== "active") continue;
-      await evaluateDeployment(deployment);
-    }
+  runnerTimer = setInterval(() => {
+    // fire-and-forget with catch to avoid unhandled rejections
+    (async () => {
+      try {
+        const rows = await knex("turrets_deployments").where(
+          "status",
+          "active",
+        );
+        for (const row of rows) {
+          const deployment = dbRowToDeployment(row);
+          await evaluateDeployment(deployment);
+        }
+      } catch (err) {
+        // Log and continue polling; individual errors are logged in evaluateDeployment
+      }
+    })();
   }, pollIntervalMs);
 }
 
@@ -404,7 +495,13 @@ function stopRunner() {
   runnerStarted = false;
 }
 
-function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signedChallengeXDR }) {
+async function deployTxFunction({
+  ownerPublicKey,
+  type,
+  config,
+  deploymentHash,
+  signedChallengeXDR,
+}) {
   validatePublicKey(ownerPublicKey);
   verifySignedChallenge({ ownerPublicKey, signedChallengeXDR });
 
@@ -412,17 +509,25 @@ function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signed
   const calculatedHash = getConfigHash(type, normalizedConfig);
 
   if (calculatedHash !== deploymentHash) {
-    const err = new Error("Configuration hash mismatch. Recreate challenge and sign again.");
+    const err = new Error(
+      "Configuration hash mismatch. Recreate challenge and sign again.",
+    );
     err.status = 400;
     throw err;
   }
 
   if (type === "dca") {
-    toDexAsset(normalizedConfig.quoteAssetCode, normalizedConfig.quoteAssetIssuer);
+    toDexAsset(
+      normalizedConfig.quoteAssetCode,
+      normalizedConfig.quoteAssetIssuer,
+    );
   }
 
   if (type === "stop_loss") {
-    toDexAsset(normalizedConfig.sellAssetCode, normalizedConfig.sellAssetIssuer);
+    toDexAsset(
+      normalizedConfig.sellAssetCode,
+      normalizedConfig.sellAssetIssuer,
+    );
   }
 
   if (type === "escrow_release" && normalizedConfig.assetCode !== "XLM") {
@@ -441,60 +546,77 @@ function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signed
     nextRunAt = new Date(now + 60 * 1000).toISOString();
   }
 
-  const deployment = {
+  await knex("turrets_deployments").insert({
     id,
-    ownerPublicKey,
+    owner_pk: ownerPublicKey,
     type,
     status: "active",
-    config: normalizedConfig,
-    deploymentHash,
-    signedChallengeXDR,
-    createdAt: new Date(now).toISOString(),
-    createdAtMs: now,
-    nextRunAt,
-    lastExecutedAt: null,
-    lastCheckedAt: null,
-    lastObservedPriceUsd: null,
-    lastError: null,
-  };
+    config: JSON.stringify(normalizedConfig),
+    deployment_hash: deploymentHash,
+    signed_challenge_xdr: signedChallengeXDR,
+    created_at: new Date(now).toISOString(),
+    created_at_ms: now,
+    next_run_at: nextRunAt,
+  });
 
-  deployments.set(id, deployment);
-  addExecutionLog(id, "created", "txFunction deployed");
+  await addExecutionLog(id, "created", "txFunction deployed");
 
   startRunner();
 
-  return deployment;
+  const row = await knex("turrets_deployments").where("id", id).first();
+  return dbRowToDeployment(row);
 }
 
-function listDeployments(ownerPublicKey) {
+async function listDeployments(ownerPublicKey) {
+  let query = knex("turrets_deployments");
+
   if (ownerPublicKey) {
     validatePublicKey(ownerPublicKey);
-    return Array.from(deployments.values()).filter((d) => d.ownerPublicKey === ownerPublicKey);
+    query = query.where("owner_pk", ownerPublicKey);
   }
-  return Array.from(deployments.values());
+
+  const rows = await query;
+  return rows.map(dbRowToDeployment);
 }
 
-function getDeployment(id) {
-  const deployment = deployments.get(id);
-  if (!deployment) {
+async function getDeployment(id) {
+  const row = await knex("turrets_deployments").where("id", id).first();
+  if (!row) {
     const err = new Error("txFunction not found");
     err.status = 404;
     throw err;
   }
-  return deployment;
+  return dbRowToDeployment(row);
 }
 
-function getExecutionHistory(deploymentId) {
-  return executionHistory
-    .filter((entry) => entry.deploymentId === deploymentId)
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+async function getExecutionHistory(deploymentId) {
+  const rows = await knex("turrets_history")
+    .where("deployment_id", deploymentId)
+    .orderBy("created_at", "desc");
+
+  return rows.map((row) => ({
+    id: row.id,
+    deploymentId: row.deployment_id,
+    status: row.status,
+    message: row.message,
+    result: row.result ? JSON.parse(row.result) : null,
+    createdAt: row.created_at,
+  }));
 }
 
-function setDeploymentStatus(id, status) {
-  const deployment = getDeployment(id);
+async function setDeploymentStatus(id, status) {
+  const deployment = await getDeployment(id);
+  await knex("turrets_deployments").where("id", id).update({ status });
+  await addExecutionLog(id, "status", `txFunction ${status}`);
   deployment.status = status;
-  addExecutionLog(id, "status", `txFunction ${status}`);
   return deployment;
+}
+
+async function countDeploymentsByStatus(status) {
+  const [{ count }] = await knex("turrets_deployments")
+    .where("status", status)
+    .count("* as count");
+  return Number(count);
 }
 
 module.exports = {
@@ -504,6 +626,7 @@ module.exports = {
   getDeployment,
   getExecutionHistory,
   setDeploymentStatus,
+  countDeploymentsByStatus,
   startRunner,
   stopRunner,
 };

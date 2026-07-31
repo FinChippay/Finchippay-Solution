@@ -7,6 +7,7 @@
 
 import { useEffect, useRef } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {  } from "@/components/icons";
 
 interface QuickSendModalProps {
@@ -25,21 +26,7 @@ export default function QuickSendModal({
   usdcBalance,
 }: QuickSendModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
-
-  // Close on Escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, onClose]);
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
 
   // Prevent body scroll while modal is open
   useEffect(() => {
@@ -60,12 +47,12 @@ export default function QuickSendModal({
       aria-label="Quick send payment"
     >
       {/* Modal panel */}
-      <div className="relative w-full max-w-md animate-slide-up">
+      <div ref={panelRef} tabIndex={-1} className="relative w-full max-w-md animate-slide-up focus:outline-none">
         {/* Close button */}
         <button
           onClick={onClose}
           aria-label="Close quick send modal"
-          className="absolute -top-3 -right-3 z-10 w-7 h-7 flex items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-500 transition-colors shadow-lg"
+          className="absolute -top-3 -right-3 z-10 w-7 h-7 flex items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-500 transition-colors shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
         >
           <XIcon className="w-3.5 h-3.5" />
         </button>

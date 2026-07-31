@@ -1,0 +1,143 @@
+/* frontend/styles/high-contrast.css */
+@media (prefers-contrast: more) {
+  :root {
+    --text-primary: #000000;
+    --text-secondary: #1a1a1a;
+    --bg-primary: #ffffff;
+    --bg-secondary: #f0f0f0;
+    --border-color: #000000;
+    --link-color: #0000ee;
+  }
+  .dark {
+    --text-primary: #ffffff;
+    --text-secondary: #e0e0e0;
+    --bg-primary: #000000;
+    --bg-secondary: #1a1a1a;
+    --border-color: #ffffff;
+    --link-color: #66aaff;
+  }
+}
+
+/**
+ * styles/high-contrast.css
+ * High-contrast theme overrides (#356).
+ */
+:root[data-theme="high-contrast"] {
+  /* Backgrounds */
+  --hc-bg: #000000;
+  --hc-surface: #000000;
+  --hc-elevated: #1a1a1a;
+  --hc-border: #ffffff;
+
+  /* Foregrounds */
+  --hc-text: #ffffff;
+  --hc-text-muted: #e0e0e0;
+  --hc-text-secondary: #f0f0f0;
+
+  /* Interactive */
+  --hc-link: #ffff00;
+  --hc-link-hover: #ffe600;
+  --hc-focus: #ffff00;
+  --hc-primary: #ffff00;
+  --hc-success: #00ff7f;
+  --hc-danger: #ff5555;
+  --hc-warning: #ffaa00;
+
+  color-scheme: dark;
+}
+
+@media (prefers-contrast: more) {
+  :root:not([data-theme]) {
+    --hc-bg: #000000;
+    --hc-surface: #000000;
+    --hc-elevated: #1a1a1a;
+    --hc-border: #ffffff;
+    --hc-text: #ffffff;
+    --hc-text-muted: #e0e0e0;
+    --hc-text-secondary: #f0f0f0;
+    --hc-link: #ffff00;
+    --hc-focus: #ffff00;
+  }
+}
+
+:root[data-theme="high-contrast"] body {
+  background-color: var(--hc-bg);
+  color: var(--hc-text);
+}
+
+:root[data-theme="high-contrast"] .card,
+:root[data-theme="high-contrast"] [class*="bg-white"],
+:root[data-theme="high-contrast"] [class*="bg-slate-"],
+:root[data-theme="high-contrast"] [class*="dark:bg-"] {
+  background-color: var(--hc-surface) !important;
+  color: var(--hc-text) !important;
+  border-color: var(--hc-border) !important;
+}
+
+:root[data-theme="high-contrast"] a,
+:root[data-theme="high-contrast"] a:visited {
+  color: var(--hc-link);
+  text-decoration: underline;
+}
+
+:root[data-theme="high-contrast"] a:hover,
+:root[data-theme="high-contrast"] a:focus-visible {
+  color: var(--hc-link-hover);
+}
+
+:root[data-theme="high-contrast"] :focus-visible,
+:root[data-theme="high-contrast"] *:focus-visible {
+  outline: 3px solid var(--hc-focus) !important;
+  outline-offset: 2px !important;
+}
+
+:root[data-theme="high-contrast"] button:focus-visible,
+:root[data-theme="high-contrast"] input:focus-visible,
+:root[data-theme="high-contrast"] select:focus-visible,
+:root[data-theme="high-contrast"] textarea:focus-visible {
+  outline: 3px solid var(--hc-focus) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 1px var(--hc-bg) inset !important;
+}
+
+:root[data-theme="high-contrast"] .btn-primary,
+:root[data-theme="high-contrast"] [class*="bg-stellar"],
+:root[data-theme="high-contrast"] [style*="--color-accent"] {
+  background-color: var(--hc-primary) !important;
+  color: var(--hc-bg) !important;
+  border: 2px solid var(--hc-border) !important;
+}
+
+:root[data-theme="high-contrast"] .input-field,
+:root[data-theme="high-contrast"] input,
+:root[data-theme="high-contrast"] textarea,
+:root[data-theme="high-contrast"] select {
+  background-color: var(--hc-elevated) !important;
+  color: var(--hc-text) !important;
+  border: 2px solid var(--hc-border) !important;
+}
+
+:root[data-theme="high-contrast"] .label,
+:root[data-theme="high-contrast"] [class*="text-muted"],
+:root[data-theme="high-contrast"] [class*="text-slate-"] {
+  color: var(--hc-text-secondary) !important;
+}
+
+:root[data-theme="high-contrast"] .status-badge,
+:root[data-theme="high-contrast"] [class*="border-red"],
+:root[data-theme="high-contrast"] [class*="text-red"] {
+  color: var(--hc-danger) !important;
+  border-color: var(--hc-danger) !important;
+}
+
+:root[data-theme="high-contrast"] [class*="text-emerald"],
+:root[data-theme="high-contrast"] [class*="border-emerald"] {
+  color: var(--hc-success) !important;
+  border-color: var(--hc-success) !important;
+}
+
+:root[data-theme="high-contrast"] [class*="text-amber"],
+:root[data-theme="high-contrast"] [class*="border-amber"] {
+  color: var(--hc-warning) !important;
+  border-color: var(--hc-warning) !important;
+}

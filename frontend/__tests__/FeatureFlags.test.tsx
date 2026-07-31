@@ -169,4 +169,73 @@ describe("FeatureFlags", () => {
       expect(screen.getByTestId("flag-value")).toHaveTextContent("enabled");
     });
   });
+
+  // ── New flags introduced in #103 ────────────────────────────────────────────
+
+  describe("new_portfolio and events_page flags (#103)", () => {
+    it("new_portfolio returns false when rollout is 0%", () => {
+      render(
+        <FeatureFlagProvider publicKey="GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890">
+          <TestConsumer flag="new_portfolio" />
+        </FeatureFlagProvider>
+      );
+      expect(screen.getByTestId("flag-value")).toHaveTextContent("disabled");
+    });
+
+    it("events_page returns false when rollout is 0%", () => {
+      render(
+        <FeatureFlagProvider publicKey="GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890">
+          <TestConsumer flag="events_page" />
+        </FeatureFlagProvider>
+      );
+      expect(screen.getByTestId("flag-value")).toHaveTextContent("disabled");
+    });
+
+    it("new_portfolio can be enabled via env override", () => {
+      process.env.NEXT_PUBLIC_FEATURE_FLAGS = JSON.stringify({
+        new_portfolio: { enabled: true, rollout: 100 },
+      });
+
+      render(
+        <FeatureFlagProvider publicKey="GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890">
+          <TestConsumer flag="new_portfolio" />
+        </FeatureFlagProvider>
+      );
+      expect(screen.getByTestId("flag-value")).toHaveTextContent("enabled");
+    });
+
+    it("FeatureGate renders fallback for new_portfolio when flag is off", () => {
+      render(
+        <FeatureFlagProvider publicKey="GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890">
+          <FeatureGate
+            flag="new_portfolio"
+            fallback={<div data-testid="fallback">Coming Soon</div>}
+          >
+            <div data-testid="content">Portfolio Content</div>
+          </FeatureGate>
+        </FeatureFlagProvider>
+      );
+      expect(screen.getByTestId("fallback")).toHaveTextContent("Coming Soon");
+      expect(screen.queryByTestId("content")).not.toBeInTheDocument();
+    });
+
+    it("FeatureGate renders content for new_portfolio when env override enables it", () => {
+      process.env.NEXT_PUBLIC_FEATURE_FLAGS = JSON.stringify({
+        new_portfolio: { enabled: true, rollout: 100 },
+      });
+
+      render(
+        <FeatureFlagProvider publicKey="GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890">
+          <FeatureGate
+            flag="new_portfolio"
+            fallback={<div data-testid="fallback">Coming Soon</div>}
+          >
+            <div data-testid="content">Portfolio Content</div>
+          </FeatureGate>
+        </FeatureFlagProvider>
+      );
+      expect(screen.getByTestId("content")).toHaveTextContent("Portfolio Content");
+      expect(screen.queryByTestId("fallback")).not.toBeInTheDocument();
+    });
+  });
 });

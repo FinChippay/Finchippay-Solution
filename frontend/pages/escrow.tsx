@@ -6,10 +6,18 @@ import Head from "next/head";
  * Create — sender locks XLM into the contract until release_ledger.
  * Claim  — recipient pulls the funds once release_ledger has elapsed.
  * Cancel — sender pulls the funds back, but only before release_ledger.
+ *
+ * Transaction Simulation Preview (#151):
+ *   Before signing any transaction, a preview modal shows simulation
+ *   results including balance changes, resource fees in XLM, and contract
+ *   errors (e.g. "release_ledger not reached"). If simulation fails,
+ *   a warning is shown but the user can still proceed.
  */
 import { useState, useEffect } from "react";
 import WalletConnect from "@/components/WalletConnect";
+import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
 import { useWallet } from "@/lib/useWallet";
+import { useSimulatedTransactionFlow } from "@/hooks/useSimulatedTransactionFlow";
 import {
   buildCreateEscrowTransaction,
   buildClaimEscrowTransaction,
@@ -20,11 +28,13 @@ import {
   submitTransaction,
   isValidStellarAddress,
   getXLMBalance,
+  getEscrow as getStellarEscrow,
   CONTRACT_ID,
+  NETWORK_PASSPHRASE,
   EscrowRecord,
   STELLAR_STROOPS_PER_XLM,
 } from "@/lib/stellar";
-import { Horizon } from "@stellar/stellar-sdk";
+import { Horizon, Asset } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
 type LookupState =
@@ -47,7 +57,10 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const publicKey = walletPublicKey === undefined ? connectedPublicKey : walletPublicKey;
   const loadXLMBalance = services?.getXLMBalance ?? getXLMBalance;
   const loadCurrentLedger = services?.getCurrentLedger ?? getCurrentLedger;
-  const loadEscrow = services?.getEscrow ?? getEscrow;
+  const loadEscrow = services?.getEscrow ?? getStellarEscrow;
+
+  // Transaction simulation flow for create, claim, cancel
+  const simFlow = useSimulatedTransactionFlow({ publicKey });
 
   // Create-escrow form state.
   const [recipient, setRecipient] = useState("");
@@ -65,6 +78,15 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<null | "claim" | "cancel" | "partialClaim">(null);
   const [partialClaimAmount, setPartialClaimAmount] = useState("");
+
+  // Soroban client instance (lazy singleton)
+  const getSorobanClient = () => {
+    try {
+      return getClient();
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -104,38 +126,41 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     return creating;
   })();
 
+  async function buildCreate() {
+    if (!publicKey) throw new Error("Wallet not connected");
+    return buildCreateEscrowTransaction({
+      fromPublicKey: publicKey,
+      toPublicKey: recipient,
+      amount,
+      releaseLedger: parseInt(releaseLedger, 10),
+    });
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!publicKey) return;
     setCreating(true);
     setCreateError(null);
     setCreatedId(null);
-    try {
-      const tx = await buildCreateEscrowTransaction({
-        fromPublicKey: publicKey,
-        toPublicKey: recipient,
-        amount,
-        releaseLedger: parseInt(releaseLedger, 10),
+
+    if (simFlow.showPreview) {
+      // Already showing preview — second call means "proceed to sign"
+      await simFlow.handleProceedToSign();
+    } else {
+      await simFlow.execute({
+        builder: buildCreate,
+        onSuccess: async () => {
+          setCreatedId(1); // Best-effort indicator
+          setRecipient("");
+          setAmount("");
+          setReleaseLedger("");
+        },
+        onError: (msg) => {
+          setCreateError(msg);
+        },
       });
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) {
-        throw new Error(signError || "Transaction signing was rejected.");
-      }
-      const result = await submitTransaction(signedXDR);
-      // The contract returns the new escrow id as the call return value.
-      // Horizon attaches it under result_meta_xdr; we surface it best-effort.
-      const returned = (result as Horizon.HorizonApi.SubmitTransactionResponse & { returnValue?: unknown }).returnValue;
-      const id = typeof returned === "number" ? returned : null;
-      setCreatedId(id);
-      setRecipient("");
-      setAmount("");
-      setReleaseLedger("");
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to create escrow.";
-      setCreateError(message);
-    } finally {
-      setCreating(false);
     }
+    setCreating(false);
   }
 
   async function handleLookup() {
@@ -148,10 +173,11 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     setLookup({ kind: "loading" });
     setActionError(null);
     try {
-      const [escrow, ledger] = await Promise.all([
-        loadEscrow(publicKey, id),
-        loadCurrentLedger(),
-      ]);
+      const client = getSorobanClient();
+      const escrow = client
+        ? await client.getEscrow(id, publicKey)
+        : await loadEscrow(publicKey, id);
+      const ledger = await loadCurrentLedger();
       if (!escrow) {
         setLookup({ kind: "missing" });
         return;
@@ -164,6 +190,29 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     }
   }
 
+  async function buildAction(action: "claim" | "cancel") {
+    if (!publicKey) throw new Error("Wallet not connected");
+    if (lookup.kind !== "found") throw new Error("No escrow loaded");
+    const builder = action === "claim"
+      ? buildClaimEscrowTransaction
+      : buildCancelEscrowTransaction;
+    return builder(publicKey, lookup.escrow.id);
+  }
+
+  async function buildPartialClaim() {
+    if (!publicKey) throw new Error("Wallet not connected");
+    if (lookup.kind !== "found") throw new Error("No escrow loaded");
+    const partialStroops = Math.round(parseFloat(partialClaimAmount) * STELLAR_STROOPS_PER_XLM);
+    if (!Number.isFinite(partialStroops) || partialStroops <= 0) {
+      throw new Error("Partial claim amount must be a positive number.");
+    }
+    const escrowStroops = BigInt(lookup.escrow.amount);
+    if (BigInt(partialStroops) > escrowStroops) {
+      throw new Error("Partial claim amount exceeds escrow balance.");
+    }
+    return buildClaimEscrowPartialTransaction(publicKey, lookup.escrow.id, BigInt(partialStroops));
+  }
+
   async function handleAction(action: "claim" | "cancel" | "partialClaim") {
     if (!publicKey || lookup.kind !== "found") return;
     if (action === "cancel" && typeof window !== "undefined" && window.confirm && !window.confirm("Are you sure you want to cancel this escrow?")) {
@@ -171,37 +220,23 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     }
     setActionPending(action);
     setActionError(null);
-    try {
-      let tx: Awaited<ReturnType<typeof buildClaimEscrowTransaction>>;
-      if (action === "partialClaim") {
-        const partialStroops = Math.round(parseFloat(partialClaimAmount) * STELLAR_STROOPS_PER_XLM);
-        if (!Number.isFinite(partialStroops) || partialStroops <= 0) {
-          throw new Error("Partial claim amount must be a positive number.");
-        }
-        const escrowStroops = BigInt(lookup.escrow.amount);
-        if (BigInt(partialStroops) > escrowStroops) {
-          throw new Error("Partial claim amount exceeds escrow balance.");
-        }
-        tx = await buildClaimEscrowPartialTransaction(publicKey, lookup.escrow.id, BigInt(partialStroops));
-      } else {
-        const builder = action === "claim"
-          ? buildClaimEscrowTransaction
-          : buildCancelEscrowTransaction;
-        tx = await builder(publicKey, lookup.escrow.id);
-      }
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) {
-        throw new Error(signError || "Transaction signing was rejected.");
-      }
-      await submitTransaction(signedXDR);
-      // Refresh the cached escrow so the UI reflects the new status.
-      await handleLookup();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : `Failed to ${action} escrow.`;
-      setActionError(message);
-    } finally {
-      setActionPending(null);
-    }
+
+    const builder = action === "partialClaim"
+      ? buildPartialClaim
+      : () => buildAction(action as "claim" | "cancel");
+
+    await simFlow.execute({
+      builder,
+      onSuccess: async () => {
+        // Refresh the cached escrow so the UI reflects the new status.
+        await handleLookup();
+      },
+      onError: (msg) => {
+        setActionError(msg);
+      },
+    });
+
+    setActionPending(null);
   }
 
   return (
@@ -294,14 +329,14 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                 disabled={isCreateDisabled}
                 className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:bg-gray-300"
               >
-                {creating ? "Locking funds…" : "Lock funds in escrow"}
+                {simFlow.executing ? "Processing…" : creating ? "Locking funds…" : "Lock funds in escrow"}
               </button>
             </form>
           </section>
 
           <section className="rounded-lg border border-gray-200 p-4">
             <h2 className="mb-3 text-lg font-medium">Claim or cancel</h2>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="number"
                 min="0"
@@ -345,12 +380,13 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
 
                 {lookup.escrow.status === "Pending" && (
                   <div className="mt-3 space-y-3">
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <button
                         type="button"
                         onClick={() => handleAction("claim")}
                         disabled={
                           actionPending !== null ||
+                          simFlow.executing ||
                           lookup.currentLedger < lookup.escrow.releaseLedger ||
                           publicKey !== lookup.escrow.to
                         }
@@ -363,13 +399,14 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                         }
                         className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
                       >
-                        {actionPending === "claim" ? "Claiming…" : "Claim"}
+                        {simFlow.executing && actionPending === "claim" ? "Processing…" : actionPending === "claim" ? "Claiming…" : "Claim"}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleAction("cancel")}
                         disabled={
                           actionPending !== null ||
+                          simFlow.executing ||
                           lookup.currentLedger >= lookup.escrow.releaseLedger ||
                           publicKey !== lookup.escrow.from
                         }
@@ -382,7 +419,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                         }
                         className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
                       >
-                        {actionPending === "cancel" ? "Cancelling…" : "Cancel"}
+                        {simFlow.executing && actionPending === "cancel" ? "Processing…" : actionPending === "cancel" ? "Cancelling…" : "Cancel"}
                       </button>
                     </div>
 
@@ -391,7 +428,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                       <p className="mb-2 text-xs text-gray-500">
                         Or claim a partial amount (XLM):
                       </p>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="number"
                           min="0"
@@ -406,6 +443,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                           onClick={() => handleAction("partialClaim")}
                           disabled={
                             actionPending !== null ||
+                            simFlow.executing ||
                             lookup.currentLedger < lookup.escrow.releaseLedger ||
                             publicKey !== lookup.escrow.to ||
                             !partialClaimAmount ||
@@ -422,7 +460,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                           }
                           className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
                         >
-                          {actionPending === "partialClaim" ? "Claiming…" : "Partial claim"}
+                          {simFlow.executing && actionPending === "partialClaim" ? "Processing…" : actionPending === "partialClaim" ? "Claiming…" : "Partial claim"}
                         </button>
                       </div>
                     </div>
@@ -437,6 +475,20 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
           </section>
         </>
       )}
+
+      {/* Transaction Simulation Preview Modal */}
+      <TransactionSimulationPreview
+        isOpen={simFlow.showPreview}
+        onClose={() => simFlow.setShowPreview(false)}
+        onProceed={simFlow.handleProceedToSign}
+        simulation={simFlow.simulationResult}
+        loading={simFlow.simLoading}
+        error={simFlow.simError}
+        warning={simFlow.simWarning}
+        proceedLabel="Sign with Freighter"
+        title="Escrow Transaction Preview"
+        description="Review the estimated effects of this escrow transaction before signing."
+      />
     </main>
   );
 }

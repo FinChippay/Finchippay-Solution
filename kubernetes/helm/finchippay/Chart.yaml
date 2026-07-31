@@ -1,0 +1,5 @@
+apiVersion: v2
+name: finchippay
+description: Helm chart for Finchippay frontend, backend, and nginx services
+version: 0.1.0
+appVersion: "1.0.0"
