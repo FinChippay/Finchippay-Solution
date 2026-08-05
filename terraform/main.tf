@@ -1,4 +1,5 @@
 # ─── Finchippay — Root Terraform Module ───────────────────────────────────────
+# CI-PIPELINE-TEST: This comment added to trigger terraform-deploy workflow on PR.
 #
 # Provisions the core DigitalOcean infrastructure for Finchippay:
 #   • A private VPC

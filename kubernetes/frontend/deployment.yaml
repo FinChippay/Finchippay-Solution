@@ -1,3 +1,4 @@
+# CI-PIPELINE-TEST: This comment triggers kubernetes-deploy lint on PR.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
