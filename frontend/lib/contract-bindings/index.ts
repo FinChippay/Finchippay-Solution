@@ -401,7 +401,7 @@ export class FinchippayContractClient {
       [],
       source,
     );
-    if (!sim || !sim.result) return null;
+    if (!sim?.result) return null;
     const val = scValToNative(sim.result.retval);
     return val ? String(val) : null;
   }

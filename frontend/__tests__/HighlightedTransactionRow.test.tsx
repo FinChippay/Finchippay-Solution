@@ -3,11 +3,11 @@
  * Tests for HighlightedTransactionRow component
  */
 
-import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import HighlightedTransactionRow from "../components/HighlightedTransactionRow";
+import React from "react";
 import { PaymentRecord } from "@/lib/stellar";
 import { SearchResult } from "@/lib/transactionSearch";
+import HighlightedTransactionRow from "../components/HighlightedTransactionRow";
 
 // Mock the useTranslation hook
 jest.mock("next-i18next", () => ({

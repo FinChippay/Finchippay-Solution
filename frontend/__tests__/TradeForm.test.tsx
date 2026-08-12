@@ -20,9 +20,9 @@
  *  - edge cases (same token, invalid slippage, no wallet)
  */
 
-import React from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 
 // ─── Mock pathFinder BEFORE importing TradeForm ───────────────────────────────
 jest.mock("@/lib/pathFinder", () => ({
@@ -71,9 +71,9 @@ jest.mock("@/components/icons", () => ({
 }));
 
 // ─── Imports after mocks ─────────────────────────────────────────────────────
-import TradeForm from "../components/TradeForm";
 import * as pathFinderModule from "@/lib/pathFinder";
 import * as stellarModule from "@/lib/stellar";
+import TradeForm from "../components/TradeForm";
 import * as freighterModule from "@stellar/freighter-api";
 
 // ─── Typed mock refs ─────────────────────────────────────────────────────────

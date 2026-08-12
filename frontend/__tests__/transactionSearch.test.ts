@@ -3,6 +3,7 @@
  * Tests for transaction search functionality
  */
 
+import { PaymentRecord } from "@/lib/stellar";
 import {
   parseSearchQuery,
   tokenizeText,
@@ -10,7 +11,6 @@ import {
   calculateRelevance,
   searchPayments,
 } from "@/lib/transactionSearch";
-import { PaymentRecord } from "@/lib/stellar";
 
 describe("Transaction Search", () => {
   const mockPayments: PaymentRecord[] = [

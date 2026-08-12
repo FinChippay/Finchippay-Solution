@@ -14,7 +14,6 @@
  *   - Completion state (completeTour writes completed flag)
  */
 
-import React from "react";
 import {
   render,
   screen,
@@ -22,18 +21,19 @@ import {
   act,
   waitFor,
 } from "@testing-library/react";
+import React from "react";
 import "@testing-library/jest-dom";
 import { renderHook } from "@testing-library/react";
 
 // ── Module under test ────────────────────────────────────────────────────────
 
+import OnboardingTour, { TOUR_STEPS, STEP_COUNT } from "@/components/OnboardingTour";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
 import {
   ONBOARDING_KEY_COMPLETED,
   ONBOARDING_KEY_DISMISSED,
   ONBOARDING_KEY_STEP,
 } from "@/hooks/useOnboardingTour";
-import OnboardingTour, { TOUR_STEPS, STEP_COUNT } from "@/components/OnboardingTour";
 import { STORAGE_KEY as ONBOARDING_STATE_STORAGE_KEY } from "@/lib/onboardingState";
 
 // ── Mock useWallet (transitively pulls in lib/wallet.ts -> @finchippay/sdk,

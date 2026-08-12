@@ -26,7 +26,7 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, Address, Env,
+    token, Address, Env, Symbol,
 };
 
 /// Case count for invariants that only exercise the pure `claimable_at`
@@ -101,7 +101,7 @@ fn open_stream_with(
     client.open_stream(token_id, payer, recipient, &rate, &deposit)
 }
 
-fn synthetic_stream(payer: &Address, recipient: &Address, token: &Address) -> Stream {
+fn synthetic_stream(env: &Env, payer: &Address, recipient: &Address, token: &Address) -> Stream {
     Stream {
         id: 0,
         payer: payer.clone(),
@@ -114,6 +114,11 @@ fn synthetic_stream(payer: &Address, recipient: &Address, token: &Address) -> St
         closed: false,
         paused_at_ledger: 0,
         total_paused_duration: 0,
+        recipient_paused: false,
+        recipient_paused_at: 0,
+        recipient_paused_duration: 0,
+        auto_resume_ledger: 0,
+        pause_reason: Symbol::new(env, ""),
     }
 }
 
@@ -130,7 +135,7 @@ fn invariant_claimable_never_exceeds_remaining_deposit() {
     let payer = Address::generate(&env);
     let recipient = Address::generate(&env);
     let token = Address::generate(&env);
-    let base = synthetic_stream(&payer, &recipient, &token);
+    let base = synthetic_stream(&env, &payer, &recipient, &token);
 
     let strategy = (
         1i128..=MAX_STREAM_RATE,
@@ -233,7 +238,7 @@ fn invariant_stream_fully_depletes_after_deposit_over_rate_plus_one() {
     let payer = Address::generate(&env);
     let recipient = Address::generate(&env);
     let token = Address::generate(&env);
-    let base = synthetic_stream(&payer, &recipient, &token);
+    let base = synthetic_stream(&env, &payer, &recipient, &token);
 
     // `deposit` is derived from `rate` and a bounded elapsed-ledger target so
     // that `deposit / rate + 1` always fits comfortably within a u32 ledger

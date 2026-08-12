@@ -142,7 +142,7 @@ export function filterPayments(
       !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
     const matchesMemo =
       !memoQuery ||
-      (payment.memo && payment.memo.toLowerCase().includes(memoQuery));
+      (payment.memo?.toLowerCase().includes(memoQuery));
 
     return matchesDirection && matchesAmount && matchesMemo;
   });

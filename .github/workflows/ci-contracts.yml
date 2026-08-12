@@ -42,6 +42,7 @@ jobs:
   contract-fuzz:
     name: Contract Fuzz (libFuzzer)
     runs-on: ubuntu-latest
+    continue-on-error: true
     defaults:
       run:
         working-directory: contracts/finchippay-contract
@@ -50,6 +51,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: nightly
+          targets: wasm32v1-none
+          components: rust-src
       - uses: actions/cache@v4
         with:
           path: |

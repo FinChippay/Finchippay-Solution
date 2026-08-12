@@ -22,7 +22,7 @@
     "lint": "npm run lint --workspace=frontend",
     "type-check": "npm run type-check --workspace=sdk --workspace=frontend",
     "test": "npm run test --workspace=frontend",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": [

@@ -214,10 +214,15 @@ pub struct TokenTotal {
 
 /// A continuous per-ledger payment stream from `payer` to `recipient`.
 ///
-/// The claimable amount at any ledger `L` is:
+/// The claimable amount at any ledger `L` accounts for both payer-initiated
+/// (admin) pauses and recipient-initiated pauses:
 /// ```text
-/// elapsed   = L - start_ledger
-/// streamed  = rate_per_ledger * elapsed          (capped at deposited)
+/// effective_elapsed = L - start_ledger
+///                     - total_paused_duration
+///                     - (active_admin_pause)
+///                     - recipient_paused_duration
+///                     - (active_recipient_pause)
+/// streamed  = rate_per_ledger * effective_elapsed (capped at deposited)
 /// claimable = min(streamed, deposited) - claimed
 /// ```
 #[contracttype]
@@ -240,8 +245,20 @@ pub struct Stream {
     pub start_ledger: u32,
     /// True once the payer has closed the stream.
     pub closed: bool,
+    /// Ledger at which the payer/admin paused the stream (0 = not paused).
     pub paused_at_ledger: u32,
+    /// Total ledgers accumulated from payer/admin pauses.
     pub total_paused_duration: u32,
+    /// Whether the recipient has paused the stream.
+    pub recipient_paused: bool,
+    /// Ledger at which the recipient paused (0 if not paused).
+    pub recipient_paused_at: u32,
+    /// Total ledgers the stream has been paused by the recipient.
+    pub recipient_paused_duration: u32,
+    /// Ledger at which the stream auto-resumes, if set (0 = no auto-resume).
+    pub auto_resume_ledger: u32,
+    /// Symbol describing why the stream was paused (e.g., "kyc_review", "travel").
+    pub pause_reason: Symbol,
 }
 
 /// Pure arithmetic core of the streaming payment formula, factored out of
@@ -255,8 +272,17 @@ pub fn claimable_at(stream: &Stream, current_ledger: u32) -> i128 {
         return 0;
     }
 
+    // Admin/payer pause (circuit breaker).
     let active_paused_duration = if stream.paused_at_ledger > 0 {
         current_ledger.saturating_sub(stream.paused_at_ledger)
+    } else {
+        0
+    };
+
+    // Recipient-initiated pause: if currently paused, freeze accrual at the
+    // pause point.
+    let recipient_active_pause: u32 = if stream.recipient_paused {
+        current_ledger.saturating_sub(stream.recipient_paused_at)
     } else {
         0
     };
@@ -264,7 +290,9 @@ pub fn claimable_at(stream: &Stream, current_ledger: u32) -> i128 {
     let effective_elapsed = current_ledger
         .saturating_sub(stream.start_ledger)
         .saturating_sub(stream.total_paused_duration)
-        .saturating_sub(active_paused_duration);
+        .saturating_sub(active_paused_duration)
+        .saturating_sub(stream.recipient_paused_duration)
+        .saturating_sub(recipient_active_pause);
 
     let total_streamed = stream
         .rate_per_ledger
@@ -272,7 +300,7 @@ pub fn claimable_at(stream: &Stream, current_ledger: u32) -> i128 {
         .expect("overflow");
 
     let capped = total_streamed.min(stream.deposited);
-    (capped - stream.claimed).max(0)
+    capped.checked_sub(stream.claimed).expect("underflow").max(0)
 }
 
 #[contracttype]
@@ -414,8 +442,11 @@ const MAX_VESTING_AMOUNT: i128 = 1_000_000_000_000_000_000;
 const MAX_VESTING_DURATION_LEDGERS: u32 = 31_536_000;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
+/// Maximum ledgers a recipient may pause a stream (~1 year at 5 s/ledger).
+/// Prevents indefinite pauses with far-future auto-resume deadlines.
+pub const MAX_PAUSE_LEDGERS: u32 = 6_307_200;
 /// Contract version identifier (used for off-chain discovery).
-const CONTRACT_VERSION: u32 = 3;
+const CONTRACT_VERSION: u32 = 4;
 /// Mandatory delay in ledgers before an emergency withdrawal can be executed
 /// (≈24 hours at 5 s/ledger).
 const EMERGENCY_WITHDRAWAL_DELAY: u32 = 17_280;
@@ -425,7 +456,7 @@ const MAX_ADMIN_SIGNERS: u32 = 20;
 /// or any persistent struct field layout changes. The admin must call
 /// `validate_storage_compatibility` before upgrading to ensure the new WASM
 /// declares a layout version >= this value, preventing bricked storage.
-const STORAGE_LAYOUT_VERSION: u32 = 3;
+const STORAGE_LAYOUT_VERSION: u32 = 4;
 
 // ─── Storage TTL classes ──────────────────────────────────────────────────────
 
@@ -2355,6 +2386,28 @@ impl FinchippayContract {
         new_recipient: Address,
     ) {
         streams::transfer_stream(env, stream_id, current_recipient, new_recipient)
+    }
+
+    /// Recipient pauses the stream, stopping accrual of new claimable tokens.
+    /// An optional `auto_resume_ledger` can be set to automatically resume.
+    pub fn pause_stream_by_recipient(
+        env: Env,
+        stream_id: u32,
+        recipient: Address,
+        auto_resume_ledger: Option<u32>,
+        reason: Symbol,
+    ) {
+        streams::pause_stream_by_recipient(env, stream_id, recipient, auto_resume_ledger, reason)
+    }
+
+    /// Recipient resumes a previously paused stream.
+    pub fn resume_stream_by_recipient(env: Env, stream_id: u32, recipient: Address) {
+        streams::resume_stream_by_recipient(env, stream_id, recipient)
+    }
+
+    /// Return the recipient pause state for a stream.
+    pub fn get_stream_pause_info(env: Env, stream_id: u32) -> (bool, u32, u32, u32, Symbol) {
+        streams::get_stream_pause_info(env, stream_id)
     }
 
     /// Return the stream record for `stream_id`.

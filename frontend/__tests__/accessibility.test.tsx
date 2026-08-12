@@ -115,14 +115,14 @@ jest.mock("@/hooks/useContacts", () => ({
 
 // ─── Component imports (after mocks) ───────────────────────────────────────────
 
-import Navbar from "@/components/Navbar";
-import TransactionList from "@/components/TransactionList";
-import ExportModal from "@/components/ExportModal";
 import ContactExportModal from "@/components/ContactExportModal";
-import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
+import ExportModal from "@/components/ExportModal";
+import Navbar from "@/components/Navbar";
 import PaymentStatusModal from "@/components/PaymentStatusModal";
-import AccessibilityStatement from "@/pages/accessibility";
+import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
+import TransactionList from "@/components/TransactionList";
 import { ThemeProvider } from "@/lib/ThemeContext";
+import AccessibilityStatement from "@/pages/accessibility";
 
 async function expectNoViolations(container: Element) {
   const results = await axe(container);

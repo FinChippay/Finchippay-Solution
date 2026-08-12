@@ -1,5 +1,5 @@
-import React from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import React from "react";
 import "@testing-library/jest-dom";
 import StreamingPayments from "@/components/StreamingPayments";
 import type { StreamRecord } from "@/lib/stellar";

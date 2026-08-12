@@ -1,15 +1,16 @@
 //! # Streaming Payments
 //!
 //! Continuous per-ledger token streams with claim, top-up, close, reject,
-//! and transfer operations. Extracted from the main FinchippayContract impl.
+//! transfer, and recipient-initiated pause/resume operations. Extracted
+//! from the main FinchippayContract impl.
 
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use crate::{
     claimable_at, contract_transfer_out, decrease_locked_balance, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
-    ContractError, DataKey, Escrow, Stream, MAX_PAGE_SIZE, MAX_STREAM_DEPOSIT, MAX_STREAM_RATE,
-    MAX_USER_STREAMS,
+    ContractError, DataKey, Escrow, Stream, MAX_PAGE_SIZE, MAX_PAUSE_LEDGERS, MAX_STREAM_DEPOSIT,
+    MAX_STREAM_RATE, MAX_USER_STREAMS,
 };
 
 use crate::storage::*;
@@ -69,6 +70,11 @@ pub fn open_stream(
         closed: false,
         paused_at_ledger: 0,
         total_paused_duration: 0,
+        recipient_paused: false,
+        recipient_paused_at: 0,
+        recipient_paused_duration: 0,
+        auto_resume_ledger: 0,
+        pause_reason: Symbol::new(&env, ""),
     };
     increase_locked_balance(&env, &stream.token, deposit);
     env.storage()
@@ -103,6 +109,8 @@ pub fn open_stream(
 ///
 /// Returns the amount claimed. Can be called multiple times as the stream
 /// progresses; the running `claimed` counter prevents double-claiming.
+/// If the stream was recipient-paused with an auto-resume deadline that has
+/// passed, the stream auto-resumes before computing the claimable amount.
 pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
     require_not_paused(&env);
     recipient.require_auth();
@@ -117,7 +125,42 @@ pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
         panic!("only the recipient may claim");
     }
 
+    // Auto-resume: if the stream was paused with an auto-resume deadline
+    // that has passed, clear the pause state before computing claimable.
+    let mut state_changed = false;
+    if stream.recipient_paused
+        && stream.auto_resume_ledger > 0
+        && env.ledger().sequence() >= stream.auto_resume_ledger
+    {
+        stream.recipient_paused_duration = stream
+            .recipient_paused_duration
+            .saturating_add(
+                env.ledger()
+                    .sequence()
+                    .saturating_sub(stream.recipient_paused_at),
+            );
+        stream.recipient_paused = false;
+        stream.recipient_paused_at = 0;
+        stream.auto_resume_ledger = 0;
+        state_changed = true;
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_autoresumed"), stream_id),
+            (recipient.clone(),),
+        );
+    }
+
     let claimable = claimable_at(&stream, env.ledger().sequence());
+
+    // Persist the stream if auto-resume changed its state, even if nothing
+    // is claimable yet.
+    if state_changed {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+        bump(&env, &DataKey::Stream(stream_id));
+    }
+
     if claimable == 0 {
         return 0;
     }
@@ -201,6 +244,21 @@ pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
         panic!("stream is already closed");
     }
 
+    // If the stream was recipient-paused, accumulate the duration and
+    // clear the pause state before computing claimable.
+    if stream.recipient_paused {
+        stream.recipient_paused_duration = stream
+            .recipient_paused_duration
+            .saturating_add(
+                env.ledger()
+                    .sequence()
+                    .saturating_sub(stream.recipient_paused_at),
+            );
+        stream.recipient_paused = false;
+        stream.recipient_paused_at = 0;
+        stream.auto_resume_ledger = 0;
+    }
+
     let token = get_token_client(&env, &stream.token);
 
     // Pay out any accrued-but-unclaimed tokens to the recipient first.
@@ -278,6 +336,21 @@ pub fn reject_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
         panic!("stream is already closed");
     }
 
+    // If the stream was recipient-paused, accumulate the duration and
+    // clear the pause state before handling the rejection.
+    if stream.recipient_paused {
+        stream.recipient_paused_duration = stream
+            .recipient_paused_duration
+            .saturating_add(
+                env.ledger()
+                    .sequence()
+                    .saturating_sub(stream.recipient_paused_at),
+            );
+        stream.recipient_paused = false;
+        stream.recipient_paused_at = 0;
+        stream.auto_resume_ledger = 0;
+    }
+
     let token = get_token_client(&env, &stream.token);
 
     // Pay accrued tokens to recipient.
@@ -338,6 +411,21 @@ pub fn transfer_stream(
     }
     if stream.closed {
         panic!("stream is closed");
+    }
+
+    // If the stream was recipient-paused, accumulate the duration and
+    // clear the pause state before computing claimable.
+    if stream.recipient_paused {
+        stream.recipient_paused_duration = stream
+            .recipient_paused_duration
+            .saturating_add(
+                env.ledger()
+                    .sequence()
+                    .saturating_sub(stream.recipient_paused_at),
+            );
+        stream.recipient_paused = false;
+        stream.recipient_paused_at = 0;
+        stream.auto_resume_ledger = 0;
     }
 
     // Auto-claim accrued tokens for the old recipient before transfer.
@@ -466,6 +554,137 @@ pub fn list_escrows_by_recipient(
         result.push_back(r_escrows.get(i).unwrap());
     }
     result
+}
+
+// ─── Recipient-Initiated Pause / Resume ─────────────────────────────────
+
+/// Recipient pauses the stream, stopping accrual of new claimable tokens.
+/// An optional `auto_resume_ledger` can be set to automatically resume the
+/// stream at a future ledger. The `reason` Symbol provides off-chain context
+/// (e.g., "kyc_review", "travel").
+///
+/// # Panics
+/// Panics if the stream is closed, already paused, or `auto_resume_ledger`
+/// exceeds `MAX_PAUSE_LEDGERS` from the current ledger.
+pub fn pause_stream_by_recipient(
+    env: Env,
+    stream_id: u32,
+    recipient: Address,
+    auto_resume_ledger: Option<u32>,
+    reason: Symbol,
+) {
+    require_not_paused(&env);
+    recipient.require_auth();
+
+    let mut stream: Stream = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Stream(stream_id))
+        .expect("stream not found");
+
+    if stream.recipient != recipient {
+        panic!("only the recipient may pause");
+    }
+    if stream.closed {
+        panic!("stream is closed");
+    }
+    if stream.recipient_paused {
+        panic!("stream is already paused by recipient");
+    }
+
+    let current_ledger = env.ledger().sequence();
+
+    let resume_ledger = if let Some(l) = auto_resume_ledger {
+        if l <= current_ledger {
+            panic!("auto_resume_ledger must be in the future");
+        }
+        if l > current_ledger + MAX_PAUSE_LEDGERS {
+            panic!("auto_resume_ledger is too far in the future");
+        }
+        l
+    } else {
+        0
+    };
+
+    stream.recipient_paused = true;
+    stream.recipient_paused_at = current_ledger;
+    stream.auto_resume_ledger = resume_ledger;
+    stream.pause_reason = reason;
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Stream(stream_id), &stream);
+    bump(&env, &DataKey::Stream(stream_id));
+
+    env.events().publish(
+        (Symbol::new(&env, "stream_paused_by_recipient"), stream_id),
+        (recipient, resume_ledger, stream.pause_reason.clone()),
+    );
+}
+
+/// Recipient resumes a previously paused stream. Accumulates the pause
+/// duration and clears the pause state so that claimable tokens resume
+/// accruing from the current ledger.
+pub fn resume_stream_by_recipient(env: Env, stream_id: u32, recipient: Address) {
+    require_not_paused(&env);
+    recipient.require_auth();
+
+    let mut stream: Stream = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Stream(stream_id))
+        .expect("stream not found");
+
+    if stream.recipient != recipient {
+        panic!("only the recipient may resume");
+    }
+    if !stream.recipient_paused {
+        panic!("stream is not paused by recipient");
+    }
+
+    // Accumulate the pause duration before clearing state.
+    stream.recipient_paused_duration = stream
+        .recipient_paused_duration
+        .saturating_add(
+            env.ledger()
+                .sequence()
+                .saturating_sub(stream.recipient_paused_at),
+        );
+    stream.recipient_paused = false;
+    stream.recipient_paused_at = 0;
+    stream.auto_resume_ledger = 0;
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Stream(stream_id), &stream);
+    bump(&env, &DataKey::Stream(stream_id));
+
+    env.events().publish(
+        (Symbol::new(&env, "stream_resumed_by_recipient"), stream_id),
+        (recipient, stream.recipient_paused_duration),
+    );
+}
+
+/// Return the recipient pause state for a stream: whether it is paused,
+/// the ledger at which it was paused, the total accumulated pause
+/// duration, the auto-resume ledger (0 if none), and the pause reason.
+pub fn get_stream_pause_info(
+    env: Env,
+    stream_id: u32,
+) -> (bool, u32, u32, u32, Symbol) {
+    let stream: Stream = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Stream(stream_id))
+        .expect("stream not found");
+    bump(&env, &DataKey::Stream(stream_id));
+    (
+        stream.recipient_paused,
+        stream.recipient_paused_at,
+        stream.recipient_paused_duration,
+        stream.auto_resume_ledger,
+        stream.pause_reason,
+    )
 }
 
 // Internal: compute claimable amount for a stream at the current ledger.

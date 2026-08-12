@@ -1441,7 +1441,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               prefill={
                 recurringPrefill
                   ? recurringPrefill
-                  : stellarURI && stellarURI.success
+                  : stellarURI?.success
                   ? uriToPrefillData(stellarURI.data!)
                   : null
               }

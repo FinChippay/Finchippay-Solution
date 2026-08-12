@@ -1,7 +1,7 @@
-import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import PaymentStatusModal from '../components/PaymentStatusModal';
+import React from 'react';
 import * as walletModule from '@/lib/wallet';
+import PaymentStatusModal from '../components/PaymentStatusModal';
 
 // Stub the Freighter signer interface mock to simulate a rejection throwing an error with the message 'User declined access'
 jest.mock('@/lib/wallet', () => ({

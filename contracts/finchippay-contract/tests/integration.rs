@@ -139,7 +139,7 @@ fn test_transfer_admin() {
 fn test_get_version() {
     let env = Env::default();
     let (_, client) = deploy(&env);
-    assert_eq!(client.get_version(), 3);
+    assert_eq!(client.get_version(), 4);
 }
 
 #[test]

@@ -136,7 +136,7 @@ export async function searchContacts(query: string): Promise<Contact[]> {
   return all.filter(c =>
     c.name.toLowerCase().includes(q) ||
     c.publicKey.toLowerCase().includes(q) ||
-    (c.federationAddress && c.federationAddress.toLowerCase().includes(q))
+    (c.federationAddress?.toLowerCase().includes(q))
   );
 }
 

@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 
 jest.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -58,9 +58,9 @@ jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
 }));
 
-import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
+import SendPaymentForm from "../components/SendPaymentForm";
 
 const mockBuildPaymentTransaction = stellarModule.buildPaymentTransaction as jest.Mock;
 const mockIsValidStellarAddress = stellarModule.isValidStellarAddress as jest.Mock;

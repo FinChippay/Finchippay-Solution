@@ -727,7 +727,7 @@ checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "finchippay-contract"
-version = "0.0.0"
+version = "3.1.0"
 dependencies = [
  "soroban-sdk",
 ]

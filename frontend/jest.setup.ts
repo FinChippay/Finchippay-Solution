@@ -13,7 +13,7 @@ Object.assign(global, {
 // jsdom does not implement SubtleCrypto, so back the global `crypto` with Node's
 // Web Crypto implementation for encryption tests.
 const globalCrypto = (global as { crypto?: Crypto }).crypto;
-if (!globalCrypto || !globalCrypto.subtle) {
+if (!globalCrypto?.subtle) {
   try {
     Object.defineProperty(global, "crypto", {
       value: webcrypto as unknown as Crypto,

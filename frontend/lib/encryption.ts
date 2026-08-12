@@ -37,7 +37,7 @@ const AES_KEY_LENGTH = 256;
  */
 function getSubtle(): SubtleCrypto {
   const cryptoObj = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
-  if (!cryptoObj || !cryptoObj.subtle) {
+  if (!cryptoObj?.subtle) {
     throw new Error("Web Crypto (SubtleCrypto) is not available in this environment.");
   }
   return cryptoObj.subtle;
@@ -45,7 +45,7 @@ function getSubtle(): SubtleCrypto {
 
 function getRandomBytes(length: number): Uint8Array {
   const cryptoObj = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
-  if (!cryptoObj || !cryptoObj.getRandomValues) {
+  if (!cryptoObj?.getRandomValues) {
     throw new Error("Web Crypto (getRandomValues) is not available in this environment.");
   }
   return cryptoObj.getRandomValues(new Uint8Array(length));

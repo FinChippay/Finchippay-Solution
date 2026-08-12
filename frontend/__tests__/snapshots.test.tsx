@@ -4,8 +4,8 @@
  * Catches unintended UI regressions in CI.
  */
 
-import React from "react";
 import { render } from "@testing-library/react";
+import React from "react";
 import "@testing-library/jest-dom";
 
 // ─── Mocks (must be declared before imports) ──────────────────────────────────
@@ -151,11 +151,11 @@ jest.mock("@/utils/export", () => ({
 // ─── Component imports ────────────────────────────────────────────────────────
 
 import Navbar from "@/components/Navbar";
-import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
-import Home from "@/pages/index";
+import WalletConnect from "@/components/WalletConnect";
 import Dashboard from "@/pages/dashboard";
+import Home from "@/pages/index";
 import Transactions from "@/pages/transactions";
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────
