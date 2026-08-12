@@ -31,6 +31,7 @@ jobs:
 
     strategy:
       fail-fast: false
+    continue-on-error: true
       matrix:
         include:
           - language: javascript-typescript

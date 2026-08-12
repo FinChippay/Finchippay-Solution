@@ -300,7 +300,7 @@ pub fn claimable_at(stream: &Stream, current_ledger: u32) -> i128 {
         .expect("overflow");
 
     let capped = total_streamed.min(stream.deposited);
-    (capped - stream.claimed).max(0)
+    capped.checked_sub(stream.claimed).expect("underflow").max(0)
 }
 
 #[contracttype]
