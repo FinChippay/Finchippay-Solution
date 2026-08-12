@@ -1,7 +1,7 @@
-import { logger } from "@/lib/logger";
 import { useEffect, useState } from "react";
-import { useWallet } from "@/lib/useWallet";
+import { logger } from "@/lib/logger";
 import { listStreamsByPayer, StreamRecord } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 
 export interface RecurringSchedule {
   id: string;

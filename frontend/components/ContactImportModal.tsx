@@ -1,6 +1,7 @@
 "use client";
 import { useState, useCallback, useRef } from "react";
 import { useContacts } from "@/hooks/useContacts";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
   parseContactsCSVAnnotated,
   readFileAsText,
@@ -9,7 +10,6 @@ import {
 } from "@/lib/contactImportExport";
 import { parseVCard } from "@/lib/contactsDB";
 import { isValidStellarAddress } from "@/lib/stellar";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface Props {
   existingContacts: Array<{ id: string; nickname: string; address: string }>;

@@ -8,14 +8,14 @@ import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
-import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
-import { formatStroopsToXLM } from "@/utils/format";
 import {
   canRedeemPaymentLink,
   markPaymentLinkRedeemed,
   parsePaymentLinkQuery,
 } from "@/lib/paymentLinks";
+import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import { formatStroopsToXLM } from "@/utils/format";
 
 interface PrefillData {
   destination: string;

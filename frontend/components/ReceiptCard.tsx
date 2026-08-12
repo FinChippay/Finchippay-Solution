@@ -1,6 +1,6 @@
 import React from "react";
-import { formatXLM, shortenAddress } from "@/utils/format";
 import type { ReceiptMetadata } from "@/lib/stellar";
+import { formatXLM, shortenAddress } from "@/utils/format";
 
 interface ReceiptCardProps {
   index: number;

@@ -3,20 +3,12 @@
  * Displays paginated payment history for a Stellar account.
  */
 
-import { logger } from "@/lib/logger";
-import { useState, useEffect, useCallback, useRef, useReducer } from "react";
+import clsx from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/router";
+import { useState, useEffect, useCallback, useRef, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
-import {
-  getPaymentHistory,
-  shortenAddress,
-  explorerUrl,
-  PaymentRecord,
-  PaymentHistoryResponse,
-} from "@/lib/stellar";
-import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
-import { useContacts } from "@/hooks/useContacts";
 import {
   HistoryIcon,
   ArrowUpIcon,
@@ -25,11 +17,19 @@ import {
   ExternalLinkIcon,
   PrinterIcon,
 } from "@/components/icons";
-import TransactionSearchBar from "./TransactionSearchBar";
-import HighlightedTransactionRow from "./HighlightedTransactionRow";
+import { useContacts } from "@/hooks/useContacts";
+import { logger } from "@/lib/logger";
+import {
+  getPaymentHistory,
+  shortenAddress,
+  explorerUrl,
+  PaymentRecord,
+  PaymentHistoryResponse,
+} from "@/lib/stellar";
 import { SearchResult } from "@/lib/transactionSearch";
-import clsx from "clsx";
-import { motion, AnimatePresence } from "framer-motion";
+import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import HighlightedTransactionRow from "./HighlightedTransactionRow";
+import TransactionSearchBar from "./TransactionSearchBar";
 
 /** Shape of the CustomEvent detail for pending transaction lifecycle events. */
 interface PendingTxEventDetail {
@@ -142,7 +142,7 @@ export function filterPayments(
       !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
     const matchesMemo =
       !memoQuery ||
-      (payment.memo && payment.memo.toLowerCase().includes(memoQuery));
+      (payment.memo?.toLowerCase().includes(memoQuery));
 
     return matchesDirection && matchesAmount && matchesMemo;
   });

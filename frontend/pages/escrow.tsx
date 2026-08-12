@@ -1,3 +1,4 @@
+import { Horizon, Asset } from "@stellar/stellar-sdk";
 import Head from "next/head";
 /**
  * pages/escrow.tsx
@@ -14,9 +15,8 @@ import Head from "next/head";
  *   a warning is shown but the user can still proceed.
  */
 import { useState, useEffect } from "react";
-import WalletConnect from "@/components/WalletConnect";
 import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
-import { useWallet } from "@/lib/useWallet";
+import WalletConnect from "@/components/WalletConnect";
 import { useSimulatedTransactionFlow } from "@/hooks/useSimulatedTransactionFlow";
 import {
   buildCreateEscrowTransaction,
@@ -34,7 +34,7 @@ import {
   EscrowRecord,
   STELLAR_STROOPS_PER_XLM,
 } from "@/lib/stellar";
-import { Horizon, Asset } from "@stellar/stellar-sdk";
+import { useWallet } from "@/lib/useWallet";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
 type LookupState =

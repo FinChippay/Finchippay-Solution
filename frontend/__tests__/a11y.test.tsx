@@ -6,9 +6,9 @@
  * Run with: npm test -- --testPathPattern=a11y
  */
 
-import React from "react";
 import { render } from "@testing-library/react";
 import { axe } from "jest-axe";
+import React from "react";
 
 // ─── Mock dependencies ──────────────────────────────────────────────────────
 
@@ -91,11 +91,11 @@ jest.mock("@/components/WalletConnect", () => ({
 
 // ─── Component imports ──────────────────────────────────────────────────────
 
-import Navbar from "@/components/Navbar";
-import QuickSendModal from "@/components/QuickSendModal";
-import QRCodeModal from "@/components/QRCodeModal";
-import PaymentStatusModal from "@/components/PaymentStatusModal";
 import MultiSigFlow from "@/components/MultiSigFlow";
+import Navbar from "@/components/Navbar";
+import PaymentStatusModal from "@/components/PaymentStatusModal";
+import QRCodeModal from "@/components/QRCodeModal";
+import QuickSendModal from "@/components/QuickSendModal";
 
 describe("Accessibility audits", () => {
   // ── Navbar ─────────────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
-import { logger } from "@/lib/logger";
 import { motion, AnimatePresence } from "framer-motion";
-import { createInvoice, InvoiceFormData } from "@/lib/invoices";
+import React, { useState, useEffect } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { createInvoice, InvoiceFormData } from "@/lib/invoices";
+import { logger } from "@/lib/logger";
 
 interface InvoiceModalProps {
   isOpen: boolean;

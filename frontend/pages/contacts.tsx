@@ -1,28 +1,28 @@
-import { useState, useCallback } from "react";
+import Head from "next/head";
 import Link from "next/link";
+import { useRouter } from "next/router";
+import { useState, useCallback } from "react";
+import ContactImportModal from "@/components/ContactImportModal";
 import WalletConnect from "@/components/WalletConnect";
-import {
-  isValidStellarAddress,
-  resolveFederationAddress,
-} from "@/lib/stellar";
+import { useContacts } from "@/hooks/useContacts";
 import {
   resolveFederationWithCache,
   getCachedFederationAddress,
 } from "@/lib/addressBook";
-import { reEncryptLocalData } from "@/lib/wallet";
 import {
   exportContactsCSV,
   exportContactsVCard,
   downloadFile,
 } from "@/lib/contactImportExport";
-import ContactImportModal from "@/components/ContactImportModal";
-import { useContacts } from "@/hooks/useContacts";
 import type { Contact } from "@/lib/contactsDB";
-import { copyToClipboard } from "@/utils/format";
+import {
+  isValidStellarAddress,
+  resolveFederationAddress,
+} from "@/lib/stellar";
 import { useToast } from "@/lib/useToast";
-import Head from "next/head";
-import { useRouter } from "next/router";
 import { useWallet } from "@/lib/useWallet";
+import { reEncryptLocalData } from "@/lib/wallet";
+import { copyToClipboard } from "@/utils/format";
 
 function FederationBadge({ address }: { address?: string }) {
   if (!address) return null;

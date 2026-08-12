@@ -3,8 +3,8 @@
  * Modal component for displaying QR code with Stellar payment URI (SEP-0007).
  */
 
-import { useState, useRef, type SVGProps } from "react";
 import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
+import { useState, useRef, type SVGProps } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface QRCodeModalProps {

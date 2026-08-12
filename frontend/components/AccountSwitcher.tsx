@@ -7,12 +7,12 @@
  * plus "Remove account" (with confirmation when it is the last one).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { CheckIcon, Spinner, TrashIcon, WalletIcon } from "@/components/icons";
 import { shortenAddress } from "@/lib/stellar";
 import { getAccountDisplayName, useWallet } from "@/lib/useWallet";
-import { CheckIcon, Spinner, TrashIcon, WalletIcon } from "@/components/icons";
 
 export default function AccountSwitcher() {
   const {

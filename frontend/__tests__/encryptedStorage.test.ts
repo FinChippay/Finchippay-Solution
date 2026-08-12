@@ -10,7 +10,6 @@
  * - Switching wallets is detected as needing re-encryption
  */
 
-import { deriveKey, getOrCreateSalt } from "@/lib/encryption";
 import {
   addressBookNeedsReEncryption,
   clearAddressBook,
@@ -21,6 +20,7 @@ import {
   unlockAddressBook,
   type AddressBookContact,
 } from "@/lib/addressBook";
+import { deriveKey, getOrCreateSalt } from "@/lib/encryption";
 
 const PUBLIC_KEY_A = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
 const PUBLIC_KEY_B = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7";

@@ -9,8 +9,8 @@
  * - Screen reader announcements
  */
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { motion, Reorder } from "framer-motion";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { isValidStellarAddress } from "@/lib/stellar";
 
 type TokenInfo = {

@@ -4,8 +4,8 @@
  * a bar chart of token distribution, and estimated total fee.
  */
 
-import { useMemo } from "react";
 import { motion } from "framer-motion";
+import { useMemo } from "react";
 
 type TokenInfo = {
   code: string;

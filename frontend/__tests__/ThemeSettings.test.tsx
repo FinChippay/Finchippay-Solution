@@ -1,7 +1,7 @@
-import { ThemeProvider } from "@/lib/ThemeContext";
-import ThemeSettings from "@/components/ThemeSettings";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import ThemeSettings from "@/components/ThemeSettings";
+import { ThemeProvider } from "@/lib/ThemeContext";
 
 const THEME_STORAGE_KEY = "finchippay:theme";
 const DARK_MODE_QUERY = "(prefers-color-scheme: dark)";

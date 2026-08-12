@@ -11,8 +11,8 @@
  * ✓ Requests Notification.requestPermission() on first browser-alert creation
  */
 
-import { useState } from "react";
 import clsx from "clsx";
+import { useState } from "react";
 import {
   createAlert,
   requestNotificationPermission,

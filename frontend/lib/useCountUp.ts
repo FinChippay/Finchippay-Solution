@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
 import { useMotionValue, animate } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
 
 export function useCountUp(target: number, duration: number = 2000, startOnView: boolean = true) {
   const [count, setCount] = useState(0);

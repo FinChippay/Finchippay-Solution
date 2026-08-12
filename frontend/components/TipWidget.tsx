@@ -1,11 +1,11 @@
 import clsx from "clsx";
-import { logger } from "@/lib/logger";
 import { useEffect, useRef, useState } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
+import { logger } from "@/lib/logger";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
-import { formatXLM } from "@/utils/format";
 import { useWallet } from "@/lib/useWallet";
+import { formatXLM } from "@/utils/format";
 
 interface TipWidgetProps {
   creatorUsername: string;

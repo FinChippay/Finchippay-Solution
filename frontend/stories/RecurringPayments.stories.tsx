@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { expect, fn, userEvent, within } from "@storybook/test";
+import { lazy, Suspense } from "react";
 import RecurringPayments, { type RecurringSchedule } from "../components/RecurringPayments";
 
 const STORAGE_KEY = "finchippay:recurring-schedules";

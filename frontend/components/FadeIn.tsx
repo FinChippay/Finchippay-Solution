@@ -19,8 +19,8 @@
  * already animates on data swap; modals have their own open/close motion).
  */
 
-import { type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { type ReactNode } from "react";
 
 interface FadeInProps {
   children: ReactNode;

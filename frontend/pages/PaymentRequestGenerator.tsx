@@ -1,7 +1,7 @@
-import React, { useState, useRef } from "react";
-import { logger } from "@/lib/logger";
 import clsx from "clsx";
 import { QRCodeCanvas } from "qrcode.react";
+import React, { useState, useRef } from "react";
+import { logger } from "@/lib/logger";
 import { buildPaymentLinkUrl, rememberPaymentLink } from "@/lib/paymentLinks";
 
 export default function PaymentRequestGenerator() {

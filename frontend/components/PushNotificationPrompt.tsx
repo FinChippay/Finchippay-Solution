@@ -9,7 +9,6 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useToast } from "@/lib/useToast";
 import {
   dismissPrompt,
   getVapidPublicKey,
@@ -17,6 +16,7 @@ import {
   setOptIn,
   shouldShowPrompt,
 } from "@/lib/pushNotifications";
+import { useToast } from "@/lib/useToast";
 
 interface PushNotificationPromptProps {
   /** Connected account. The prompt stays hidden until this is available. */

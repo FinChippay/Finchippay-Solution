@@ -4,8 +4,8 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
-import TransactionTimeline from "@/components/TransactionTimeline";
 import TransactionActions from "@/components/TransactionActions";
+import TransactionTimeline from "@/components/TransactionTimeline";
 
 const meta: Meta<typeof TransactionTimeline> = {
   title: "Components/TransactionTimeline",

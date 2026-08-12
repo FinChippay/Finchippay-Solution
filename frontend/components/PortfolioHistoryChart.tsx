@@ -3,10 +3,10 @@
  * "Portfolio Value Over Time" line chart, last 30 days (issue #482).
  */
 
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useTranslation } from "react-i18next";
-import { formatAmount } from "@/utils/format";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import type { PortfolioValueSnapshot, FiatCurrency } from "@/lib/portfolio";
+import { formatAmount } from "@/utils/format";
 
 interface PortfolioHistoryChartProps {
   history: PortfolioValueSnapshot[];

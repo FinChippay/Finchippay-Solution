@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 import RecurringPayments, { RecurringSchedule } from "../components/RecurringPayments";
 
 const STORAGE_KEY = "finchippay:recurring-schedules";

@@ -3,10 +3,10 @@
  * Visual timeline for transaction status progression
  */
 
-import { CheckIcon } from "@/components/icons";
-import { formatDate } from "@/utils/format";
 import clsx from "clsx";
 import { motion } from "framer-motion";
+import { CheckIcon } from "@/components/icons";
+import { formatDate } from "@/utils/format";
 
 export interface TimelineStep {
   label: string;

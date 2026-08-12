@@ -7,8 +7,8 @@
  */
 
 import Head from "next/head";
-import { FeatureGate } from "@/lib/FeatureFlags";
 import Link from "next/link";
+import { FeatureGate } from "@/lib/FeatureFlags";
 
 export default function EventsPage() {
   return (

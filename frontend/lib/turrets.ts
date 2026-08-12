@@ -5,13 +5,13 @@
  * Uses the @finchippay/sdk client for all API calls.
  */
 
-import { sdk } from "./sdk-instance";
 import type {
   TxFunctionChallengeRequest,
   TxFunctionDeployRequest,
   TxFunctionDeployment,
   ExecutionLogEntry,
 } from "@finchippay/sdk";
+import { sdk } from "./sdk-instance";
 
 export type TurretsType = "dca" | "stop_loss";
 

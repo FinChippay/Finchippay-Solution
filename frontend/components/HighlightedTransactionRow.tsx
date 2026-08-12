@@ -3,10 +3,10 @@
  * Transaction row with highlighted search matches
  */
 
+import clsx from "clsx";
 import { PaymentRecord, shortenAddress, explorerUrl } from "@/lib/stellar";
 import { SearchResult } from "@/lib/transactionSearch";
 import { formatAsset, timeAgo } from "@/utils/format";
-import clsx from "clsx";
 import { ExternalLinkIcon } from "./icons";
 
 interface HighlightedTransactionRowProps {

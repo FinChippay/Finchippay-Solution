@@ -4,10 +4,10 @@
  * outgoing Stellar payment, based on live Horizon fee stats.
  */
 
+import type { Transaction } from "@stellar/stellar-sdk";
+import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import clsx from "clsx";
-import type { Transaction } from "@stellar/stellar-sdk";
 import { fetchNetworkFeeStats, STELLAR_BASE_FEE_XLM } from "@/lib/stellar";
 
 export type FeeTier = "economy" | "standard" | "fast";

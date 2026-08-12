@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 
 // Mock dependencies before importing EscrowPage
 jest.mock("next/head", () => {
@@ -47,11 +47,11 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
-import EscrowPage from "../pages/escrow";
-import { useWallet } from "@/lib/useWallet";
-import * as stellarModule from "@/lib/stellar";
 import * as sorobanModule from "@/lib/soroban";
+import * as stellarModule from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import * as walletModule from "@/lib/wallet";
+import EscrowPage from "../pages/escrow";
 
 const mockUseWallet = useWallet as jest.Mock;
 const mockGetCurrentLedger = stellarModule.getCurrentLedger as jest.Mock;

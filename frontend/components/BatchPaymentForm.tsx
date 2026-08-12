@@ -1,4 +1,8 @@
 import { useMemo, useState, useEffect } from "react";
+import BatchSummary from "@/components/BatchSummary";
+import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
+import QuickAddPanel from "@/components/QuickAddPanel";
+import { useContacts } from "@/hooks/useContacts";
 import {
   buildPaymentTransaction,
   isValidStellarAddress,
@@ -8,10 +12,6 @@ import {
   truncateMemoText,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
-import QuickAddPanel from "@/components/QuickAddPanel";
-import BatchSummary from "@/components/BatchSummary";
-import { useContacts } from "@/hooks/useContacts";
 
 const MAX_RECIPIENTS = 10;
 
@@ -171,7 +171,7 @@ export default function BatchPaymentForm({
   const processRows = async (retryOnlyFailed = false) => {
     setBatchMessage(null);
     setIsProcessing(true);
-    let nextRecipients = recipients.map((r) => ({ ...r }));
+    const nextRecipients = recipients.map((r) => ({ ...r }));
     setRecipients(nextRecipients);
     for (const recipient of nextRecipients) {
       if (recipient.status === "success") continue;

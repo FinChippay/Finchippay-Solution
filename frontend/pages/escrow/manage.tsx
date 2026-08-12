@@ -1,10 +1,10 @@
 import Head from "next/head";
-import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import WalletConnect from "@/components/WalletConnect";
+import { useState, useEffect, useCallback } from "react";
 import EscrowCountdown from "@/components/EscrowCountdown";
 import MilestoneProgress from "@/components/MilestoneProgress";
 import type { Milestone } from "@/components/MilestoneProgress";
+import WalletConnect from "@/components/WalletConnect";
 import {
   getEscrows,
   claimEscrow,
@@ -17,9 +17,9 @@ import {
   type EscrowTab,
 } from "@/lib/escrowManager";
 import { getCurrentLedger, CONTRACT_ID, STELLAR_STROOPS_PER_XLM } from "@/lib/stellar";
+import { useToast } from "@/lib/useToast";
 import { useWallet } from "@/lib/useWallet";
 import { copyToClipboard } from "@/utils/format";
-import { useToast } from "@/lib/useToast";
 
 function stroopsToXlm(stroops: string): string {
   const num = Number(BigInt(stroops)) / STELLAR_STROOPS_PER_XLM;

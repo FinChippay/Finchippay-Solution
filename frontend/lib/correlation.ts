@@ -9,7 +9,7 @@
  * carries both headers without touching each call site.
  */
 
-let sessionId =
+const sessionId =
   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
     : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`;

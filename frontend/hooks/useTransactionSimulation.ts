@@ -13,7 +13,6 @@
  *   // sim.loading is true during simulation
  */
 
-import { useState, useCallback, useRef } from "react";
 import {
   Transaction,
   rpc,
@@ -21,6 +20,7 @@ import {
   nativeToScVal,
   xdr,
 } from "@stellar/stellar-sdk";
+import { useState, useCallback, useRef } from "react";
 import {
   getSorobanServer,
   getBalances,

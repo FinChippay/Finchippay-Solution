@@ -3,27 +3,27 @@
  * Top navigation bar with theme toggle, network status, and wallet controls.
  */
 
-import Link from "next/link";
-import { logger } from "@/lib/logger";
-import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import AccountSwitcher from "@/components/AccountSwitcher";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import ThemeToggle from "@/components/ThemeToggle";
+import { NavStarIcon } from "@/components/icons";
+import { logger } from "@/lib/logger";
+import { getQueueCount, processQueue, registerBackgroundSync } from "@/lib/offlineQueue";
+import { loadAlerts, PRICE_ALERTS_STORAGE_KEY } from "@/lib/priceAlerts";
 import {
   getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
 } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import {
   connectWallet as requestWalletConnection,
   performSEP0010Auth,
 } from "@/lib/wallet";
-import { useWallet } from "@/lib/useWallet";
-import ThemeToggle from "@/components/ThemeToggle";
-import AccountSwitcher from "@/components/AccountSwitcher";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { NavStarIcon } from "@/components/icons";
-import { loadAlerts, PRICE_ALERTS_STORAGE_KEY } from "@/lib/priceAlerts";
-import { getQueueCount, processQueue, registerBackgroundSync } from "@/lib/offlineQueue";
 
 /** Prop interface allowing _app.tsx to wire the tour launcher. */
 export interface NavbarProps {

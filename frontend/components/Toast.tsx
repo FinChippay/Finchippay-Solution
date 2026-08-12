@@ -3,9 +3,9 @@
  * Global toast notification system — top-right slide-in, stacking, auto-dismiss.
  */
 
-import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState } from "react";
 import { CheckIcon, AlertCircleIcon } from "@/components/icons";
 import { useToastContext, type ToastItem } from "@/lib/ToastContext";
 

@@ -14,15 +14,12 @@
  * - Confirmation modal before signing
  */
 
-import { logger } from "@/lib/logger";
-import { useState, useEffect, useCallback, useRef } from "react";
 import { Asset } from "@stellar/stellar-sdk";
-import {
-  buildPathPaymentTransaction,
-  submitTransaction,
-  NETWORK_PASSPHRASE,
-  STELLAR_BASE_FEE_XLM,
-} from "@/lib/stellar";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { SwapIcon, AlertCircleIcon, Spinner } from "@/components/icons";
+import { useContractSwap } from "@/hooks/useContractSwap";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { logger } from "@/lib/logger";
 import {
   findStrictSendPaths,
   findStrictReceivePaths,
@@ -31,9 +28,12 @@ import {
   pathAssetsToStellarAssets,
   type PathFinderResult,
 } from "@/lib/pathFinder";
-import { useContractSwap } from "@/hooks/useContractSwap";
-import { SwapIcon, AlertCircleIcon, Spinner } from "@/components/icons";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
+import {
+  buildPathPaymentTransaction,
+  submitTransaction,
+  NETWORK_PASSPHRASE,
+  STELLAR_BASE_FEE_XLM,
+} from "@/lib/stellar";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

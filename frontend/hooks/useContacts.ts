@@ -1,5 +1,5 @@
-"use client"; import { useState, useEffect, useCallback } from "react"; import { isValidStellarAddress } from "@/lib/stellar"; import { addContact as dbAdd, getAllContacts, updateContact as dbUpdate, deleteContact as dbDelete, clearAllContacts as dbClearAll, searchContacts as dbSearch, importContacts as dbImport, createGroup as dbCreateGroup, getAllGroups as dbGetAllGroups, deleteGroup as dbDeleteGroup, addToGroup as dbAddToGroup, removeFromGroup as dbRemoveFromGroup, getContactsByGroup as dbGetContactsByGroup, type Contact, type ContactGroup } from "@/lib/contactsDB";
-
+"use client"; import { useState, useEffect, useCallback } from "react"; import { addContact as dbAdd, getAllContacts, updateContact as dbUpdate, deleteContact as dbDelete, clearAllContacts as dbClearAll, searchContacts as dbSearch, importContacts as dbImport, createGroup as dbCreateGroup, getAllGroups as dbGetAllGroups, deleteGroup as dbDeleteGroup, addToGroup as dbAddToGroup, removeFromGroup as dbRemoveFromGroup, getContactsByGroup as dbGetContactsByGroup, type Contact, type ContactGroup } from "@/lib/contactsDB";
+ import { isValidStellarAddress } from "@/lib/stellar";
 export function useContacts() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [groups, setGroups] = useState<ContactGroup[]>([]);

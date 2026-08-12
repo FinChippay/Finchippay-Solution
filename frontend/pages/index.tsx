@@ -9,8 +9,8 @@ import { useRouter } from "next/router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import WalletConnect from "@/components/WalletConnect";
-import { useWallet } from "@/lib/useWallet";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useWallet } from "@/lib/useWallet";
 
 const FEATURE_KEYS = [
   { icon: "⚡", key: "instantSettlement" },

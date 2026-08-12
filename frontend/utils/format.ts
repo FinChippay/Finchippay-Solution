@@ -3,8 +3,8 @@
  * Shared formatting utilities.
  */
 
-import { PaymentRecord } from "@/lib/stellar";
 import { formatDistanceToNow, format } from "date-fns";
+import { PaymentRecord } from "@/lib/stellar";
 import { formatCurrency, formatNumber, formatRelativeTime } from './intlFormat';
 
 interface AssetFormatRule {

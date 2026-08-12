@@ -1,11 +1,11 @@
 import i18n from "i18next";
-import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
+import { initReactI18next } from "react-i18next";
 
+import arCommon from "@/public/locales/ar/common.json";
 import enCommon from "@/public/locales/en/common.json";
 import esCommon from "@/public/locales/es/common.json";
 import frCommon from "@/public/locales/fr/common.json";
-import arCommon from "@/public/locales/ar/common.json";
 import heCommon from "@/public/locales/he/common.json";
 import jaCommon from "@/public/locales/ja/common.json";
 import ptCommon from "@/public/locales/pt/common.json";

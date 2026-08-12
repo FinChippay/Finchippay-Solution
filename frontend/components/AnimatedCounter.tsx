@@ -18,8 +18,8 @@
  *     like "XLM" stays put while the digits change ("1,234.5678 XLM").
  */
 
-import { type ReactNode, useEffect, useRef } from "react";
 import { useMotionValue, useReducedMotion, useSpring } from "framer-motion";
+import { type ReactNode, useEffect, useRef } from "react";
 
 interface AnimatedCounterProps {
   /** Target value. */

@@ -4,8 +4,8 @@
  */
 
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import TransactionTimeline from "@/components/TransactionTimeline";
 import TransactionActions from "@/components/TransactionActions";
+import TransactionTimeline from "@/components/TransactionTimeline";
 
 // Mock framer-motion
 jest.mock("framer-motion", () => ({

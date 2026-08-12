@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 
 jest.mock("@/lib/stellar", () => ({
   buildPaymentTransaction: jest.fn(),
@@ -18,9 +18,9 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
-import BatchPaymentForm from "../components/BatchPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
+import BatchPaymentForm from "../components/BatchPaymentForm";
 
 const mockBuildPaymentTransaction =
   stellarModule.buildPaymentTransaction as jest.Mock;

@@ -4,16 +4,16 @@
  * Transaction detail page with mobile-first responsive design
  */
 
-import { useEffect, useState } from "react";
+import clsx from "clsx";
 import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
+import TransactionActions from "@/components/TransactionActions";
+import TransactionTimeline from "@/components/TransactionTimeline";
+import { ArrowUpIcon, ArrowDownIcon, LedgerIcon } from "@/components/icons";
 import { server, explorerUrl, shortenAddress } from "@/lib/stellar";
 import { formatAsset, formatDate, timeAgo } from "@/utils/format";
-import TransactionTimeline from "@/components/TransactionTimeline";
-import TransactionActions from "@/components/TransactionActions";
-import { ArrowUpIcon, ArrowDownIcon, LedgerIcon } from "@/components/icons";
-import clsx from "clsx";
 
 interface TransactionDetail {
   hash: string;

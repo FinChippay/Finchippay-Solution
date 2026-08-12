@@ -9,16 +9,15 @@
  * Renders a "coming soon" fallback when the flag is off.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Head from "next/head";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FeatureGate } from "@/lib/FeatureFlags";
-import { useWallet } from "@/lib/useWallet";
-import PortfolioOverview from "@/components/PortfolioOverview";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
+import PortfolioOverview from "@/components/PortfolioOverview";
 import TokenPriceChart from "@/components/TokenPriceChart";
+import { FeatureGate } from "@/lib/FeatureFlags";
 import {
   getPortfolioHoldings,
   loadCustomTokens,
@@ -32,6 +31,7 @@ import {
   type TokenPriceSnapshot,
   type FiatCurrency,
 } from "@/lib/portfolio";
+import { useWallet } from "@/lib/useWallet";
 
 const WalletConnect = dynamic(() => import("@/components/WalletConnect"), { ssr: false });
 

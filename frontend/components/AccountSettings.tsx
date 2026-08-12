@@ -4,9 +4,9 @@
  */
 
 import { useState } from "react";
+import { CheckIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { shortenAddress } from "@/lib/stellar";
 import { getAccountDisplayName, useWallet } from "@/lib/useWallet";
-import { CheckIcon, PencilIcon, TrashIcon } from "@/components/icons";
 
 export default function AccountSettings() {
   const {

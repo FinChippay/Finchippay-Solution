@@ -1,6 +1,3 @@
-import { useTheme } from "@/lib/ThemeContext";
-import { ThemeProvider } from "@/lib/ThemeContext";
-import ThemeToggle from "@/components/ThemeToggle";
 import {
   act,
   fireEvent,
@@ -9,6 +6,9 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import ThemeToggle from "@/components/ThemeToggle";
+import { useTheme } from "@/lib/ThemeContext";
+import { ThemeProvider } from "@/lib/ThemeContext";
 
 const THEME_STORAGE_KEY = "finchippay:theme";
 const DARK_MODE_QUERY = "(prefers-color-scheme: dark)";

@@ -9,7 +9,6 @@
  * friendly error messages and typed return values.
  */
 
-import { logger } from "@/lib/logger";
 import {
   isConnected,
   getAddress,
@@ -17,13 +16,14 @@ import {
   requestAccess,
   isAllowed,
 } from "@stellar/freighter-api";
+import { logger } from "@/lib/logger";
 
-import { getNetworkPassphrase } from "./stellar";
 import {
   setJwtToken as persistAuthToken,
   clearJwtToken as clearAuthToken,
 } from "./auth";
 import { sdk } from "./sdk-instance";
+import { getNetworkPassphrase } from "./stellar";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 

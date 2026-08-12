@@ -5,6 +5,8 @@
 
 import { useState, useEffect } from "react";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
+import { LedgerIcon, WalletIcon, PuzzleIcon, ExternalLinkIcon, Spinner } from "@/components/icons";
+import { useWallet } from "@/lib/useWallet";
 import { 
   connectWallet as requestWalletConnection,
   isFreighterInstalled, 
@@ -14,8 +16,6 @@ import {
   getLedgerPublicKey,
   isLedgerSupported
 } from "@/lib/wallet";
-import { useWallet } from "@/lib/useWallet";
-import { LedgerIcon, WalletIcon, PuzzleIcon, ExternalLinkIcon, Spinner } from "@/components/icons";
 
 interface WalletConnectProps {
   onConnectSuccess?: (publicKey: string) => void;

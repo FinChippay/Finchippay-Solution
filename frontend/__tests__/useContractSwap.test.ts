@@ -40,8 +40,8 @@ jest.mock("@stellar/freighter-api", () => ({
   signTransaction: jest.fn(),
 }));
 
-import { useContractSwap } from "../hooks/useContractSwap";
 import * as stellarModule from "@/lib/stellar";
+import { useContractSwap } from "../hooks/useContractSwap";
 import * as freighterModule from "@stellar/freighter-api";
 
 const mockSubmitTransaction = stellarModule.submitTransaction as jest.Mock;

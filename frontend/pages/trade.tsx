@@ -1,12 +1,17 @@
+import { Asset } from "@stellar/stellar-sdk";
+import { format } from "date-fns";
 import Head from "next/head";
-import { logger } from "@/lib/logger";
 /**
  * pages/trade.tsx
  * Stellar DEX trading interface with market/limit orders, orderbook, and trade history.
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Asset } from "@stellar/stellar-sdk";
+import Toast from "@/components/Toast";
+import TradeForm from "@/components/TradeForm";
+import WalletConnect from "@/components/WalletConnect";
+import { FeatureGate } from "@/lib/FeatureFlags";
+import { logger } from "@/lib/logger";
 import {
   fetchOrderbook,
   fetchTradeAggregations,
@@ -19,12 +24,7 @@ import {
   TradeAggregation,
   OpenOffer,
 } from "@/lib/stellar";
-import TradeForm from "@/components/TradeForm";
-import Toast from "@/components/Toast";
-import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
-import { FeatureGate } from "@/lib/FeatureFlags";
-import { format } from "date-fns";
 
 export default function Trade() {
   const { publicKey } = useWallet();

@@ -1,9 +1,9 @@
 import Head from "next/head";
-import { logger } from "@/lib/logger";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
+import { logger } from "@/lib/logger";
 import { getXLMBalance } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
 

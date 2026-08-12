@@ -6,17 +6,17 @@
 
 import Head from "next/head";
 import Link from "next/link";
-import WalletConnect from "@/components/WalletConnect";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TransactionList, {
   filterPayments,
   TransactionDirectionFilter,
   TransactionFilters,
 } from "@/components/TransactionList";
+import WalletConnect from "@/components/WalletConnect";
 import { NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
-import { formatAsset, formatDate } from "@/utils/format";
-import { generateCSV, downloadCSV, generatePDF, downloadPDF, type ExportFormat } from "@/utils/export";
 import { useWallet } from "@/lib/useWallet";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { generateCSV, downloadCSV, generatePDF, downloadPDF, type ExportFormat } from "@/utils/export";
+import { formatAsset, formatDate } from "@/utils/format";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "finchippay:transaction-filters";
 

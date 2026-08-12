@@ -3,10 +3,10 @@
  * Page for co-signers to view and sign multi-signature transactions.
  */
 
+import { Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import { Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import { NETWORK_PASSPHRASE } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatAsset } from "@/utils/format";

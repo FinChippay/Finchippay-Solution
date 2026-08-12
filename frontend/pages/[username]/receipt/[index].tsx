@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
-import { logger } from "@/lib/logger";
-import { useRouter } from "next/router";
 import Head from "next/head";
-import { getReceipt, resolveFederationAddress, isValidStellarAddress, type ReceiptMetadata } from "@/lib/stellar";
+import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 import ReceiptDetail from "@/components/ReceiptDetail";
 import Skeleton from "@/components/Skeleton";
+import { logger } from "@/lib/logger";
+import { getReceipt, resolveFederationAddress, isValidStellarAddress, type ReceiptMetadata } from "@/lib/stellar";
 
 export default function PublicReceiptPage() {
   const router = useRouter();

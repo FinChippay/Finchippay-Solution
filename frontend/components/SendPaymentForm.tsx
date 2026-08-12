@@ -1,3 +1,17 @@
+import { Transaction } from "@stellar/stellar-sdk";
+import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
+import clsx from "clsx";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import ContactPicker from "@/components/ContactPicker";
+import { withErrorBoundary } from "@/components/ErrorBoundary";
+import FeeEstimator from "@/components/FeeEstimator";
+import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
+import PaymentStatusModal, {
+  type PaymentFlowStatus,
+  type PaymentStepId,
+  type PaymentStepTiming,
+} from "@/components/PaymentStatusModal";
 import { logger } from "@/lib/logger";
 /**
  * components/SendPaymentForm.tsx
@@ -7,13 +21,6 @@ import { logger } from "@/lib/logger";
  * FinChippay/Finchippay-Solution
  */
 
-import { withErrorBoundary } from "@/components/ErrorBoundary";
-import PaymentStatusModal, {
-  type PaymentFlowStatus,
-  type PaymentStepId,
-  type PaymentStepTiming,
-} from "@/components/PaymentStatusModal";
-import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { parseStellarURI } from "@/lib/sep0007";
 import {
   buildPaymentTransaction,
@@ -31,13 +38,9 @@ import {
   submitTransaction,
   truncateMemoText,
 } from "@/lib/stellar";
-import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import FeeEstimator from "@/components/FeeEstimator";
-import { Transaction } from "@stellar/stellar-sdk";
 import { useContacts } from "@/hooks/useContacts";
 import { formatXLM, shortenAddress } from "@/utils/format";
-import ContactPicker from "@/components/ContactPicker";
 import {
   SendIcon,
   CheckIcon,
@@ -47,9 +50,6 @@ import {
   QrCodeIcon,
   ReceiptIcon,
 } from "@/components/icons";
-import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { useToastContext } from "@/lib/ToastContext";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 

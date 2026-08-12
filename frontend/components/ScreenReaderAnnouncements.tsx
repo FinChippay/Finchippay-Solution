@@ -6,8 +6,8 @@
  * anywhere via `announce()` in @/lib/announce.
  */
 
-import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import { useEffect, useRef, useState } from "react";
 import { subscribeToAnnouncements, type AnnouncePriority } from "@/lib/announce";
 
 const CLEAR_AFTER_MS = 5000;

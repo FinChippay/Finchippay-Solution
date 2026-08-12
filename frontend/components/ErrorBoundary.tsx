@@ -4,8 +4,8 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from "react";
-import { logger } from "@/lib/logger";
 import { AlertCircleIcon } from "@/components/icons";
+import { logger } from "@/lib/logger";
 
 interface Props {
   children: ReactNode;

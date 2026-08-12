@@ -10,7 +10,6 @@ jest.mock("@/lib/stellar", () => ({
   NETWORK_PASSPHRASE: require("@stellar/stellar-sdk").Networks.TESTNET,
 }));
 
-import * as stellarModule from "@/lib/stellar";
 import {
   getPortfolioHoldings,
   isValidContractId,
@@ -25,6 +24,7 @@ import {
   loadPortfolioHistory,
   calculatePnL,
 } from "@/lib/portfolio";
+import * as stellarModule from "@/lib/stellar";
 
 const mockGetBalances = stellarModule.getBalances as jest.Mock;
 const VALID_CONTRACT_ID = `C${"A".repeat(55)}`;

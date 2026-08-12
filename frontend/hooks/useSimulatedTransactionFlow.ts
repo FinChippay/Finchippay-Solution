@@ -31,17 +31,17 @@
  *   />
  */
 
-import { useState, useCallback } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
+import { useState, useCallback } from "react";
+import {
+  useTransactionSimulation,
+  type SimulationResult,
+} from "@/hooks/useTransactionSimulation";
 import {
   submitTransaction,
   NETWORK_PASSPHRASE,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import {
-  useTransactionSimulation,
-  type SimulationResult,
-} from "@/hooks/useTransactionSimulation";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

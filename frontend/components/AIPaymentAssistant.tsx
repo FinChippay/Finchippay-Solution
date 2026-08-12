@@ -1,4 +1,3 @@
-import { logger } from "@/lib/logger";
 /**
 
  * components/AIPaymentAssistant.tsx
@@ -7,6 +6,7 @@ import { logger } from "@/lib/logger";
 
 import React, { useState, useRef, useEffect } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { logger } from "@/lib/logger";
 
 interface PaymentIntent {
   amount: string;

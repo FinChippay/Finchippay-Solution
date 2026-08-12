@@ -23,13 +23,13 @@
  *   />
  */
 
-import { useState, useMemo } from "react";
 import clsx from "clsx";
+import { useState, useMemo } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type {
   SimulationResult,
   BalanceChange,
 } from "@/hooks/useTransactionSimulation";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

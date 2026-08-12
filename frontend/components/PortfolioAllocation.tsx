@@ -4,12 +4,12 @@
  * (issue #362).
  */
 
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { useTranslation } from "react-i18next";
 import clsx from "clsx";
+import { useTranslation } from "react-i18next";
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import Skeleton from "@/components/Skeleton";
-import { formatAmount } from "@/utils/format";
 import type { PortfolioToken, TokenPriceSnapshot, FiatCurrency } from "@/lib/portfolio";
+import { formatAmount } from "@/utils/format";
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6"];
 

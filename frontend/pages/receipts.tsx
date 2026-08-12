@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
-import { logger } from "@/lib/logger";
 import Head from "next/head";
-import { useWallet } from "@/lib/useWallet";
-import { getReceiptCount, getReceipt, type ReceiptMetadata } from "@/lib/stellar";
+import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import ReceiptCard from "@/components/ReceiptCard";
 import ReceiptDetail from "@/components/ReceiptDetail";
 import Skeleton from "@/components/Skeleton";
-import { useTranslation } from "react-i18next";
+import { logger } from "@/lib/logger";
+import { getReceiptCount, getReceipt, type ReceiptMetadata } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 
 export default function ReceiptsPage() {
   const { t } = useTranslation("common");

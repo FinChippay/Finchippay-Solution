@@ -1,8 +1,8 @@
-import React, { useState } from "react";
-import { logger } from "@/lib/logger";
 import { motion } from "framer-motion";
+import React, { useState } from "react";
 import { generatePDFReceipt } from "@/lib/generatePDF";
 import type { TransactionReceipt } from "@/lib/generatePDF";
+import { logger } from "@/lib/logger";
 
 interface PDFReceiptProps {
   transaction: TransactionReceipt;

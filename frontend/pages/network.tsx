@@ -1,11 +1,11 @@
 import Head from "next/head";
+import { useState, useEffect, useCallback } from "react";
 import { logger } from "@/lib/logger";
 /**
  * pages/network.tsx
  * Stellar network statistics page with live data from Horizon API.
  */
 
-import { useState, useEffect, useCallback } from "react";
 import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
 
 export default function Network() {

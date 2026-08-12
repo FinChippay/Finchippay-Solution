@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { exportTransactionsCSV, downloadCSV, ExportOptions } from "@/lib/exportTransactions";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { exportTransactionsCSV, downloadCSV, ExportOptions } from "@/lib/exportTransactions";
 
 interface ExportModalProps {
   publicKey: string;

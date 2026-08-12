@@ -3,8 +3,8 @@
  * Tests for the AI Payment Assistant component
  */
 
-import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
 import '@testing-library/jest-dom';
 import AIPaymentAssistant, { FloatingAssistantButton } from '../components/AIPaymentAssistant';
 

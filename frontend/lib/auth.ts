@@ -109,8 +109,8 @@ export async function ensureAccessToken(): Promise<string | null> {
  */
 export function withAuth(fetchFn: typeof fetch): typeof fetch {
   return async (input, init) => {
-    let reqInit = init || {};
-    let headers = new Headers(reqInit.headers || {});
+    const reqInit = init || {};
+    const headers = new Headers(reqInit.headers || {});
 
     // Try to pre-populate Authorization if we have access token in memory
     if (!headers.has("Authorization") && inMemoryAccessToken) {
@@ -126,13 +126,13 @@ export function withAuth(fetchFn: typeof fetch): typeof fetch {
     }
 
     reqInit.headers = headers;
-    let response = await fetchFn(input, reqInit);
+    const response = await fetchFn(input, reqInit);
 
     // If unauthorized, attempt to refresh and retry
     if (response.status === 401) {
       const freshToken = await refreshTokens();
       if (freshToken) {
-        let retryHeaders = new Headers(reqInit.headers);
+        const retryHeaders = new Headers(reqInit.headers);
         retryHeaders.set("Authorization", `Bearer ${freshToken}`);
         reqInit.headers = retryHeaders;
         return await fetchFn(input, reqInit);

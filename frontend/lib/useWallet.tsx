@@ -8,6 +8,7 @@
  * history, and analytics for that account only.
  */
 
+import { useRouter } from "next/router";
 import {
   createContext,
   useCallback,
@@ -17,7 +18,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/router";
 import {
   connectWallet as requestWalletConnection,
   disconnectWallet as clearWalletConnection,

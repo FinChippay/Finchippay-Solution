@@ -6,8 +6,8 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { STORAGE_KEY, WalletProvider, useWallet } from "@/lib/useWallet";
 import AccountSwitcher from "@/components/AccountSwitcher";
+import { STORAGE_KEY, WalletProvider, useWallet } from "@/lib/useWallet";
 
 const KEY_A = "GA" + "A".repeat(54);
 const KEY_B = "GB" + "B".repeat(54);

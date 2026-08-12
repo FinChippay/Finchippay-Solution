@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
+import Navbar from "@/components/Navbar";
+import TokenCard from "@/components/TokenCard";
 import { getKnownAssets, buildAddTrustlineTx, AssetInfo } from "@/lib/assetDiscovery";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import TokenCard from "@/components/TokenCard";
-import Navbar from "@/components/Navbar";
 
 export default function TokensPage() {
   const [assets, setAssets] = useState<AssetInfo[]>([]);

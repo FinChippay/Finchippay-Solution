@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { useRouter } from "next/router";
 import {
   HomeIcon,
   PaperAirplaneIcon,
@@ -14,6 +12,8 @@ import {
   Cog8ToothIcon as Cog8ToothIconSolid,
   DocumentTextIcon as DocumentTextIconSolid,
 } from "@heroicons/react/24/solid";
+import Link from "next/link";
+import { useRouter } from "next/router";
 
 export default function MobileBottomNav() {
   const router = useRouter();

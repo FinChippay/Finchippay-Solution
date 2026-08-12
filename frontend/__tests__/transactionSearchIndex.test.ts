@@ -3,6 +3,7 @@
  * Tests for transaction search index persistence with IndexedDB
  */
 
+import { PaymentRecord } from "@/lib/stellar";
 import {
   buildIndex,
   saveIndexedDB,
@@ -10,7 +11,6 @@ import {
   clearIndexedDB,
   getIndexMetadata,
 } from "@/lib/transactionSearchIndex";
-import { PaymentRecord } from "@/lib/stellar";
 
 // Mock IndexedDB
 const mockIndexedDB: {

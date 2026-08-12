@@ -7,13 +7,12 @@
  * when price feeds are unavailable.
  */
 
-import { logger } from "@/lib/logger";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import PortfolioOverview from "@/components/PortfolioOverview";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
 import PortfolioHistoryChart from "@/components/PortfolioHistoryChart";
-import { formatAmount } from "@/utils/format";
+import PortfolioOverview from "@/components/PortfolioOverview";
+import { logger } from "@/lib/logger";
 import {
   getPortfolioHoldings,
   fetchTokenPricesCached,
@@ -26,6 +25,7 @@ import {
   type FiatCurrency,
   type PortfolioValueSnapshot,
 } from "@/lib/portfolio";
+import { formatAmount } from "@/utils/format";
 
 const AUTO_REFRESH_MS = 60_000;
 

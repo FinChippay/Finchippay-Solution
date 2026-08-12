@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { formatXLM } from "@/utils/format";
-import type { ReceiptMetadata } from "@/lib/stellar";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "@/components/icons";
+import type { ReceiptMetadata } from "@/lib/stellar";
+import { formatXLM } from "@/utils/format";
 
 interface ReceiptDetailProps {
   index: number;

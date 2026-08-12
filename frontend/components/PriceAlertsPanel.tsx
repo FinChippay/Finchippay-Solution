@@ -14,9 +14,9 @@
  * ✓ In-app bubble on trigger (via onTriggered prop)
  */
 
-import { useState, useEffect, useCallback } from "react";
-import dynamic from "next/dynamic";
 import clsx from "clsx";
+import dynamic from "next/dynamic";
+import { useState, useEffect, useCallback } from "react";
 import {
   loadAlerts,
   deleteAlert,

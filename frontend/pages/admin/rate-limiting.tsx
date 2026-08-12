@@ -6,10 +6,10 @@
  * and a rate limit rules editor.
  */
 
-import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
-import { apiFetch } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
 import RateLimitRuleEditor from "@/components/admin/RateLimitRuleEditor";
+import { apiFetch } from "@/lib/api";
 
 interface RateLimitStats {
   requestsPerMin: number;

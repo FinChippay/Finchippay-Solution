@@ -1,7 +1,7 @@
-import React, { useState } from "react";
-import { logger } from "@/lib/logger";
 import { motion } from "framer-motion";
+import React, { useState } from "react";
 import { Invoice, generateInvoicePDF, updateInvoiceStatus, deleteInvoice } from "@/lib/invoices";
+import { logger } from "@/lib/logger";
 import { formatAsset, formatDate } from "@/utils/format";
 
 interface InvoiceDetailProps {

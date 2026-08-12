@@ -7,10 +7,10 @@
  * precedence over backend stats for the summary cards, per #62.
  */
 
-import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { formatXLM, shortenAddress, formatUSD, formatStroopsToXLM } from "@/utils/format";
+import { useEffect, useState, useCallback } from "react";
 import { getContractTipTotal, getContractTipCount, CONTRACT_ID } from "@/lib/stellar";
+import { formatXLM, shortenAddress, formatUSD, formatStroopsToXLM } from "@/utils/format";
 
 interface TipRecord {
   id: number;

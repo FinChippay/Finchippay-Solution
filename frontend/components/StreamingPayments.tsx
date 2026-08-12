@@ -11,7 +11,15 @@
  *   including balance changes, resource fees, and contract errors.
  */
 
+import clsx from "clsx";
 import { useCallback, useEffect, useState } from "react";
+import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
+import {
+  useTransactionSimulation,
+  type SimulationResult,
+} from "@/hooks/useTransactionSimulation";
+import { useToastContext } from "@/lib/ToastContext";
+import { getClient } from "@/lib/soroban";
 import {
   getActiveStreamsForRecipient,
   getCurrentLedger,
@@ -21,16 +29,8 @@ import {
   shortenAddress,
   type StreamRecord,
 } from "@/lib/stellar";
-import { getClient } from "@/lib/soroban";
-import { signTransactionWithWallet } from "@/lib/wallet";
 import { useCountUp } from "@/lib/useCountUp";
-import { useToastContext } from "@/lib/ToastContext";
-import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
-import {
-  useTransactionSimulation,
-  type SimulationResult,
-} from "@/hooks/useTransactionSimulation";
-import clsx from "clsx";
+import { signTransactionWithWallet } from "@/lib/wallet";
 
 /** Matches Stellar's ~5s ledger close time. */
 const POLL_INTERVAL_MS = 5000;

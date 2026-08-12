@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import TipPage from "@/pages/tip/[username]";
 import { useRouter } from "next/router";
+import TipPage from "@/pages/tip/[username]";
 
 jest.mock("next/router", () => ({
   useRouter: jest.fn(),

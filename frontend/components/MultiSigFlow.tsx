@@ -21,9 +21,14 @@
  *  https://developers.stellar.org/docs/learn/encyclopedia/security/signatures-multisig
  */
 
-import { useState, useCallback, useRef, useEffect } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
 import clsx from "clsx";
+import { useState, useCallback, useRef, useEffect } from "react";
+import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
+import {
+  useTransactionSimulation,
+  type SimulationResult,
+} from "@/hooks/useTransactionSimulation";
 import {
   buildPaymentTransaction,
   collectSignatures,
@@ -32,11 +37,6 @@ import {
   NETWORK_PASSPHRASE,
 } from "../lib/stellar";
 import { signTransactionWithWallet } from "../lib/wallet";
-import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
-import {
-  useTransactionSimulation,
-  type SimulationResult,
-} from "@/hooks/useTransactionSimulation";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

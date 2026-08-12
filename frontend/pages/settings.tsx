@@ -4,13 +4,20 @@
  * Settings page with network switcher for testnet/mainnet/custom Horizon URL.
  */
 
-import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
-import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
+import AccountSettings from "@/components/AccountSettings";
+import KyCForm from "@/components/KyCForm";
+import NotificationHistory from "@/components/NotificationHistory";
+import NotificationPreferences from "@/components/NotificationPreferences";
+import ThemeSettings from "@/components/ThemeSettings";
 import { useContacts } from "@/hooks/useContacts";
+import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
+import { resetTour } from '@/lib/onboardingState';
+import { shortenAddress } from "@/lib/stellar";
+import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import {
   createTurretsChallenge,
   deployTurretsFunction,
@@ -19,15 +26,8 @@ import {
   resumeTurretsFunction,
   TurretsDeployment,
 } from "@/lib/turrets";
-import { shortenAddress } from "@/lib/stellar";
-import { resetTour } from '@/lib/onboardingState';
-import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
-import KyCForm from "@/components/KyCForm";
-import AccountSettings from "@/components/AccountSettings";
-import NotificationPreferences from "@/components/NotificationPreferences";
-import NotificationHistory from "@/components/NotificationHistory";
 import { useWallet } from "@/lib/useWallet";
-import ThemeSettings from "@/components/ThemeSettings";
+import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
 
 interface SettingsPageProps {
   publicKey?: string | null;

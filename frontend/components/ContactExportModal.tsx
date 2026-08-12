@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
 import { useContacts } from "@/hooks/useContacts";
-import { generateCSV, generateVCard } from "@/lib/contactsDB";
-import { downloadFile } from "@/lib/contactImportExport";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { downloadFile } from "@/lib/contactImportExport";
+import { generateCSV, generateVCard } from "@/lib/contactsDB";
 
 interface Props {
   isOpen: boolean;

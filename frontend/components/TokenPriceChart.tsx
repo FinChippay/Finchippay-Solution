@@ -5,10 +5,10 @@
  * GET /api/v1/tokens/:contractId/price-history endpoint.
  */
 
-import { useEffect, useState } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { useTranslation } from "react-i18next";
 import clsx from "clsx";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import Skeleton from "@/components/Skeleton";
 
 export type PriceRange = "7d" | "30d" | "90d";

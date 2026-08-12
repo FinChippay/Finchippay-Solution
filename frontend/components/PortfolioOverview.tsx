@@ -3,11 +3,11 @@
  * Total portfolio value, 24h change, and a per-token summary list (issue #362).
  */
 
-import { useTranslation } from "react-i18next";
 import clsx from "clsx";
+import { useTranslation } from "react-i18next";
 import Skeleton from "@/components/Skeleton";
-import { formatAmount, shortenAddress } from "@/utils/format";
 import type { PortfolioToken, TokenPriceSnapshot, FiatCurrency } from "@/lib/portfolio";
+import { formatAmount, shortenAddress } from "@/utils/format";
 
 interface PortfolioOverviewProps {
   holdings: PortfolioToken[];

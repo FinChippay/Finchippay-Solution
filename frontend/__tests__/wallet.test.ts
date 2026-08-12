@@ -36,6 +36,7 @@ jest.mock("@/lib/sdk-instance", () => ({
 // Mock fetch
 global.fetch = jest.fn();
 
+import * as freighterApi from "@stellar/freighter-api";
 import {
   isFreighterInstalled,
   connectWallet,
@@ -49,7 +50,6 @@ import {
   getJwtToken,
 } from "@/lib/wallet";
 
-import * as freighterApi from "@stellar/freighter-api";
 
 const mockIsConnected = freighterApi.isConnected as jest.Mock;
 const mockGetAddress = freighterApi.getAddress as jest.Mock;

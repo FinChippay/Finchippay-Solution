@@ -22,16 +22,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CallBackProps, Step } from "react-joyride";
 import type { OnboardingTourState } from "@/hooks/useOnboardingTour";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
-import { useWalletOptional } from "@/lib/useWallet";
-import { getPaymentHistory } from "@/lib/stellar";
-
-// Import onboarding state utilities for progress tracking and analytics
 import {
   getTourProgress,
   markStepComplete,
   markTourComplete,
   trackOnboardingEvent,
 } from "@/lib/onboardingState";
+import { getPaymentHistory } from "@/lib/stellar";
+import { useWalletOptional } from "@/lib/useWallet";
+
+// Import onboarding state utilities for progress tracking and analytics
 
 // ─── react-joyride is client-only (uses DOM APIs) ────────────────────────────
 const Joyride = dynamic(() => import("react-joyride"), { ssr: false });

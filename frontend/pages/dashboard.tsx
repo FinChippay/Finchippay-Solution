@@ -12,13 +12,25 @@
  *  4. The service worker's push event handler calls showNotification().
  */
 
-import { logger } from "@/lib/logger";
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/router";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
+import Link from "next/link";
+import { useRouter } from "next/router";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import type { Step } from "react-joyride";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
+import AnimatedCounter from "@/components/AnimatedCounter";
+import Skeleton from "@/components/Skeleton";
+import { logger } from "@/lib/logger";
 import {
   isPushSupported,
   requestPermission,
@@ -26,8 +38,6 @@ import {
 } from "@/lib/pushNotifications";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
-import Skeleton from "@/components/Skeleton";
-import AnimatedCounter from "@/components/AnimatedCounter";
 import { FadeIn, StaggerContainer } from "@/components/FadeIn";
 
 // Browser-only: reads Notification.permission and localStorage on mount.
@@ -66,21 +76,11 @@ const PriceAlertsPanel = dynamic(() => import("../components/PriceAlertsPanel"),
   loading: () => <Skeleton height="h-48" />,
 });
 
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
 
 
 import { FeatureGate } from "@/lib/FeatureFlags";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
-import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
-
+import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import {
   getXLMBalance,
   getAccountReserveInfo,
@@ -96,15 +96,15 @@ import {
   fetchAllPayments,
   PaymentRecord,
 } from "@/lib/stellar";
+import { useBalanceStream } from "@/lib/useBalanceStream";
+import { useWallet } from "@/lib/useWallet";
+import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+
 import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
 import { getJwtToken } from "@/lib/auth";
-import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
-import { useWallet } from "@/lib/useWallet";
 import DashboardPortfolioWidget from "@/components/DashboardPortfolioWidget";
-import { useBalanceStream } from "@/lib/useBalanceStream";
 import FeatureAnnouncement from "@/components/FeatureAnnouncement";
-import type { Step } from "react-joyride";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
@@ -1441,7 +1441,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               prefill={
                 recurringPrefill
                   ? recurringPrefill
-                  : stellarURI && stellarURI.success
+                  : stellarURI?.success
                   ? uriToPrefillData(stellarURI.data!)
                   : null
               }

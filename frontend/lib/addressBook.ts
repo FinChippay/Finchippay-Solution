@@ -1,5 +1,5 @@
-import { isValidStellarAddress } from "@/lib/stellar";
 import { createEncryptedStore } from "@/lib/encryptedStorage";
+import { isValidStellarAddress } from "@/lib/stellar";
 
 const FEDERATION_CACHE_KEY = "finchippay:federation-cache";
 const FEDERATION_CACHE_UPDATED_EVENT = "finchippay:federation-cache-updated";

@@ -4,6 +4,7 @@
  * Advanced transaction search with operator support and real-time filtering
  */
 
+import clsx from "clsx";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { PaymentRecord } from "@/lib/stellar";
 import {
@@ -13,7 +14,6 @@ import {
   tokenizeText,
 } from "@/lib/transactionSearch";
 import { buildIndex, saveIndexedDB, loadIndexedDB } from "@/lib/transactionSearchIndex";
-import clsx from "clsx";
 
 interface TransactionSearchBarProps {
   payments: PaymentRecord[];
