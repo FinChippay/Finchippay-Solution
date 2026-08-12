@@ -21,7 +21,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install root & SDK dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build SDK (compile TypeScript)
         run: npm run build --workspace=sdk

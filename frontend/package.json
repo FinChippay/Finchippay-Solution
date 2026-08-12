@@ -91,5 +91,8 @@
   },
   "engines": {
     "node": "20.19.5"
+  },
+  "overrides": {
+    "image-size": ">=2.0.2"
   }
 }
