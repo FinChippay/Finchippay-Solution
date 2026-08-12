@@ -66,17 +66,14 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
-const {
-  correlationMiddleware,
-} = require("./utils/correlationId");
+const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
+const { requestIdMiddleware } = require("./middleware/requestId");
 const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const shutdownState = require("./services/shutdownState");
-const {
-  closeAll: closeBalanceStreams,
-} = require("./services/balanceStreamService");
+const { closeAll: closeBalanceStreams } = require("./services/balanceStreamService");
 const { zodErrorHandler } = require("./validation/middleware");
-// Requiring errorResponse registers getRequestId as the shared registry's
+// errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider (#270).
 const traceContextMiddleware = require("./middleware/tracing");
 
@@ -94,9 +91,7 @@ const PORT = process.env.PORT || 4000;
 
 const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
 function sanitizeMessage(msg) {
-  return typeof msg === "string"
-    ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]")
-    : msg;
+  return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
 }
 
 // ─── Sentry ───────────────────────────────────────────────────────────────────
@@ -150,9 +145,7 @@ function getFederationServerUrl(req) {
   const domain = getFederationDomain(req);
   const protocol =
     process.env.FEDERATION_SERVER_PROTOCOL ||
-    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
-      ? "http"
-      : "https");
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https");
 
   return `${protocol}://${domain}/federation`;
 }
@@ -212,9 +205,7 @@ app.use((err, req, res, next) => {
 });
 
 // CORS
-const { origins: allowedOrigins } = parseAllowedOrigins(
-  process.env.ALLOWED_ORIGINS,
-);
+const { origins: allowedOrigins } = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
 app.use(
   cors({
@@ -249,12 +240,9 @@ app.get("/.well-known/stellar.toml", (req, res) => {
   const domain = getFederationDomain(req);
   const protocol =
     req.get("x-forwarded-proto") ||
-    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
-      ? "http"
-      : "https");
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https");
   const serverUrl = getFederationServerUrl(req);
-  const transferServerUrl =
-    process.env.TRANSFER_SERVER_URL || `${protocol}://${domain}`;
+  const transferServerUrl = process.env.TRANSFER_SERVER_URL || `${protocol}://${domain}`;
 
   const tomlContent = `# Finchippay Solution federation discovery
 FEDERATION_SERVER="${serverUrl}"
@@ -369,12 +357,8 @@ app.use((err, req, res, next) => {
   }
 
   const status = err.status || 500;
-  const message =
-    sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  log.error(
-    { ...errorLogFields("SRV_INTERNAL"), status, message },
-    "Request error",
-  );
+  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
+  log.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
   const fallback = formatErrorResponse("SRV_INTERNAL", {
     originalMessage: sanitizeMessage(err.message),
   });
@@ -468,9 +452,11 @@ if (require.main === module) {
     initRedis().catch((err) => {
       logger.error({ err }, "Redis initialisation failed");
     });
-    require("./services/scheduledTransactionService").loadActiveSchedules().catch((err) => {
-      logger.error({ err }, "Failed to load active scheduled transactions");
-    });
+    require("./services/scheduledTransactionService")
+      .loadActiveSchedules()
+      .catch((err) => {
+        logger.error({ err }, "Failed to load active scheduled transactions");
+      });
     // Start scheduled transaction executor and data retention cron
     require("./services/scheduledExecutor").start();
     require("./services/dataRetentionService").startRetentionCron();
@@ -490,10 +476,7 @@ if (require.main === module) {
               // JWT_SECRET is not configured — skip token decoding
               return { user: null };
             }
-            const decoded = jwt.verify(
-              token,
-              jwtSecret,
-            );
+            const decoded = jwt.verify(token, jwtSecret);
             if (decoded.publicKey && /^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
               user = decoded;
             }
@@ -513,7 +496,7 @@ if (require.main === module) {
     await apolloServer.start();
     apolloServer.applyMiddleware({ app, path: "/api/graphql" });
 
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, async () => {
       logger.info(
         { port: PORT, network: process.env.STELLAR_NETWORK || "testnet" },
         "Finchippay Solution API server started",

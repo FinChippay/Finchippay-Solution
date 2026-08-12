@@ -60,11 +60,26 @@ const VALID_KEY_2 = "GBUQWP3BOUZX34ULNQG23RQ6F4BWFIYGJ2DN5ZKQYTROZXNUAAOXWS7";
 const VALID_URL = "https://example.com/webhooks/callback";
 
 function validTip(o) {
-  return { senderPublicKey: VALID_KEY, creatorPublicKey: VALID_KEY_2, amount: "10.50", asset: "XLM", memo: "Thanks!", txHash: "a1b2c3d4e5f6", ...o };
+  return {
+    senderPublicKey: VALID_KEY,
+    creatorPublicKey: VALID_KEY_2,
+    amount: "10.50",
+    asset: "XLM",
+    memo: "Thanks!",
+    txHash: "a1b2c3d4e5f6",
+    ...o,
+  };
 }
 
 function validTurretDeploy(o) {
-  return { ownerPublicKey: VALID_KEY, type: "swap", config: {}, deploymentHash: "0xdead", signedChallengeXDR: "AAAA...", ...o };
+  return {
+    ownerPublicKey: VALID_KEY,
+    type: "swap",
+    config: {},
+    deploymentHash: "0xdead",
+    signedChallengeXDR: "AAAA...",
+    ...o,
+  };
 }
 
 function validWebhook(o) {
@@ -72,7 +87,10 @@ function validWebhook(o) {
 }
 
 afterAll(() => nock.cleanAll());
-afterEach(() => { nock.cleanAll(); jest.clearAllMocks(); });
+afterEach(() => {
+  nock.cleanAll();
+  jest.clearAllMocks();
+});
 
 // ─── Tips ───────────────────────────────────────────────────────────────
 describe("POST /api/tips", () => {
@@ -115,7 +133,9 @@ describe("GET /api/tips/stats/:key", () => {
 describe("POST /api/turrets/challenge", () => {
   it("creates challenge (200)", async () => {
     turretsService.createSigningChallenge.mockResolvedValue({ challengeXDR: "AAAA" });
-    const res = await request(app).post("/api/turrets/challenge").send({ ownerPublicKey: VALID_KEY, type: "swap", config: {} });
+    const res = await request(app)
+      .post("/api/turrets/challenge")
+      .send({ ownerPublicKey: VALID_KEY, type: "swap", config: {} });
     expect(res.status).toBe(200);
     expect(res.body.data.challengeXDR).toBe("AAAA");
   });
@@ -173,7 +193,9 @@ describe("GET /api/analytics/:key/summary", () => {
 
 describe("GET /api/analytics/:key/top-recipients", () => {
   it("returns top recipients (200)", async () => {
-    analyticsService.getTopRecipients.mockResolvedValue({ topRecipients: [{ address: "G...", totalXLMSent: "100" }] });
+    analyticsService.getTopRecipients.mockResolvedValue({
+      topRecipients: [{ address: "G...", totalXLMSent: "100" }],
+    });
     const res = await request(app).get(`/api/analytics/${VALID_KEY}/top-recipients`);
     expect(res.status).toBe(200);
     expect(res.body.data.topRecipients).toHaveLength(1);
@@ -182,7 +204,9 @@ describe("GET /api/analytics/:key/top-recipients", () => {
 
 describe("GET /api/analytics/:key/activity", () => {
   it("returns activity (200)", async () => {
-    analyticsService.getActivityByDay.mockResolvedValue({ activityByDay: [{ day: "Monday", transactionCount: 5 }] });
+    analyticsService.getActivityByDay.mockResolvedValue({
+      activityByDay: [{ day: "Monday", transactionCount: 5 }],
+    });
     const res = await request(app).get(`/api/analytics/${VALID_KEY}/activity`);
     expect(res.status).toBe(200);
     expect(res.body.data.activityByDay).toHaveLength(1);
@@ -216,4 +240,6 @@ describe("DELETE /api/webhooks/:id", () => {
   it("deletes webhook (200)", async () => {
     webhookService.deleteWebhook.mockResolvedValue(true);
     const res = await request(app).delete("/api/webhooks/wh-1");
-    expect(res.status).toBe(20
+    expect(res.status).toBe(200);
+  });
+});

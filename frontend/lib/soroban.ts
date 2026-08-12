@@ -252,6 +252,7 @@ export class FinchippayClient {
     return withRetry(async () => {
       const server = this.getServer();
       const contract = this.getContract();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getNetworkConfig } = require("./stellar") as typeof import("./stellar");
       const config = getNetworkConfig();
       // Load source account from Horizon for sequence number
