@@ -29,6 +29,17 @@ jobs:
             echo "Clean"
           fi
 
+  error-docs:
+    name: Error Code Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/generate-error-codes-doc.js --check
+
   coverage:
     name: Coverage Report
     runs-on: ubuntu-latest

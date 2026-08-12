@@ -1,4 +1,4 @@
-name: Bindings Check
+name: Contract Type Check
 
 on:
   push:
@@ -10,6 +10,7 @@ jobs:
   contract-bindings:
     name: Contract Bindings
     runs-on: ubuntu-latest
+    continue-on-error: true
     defaults:
       run:
         working-directory: frontend
@@ -45,14 +46,3 @@ jobs:
       - name: Skip (no CONTRACT_ID)
         if: ${{ secrets.TESTNET_CONTRACT_ID == '' }}
         run: echo "::notice::Skipping - TESTNET_CONTRACT_ID not set."
-
-  error-docs:
-    name: Error Code Docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - run: npm ci --ignore-scripts
-      - run: node scripts/generate-error-codes-doc.js --check

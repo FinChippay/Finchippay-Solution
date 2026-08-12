@@ -1,5 +1,5 @@
 # Stage 1: Build stage
-FROM node:20.19.5-alpine AS builder
+FROM node:20.20.2-alpine AS builder
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ ENV NEXT_OUTPUT=export
 RUN npm run build
 
 # Stage 2: Serve stage
-FROM nginx:alpine
+FROM nginx:1.31.3-alpine
 
 # Copy built static files from build stage
 COPY --from=builder /app/out /usr/share/nginx/html

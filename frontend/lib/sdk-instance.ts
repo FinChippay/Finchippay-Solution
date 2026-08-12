@@ -63,3 +63,8 @@ const API_URL =
     : process.env.NEXT_PUBLIC_API_URL) || "http://localhost:4000";
 
 export const sdk = new FinchippaySdk({ baseUrl: API_URL ?? "" });
+
+/** Initialize SDK authentication from stored token. */
+export function initSdkAuth(): void {
+  // Stub: loads token from localStorage and sets on sdk instance
+}

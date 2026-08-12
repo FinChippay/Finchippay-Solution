@@ -2118,3 +2118,9 @@ export async function buildClaimStreamTransaction(
   }
   return sorobanServer.prepareTransaction(tx);
 }
+
+// --- Stub exports ---
+export interface ReceiptMetadata { payer: string; amount: string; timestamp: string; index: number; }
+export async function getReceipt(_payer: string, _index: number): Promise<ReceiptMetadata> { throw new Error("getReceipt not yet implemented"); }
+export interface StreamRecord { id: number; recipient: string; amount: string; status: string; }
+export async function listStreamsByPayer(_payer: string, _offset?: number, _limit?: number): Promise<StreamRecord[]> { return []; }

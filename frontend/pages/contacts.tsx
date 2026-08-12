@@ -1,4 +1,4 @@
-import Head from "next/head";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState, useCallback } from "react";
