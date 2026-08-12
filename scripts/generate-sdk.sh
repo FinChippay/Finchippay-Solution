@@ -58,5 +58,12 @@ if ! head -1 "$SDK_DIR/src/types.ts" | grep -q "finchippay"; then
   mv "$TMP_FILE" "$SDK_DIR/src/types.ts"
 fi
 
+# Append the hand-written convenience aliases that client.ts imports.
+# These are kept in a separate file so regeneration never removes them.
+if [ -f "$SDK_DIR/src/types.aliases.ts" ]; then
+  echo "" >> "$SDK_DIR/src/types.ts"
+  cat "$SDK_DIR/src/types.aliases.ts" >> "$SDK_DIR/src/types.ts"
+fi
+
 echo "==> SDK types regenerated successfully!"
 echo "    File: $SDK_DIR/src/types.ts"

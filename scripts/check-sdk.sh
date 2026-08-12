@@ -40,6 +40,12 @@ if ! head -1 "$TMP_DIR/generated.ts" | grep -q "finchippay"; then
   mv "$TMP_FILE" "$TMP_DIR/generated.ts"
 fi
 
+# Append the same hand-written aliases that generate-sdk.sh appends.
+if [ -f "$SDK_DIR/src/types.aliases.ts" ]; then
+  echo "" >> "$TMP_DIR/generated.ts"
+  cat "$SDK_DIR/src/types.aliases.ts" >> "$TMP_DIR/generated.ts"
+fi
+
 if ! cmp -s "$TMP_DIR/generated.ts" "$SDK_DIR/src/types.ts"; then
   echo "ERROR: SDK types are out of date."
   echo "Run 'npm run generate:sdk' and commit the updated sdk/src/types.ts file."
