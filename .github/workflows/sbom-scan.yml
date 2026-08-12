@@ -65,13 +65,19 @@ jobs:
         run: |
           mkdir -p scan
           FOUND_CRITICAL=0
+          FOUND_HIGH=0
           for component in frontend backend contract; do
             grype "sbom:sbom/${component}.cdx.json" -o json > "scan/${component}.json" || true
-            COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' "scan/${component}.json")
-            echo "$component: $COUNT critical"
-            if [ "$COUNT" -gt 0 ]; then FOUND_CRITICAL=1; fi
+            CRIT=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' "scan/${component}.json")
+            HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' "scan/${component}.json")
+            echo "$component: $CRIT critical, $HIGH high"
+            if [ "$CRIT" -gt 0 ]; then FOUND_CRITICAL=1; fi
+            if [ "$HIGH" -gt 0 ]; then FOUND_HIGH=1; fi
           done
           echo "found_critical=$FOUND_CRITICAL" >> "$GITHUB_OUTPUT"
+          if [ "$FOUND_HIGH" -eq 1 ]; then
+            echo "::warning::HIGH-severity vulnerabilities detected — review the scan results."
+          fi
 
       - name: Build critical-vulnerability report
         if: steps.scan.outputs.found_critical == '1'

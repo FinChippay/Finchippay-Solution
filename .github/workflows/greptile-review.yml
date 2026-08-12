@@ -59,16 +59,39 @@ jobs:
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
+            const label = 'needs-review';
+
+            // Ensure the label exists; create it if missing
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+              });
+            } catch (e) {
+              if (e.status === 404) {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                  color: '0366d6',
+                  description: 'Ready for Greptile AI code review',
+                });
+                console.log(`🏷️  Created '${label}' label`);
+              } else {
+                throw e;
+              }
+            }
 
             // Add the needs-review label so Greptile's config.json filter picks it up
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              labels: ['needs-review']
+              labels: [label]
             });
 
-            console.log(`✅ Added 'needs-review' label to PR #${prNumber}`);
+            console.log(`✅ Added '${label}' label to PR #${prNumber}`);
 
       - name: Post Greptile review context
         uses: actions/github-script@v7
