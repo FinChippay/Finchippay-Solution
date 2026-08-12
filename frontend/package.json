@@ -9,7 +9,7 @@
     "lint": "next lint",
     "analyze": "set ANALYZE=true && next build",
     "i18n:scan": "i18next-scanner --config i18next-scanner.config.js",
-    "i18n:check": "i18next-scanner --config i18next-scanner.config.js --dry-run",
+    "i18n:check": "bash ../scripts/check-i18n.sh",
     "type-check": "tsc --noEmit",
     "test": "jest --runInBand",
     "test:e2e": "playwright test",
