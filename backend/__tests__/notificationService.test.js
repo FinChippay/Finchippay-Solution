@@ -104,9 +104,7 @@ describe("Email Templates", () => {
   });
 
   test("renderTemplate should throw for unknown event type", () => {
-    expect(() => renderTemplate("unknown_event", {})).toThrow(
-      'Unknown email template type',
-    );
+    expect(() => renderTemplate("unknown_event", {})).toThrow("Unknown email template type");
   });
 
   test("renderPlainText should generate fallback text", () => {
@@ -166,7 +164,7 @@ describe("Notification Service", () => {
     expect(result.sent).toBe(true);
     expect(result.messageId).toBe("test-msg-id");
     expect(mockSendMail).toHaveBeenCalledTimes(1);
-    
+
     const mailArgs = mockSendMail.mock.calls[0][0];
     expect(mailArgs.to).toBe("user@example.com");
     expect(mailArgs.subject).toContain("Payment Received");
@@ -176,11 +174,7 @@ describe("Notification Service", () => {
   test("sendEmail should handle nodemailer errors gracefully", async () => {
     mockSendMail.mockRejectedValueOnce(new Error("Connection refused"));
 
-    const result = await notificationService.sendEmail(
-      "user@example.com",
-      "Test",
-      "<p>Test</p>",
-    );
+    const result = await notificationService.sendEmail("user@example.com", "Test", "<p>Test</p>");
 
     expect(result.sent).toBe(false);
     expect(result.error).toBe("Connection refused");
@@ -230,9 +224,7 @@ describe("Notification Service", () => {
   test("deleteEmailPreference should return false when not found", async () => {
     mockKnex.del.mockResolvedValueOnce(0);
 
-    const result = await notificationService.deleteEmailPreference(
-      "GUNKNOWN...",
-    );
+    const result = await notificationService.deleteEmailPreference("GUNKNOWN...");
 
     expect(result).toBe(false);
   });
@@ -246,13 +238,13 @@ describe("Notification Service", () => {
         events: JSON.stringify(["payment_received"]),
       },
     ]);
-    
+
     mockSendMail.mockResolvedValueOnce({ messageId: "msg-1" });
 
-    const result = await notificationService.notifySubscribers(
-      "payment_received",
-      { amount: "100", asset: "XLM" },
-    );
+    const result = await notificationService.notifySubscribers("payment_received", {
+      amount: "100",
+      asset: "XLM",
+    });
 
     // Since transport is already initialized from previous test
     expect(result.sent >= 0).toBe(true);

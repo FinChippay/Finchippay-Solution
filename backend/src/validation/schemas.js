@@ -26,9 +26,7 @@ const { z } = require("zod");
  * (A–Z and 2–7). Stricter than the legacy /^G[A-Z0-9]{55}$/ checks, which
  * also admitted 0, 1, 8 and 9 — none of which exist in Stellar base-32.
  */
-const stellarAddress = z
-  .string()
-  .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format");
+const stellarAddress = z.string().regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format");
 
 /** Finchippay username: 3–20 alphanumeric characters. */
 const username = z
@@ -46,9 +44,7 @@ const idParamSchema = z.object({
 /** Non-empty publicKey path parameter where the value is opaque to us
  *  (e.g. it is only used as a filter key, never for cryptography). */
 const loosePublicKeyParamSchema = z.object({
-  publicKey: z
-    .string({ required_error: "publicKey is required" })
-    .min(1, "publicKey is required"),
+  publicKey: z.string({ required_error: "publicKey is required" }).min(1, "publicKey is required"),
 });
 
 // ─── accounts ─────────────────────────────────────────────────────────────────
@@ -160,8 +156,7 @@ const tipsPaginationQuerySchema = z.object({
 
 const turretTypeSchema = z.enum(["dca", "stop_loss", "escrow_release"], {
   required_error: "type is required",
-  message:
-    "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'.",
+  message: "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'.",
 });
 
 const turretConfigSchema = z.record(z.unknown(), {
@@ -206,11 +201,9 @@ const registerWebhookSchema = z.object({
     .string({ required_error: WEBHOOK_FIELDS_REQUIRED })
     .url("Invalid URL format")
     // In production only HTTPS endpoints are acceptable webhook targets.
-    .refine(
-      (value) =>
-        process.env.NODE_ENV !== "production" || value.startsWith("https://"),
-      { message: "Webhook URL must use HTTPS in production" },
-    ),
+    .refine((value) => process.env.NODE_ENV !== "production" || value.startsWith("https://"), {
+      message: "Webhook URL must use HTTPS in production",
+    }),
   secret: z
     .string({ required_error: WEBHOOK_FIELDS_REQUIRED })
     .min(8, "Secret must be at least 8 characters for HMAC-SHA256 security"),
@@ -221,10 +214,7 @@ const getEventsQuerySchema = z.object({
   until: z.string().datetime().optional(),
   type: z.string().optional(),
   limit: z
-    .preprocess(
-      (val) => parseInt(val, 10),
-      z.number().int().min(1).max(100).optional(),
-    )
+    .preprocess((val) => parseInt(val, 10), z.number().int().min(1).max(100).optional())
     .optional(),
   cursor: z.string().optional(),
 });
@@ -259,15 +249,11 @@ const ipfsUploadSchema = z.object({
 });
 
 const ipfsFetchSchema = z.object({
-  cid: z
-    .string({ required_error: "cid is required" })
-    .min(1, "cid is required"),
+  cid: z.string({ required_error: "cid is required" }).min(1, "cid is required"),
 });
 
 const mintWithIpfsSchema = z.object({
-  publicKey: z
-    .string({ required_error: "publicKey is required" })
-    .min(1, "publicKey is required"),
+  publicKey: z.string({ required_error: "publicKey is required" }).min(1, "publicKey is required"),
   memo: z.string().optional(),
   metadata: z
     .record(z.unknown(), { required_error: "metadata is required" })
@@ -304,9 +290,7 @@ const SEP24_FIELDS_REQUIRED = "asset_code and account are required";
 
 /** POST /api/sep24/transactions/{deposit,withdraw}/interactive */
 const sep24InteractiveSchema = z.object({
-  asset_code: z
-    .string({ required_error: SEP24_FIELDS_REQUIRED })
-    .min(1, SEP24_FIELDS_REQUIRED),
+  asset_code: z.string({ required_error: SEP24_FIELDS_REQUIRED }).min(1, SEP24_FIELDS_REQUIRED),
   account: z
     .string({ required_error: SEP24_FIELDS_REQUIRED })
     .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format"),
@@ -411,9 +395,7 @@ const adminToggleFlagSchema = z.object({
 
 /** POST /api/sep24/deposit and POST /api/sep24/withdraw */
 const sep24DepositWithdrawSchema = z.object({
-  assetCode: z
-    .string({ required_error: "assetCode is required" })
-    .min(1, "assetCode is required"),
+  assetCode: z.string({ required_error: "assetCode is required" }).min(1, "assetCode is required"),
   account: z
     .string({ required_error: "account is required" })
     .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format"),
@@ -453,13 +435,8 @@ const registerEmailSchema = z.object({
   publicKey: z
     .string({ required_error: "publicKey is required" })
     .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format"),
-  email: z
-    .string({ required_error: "email is required" })
-    .email("Invalid email address format"),
-  events: z
-    .array(z.enum(NOTIF_EVENT_TYPES))
-    .optional()
-    .default(NOTIF_EVENT_TYPES),
+  email: z.string({ required_error: "email is required" }).email("Invalid email address format"),
+  events: z.array(z.enum(NOTIF_EVENT_TYPES)).optional().default(NOTIF_EVENT_TYPES),
 });
 
 /** PUT /api/notifications/email/:publicKey */

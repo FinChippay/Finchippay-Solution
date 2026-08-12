@@ -11,10 +11,7 @@ const { strictLimiter } = require("../middleware/rateLimit");
 const { userLimiter } = require("../middleware/userRateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
 const { validate } = require("../validation/middleware");
-const {
-  publicKeyParamSchema,
-  paymentsQuerySchema,
-} = require("../validation/schemas");
+const { publicKeyParamSchema, paymentsQuerySchema } = require("../validation/schemas");
 const paymentController = require("../controllers/paymentController");
 const { csvUploadMiddleware } = require("../middleware/csvUpload");
 const Papa = require("papaparse");
@@ -56,37 +53,43 @@ router.get(
  * Uses multer for streaming file upload (configurable via CSV_UPLOAD_MAX_SIZE).
  * Parses CSV with papaparse and returns parsed rows.
  */
-router.post("/batch/upload", strictLimiter, userLimiter, csvUploadMiddleware, async (req, res, next) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No CSV file uploaded" });
+router.post(
+  "/batch/upload",
+  strictLimiter,
+  userLimiter,
+  csvUploadMiddleware,
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No CSV file uploaded" });
+      }
+
+      const csvBuffer = req.file.buffer.toString("utf-8");
+
+      Papa.parse(csvBuffer, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (!results.data || results.data.length === 0) {
+            return res.status(400).json({ error: "CSV file is empty or has no data rows" });
+          }
+
+          res.json({
+            rows: results.data,
+            total: results.data.length,
+            fileName: req.file.originalname,
+            fileSize: req.file.size,
+          });
+        },
+        error: (parseError) => {
+          logger.error({ err: parseError }, "CSV parsing failed");
+          res.status(400).json({ error: `CSV parsing failed: ${parseError.message}` });
+        },
+      });
+    } catch (err) {
+      next(err);
     }
-
-    const csvBuffer = req.file.buffer.toString("utf-8");
-
-    Papa.parse(csvBuffer, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (!results.data || results.data.length === 0) {
-          return res.status(400).json({ error: "CSV file is empty or has no data rows" });
-        }
-
-        res.json({
-          rows: results.data,
-          total: results.data.length,
-          fileName: req.file.originalname,
-          fileSize: req.file.size,
-        });
-      },
-      error: (parseError) => {
-        logger.error({ err: parseError }, "CSV parsing failed");
-        res.status(400).json({ error: `CSV parsing failed: ${parseError.message}` });
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 module.exports = router;

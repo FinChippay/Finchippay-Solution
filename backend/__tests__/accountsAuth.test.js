@@ -76,9 +76,7 @@ describe("SEP-0010 token refresh and rotation (#132)", () => {
   it("POST /api/auth/refresh returns new token pair for valid refresh tokens", async () => {
     const { accessToken, refreshToken } = tokenService.issueTokens(ME);
 
-    const res = await request(app)
-      .post("/api/auth/refresh")
-      .send({ refreshToken });
+    const res = await request(app).post("/api/auth/refresh").send({ refreshToken });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("success", true);
@@ -94,17 +92,13 @@ describe("SEP-0010 token refresh and rotation (#132)", () => {
     const { accessToken, refreshToken } = tokenService.issueTokens(ME);
 
     // First refresh - successful
-    const res1 = await request(app)
-      .post("/api/auth/refresh")
-      .send({ refreshToken });
+    const res1 = await request(app).post("/api/auth/refresh").send({ refreshToken });
 
     expect(res1.status).toBe(200);
     const nextRefreshToken = res1.body.refreshToken;
 
     // Re-use of the original refresh token (replay attack)
-    const res2 = await request(app)
-      .post("/api/auth/refresh")
-      .send({ refreshToken });
+    const res2 = await request(app).post("/api/auth/refresh").send({ refreshToken });
 
     expect(res2.status).toBe(401);
 
@@ -127,9 +121,7 @@ describe("SEP-0010 token refresh and rotation (#132)", () => {
     expect(resLogout.status).toBe(200);
 
     // Subsequent refresh should fail
-    const resRefresh = await request(app)
-      .post("/api/auth/refresh")
-      .send({ refreshToken });
+    const resRefresh = await request(app).post("/api/auth/refresh").send({ refreshToken });
 
     expect(resRefresh.status).toBe(401);
   });

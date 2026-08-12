@@ -5,8 +5,7 @@
 
 "use strict";
 
-const USDC_ASSET =
-  "stellar:USDC:GBBD47IF2HOHSI6QB6Y24RGLAT2SUI7O47BGCH6WO7GBH44H7QEWEWPX";
+const USDC_ASSET = "stellar:USDC:GBBD47IF2HOHSI6QB6Y24RGLAT2SUI7O47BGCH6WO7GBH44H7QEWEWPX";
 const XLM_ASSET = "stellar:native";
 const USD_ASSET = "iso4217:USD";
 
@@ -77,9 +76,7 @@ function getPrice(sellAsset, buyAsset, sellAmount, buyAmount) {
   }
 
   if (!exchangeRates[sellAsset] || !exchangeRates[sellAsset][buyAsset]) {
-    const err = new Error(
-      `Exchange from ${sellAsset} to ${buyAsset} is not supported`,
-    );
+    const err = new Error(`Exchange from ${sellAsset} to ${buyAsset} is not supported`);
     err.status = 400;
     throw err;
   }
@@ -152,12 +149,10 @@ function getPrices(sellAsset, sellAmount) {
     throw err;
   }
 
-  const buyAssets = Object.entries(exchangeRates[sellAsset]).map(
-    ([buyAsset, rate]) => ({
-      name: buyAsset,
-      price: rate.toFixed(4),
-    }),
-  );
+  const buyAssets = Object.entries(exchangeRates[sellAsset]).map(([buyAsset, rate]) => ({
+    name: buyAsset,
+    price: rate.toFixed(4),
+  }));
 
   return {
     buy_assets: buyAssets,

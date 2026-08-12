@@ -29,12 +29,7 @@ router.get("/info", (req, res, next) => {
 router.get("/price", (req, res, next) => {
   try {
     const { sell_asset, buy_asset, sell_amount, buy_amount } = req.query;
-    const priceInfo = sep38Service.getPrice(
-      sell_asset,
-      buy_asset,
-      sell_amount,
-      buy_amount,
-    );
+    const priceInfo = sep38Service.getPrice(sell_asset, buy_asset, sell_amount, buy_amount);
     res.json(priceInfo);
   } catch (err) {
     next(err);

@@ -25,9 +25,7 @@ const CACHE_TTL_SECONDS = 300; // 5 minutes, per issue #362
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3";
 
 const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === "mainnet"
-    ? Networks.PUBLIC
-    : Networks.TESTNET;
+  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
 /** Known assets and their CoinGecko ids, mirroring frontend/lib/assetDiscovery.ts + priceAlerts.ts. */
 const KNOWN_ASSETS = [
@@ -42,9 +40,7 @@ const KNOWN_ASSETS = [
 /** contractId -> coingeckoId, built once at module load. */
 const CONTRACT_ID_TO_COINGECKO_ID = new Map();
 for (const asset of KNOWN_ASSETS) {
-  const stellarAsset = asset.issuer
-    ? new Asset(asset.code, asset.issuer)
-    : Asset.native();
+  const stellarAsset = asset.issuer ? new Asset(asset.code, asset.issuer) : Asset.native();
   const contractId = stellarAsset.contractId(NETWORK_PASSPHRASE);
   CONTRACT_ID_TO_COINGECKO_ID.set(contractId, asset.coingeckoId);
 }

@@ -156,10 +156,8 @@ async function getAccount(publicKey) {
     }
 
     try {
-      const account = await withTracedSpan(
-        "loadAccount",
-        "Horizon.loadAccount",
-        () => withTimeoutAndRetry(() => server.loadAccount(publicKey)),
+      const account = await withTracedSpan("loadAccount", "Horizon.loadAccount", () =>
+        withTimeoutAndRetry(() => server.loadAccount(publicKey)),
       );
 
       const balances = account.balances.map((b) => {
@@ -251,20 +249,14 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     }
   }
 
-  let query = server
-    .payments()
-    .forAccount(publicKey)
-    .limit(limit)
-    .order("desc");
+  let query = server.payments().forAccount(publicKey).limit(limit).order("desc");
 
   if (cursor) {
     query = query.cursor(cursor);
   }
 
-  const result = await withTracedSpan(
-    "getPayments",
-    "Horizon.getPayments",
-    () => withTimeoutAndRetry(() => query.call()),
+  const result = await withTracedSpan("getPayments", "Horizon.getPayments", () =>
+    withTimeoutAndRetry(() => query.call()),
   );
 
   const payments = [];
@@ -284,23 +276,17 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 
     let assetCode;
     if (isPathPayment && !isSent) {
-      assetCode =
-        op.dest_asset_type === "native"
-          ? "XLM"
-          : op.dest_asset_code || "UNKNOWN";
+      assetCode = op.dest_asset_type === "native" ? "XLM" : op.dest_asset_code || "UNKNOWN";
     } else {
-      assetCode =
-        op.asset_type === "native" ? "XLM" : op.asset_code || "UNKNOWN";
+      assetCode = op.asset_type === "native" ? "XLM" : op.asset_code || "UNKNOWN";
     }
 
     const amount = isPathPayment && !isSent ? op.dest_amount : op.amount;
 
     let memo;
     try {
-      const tx = await withTracedSpan(
-        "getTransaction",
-        "Horizon.getTransaction",
-        () => withTimeoutAndRetry(() => op.transaction()),
+      const tx = await withTracedSpan("getTransaction", "Horizon.getTransaction", () =>
+        withTimeoutAndRetry(() => op.transaction()),
       );
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
@@ -374,18 +360,13 @@ async function countPaymentsApprox(publicKey, { cap = 200 } = {}) {
     return cached;
   }
 
-  const result = await withTracedSpan(
-    "countPayments",
-    "Horizon.countPayments",
-    () =>
-      withTimeoutAndRetry(() =>
-        server.payments().forAccount(publicKey).limit(cap).order("desc").call(),
-      ),
+  const result = await withTracedSpan("countPayments", "Horizon.countPayments", () =>
+    withTimeoutAndRetry(() =>
+      server.payments().forAccount(publicKey).limit(cap).order("desc").call(),
+    ),
   );
 
-  const total = result.records.filter((op) =>
-    COUNTED_PAYMENT_TYPES.has(op.type),
-  ).length;
+  const total = result.records.filter((op) => COUNTED_PAYMENT_TYPES.has(op.type)).length;
 
   try {
     await cache.set(cacheKey, total, PAYMENTS_CACHE_TTL_SEC);

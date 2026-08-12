@@ -13,10 +13,7 @@
 
 const metrics = require("../services/metricsService");
 const logger = require("../utils/logger");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 // ─── Route normalisation ──────────────────────────────────────────────────────
 

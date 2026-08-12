@@ -51,21 +51,15 @@ describe("buildErrorResponse()", () => {
     });
 
     expect(body.error.code).toBe("AUTH_FORBIDDEN");
-    expect(body.error.message).toBe(
-      "You may only access your own account data.",
-    );
+    expect(body.error.message).toBe("You may only access your own account data.");
   });
 
   it("falls back to GEN_UNKNOWN for an unregistered code", () => {
-    expect(buildErrorResponse("NOT_A_REAL_CODE").error.code).toBe(
-      "GEN_UNKNOWN",
-    );
+    expect(buildErrorResponse("NOT_A_REAL_CODE").error.code).toBe("GEN_UNKNOWN");
   });
 
   it("omits correlationId outside a request context", () => {
-    expect(buildErrorResponse("SRV_INTERNAL").error).not.toHaveProperty(
-      "correlationId",
-    );
+    expect(buildErrorResponse("SRV_INTERNAL").error).not.toHaveProperty("correlationId");
   });
 });
 
@@ -139,9 +133,7 @@ describe("sendError() over HTTP", () => {
   });
 
   it("honours an explicit status override", async () => {
-    const app = appWith((req, res) =>
-      sendError(res, "SRV_INTERNAL", { status: 503 }),
-    );
+    const app = appWith((req, res) => sendError(res, "SRV_INTERNAL", { status: 503 }));
 
     expect((await request(app).get("/boom")).status).toBe(503);
   });
@@ -157,19 +149,14 @@ describe("sendError() over HTTP", () => {
 
   it("adopts an inbound X-Request-ID so a trace spans services", async () => {
     const app = appWith((req, res) => sendError(res, "RES_NOT_FOUND"));
-    const res = await request(app)
-      .get("/boom")
-      .set("X-Request-ID", "trace-me-123");
+    const res = await request(app).get("/boom").set("X-Request-ID", "trace-me-123");
 
     expect(res.body.error.correlationId).toBe("trace-me-123");
   });
 
   it("gives concurrent requests distinct correlation IDs", async () => {
     const app = appWith((req, res) => sendError(res, "RES_NOT_FOUND"));
-    const [a, b] = await Promise.all([
-      request(app).get("/boom"),
-      request(app).get("/boom"),
-    ]);
+    const [a, b] = await Promise.all([request(app).get("/boom"), request(app).get("/boom")]);
 
     expect(a.body.error.correlationId).not.toBe(b.body.error.correlationId);
   });

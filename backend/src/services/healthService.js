@@ -27,30 +27,20 @@ const logger = require("../utils/logger");
 
 const HEALTH_TIMEOUT_MS = parseInt(process.env.HEALTH_TIMEOUT_MS, 10) || 5_000;
 
-const POSTGRES_DEGRADED_LATENCY_MS =
-  parseInt(process.env.POSTGRES_DEGRADED_LATENCY_MS, 10) || 200;
-const REDIS_DEGRADED_LATENCY_MS =
-  parseInt(process.env.REDIS_DEGRADED_LATENCY_MS, 10) || 100;
-const HORIZON_DEGRADED_LATENCY_MS =
-  parseInt(process.env.HORIZON_DEGRADED_LATENCY_MS, 10) || 1_000;
-const SOROBAN_DEGRADED_LATENCY_MS =
-  parseInt(process.env.SOROBAN_DEGRADED_LATENCY_MS, 10) || 1_000;
+const POSTGRES_DEGRADED_LATENCY_MS = parseInt(process.env.POSTGRES_DEGRADED_LATENCY_MS, 10) || 200;
+const REDIS_DEGRADED_LATENCY_MS = parseInt(process.env.REDIS_DEGRADED_LATENCY_MS, 10) || 100;
+const HORIZON_DEGRADED_LATENCY_MS = parseInt(process.env.HORIZON_DEGRADED_LATENCY_MS, 10) || 1_000;
+const SOROBAN_DEGRADED_LATENCY_MS = parseInt(process.env.SOROBAN_DEGRADED_LATENCY_MS, 10) || 1_000;
 
-const DISK_USAGE_DEGRADED_PERCENT =
-  parseInt(process.env.DISK_USAGE_DEGRADED_PERCENT, 10) || 80;
-const DISK_USAGE_UNHEALTHY_PERCENT =
-  parseInt(process.env.DISK_USAGE_UNHEALTHY_PERCENT, 10) || 90;
+const DISK_USAGE_DEGRADED_PERCENT = parseInt(process.env.DISK_USAGE_DEGRADED_PERCENT, 10) || 80;
+const DISK_USAGE_UNHEALTHY_PERCENT = parseInt(process.env.DISK_USAGE_UNHEALTHY_PERCENT, 10) || 90;
 const HEALTH_DISK_PATH = process.env.HEALTH_DISK_PATH || process.cwd();
 
-const MEMORY_RSS_DEGRADED_MB =
-  parseInt(process.env.MEMORY_RSS_DEGRADED_MB, 10) || 400;
-const MEMORY_RSS_UNHEALTHY_MB =
-  parseInt(process.env.MEMORY_RSS_UNHEALTHY_MB, 10) || 500;
+const MEMORY_RSS_DEGRADED_MB = parseInt(process.env.MEMORY_RSS_DEGRADED_MB, 10) || 400;
+const MEMORY_RSS_UNHEALTHY_MB = parseInt(process.env.MEMORY_RSS_UNHEALTHY_MB, 10) || 500;
 
-const EVENT_LOOP_LAG_DEGRADED_MS =
-  parseInt(process.env.EVENT_LOOP_LAG_DEGRADED_MS, 10) || 50;
-const EVENT_LOOP_LAG_UNHEALTHY_MS =
-  parseInt(process.env.EVENT_LOOP_LAG_UNHEALTHY_MS, 10) || 100;
+const EVENT_LOOP_LAG_DEGRADED_MS = parseInt(process.env.EVENT_LOOP_LAG_DEGRADED_MS, 10) || 50;
+const EVENT_LOOP_LAG_UNHEALTHY_MS = parseInt(process.env.EVENT_LOOP_LAG_UNHEALTHY_MS, 10) || 100;
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -202,11 +192,7 @@ async function checkPostgres() {
   try {
     await withTimeout(knex.raw("SELECT 1"), HEALTH_TIMEOUT_MS, "PostgreSQL");
     const latency = Date.now() - start;
-    return classifyLatency(
-      latency,
-      POSTGRES_DEGRADED_LATENCY_MS,
-      "PostgreSQL is reachable",
-    );
+    return classifyLatency(latency, POSTGRES_DEGRADED_LATENCY_MS, "PostgreSQL is reachable");
   } catch (err) {
     logger.warn({ err }, "health: PostgreSQL check failed");
     return { status: "unhealthy", latency: Date.now() - start, message: err.message };
@@ -223,11 +209,7 @@ async function checkPostgres() {
 async function checkRedis() {
   const start = Date.now();
   try {
-    const result = await withTimeout(
-      cacheService.ping(),
-      HEALTH_TIMEOUT_MS,
-      "Redis",
-    );
+    const result = await withTimeout(cacheService.ping(), HEALTH_TIMEOUT_MS, "Redis");
     const latency = Date.now() - start;
     if (result === null) {
       return {
@@ -259,11 +241,7 @@ async function checkHorizon() {
       message: result.error || "Horizon returned a server error",
     };
   }
-  return classifyLatency(
-    result.latencyMs,
-    HORIZON_DEGRADED_LATENCY_MS,
-    "Horizon is reachable",
-  );
+  return classifyLatency(result.latencyMs, HORIZON_DEGRADED_LATENCY_MS, "Horizon is reachable");
 }
 
 /**
@@ -291,11 +269,7 @@ async function checkSorobanRpc() {
       message: result.error || "Soroban RPC returned a server error",
     };
   }
-  return classifyLatency(
-    result.latencyMs,
-    SOROBAN_DEGRADED_LATENCY_MS,
-    "Soroban RPC is reachable",
-  );
+  return classifyLatency(result.latencyMs, SOROBAN_DEGRADED_LATENCY_MS, "Soroban RPC is reachable");
 }
 
 /**

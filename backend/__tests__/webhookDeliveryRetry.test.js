@@ -5,7 +5,8 @@
  */
 "use strict";
 
-process.env.WEBHOOK_ENCRYPTION_KEY = "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee";
+process.env.WEBHOOK_ENCRYPTION_KEY =
+  "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee";
 
 jest.mock("../src/utils/logger", () => ({
   info: jest.fn(),
@@ -18,13 +19,27 @@ jest.mock("../src/services/metricsService", () => ({
   horizonRequestsTotal: { inc: jest.fn() },
 }));
 jest.mock("../src/config/tracing", () => ({
-  getTracer: () => ({ startSpan: () => ({ setAttributes: jest.fn(), setStatus: jest.fn(), recordException: jest.fn(), end: jest.fn() }) }),
+  getTracer: () => ({
+    startSpan: () => ({
+      setAttributes: jest.fn(),
+      setStatus: jest.fn(),
+      recordException: jest.fn(),
+      end: jest.fn(),
+    }),
+  }),
 }));
-jest.mock("@opentelemetry/api", () => ({ propagation: { inject: jest.fn() }, context: { active: jest.fn() } }));
+jest.mock("@opentelemetry/api", () => ({
+  propagation: { inject: jest.fn() },
+  context: { active: jest.fn() },
+}));
 jest.mock("../src/utils/correlationId", () => ({ getRequestIdHeader: () => ({}) }));
 jest.mock("../src/utils/webhookSignature", () => ({ generateWebhookSignature: () => "sig" }));
 jest.mock("@stellar/stellar-sdk", () => ({
-  Horizon: { Server: jest.fn(() => ({ payments: () => ({ forAccount: () => ({ cursor: () => ({ stream: () => jest.fn() }) }) }) })) },
+  Horizon: {
+    Server: jest.fn(() => ({
+      payments: () => ({ forAccount: () => ({ cursor: () => ({ stream: () => jest.fn() }) }) }),
+    })),
+  },
 }));
 
 const knex = require("../src/db/connection");
@@ -67,7 +82,9 @@ describe("dead letter queue on max retries", () => {
     let delivery = await knex("webhook_deliveries").where("webhook_id", webhook.id).first();
     // Drive it to the final attempt directly via repeated retry-queue processing.
     for (let i = 0; i < 6; i++) {
-      await knex("webhook_deliveries").where("id", delivery.id).update({ next_retry_at: new Date(Date.now() - 1000).toISOString() });
+      await knex("webhook_deliveries")
+        .where("id", delivery.id)
+        .update({ next_retry_at: new Date(Date.now() - 1000).toISOString() });
       await webhookService.processRetryQueue();
       delivery = await knex("webhook_deliveries").where("id", delivery.id).first();
       if (delivery.status === "dead") break;

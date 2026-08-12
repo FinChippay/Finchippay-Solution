@@ -28,10 +28,7 @@ router.get(
     try {
       const { contractId } = req.validated;
       const { range } = req.validated;
-      const history = await tokenPriceService.getPriceHistory(
-        contractId,
-        range,
-      );
+      const history = await tokenPriceService.getPriceHistory(contractId, range);
       res.json(history);
     } catch (err) {
       next(err);

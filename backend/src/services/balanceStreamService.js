@@ -78,10 +78,7 @@ async function refreshBalance(publicKey) {
       current.lastBalance = xlm;
       broadcast(current, "balance", { publicKey, xlm, updatedAt: Date.now() });
     } catch (err) {
-      logger.error(
-        { err, publicKey: safeKey(publicKey) },
-        "Failed to refresh balance for stream",
-      );
+      logger.error({ err, publicKey: safeKey(publicKey) }, "Failed to refresh balance for stream");
       const current = streams.get(publicKey);
       if (current) {
         broadcast(current, "error", {
@@ -116,10 +113,7 @@ function openHorizonStream(publicKey) {
       onerror: (err) => {
         // The SDK reconnects on its own; surface the blip without tearing the
         // SSE connection down, so the client can decide whether to fall back.
-        logger.warn(
-          { err, publicKey: safeKey(publicKey) },
-          "Horizon payment stream error",
-        );
+        logger.warn({ err, publicKey: safeKey(publicKey) }, "Horizon payment stream error");
         const entry = streams.get(publicKey);
         if (entry) {
           broadcast(entry, "error", { message: "Horizon stream interrupted." });
@@ -149,10 +143,7 @@ function subscribe(publicKey, handlers) {
     };
     streams.set(publicKey, entry);
     entry.closeHorizonStream = openHorizonStream(publicKey);
-    logger.info(
-      { publicKey: safeKey(publicKey) },
-      "Opened Horizon payment stream",
-    );
+    logger.info({ publicKey: safeKey(publicKey) }, "Opened Horizon payment stream");
   }
 
   entry.subscribers.add(handlers);
@@ -174,10 +165,7 @@ function subscribe(publicKey, handlers) {
     } catch (err) {
       logger.error({ err }, "Failed to close Horizon payment stream");
     }
-    logger.info(
-      { publicKey: safeKey(publicKey) },
-      "Closed Horizon payment stream",
-    );
+    logger.info({ publicKey: safeKey(publicKey) }, "Closed Horizon payment stream");
   };
 }
 

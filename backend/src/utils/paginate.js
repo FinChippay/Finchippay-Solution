@@ -90,9 +90,7 @@ function buildPage(rows, limit, getCursorFields) {
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor =
-    hasMore && data.length > 0
-      ? encodeCursor(getCursorFields(data[data.length - 1]))
-      : null;
+    hasMore && data.length > 0 ? encodeCursor(getCursorFields(data[data.length - 1])) : null;
   return { data, nextCursor };
 }
 
@@ -152,9 +150,7 @@ function paginateInMemory(rows, { limit, cursor }, getCursorFields, compare) {
   const data = sorted.slice(start, start + limit);
   const hasMore = start + limit < sorted.length;
   const nextCursor =
-    hasMore && data.length > 0
-      ? encodeCursor(getCursorFields(data[data.length - 1]))
-      : null;
+    hasMore && data.length > 0 ? encodeCursor(getCursorFields(data[data.length - 1])) : null;
   return { data, nextCursor, total: rows.length };
 }
 

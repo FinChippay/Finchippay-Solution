@@ -7,11 +7,7 @@
 exports.up = function (knex) {
   return knex.schema.createTable("turrets_history", (table) => {
     table.string("id").primary();
-    table
-      .string("deployment_id")
-      .notNullable()
-      .references("id")
-      .inTable("turrets_deployments");
+    table.string("deployment_id").notNullable().references("id").inTable("turrets_deployments");
     table.string("status").notNullable();
     table.text("message");
     table.text("result"); // JSON stringified

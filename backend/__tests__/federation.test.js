@@ -13,8 +13,7 @@ const usernameService = require("../src/services/usernameService");
 
 describe("Federation API", () => {
   const testUsername = "testuser";
-  const testPublicKey =
-    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const testPublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
   beforeAll(async () => {
     // Register a test user
@@ -106,10 +105,7 @@ describe("Federation API", () => {
         // Mock stellar.toml fetch
         nock("https://externaldomain.com")
           .get("/.well-known/stellar.toml")
-          .reply(
-            200,
-            'FEDERATION_SERVER="https://fed.externaldomain.com/federation"',
-          );
+          .reply(200, 'FEDERATION_SERVER="https://fed.externaldomain.com/federation"');
 
         // Mock federation server returning a malformed account_id
         nock("https://fed.externaldomain.com")

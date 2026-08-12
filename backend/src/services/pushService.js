@@ -58,10 +58,7 @@ function ensureVapidConfigured() {
   } catch (err) {
     // Malformed keys throw here rather than at send time. Treat as disabled
     // so a bad deploy degrades instead of erroring on every notification.
-    logger.error(
-      { err },
-      "Invalid VAPID configuration; push notifications are disabled",
-    );
+    logger.error({ err }, "Invalid VAPID configuration; push notifications are disabled");
     vapidConfigured = false;
   }
 
@@ -130,9 +127,7 @@ async function addSubscription(publicKey, subscription) {
   const existing = await knex(TABLE).where({ endpoint }).first();
 
   if (existing) {
-    await knex(TABLE)
-      .where({ id: existing.id })
-      .update({ public_key: publicKey, p256dh, auth });
+    await knex(TABLE).where({ id: existing.id }).update({ public_key: publicKey, p256dh, auth });
     return { created: false };
   }
 
@@ -160,9 +155,7 @@ async function removeSubscription(publicKey, endpoint) {
   if (!publicKey) throw new Error("publicKey is required");
   if (!endpoint) throw new Error("endpoint is required");
 
-  const removed = await knex(TABLE)
-    .where({ public_key: publicKey, endpoint })
-    .del();
+  const removed = await knex(TABLE).where({ public_key: publicKey, endpoint }).del();
   return { removed };
 }
 
@@ -231,10 +224,7 @@ async function sendNotification(publicKey, { title, body, data = {} } = {}) {
   await Promise.all(
     rows.map(async (row) => {
       try {
-        await webpush.sendNotification(
-          toWebPushSubscription(row),
-          notification,
-        );
+        await webpush.sendNotification(toWebPushSubscription(row), notification);
         result.sent += 1;
       } catch (err) {
         if (GONE_STATUS_CODES.has(err?.statusCode)) {
@@ -252,9 +242,7 @@ async function sendNotification(publicKey, { title, body, data = {} } = {}) {
 
   if (deadEndpoints.length > 0) {
     try {
-      result.pruned = await knex(TABLE)
-        .whereIn("endpoint", deadEndpoints)
-        .del();
+      result.pruned = await knex(TABLE).whereIn("endpoint", deadEndpoints).del();
     } catch (err) {
       logger.warn({ err }, "Failed to prune expired push subscriptions");
     }

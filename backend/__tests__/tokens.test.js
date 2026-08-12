@@ -58,9 +58,7 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
     global.fetch = fetchMock;
 
     const app = buildApp();
-    const res = await request(app).get(
-      `/api/v1/tokens/${XLM_CONTRACT_ID}/price-history`,
-    );
+    const res = await request(app).get(`/api/v1/tokens/${XLM_CONTRACT_ID}/price-history`);
 
     expect(res.status).toBe(200);
     expect(res.body.contractId).toBe(XLM_CONTRACT_ID);
@@ -76,15 +74,11 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
 
   test("accepts the range query param (7d -> days=7)", async () => {
     jest.resetModules();
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValue(makeResponse({ body: { prices: [] } }));
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse({ body: { prices: [] } }));
     global.fetch = fetchMock;
 
     const app = buildApp();
-    const res = await request(app).get(
-      `/api/v1/tokens/${XLM_CONTRACT_ID}/price-history?range=7d`,
-    );
+    const res = await request(app).get(`/api/v1/tokens/${XLM_CONTRACT_ID}/price-history?range=7d`);
 
     expect(res.status).toBe(200);
     expect(res.body.range).toBe("7d");
@@ -94,9 +88,7 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
   test("returns 400 for an invalid range", async () => {
     jest.resetModules();
     const app = buildApp();
-    const res = await request(app).get(
-      `/api/v1/tokens/${XLM_CONTRACT_ID}/price-history?range=1y`,
-    );
+    const res = await request(app).get(`/api/v1/tokens/${XLM_CONTRACT_ID}/price-history?range=1y`);
 
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty("error");
@@ -105,9 +97,7 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
   test("returns 400 for a malformed contract ID", async () => {
     jest.resetModules();
     const app = buildApp();
-    const res = await request(app).get(
-      "/api/v1/tokens/not-a-contract-id/price-history",
-    );
+    const res = await request(app).get("/api/v1/tokens/not-a-contract-id/price-history");
 
     expect(res.status).toBe(400);
   });
@@ -118,9 +108,7 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
     global.fetch = fetchMock;
 
     const app = buildApp();
-    const res = await request(app).get(
-      `/api/v1/tokens/${UNKNOWN_CONTRACT_ID}/price-history`,
-    );
+    const res = await request(app).get(`/api/v1/tokens/${UNKNOWN_CONTRACT_ID}/price-history`);
 
     expect(res.status).toBe(200);
     expect(res.body.prices).toEqual([]);
@@ -129,9 +117,7 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
 
   test("caches price history so a repeat request within the TTL doesn't refetch", async () => {
     jest.resetModules();
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValue(makeResponse({ body: { prices: [[1, 0.1]] } }));
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse({ body: { prices: [[1, 0.1]] } }));
     global.fetch = fetchMock;
 
     const app = buildApp();
@@ -153,9 +139,7 @@ describe("GET /api/v1/tokens/:contractId/price-history", () => {
     global.fetch = jest.fn().mockRejectedValue(new Error("network down"));
 
     const app = buildApp();
-    const res = await request(app).get(
-      `/api/v1/tokens/${XLM_CONTRACT_ID}/price-history`,
-    );
+    const res = await request(app).get(`/api/v1/tokens/${XLM_CONTRACT_ID}/price-history`);
 
     expect(res.status).toBe(200);
     expect(res.body.prices).toEqual([]);

@@ -122,13 +122,11 @@ async function resolveUsername(req, res, next) {
 
     // Reserve 'alice' for test suites without polluting the production store.
     if (username.toLowerCase() === "alice") {
-      return res
-        .status(ERROR_CODES.SRV_NOT_IMPLEMENTED.httpStatus)
-        .json(
-          formatErrorResponse("SRV_NOT_IMPLEMENTED", {
-            feature: "Reserved test username",
-          }),
-        );
+      return res.status(ERROR_CODES.SRV_NOT_IMPLEMENTED.httpStatus).json(
+        formatErrorResponse("SRV_NOT_IMPLEMENTED", {
+          feature: "Reserved test username",
+        }),
+      );
     }
 
     const result = await usernameService.resolveUsername(username);
@@ -228,8 +226,12 @@ async function gdprDelete(req, res, next) {
     const hash = crypto.createHash("sha256").update(publicKey).digest("hex");
     const anonymized = {};
 
-    anonymized.tipsAsSender = await db("tips").where("sender_pk", publicKey).update({ sender_pk: hash, memo: "[redacted]" });
-    anonymized.tipsAsCreator = await db("tips").where("creator_pk", publicKey).update({ creator_pk: hash, memo: "[redacted]" });
+    anonymized.tipsAsSender = await db("tips")
+      .where("sender_pk", publicKey)
+      .update({ sender_pk: hash, memo: "[redacted]" });
+    anonymized.tipsAsCreator = await db("tips")
+      .where("creator_pk", publicKey)
+      .update({ creator_pk: hash, memo: "[redacted]" });
     anonymized.usernameMappings = await db("usernames").where("public_key", publicKey).del();
 
     await writeAuditLog("gdpr_delete", { anonymized }, publicKey);

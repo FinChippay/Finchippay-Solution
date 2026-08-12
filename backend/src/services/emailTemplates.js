@@ -101,22 +101,12 @@ function renderPlainText(eventType, data) {
     "=".repeat(label.length) +
     String.fromCharCode(10) +
     String.fromCharCode(10);
-  text +=
-    "Amount: " +
-    (data.amount || "?") +
-    " " +
-    (data.asset || "XLM") +
-    String.fromCharCode(10);
+  text += "Amount: " + (data.amount || "?") + " " + (data.asset || "XLM") + String.fromCharCode(10);
   if (data.sender) text += "From: " + data.sender + String.fromCharCode(10);
   if (data.recipient) text += "To: " + data.recipient + String.fromCharCode(10);
   if (data.memo) text += "Memo: " + data.memo + String.fromCharCode(10);
-  if (data.timestamp)
-    text += "Time: " + data.timestamp + String.fromCharCode(10);
-  text +=
-    String.fromCharCode(10) +
-    "---" +
-    String.fromCharCode(10) +
-    "Finchippay Solution";
+  if (data.timestamp) text += "Time: " + data.timestamp + String.fromCharCode(10);
+  text += String.fromCharCode(10) + "---" + String.fromCharCode(10) + "Finchippay Solution";
   return text;
 }
 

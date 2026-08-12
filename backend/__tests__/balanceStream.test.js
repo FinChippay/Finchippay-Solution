@@ -79,55 +79,49 @@ function openStream(server, path) {
   const { port } = server.address();
 
   return new Promise((resolve, reject) => {
-    const req = http.request(
-      { host: "127.0.0.1", port, path, method: "GET" },
-      (res) => {
-        const frames = [];
-        const waiters = [];
-        let buffer = "";
+    const req = http.request({ host: "127.0.0.1", port, path, method: "GET" }, (res) => {
+      const frames = [];
+      const waiters = [];
+      let buffer = "";
 
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          buffer += chunk;
-          let index;
-          while ((index = buffer.indexOf("\n\n")) !== -1) {
-            frames.push(buffer.slice(0, index));
-            buffer = buffer.slice(index + 2);
-          }
-          for (const waiter of waiters.splice(0)) waiter();
-        });
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        buffer += chunk;
+        let index;
+        while ((index = buffer.indexOf("\n\n")) !== -1) {
+          frames.push(buffer.slice(0, index));
+          buffer = buffer.slice(index + 2);
+        }
+        for (const waiter of waiters.splice(0)) waiter();
+      });
 
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          frames,
-          /** Resolve once `predicate(frames)` holds, or reject after 3s. */
-          waitFor(predicate) {
-            return new Promise((res2, rej2) => {
-              const check = () => {
-                if (predicate(frames)) {
-                  clearTimeout(timer);
-                  return res2(frames);
-                }
-                waiters.push(check);
-              };
-              const timer = setTimeout(
-                () =>
-                  rej2(
-                    new Error(`Timed out. Frames: ${JSON.stringify(frames)}`),
-                  ),
-                3000,
-              );
-              check();
-            });
-          },
-          close: () => {
-            req.destroy();
-            res.destroy();
-          },
-        });
-      },
-    );
+      resolve({
+        statusCode: res.statusCode,
+        headers: res.headers,
+        frames,
+        /** Resolve once `predicate(frames)` holds, or reject after 3s. */
+        waitFor(predicate) {
+          return new Promise((res2, rej2) => {
+            const check = () => {
+              if (predicate(frames)) {
+                clearTimeout(timer);
+                return res2(frames);
+              }
+              waiters.push(check);
+            };
+            const timer = setTimeout(
+              () => rej2(new Error(`Timed out. Frames: ${JSON.stringify(frames)}`)),
+              3000,
+            );
+            check();
+          });
+        },
+        close: () => {
+          req.destroy();
+          res.destroy();
+        },
+      });
+    });
     req.on("error", reject);
     req.end();
   });
@@ -171,19 +165,13 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
   });
 
   it("rejects streaming another account's balance", async () => {
-    const stream = await openStream(
-      server,
-      `/api/accounts/${OTHER}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${OTHER}/stream?token=${tokenFor(ME)}`);
     expect(stream.statusCode).toBe(403);
     stream.close();
   });
 
   it("accepts the JWT from the query string, which EventSource cannot send as a header", async () => {
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
 
     expect(stream.statusCode).toBe(200);
     expect(stream.headers["content-type"]).toContain("text/event-stream");
@@ -195,10 +183,7 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
   });
 
   it("pushes the current balance as soon as the connection opens", async () => {
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
 
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
@@ -209,10 +194,7 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
   });
 
   it("pushes a fresh balance when Horizon reports a payment", async () => {
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     balances.current = "142.5000000";
@@ -221,28 +203,19 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 2);
 
     const balanceEvents = eventsOf(stream.frames, "balance");
-    expect(balanceEvents[balanceEvents.length - 1].data.xlm).toBe(
-      "142.5000000",
-    );
+    expect(balanceEvents[balanceEvents.length - 1].data.xlm).toBe("142.5000000");
 
     stream.close();
   });
 
   it("forwards a Horizon stream failure as a stream-error event", async () => {
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     horizonStreams[0].handlers.onerror(new Error("horizon down"));
 
-    await stream.waitFor(
-      (frames) => eventsOf(frames, "stream-error").length >= 1,
-    );
-    expect(eventsOf(stream.frames, "stream-error")[0].data.message).toMatch(
-      /Horizon/i,
-    );
+    await stream.waitFor((frames) => eventsOf(frames, "stream-error").length >= 1);
+    expect(eventsOf(stream.frames, "stream-error")[0].data.message).toMatch(/Horizon/i);
 
     stream.close();
   });
@@ -252,33 +225,20 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
     notFound.status = 404;
     stellarService.getXLMBalance.mockRejectedValueOnce(notFound);
 
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
 
-    await stream.waitFor(
-      (frames) => eventsOf(frames, "stream-error").length >= 1,
-    );
-    expect(eventsOf(stream.frames, "stream-error")[0].data.message).toMatch(
-      /not found/i,
-    );
+    await stream.waitFor((frames) => eventsOf(frames, "stream-error").length >= 1);
+    expect(eventsOf(stream.frames, "stream-error")[0].data.message).toMatch(/not found/i);
 
     stream.close();
   });
 
   it("shares one Horizon stream between multiple tabs on the same account", async () => {
     const token = tokenFor(ME);
-    const tabOne = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${token}`,
-    );
+    const tabOne = await openStream(server, `/api/accounts/${ME}/stream?token=${token}`);
     await tabOne.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
-    const tabTwo = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${token}`,
-    );
+    const tabTwo = await openStream(server, `/api/accounts/${ME}/stream?token=${token}`);
     await tabTwo.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     expect(horizonStreams).toHaveLength(1);
@@ -298,15 +258,9 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
 
   it("closes the Horizon stream once the last client disconnects", async () => {
     const token = tokenFor(ME);
-    const tabOne = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${token}`,
-    );
+    const tabOne = await openStream(server, `/api/accounts/${ME}/stream?token=${token}`);
     await tabOne.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
-    const tabTwo = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${token}`,
-    );
+    const tabTwo = await openStream(server, `/api/accounts/${ME}/stream?token=${token}`);
     await tabTwo.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     tabOne.close();
@@ -322,10 +276,7 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
 
   it("drops the cached account before reading the balance for a payment event", async () => {
     const cache = require("../src/services/cacheService");
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     horizonStreams[0].handlers.onmessage({ id: "1", type: "payment" });
@@ -337,10 +288,7 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
   });
 
   it("collapses a burst of payment events into fewer Horizon reads", async () => {
-    const stream = await openStream(
-      server,
-      `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`,
-    );
+    const stream = await openStream(server, `/api/accounts/${ME}/stream?token=${tokenFor(ME)}`);
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     const callsBefore = stellarService.getXLMBalance.mock.calls.length;
@@ -351,8 +299,7 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 2);
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const extraCalls =
-      stellarService.getXLMBalance.mock.calls.length - callsBefore;
+    const extraCalls = stellarService.getXLMBalance.mock.calls.length - callsBefore;
     expect(extraCalls).toBeLessThan(10);
 
     stream.close();

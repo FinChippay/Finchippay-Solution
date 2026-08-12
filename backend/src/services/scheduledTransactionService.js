@@ -11,13 +11,7 @@
 "use strict";
 const crypto = require("crypto");
 const cron = require("node-cron");
-const {
-  Asset,
-  Memo,
-  Networks,
-  Operation,
-  TransactionBuilder,
-} = require("@stellar/stellar-sdk");
+const { Asset, Memo, Networks, Operation, TransactionBuilder } = require("@stellar/stellar-sdk");
 
 const knex = require("../db/connection");
 const { server } = require("../config/stellar");
@@ -26,9 +20,7 @@ const webhookService = require("./webhookSubscriptionService");
 const logger = require("../utils/logger");
 
 const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === "mainnet"
-    ? Networks.PUBLIC
-    : Networks.TESTNET;
+  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
 const activeCronJobs = new Map();
 
@@ -46,9 +38,7 @@ function toAsset(assetStr) {
 function frequencyToCron(frequency, startDate, cronExpression) {
   if (frequency === "cron") {
     if (!cronExpression || !cron.validate(cronExpression)) {
-      const err = new Error(
-        "A valid cron_expression is required when frequency is 'cron'",
-      );
+      const err = new Error("A valid cron_expression is required when frequency is 'cron'");
       err.status = 400;
       throw err;
     }
@@ -68,9 +58,7 @@ function frequencyToCron(frequency, startDate, cronExpression) {
   if (frequency === "weekly") return `${minute} ${hour} * * ${d.getUTCDay()}`;
   if (frequency === "monthly") return `${minute} ${hour} ${d.getUTCDate()} * *`;
 
-  const err = new Error(
-    "frequency must be 'daily', 'weekly', 'monthly', or 'cron'",
-  );
+  const err = new Error("frequency must be 'daily', 'weekly', 'monthly', or 'cron'");
   err.status = 400;
   throw err;
 }
@@ -84,13 +72,7 @@ function estimateNextRun(frequency, fromDate) {
   return next.toISOString();
 }
 
-async function buildUnsignedPaymentXDR({
-  ownerPk,
-  recipient,
-  amount,
-  asset,
-  memo,
-}) {
+async function buildUnsignedPaymentXDR({ ownerPk, recipient, amount, asset, memo }) {
   const sourceAccount = await server.loadAccount(ownerPk);
   const assetObj = toAsset(asset);
 
@@ -113,11 +95,9 @@ async function buildUnsignedPaymentXDR({
 
 function registerCronJob(schedule) {
   unregisterCronJob(schedule.id);
-  const task = cron.schedule(
-    schedule.cron_expression,
-    () => executeSchedule(schedule.id),
-    { timezone: "UTC" },
-  );
+  const task = cron.schedule(schedule.cron_expression, () => executeSchedule(schedule.id), {
+    timezone: "UTC",
+  });
   activeCronJobs.set(schedule.id, task);
 }
 
@@ -150,11 +130,7 @@ async function notifyOwner(schedule, pendingId) {
   };
   await Promise.allSettled(
     hooks.map((hook) =>
-      webhookService.deliverWebhook(
-        hook,
-        payload,
-        "scheduled_transaction.pending_signature",
-      ),
+      webhookService.deliverWebhook(hook, payload, "scheduled_transaction.pending_signature"),
     ),
   );
 }
@@ -188,14 +164,9 @@ async function executeSchedule(scheduleId) {
     await notifyOwner(schedule, pendingId);
 
     const nextRun = estimateNextRun(schedule.frequency, new Date());
-    await knex("scheduled_transactions")
-      .where("id", schedule.id)
-      .update({ next_run_at: nextRun });
+    await knex("scheduled_transactions").where("id", schedule.id).update({ next_run_at: nextRun });
   } catch (err) {
-    logger.error(
-      { err, scheduleId },
-      "Failed to execute scheduled transaction",
-    );
+    logger.error({ err, scheduleId }, "Failed to execute scheduled transaction");
   }
 }
 
@@ -212,9 +183,7 @@ async function createSchedule(body) {
   } = body;
 
   if (!ownerPk || !recipient || !amount || !frequency || !startDate) {
-    const err = new Error(
-      "ownerPk, recipient, amount, frequency, and startDate are required",
-    );
+    const err = new Error("ownerPk, recipient, amount, frequency, and startDate are required");
     err.status = 400;
     throw err;
   }
@@ -223,8 +192,7 @@ async function createSchedule(body) {
 
   const resolvedCron = frequencyToCron(frequency, startDate, cronExpression);
   const id = crypto.randomUUID();
-  const nextRunAt =
-    estimateNextRun(frequency, new Date(startDate)) || startDate;
+  const nextRunAt = estimateNextRun(frequency, new Date(startDate)) || startDate;
 
   await knex("scheduled_transactions").insert({
     id,
@@ -247,9 +215,7 @@ async function createSchedule(body) {
 
 async function listSchedules(ownerPk) {
   validatePublicKey(ownerPk);
-  return knex("scheduled_transactions")
-    .where("owner_pk", ownerPk)
-    .orderBy("created_at", "desc");
+  return knex("scheduled_transactions").where("owner_pk", ownerPk).orderBy("created_at", "desc");
 }
 
 async function updateSchedule(id, updates) {

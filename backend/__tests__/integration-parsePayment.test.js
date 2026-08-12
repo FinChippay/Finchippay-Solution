@@ -63,9 +63,7 @@ describe("POST /api/parse-payment (integration)", () => {
     const res = await request(app).post("/api/parse-payment").send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.clarification).toBe(
-      "Please provide a payment description.",
-    );
+    expect(res.body.clarification).toBe("Please provide a payment description.");
   });
 
   it("returns 500 when Anthropic API returns an error", async () => {

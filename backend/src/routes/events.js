@@ -10,10 +10,7 @@ const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
 const { validate } = require("../validation/middleware");
-const {
-  publicKeyParamSchema,
-  eventsQuerySchema,
-} = require("../validation/schemas");
+const { publicKeyParamSchema, eventsQuerySchema } = require("../validation/schemas");
 const eventController = require("../controllers/eventController");
 
 /**

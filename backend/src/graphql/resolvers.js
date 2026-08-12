@@ -70,10 +70,7 @@ const resolvers = {
     },
 
     async tipsReceived(_, { creatorPublicKey, limit = 20 }) {
-      const { tips, total } = await tipsService.getTipsReceived(
-        creatorPublicKey,
-        { limit },
-      );
+      const { tips, total } = await tipsService.getTipsReceived(creatorPublicKey, { limit });
       const stats = await tipsService.getTipsStats(creatorPublicKey);
 
       return {

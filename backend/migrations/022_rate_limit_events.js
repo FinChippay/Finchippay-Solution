@@ -38,7 +38,5 @@ exports.up = function (knex) {
 };
 
 exports.down = function (knex) {
-  return knex.schema
-    .dropTableIfExists("rate_limit_configs")
-    .dropTableIfExists("rate_limit_events");
+  return knex.schema.dropTableIfExists("rate_limit_configs").dropTableIfExists("rate_limit_events");
 };

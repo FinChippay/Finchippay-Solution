@@ -11,8 +11,7 @@ const app = require("../src/server");
 const sep24Service = require("../src/services/sep/sep24Service");
 
 describe("SEP-0024 API", () => {
-  const validPublicKey =
-    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const validPublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
   beforeEach(() => {
     sep24Service.clearStore();
@@ -42,10 +41,7 @@ describe("SEP-0024 API", () => {
         })
         .expect(200);
 
-      expect(response.body).toHaveProperty(
-        "type",
-        "interactive_customer_info_needed",
-      );
+      expect(response.body).toHaveProperty("type", "interactive_customer_info_needed");
       expect(response.body).toHaveProperty("url");
       expect(response.body).toHaveProperty("id");
       expect(typeof response.body.url).toBe("string");
@@ -107,9 +103,7 @@ describe("SEP-0024 API", () => {
         })
         .expect(400);
 
-      expect(response.body.error.details.reason).toContain(
-        "Invalid Stellar public key",
-      );
+      expect(response.body.error.details.reason).toContain("Invalid Stellar public key");
     });
   });
 
@@ -125,10 +119,7 @@ describe("SEP-0024 API", () => {
         })
         .expect(200);
 
-      expect(response.body).toHaveProperty(
-        "type",
-        "interactive_customer_info_needed",
-      );
+      expect(response.body).toHaveProperty("type", "interactive_customer_info_needed");
       expect(response.body).toHaveProperty("url");
       expect(response.body).toHaveProperty("id");
     });
@@ -153,10 +144,7 @@ describe("SEP-0024 API", () => {
 
       const { id } = initRes.body;
 
-      const response = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const response = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(response.body.transaction).toBeDefined();
       expect(response.body.transaction.id).toBe(id);
@@ -176,10 +164,7 @@ describe("SEP-0024 API", () => {
       // Simulate the anchor completing the transaction
       sep24Service.updateTransactionStatus(id, "completed");
 
-      const response = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const response = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(response.body.transaction.status).toBe("completed");
       expect(response.body.transaction.completed_at).toBeDefined();
@@ -193,25 +178,16 @@ describe("SEP-0024 API", () => {
       const { id } = initRes.body;
 
       // Simulate the anchor erroring the transaction
-      sep24Service.updateTransactionStatus(
-        id,
-        "error",
-        "KYC verification failed",
-      );
+      sep24Service.updateTransactionStatus(id, "error", "KYC verification failed");
 
-      const response = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const response = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(response.body.transaction.status).toBe("error");
       expect(response.body.transaction.message).toBe("KYC verification failed");
     });
 
     it("should return 400 when id query parameter is missing", async () => {
-      const response = await request(app)
-        .get("/api/sep24/transaction")
-        .expect(400);
+      const response = await request(app).get("/api/sep24/transaction").expect(400);
 
       expect(response.body.error.code).toBe("VAL_MISSING_FIELD");
     });
@@ -232,10 +208,7 @@ describe("SEP-0024 API", () => {
 
       const { id } = initRes.body;
 
-      const response = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const response = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(response.body.transaction.kind).toBe("withdrawal");
     });
@@ -256,10 +229,7 @@ describe("SEP-0024 API", () => {
       expect(url).toBeTruthy();
 
       // Step 2: Poll status — should be pending_external
-      const pollRes1 = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const pollRes1 = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(pollRes1.body.transaction.status).toBe("pending_external");
 
@@ -267,10 +237,7 @@ describe("SEP-0024 API", () => {
       sep24Service.updateTransactionStatus(id, "completed");
 
       // Step 4: Poll status — should be completed
-      const pollRes2 = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const pollRes2 = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(pollRes2.body.transaction.status).toBe("completed");
       expect(pollRes2.body.transaction.completed_at).toBeDefined();
@@ -287,10 +254,7 @@ describe("SEP-0024 API", () => {
       // Simulate error
       sep24Service.updateTransactionStatus(id, "error", "Insufficient funds");
 
-      const pollRes = await request(app)
-        .get("/api/sep24/transaction")
-        .query({ id })
-        .expect(200);
+      const pollRes = await request(app).get("/api/sep24/transaction").query({ id }).expect(200);
 
       expect(pollRes.body.transaction.status).toBe("error");
       expect(pollRes.body.transaction.message).toBe("Insufficient funds");

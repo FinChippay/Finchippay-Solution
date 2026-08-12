@@ -41,17 +41,14 @@ describe("API Integration Tests", () => {
 
     it("should adopt incoming X-Request-ID header", async () => {
       const customId = "custom-correlation-id";
-      const response = await request(app)
-        .get("/health")
-        .set("X-Request-ID", customId);
+      const response = await request(app).get("/health").set("X-Request-ID", customId);
       expect(response.headers["x-request-id"]).toBe(customId);
     });
   });
 
   describe("GET /api/accounts/:key", () => {
     it("should return 200 for a valid public key", async () => {
-      const publicKey =
-        "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
 
       // Mock Horizon server call
       nock("https://horizon-testnet.stellar.org")
@@ -105,8 +102,7 @@ describe("API Integration Tests", () => {
 
   describe("GET /api/payments/:key", () => {
     it("should return an array of payments", async () => {
-      const publicKey =
-        "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
       const txHash = "hash123";
 
       // Mock Horizon server call for payments
@@ -135,14 +131,12 @@ describe("API Integration Tests", () => {
         });
 
       // Mock Horizon server call for the transaction (to fetch memo)
-      nock("https://horizon-testnet.stellar.org")
-        .get(`/transactions/${txHash}`)
-        .reply(200, {
-          id: txHash,
-          memo_type: "text",
-          memo: "test memo",
-          created_at: "2023-01-01T00:00:00Z",
-        });
+      nock("https://horizon-testnet.stellar.org").get(`/transactions/${txHash}`).reply(200, {
+        id: txHash,
+        memo_type: "text",
+        memo: "test memo",
+        created_at: "2023-01-01T00:00:00Z",
+      });
 
       const response = await request(app).get(`/api/payments/${publicKey}`);
       expect(response.status).toBe(200);

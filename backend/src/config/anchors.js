@@ -9,7 +9,7 @@ function loadAnchors() {
       const logger = require("../utils/logger");
       logger.warn(
         "ANCHORS_CONFIG not set — using development-only default anchor. " +
-        "Set ANCHORS_CONFIG in production to prevent startup failure."
+          "Set ANCHORS_CONFIG in production to prevent startup failure.",
       );
       return {
         testanchor: {
@@ -21,7 +21,7 @@ function loadAnchors() {
     }
     throw new Error(
       "ANCHORS_CONFIG environment variable is required in production. " +
-      "Set it to a JSON object mapping anchor names to { sep24Url, supportedAssets }."
+        "Set it to a JSON object mapping anchor names to { sep24Url, supportedAssets }.",
     );
   }
 

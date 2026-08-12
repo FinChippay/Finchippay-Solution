@@ -99,10 +99,7 @@ async function getTopRecipients(publicKey) {
         const recipient = payment.to;
 
         if (recipientTotals.has(recipient)) {
-          recipientTotals.set(
-            recipient,
-            recipientTotals.get(recipient) + amount
-          );
+          recipientTotals.set(recipient, recipientTotals.get(recipient) + amount);
         } else {
           recipientTotals.set(recipient, amount);
         }
@@ -204,14 +201,16 @@ async function getTotalReceiptCount() {
     try {
       const { Server, Contract, TransactionBuilder, Account } = require("@stellar/soroban-sdk");
 
-      const server = new Server(process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org");
+      const server = new Server(
+        process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
+      );
       const contract = new Contract(contractAddress);
 
       const result = await server.simulateTransaction(
         new TransactionBuilder(new Account("GAAAA", "0"), { fee: "100" })
           .addOperation(contract.call("total_receipt_count"))
           .setTimeout(30)
-          .build()
+          .build(),
       );
 
       const totalReceiptCount = Number(result.result.toXdr("base64"));

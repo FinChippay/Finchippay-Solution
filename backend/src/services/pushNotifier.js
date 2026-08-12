@@ -78,8 +78,7 @@ function extractAddresses(payload) {
 
   let serialised;
   try {
-    serialised =
-      typeof payload === "string" ? payload : JSON.stringify(payload);
+    serialised = typeof payload === "string" ? payload : JSON.stringify(payload);
   } catch {
     return [];
   }

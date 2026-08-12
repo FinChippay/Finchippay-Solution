@@ -12,18 +12,26 @@ describe("compareBenchmarks", () => {
 
     fs.writeFileSync(
       baselinePath,
-      JSON.stringify([
-        { name: "backend.health", value: 100 },
-        { name: "frontend.render", value: 200 },
-      ], null, 2),
+      JSON.stringify(
+        [
+          { name: "backend.health", value: 100 },
+          { name: "frontend.render", value: 200 },
+        ],
+        null,
+        2,
+      ),
     );
 
     fs.writeFileSync(
       currentPath,
-      JSON.stringify([
-        { name: "backend.health", value: 125 },
-        { name: "frontend.render", value: 180 },
-      ], null, 2),
+      JSON.stringify(
+        [
+          { name: "backend.health", value: 125 },
+          { name: "frontend.render", value: 180 },
+        ],
+        null,
+        2,
+      ),
     );
 
     const result = compareBenchmarks({

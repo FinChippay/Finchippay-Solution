@@ -9,7 +9,6 @@
 
 const tokenService = require("../src/services/tokenService");
 
-
 describe("tokenService", () => {
   const testPublicKey = "GA2H2V337B66T2O5S5V3Z4P6B6L7M8N9P0Q1R2S3T4U5V6W7X8Y9Z012";
   const testPublicKey2 = "GB3H3V337B66T2O5S5V3Z4P6B6L7M8N9P0Q1R2S3T4U5V6W7X8Y9Z034";
@@ -30,7 +29,11 @@ describe("tokenService", () => {
 
   test("rotateRefreshToken consumes old token and issues new pair", async () => {
     const initialPair = await tokenService.issueTokens(testPublicKey, "Mozilla/5.0", "127.0.0.1");
-    const rotatedPair = await tokenService.rotateRefreshToken(initialPair.refreshToken, "Mozilla/5.0", "127.0.0.1");
+    const rotatedPair = await tokenService.rotateRefreshToken(
+      initialPair.refreshToken,
+      "Mozilla/5.0",
+      "127.0.0.1",
+    );
 
     expect(rotatedPair).not.toBeNull();
     expect(rotatedPair.accessToken).toBeDefined();
@@ -43,7 +46,11 @@ describe("tokenService", () => {
     const pair1 = await tokenService.issueTokens(testPublicKey, "Mozilla/5.0", "127.0.0.1");
 
     // 2. Normal rotation -> Pair 2 (Pair 1 is now marked revoked)
-    const pair2 = await tokenService.rotateRefreshToken(pair1.refreshToken, "Mozilla/5.0", "127.0.0.1");
+    const pair2 = await tokenService.rotateRefreshToken(
+      pair1.refreshToken,
+      "Mozilla/5.0",
+      "127.0.0.1",
+    );
     expect(pair2).not.toBeNull();
 
     // 3. User creates a second session (Pair 3) from another device
@@ -55,7 +62,11 @@ describe("tokenService", () => {
     expect(sessions.length).toBeGreaterThan(0);
 
     // 4. Attacker attempts to replay old Pair 1 refresh token
-    const replayed = await tokenService.rotateRefreshToken(pair1.refreshToken, "Attacker", "1.2.3.4");
+    const replayed = await tokenService.rotateRefreshToken(
+      pair1.refreshToken,
+      "Attacker",
+      "1.2.3.4",
+    );
     expect(replayed).toBeNull();
 
     // 5. Replay detection MUST revoke ALL sessions for this user (Pair 2 & Pair 3 become invalid)
@@ -70,7 +81,6 @@ describe("tokenService", () => {
   test("revokeSessionById revokes individual session", async () => {
     await tokenService.issueTokens(testPublicKey, "Device 1", "127.0.0.1");
     await tokenService.issueTokens(testPublicKey, "Device 2", "127.0.0.2");
-
 
     let sessions = await tokenService.getActiveSessions(testPublicKey);
     expect(sessions.length).toBe(2);

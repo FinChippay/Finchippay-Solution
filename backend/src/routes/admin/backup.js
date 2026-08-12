@@ -1,11 +1,7 @@
 "use strict";
 
 const express = require("express");
-const {
-  performBackup,
-  restoreBackup,
-  listBackups,
-} = require("../../services/backupService");
+const { performBackup, restoreBackup, listBackups } = require("../../services/backupService");
 
 const router = express.Router();
 

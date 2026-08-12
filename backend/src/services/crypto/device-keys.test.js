@@ -32,10 +32,7 @@ describe("device-keys", () => {
     addDeviceKey(recipient, { id: "device-1", publicKey: keyPair1.publicKey });
     addDeviceKey(recipient, { id: "device-2", publicKey: keyPair2.publicKey });
 
-    const { wrappedCEKs, encryptedPayload } = encryptForRecipient(
-      recipient,
-      message,
-    );
+    const { wrappedCEKs, encryptedPayload } = encryptForRecipient(recipient, message);
 
     expect(wrappedCEKs).toHaveProperty("device-1");
     expect(wrappedCEKs).toHaveProperty("device-2");
@@ -52,11 +49,7 @@ describe("device-keys", () => {
     );
 
     const { iv, tag, data } = JSON.parse(encryptedPayload);
-    const decipher1 = crypto.createDecipheriv(
-      "aes-256-gcm",
-      cek1,
-      Buffer.from(iv, "hex"),
-    );
+    const decipher1 = crypto.createDecipheriv("aes-256-gcm", cek1, Buffer.from(iv, "hex"));
     decipher1.setAuthTag(Buffer.from(tag, "hex"));
     let decrypted1 = decipher1.update(data, "hex", "utf8");
     decrypted1 += decipher1.final("utf8");
@@ -73,11 +66,7 @@ describe("device-keys", () => {
       encryptedCEK2,
     );
 
-    const decipher2 = crypto.createDecipheriv(
-      "aes-256-gcm",
-      cek2,
-      Buffer.from(iv, "hex"),
-    );
+    const decipher2 = crypto.createDecipheriv("aes-256-gcm", cek2, Buffer.from(iv, "hex"));
     decipher2.setAuthTag(Buffer.from(tag, "hex"));
     let decrypted2 = decipher2.update(data, "hex", "utf8");
     decrypted2 += decipher2.final("utf8");

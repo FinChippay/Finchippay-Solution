@@ -13,10 +13,7 @@ describe("turrets DB persistence", () => {
 
   beforeEach(async () => {
     jest.resetModules();
-    dbFile = path.join(
-      os.tmpdir(),
-      `turrets-${Date.now()}-${Math.random()}.db`,
-    );
+    dbFile = path.join(os.tmpdir(), `turrets-${Date.now()}-${Math.random()}.db`);
     process.env.DB_PROVIDER = "sqlite";
     process.env.DB_FILENAME = dbFile;
 
@@ -92,9 +89,7 @@ describe("turrets DB persistence", () => {
     delete require.cache[require.resolve("../src/services/turretsService")];
     const reloadedService = require("../src/services/turretsService");
 
-    const deployments = await reloadedService.listDeployments(
-      deployment.owner_pk,
-    );
+    const deployments = await reloadedService.listDeployments(deployment.owner_pk);
     expect(deployments).toHaveLength(1);
     expect(deployments[0]).toMatchObject({
       id: deployment.id,
@@ -168,10 +163,7 @@ describe("priceFeedService", () => {
   });
 
   test("health reports provider status", async () => {
-    nock("https://api.coingecko.com")
-      .get("/api/v3/simple/price")
-      .query(true)
-      .reply(500);
+    nock("https://api.coingecko.com").get("/api/v3/simple/price").query(true).reply(500);
     nock("https://api.binance.com")
       .get("/api/v3/ticker/price")
       .query(true)

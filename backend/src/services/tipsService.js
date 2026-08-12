@@ -44,9 +44,7 @@ async function recordTip({
   txHash = "",
 }) {
   if (!senderPublicKey || !creatorPublicKey || !amount) {
-    const error = new Error(
-      "senderPublicKey, creatorPublicKey, and amount are required",
-    );
+    const error = new Error("senderPublicKey, creatorPublicKey, and amount are required");
     error.status = 400;
     throw error;
   }
@@ -182,9 +180,7 @@ async function getTipsStats(creatorPublicKey) {
     stats.totalByAsset[asset].count++;
 
     const amt =
-      row.amount_stroops != null
-        ? Number(row.amount_stroops) / 1e7
-        : parseFloat(row.amount) || 0;
+      row.amount_stroops != null ? Number(row.amount_stroops) / 1e7 : parseFloat(row.amount) || 0;
     stats.totalByAsset[asset].amount += amt;
     numericAmounts.push(amt);
   }

@@ -41,8 +41,7 @@ jest.mock("@stellar/stellar-sdk", () => {
 const stellarService = require("../src/services/stellarService");
 
 describe("stellarService", () => {
-  const validPublicKey =
-    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const validPublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -68,9 +67,7 @@ describe("stellarService", () => {
 
   describe("validatePublicKey", () => {
     it("accepts a valid Stellar public key", () => {
-      expect(() =>
-        stellarService.validatePublicKey(validPublicKey),
-      ).not.toThrow();
+      expect(() => stellarService.validatePublicKey(validPublicKey)).not.toThrow();
     });
 
     it("throws on an empty public key", () => {
@@ -129,14 +126,10 @@ describe("stellarService", () => {
     it("throws a friendly 404 error for unfunded accounts", async () => {
       mockLoadAccount.mockRejectedValue({ response: { status: 404 } });
 
-      await expect(
-        stellarService.getXLMBalance(validPublicKey),
-      ).rejects.toMatchObject({
+      await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toMatchObject({
         status: 404,
       });
-      await expect(
-        stellarService.getXLMBalance(validPublicKey),
-      ).rejects.toThrow(
+      await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toThrow(
         "Account not found. It may not be funded yet. Use Friendbot on testnet.",
       );
     });
@@ -144,12 +137,8 @@ describe("stellarService", () => {
 
   describe("getPayments", () => {
     it("returns correctly shaped payment objects and filters non-payment ops", async () => {
-      const textMemoTransaction = jest
-        .fn()
-        .mockResolvedValue({ memo_type: "text", memo: "hello" });
-      const noMemoTransaction = jest
-        .fn()
-        .mockResolvedValue({ memo_type: "none" });
+      const textMemoTransaction = jest.fn().mockResolvedValue({ memo_type: "text", memo: "hello" });
+      const noMemoTransaction = jest.fn().mockResolvedValue({ memo_type: "none" });
 
       mockPaymentsCall.mockResolvedValue({
         records: [
@@ -274,9 +263,7 @@ describe("stellarService", () => {
     });
 
     it("handles path_payment_strict_send and path_payment_strict_receive operations", async () => {
-      const mockTransaction = jest
-        .fn()
-        .mockResolvedValue({ memo_type: "none" });
+      const mockTransaction = jest.fn().mockResolvedValue({ memo_type: "none" });
 
       mockPaymentsCall.mockResolvedValue({
         records: [
@@ -313,8 +300,7 @@ describe("stellarService", () => {
           {
             asset_type: "credit_alphanum4",
             asset_code: "USDC",
-            asset_issuer:
-              "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC",
+            asset_issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC",
             balance: "50.0000000",
           },
         ],

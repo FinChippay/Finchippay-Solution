@@ -23,21 +23,13 @@ async function main() {
     // knex.migrate.list() → [completedMigrations, pendingMigrations]. Entry
     // shape varies by knex version (string filename or { name/file }), so
     // normalise before printing.
-    const label = (m) =>
-      typeof m === "string" ? m : m.name || m.file || JSON.stringify(m);
+    const label = (m) => (typeof m === "string" ? m : m.name || m.file || JSON.stringify(m));
 
     const [completed, pending] = await knex.migrate.list();
 
-    logger.info(
-      { completed: completed.length, pending: pending.length },
-      "Migration status",
-    );
-    completed.forEach((m) =>
-      logger.info({ migration: label(m), status: "completed" }),
-    );
-    pending.forEach((m) =>
-      logger.info({ migration: label(m), status: "pending" }),
-    );
+    logger.info({ completed: completed.length, pending: pending.length }, "Migration status");
+    completed.forEach((m) => logger.info({ migration: label(m), status: "completed" }));
+    pending.forEach((m) => logger.info({ migration: label(m), status: "pending" }));
 
     await knex.destroy();
 

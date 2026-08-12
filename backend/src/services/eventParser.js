@@ -62,8 +62,7 @@ function parseEvent(raw) {
     if (typeof first === "string") {
       eventType = first;
     } else if (first && typeof first === "object") {
-      eventType =
-        first.symbol || first.str || first.value || String(first) || "unknown";
+      eventType = first.symbol || first.str || first.value || String(first) || "unknown";
     }
   }
 
@@ -84,8 +83,7 @@ function parseEvent(raw) {
     if (typeof val === "string") return val;
     if (val && typeof val === "object") {
       return (
-        val.address || val.symbol || val.str || val.scv_symbol ||
-        val.value || String(val) || null
+        val.address || val.symbol || val.str || val.scv_symbol || val.value || String(val) || null
       );
     }
     return null;
@@ -102,9 +100,7 @@ function parseEvent(raw) {
 
   // Try extracting amount from data or topics
   if (data && typeof data === "object") {
-    amountRaw = String(
-      data.amount || data.i128 || data.u64 || data.u128 || ""
-    );
+    amountRaw = String(data.amount || data.i128 || data.u64 || data.u128 || "");
   }
 
   const payload = {

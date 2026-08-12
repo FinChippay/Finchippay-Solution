@@ -33,14 +33,9 @@ require("dotenv").config();
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const SOROBAN_RPC_URL =
-  process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-const CONTRACT_ID =
-  process.env.CONTRACT_ID || process.env.NEXT_PUBLIC_CONTRACT_ID || "";
-const POLL_INTERVAL_MS = parseInt(
-  process.env.EVENT_INDEXER_INTERVAL_MS || "30000",
-  10,
-);
+const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+const CONTRACT_ID = process.env.CONTRACT_ID || process.env.NEXT_PUBLIC_CONTRACT_ID || "";
+const POLL_INTERVAL_MS = parseInt(process.env.EVENT_INDEXER_INTERVAL_MS || "30000", 10);
 const MAX_RETRIES = 3;
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -63,9 +58,7 @@ function getPgPool() {
 
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    logger.warn(
-      "DATABASE_URL not set — event indexer will use in-memory storage",
-    );
+    logger.warn("DATABASE_URL not set — event indexer will use in-memory storage");
     return null;
   }
 
@@ -82,10 +75,7 @@ function getPgPool() {
       logger.error({ err, type: "pg_pool_error" }, "PostgreSQL pool error");
     });
 
-    logger.info(
-      { type: "pg_pool_created" },
-      "PostgreSQL connection pool ready",
-    );
+    logger.info({ type: "pg_pool_created" }, "PostgreSQL connection pool ready");
     return pgPool;
   } catch (err) {
     logger.error(
@@ -148,10 +138,9 @@ async function fetchWithRetry(url, body, timeoutMs = DEFAULT_TIMEOUT_MS) {
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw Object.assign(
-          new Error(`Soroban RPC responded with ${response.status}: ${text}`),
-          { status: response.status },
-        );
+        throw Object.assign(new Error(`Soroban RPC responded with ${response.status}: ${text}`), {
+          status: response.status,
+        });
       }
 
       return await response.json();
@@ -320,10 +309,7 @@ async function loadCursor() {
     const max = result?.rows?.[0]?.max_ledger;
     if (max !== null && max !== undefined) {
       lastProcessedLedger = parseInt(max, 10);
-      logger.info(
-        { lastProcessedLedger },
-        "Loaded event cursor from PostgreSQL",
-      );
+      logger.info({ lastProcessedLedger }, "Loaded event cursor from PostgreSQL");
     }
   } catch (err) {
     logger.error({ err }, "Failed to load cursor from PostgreSQL");
@@ -401,10 +387,7 @@ async function pollOnce() {
         const pushNotifier = require("./pushNotifier");
         await pushNotifier.notifyContractEvents(parsed);
       } catch (notifyErr) {
-        logger.warn(
-          { notifyErr },
-          "Failed to dispatch push notifications for indexed events",
-        );
+        logger.warn({ notifyErr }, "Failed to dispatch push notifications for indexed events");
       }
     }
 
@@ -483,11 +466,7 @@ function isRunning() {
  * @param {{ limit?: number, offset?: number, since?: string }} options
  * @returns {Promise<{ events: Array<object>, total: number }>}
  */
-async function queryEventsByType(
-  publicKey,
-  eventType,
-  { limit = 20, offset = 0, since } = {},
-) {
+async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0, since } = {}) {
   const pool = getPgPool();
 
   if (pool) {
@@ -525,8 +504,7 @@ async function queryEventsByType(
   // In-memory fallback
   let filtered = memoryStore.filter((ev) => {
     const payloadStr = JSON.stringify(ev.payload).toLowerCase();
-    const match = payloadStr.includes(publicKey.toLowerCase()) &&
-      ev.event_type === eventType;
+    const match = payloadStr.includes(publicKey.toLowerCase()) && ev.event_type === eventType;
     if (!match) return false;
     if (since && new Date(ev.emitted_at) < new Date(since)) return false;
     return true;
@@ -534,9 +512,7 @@ async function queryEventsByType(
 
   const paged = filtered
     .sort(
-      (a, b) =>
-        (b.ledger_sequence ?? 0) - (a.ledger_sequence ?? 0) ||
-        (b.id ?? 0) - (a.id ?? 0),
+      (a, b) => (b.ledger_sequence ?? 0) - (a.ledger_sequence ?? 0) || (b.id ?? 0) - (a.id ?? 0),
     )
     .slice(offset, offset + limit);
 
@@ -553,10 +529,7 @@ async function queryEventsByType(
  * @param {{ limit?: number, offset?: number }} options
  * @returns {Promise<{ events: Array<object>, total: number }>}
  */
-async function queryEventsByPublicKey(
-  publicKey,
-  { limit = 20, offset = 0, since } = {},
-) {
+async function queryEventsByPublicKey(publicKey, { limit = 20, offset = 0, since } = {}) {
   const pool = getPgPool();
 
   if (pool) {
@@ -599,9 +572,7 @@ async function queryEventsByPublicKey(
 
   const paged = filtered
     .sort(
-      (a, b) =>
-        (b.ledger_sequence ?? 0) - (a.ledger_sequence ?? 0) ||
-        (b.id ?? 0) - (a.id ?? 0),
+      (a, b) => (b.ledger_sequence ?? 0) - (a.ledger_sequence ?? 0) || (b.id ?? 0) - (a.id ?? 0),
     )
     .slice(offset, offset + limit);
 
@@ -651,9 +622,7 @@ async function getTotalEventCount() {
   const pool = getPgPool();
 
   if (pool) {
-    const result = await pool.query(
-      `SELECT COUNT(*) AS total FROM contract_events`,
-    );
+    const result = await pool.query(`SELECT COUNT(*) AS total FROM contract_events`);
     return parseInt(result?.rows?.[0]?.total ?? "0", 10);
   }
 

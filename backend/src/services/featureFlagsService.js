@@ -60,10 +60,7 @@ function loadFlags() {
   } catch (err) {
     // Non-fatal in test environments where the config path may differ.
     if (process.env.NODE_ENV !== "test") {
-      logger.error(
-        { err },
-        "[FeatureFlags] Could not read featureFlags.json",
-      );
+      logger.error({ err }, "[FeatureFlags] Could not read featureFlags.json");
     }
     return;
   }
@@ -72,10 +69,7 @@ function loadFlags() {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    logger.error(
-      { err },
-      "[FeatureFlags] Invalid JSON in featureFlags.json",
-    );
+    logger.error({ err }, "[FeatureFlags] Invalid JSON in featureFlags.json");
     return;
   }
 

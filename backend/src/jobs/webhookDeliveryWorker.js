@@ -42,7 +42,9 @@ async function processDelivery(delivery) {
 
   const webhookRow = await knex("webhooks").where("id", delivery.webhook_id).first();
   if (!webhookRow) {
-    await knex("webhook_deliveries").where("id", delivery.id).update({ status: "failed", last_error: "Webhook not found" });
+    await knex("webhook_deliveries")
+      .where("id", delivery.id)
+      .update({ status: "failed", last_error: "Webhook not found" });
     return;
   }
 
@@ -55,12 +57,22 @@ async function processDelivery(delivery) {
 
   try {
     await webhookService.deliverWebhook(
-      { id: webhookRow.id, publicKey: webhookRow.public_key, url: webhookRow.url, secret: webhookRow.secret, attempts: delivery.attempts },
+      {
+        id: webhookRow.id,
+        publicKey: webhookRow.public_key,
+        url: webhookRow.url,
+        secret: webhookRow.secret,
+        attempts: delivery.attempts,
+      },
       typeof delivery.payload === "string" ? JSON.parse(delivery.payload) : delivery.payload,
       delivery.event_type,
     );
   } catch (err) {
-    logger.error({ type: "webhook_delivery_worker_error", deliveryId: delivery.id, error: err.message });
+    logger.error({
+      type: "webhook_delivery_worker_error",
+      deliveryId: delivery.id,
+      error: err.message,
+    });
   } finally {
     logger.info({
       type: "webhook_delivery_worker_cycle_timing",

@@ -16,11 +16,7 @@ const express = require("express");
 const request = require("supertest");
 const { ZodError, z } = require("zod");
 
-const {
-  validate,
-  zodErrorHandler,
-  formatZodError,
-} = require("../src/validation/middleware");
+const { validate, zodErrorHandler, formatZodError } = require("../src/validation/middleware");
 const {
   tipSchema,
   registerWebhookSchema,
@@ -74,9 +70,7 @@ describe("tipSchema (POST /api/tips)", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Invalid Stellar public key format");
     expect(Array.isArray(res.body.details.senderPublicKey)).toBe(true);
-    expect(res.body.details.senderPublicKey).toContain(
-      "Invalid Stellar public key format",
-    );
+    expect(res.body.details.senderPublicKey).toContain("Invalid Stellar public key format");
   });
 
   it("rejects a non-numeric amount string", async () => {
@@ -95,9 +89,7 @@ describe("tipSchema (POST /api/tips)", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("amount must be a positive number");
-    expect(res.body.details.amount).toContain(
-      "amount must be a positive number",
-    );
+    expect(res.body.details.amount).toContain("amount must be a positive number");
   });
 
   it("rejects a memo longer than 28 chars (Stellar text-memo limit)", async () => {
@@ -116,9 +108,7 @@ describe("registerWebhookSchema (POST /api/webhooks)", () => {
   const app = appFor(registerWebhookSchema);
 
   it("reports which fields are required when missing", async () => {
-    const res = await request(app)
-      .post("/test")
-      .send({ url: "https://x.test/hook" });
+    const res = await request(app).post("/test").send({ url: "https://x.test/hook" });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/required/i);
@@ -157,9 +147,7 @@ describe("registerUsernameSchema (POST /api/accounts/register)", () => {
   const app = appFor(registerUsernameSchema);
 
   it("rejects a short username with field-level details", async () => {
-    const res = await request(app)
-      .post("/test")
-      .send({ username: "ab", publicKey: VALID_KEY_1 });
+    const res = await request(app).post("/test").send({ username: "ab", publicKey: VALID_KEY_1 });
 
     expect(res.status).toBe(400);
     expect(res.body.details.username).toBeDefined();
@@ -170,10 +158,7 @@ describe("registerUsernameSchema (POST /api/accounts/register)", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("username and publicKey are required");
-    expect(Object.keys(res.body.details).sort()).toEqual([
-      "publicKey",
-      "username",
-    ]);
+    expect(Object.keys(res.body.details).sort()).toEqual(["publicKey", "username"]);
   });
 });
 
@@ -219,17 +204,11 @@ describe("federationQuerySchema (GET /federation)", () => {
   });
 
   it("rejects an unknown federation type", async () => {
-    const res = await request(app)
-      .get("/test")
-      .query({ q: "user*domain.com", type: "banana" });
+    const res = await request(app).get("/test").query({ q: "user*domain.com", type: "banana" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe(
-      "Invalid type parameter. Must be 'name' or 'id'",
-    );
-    expect(res.body.details.type).toContain(
-      "Invalid type parameter. Must be 'name' or 'id'",
-    );
+    expect(res.body.error).toBe("Invalid type parameter. Must be 'name' or 'id'");
+    expect(res.body.details.type).toContain("Invalid type parameter. Must be 'name' or 'id'");
   });
 });
 
@@ -253,9 +232,7 @@ describe("SEP-0024 schemas", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Missing required query parameter: id");
-    expect(res.body.details.id).toContain(
-      "Missing required query parameter: id",
-    );
+    expect(res.body.details.id).toContain("Missing required query parameter: id");
   });
 });
 

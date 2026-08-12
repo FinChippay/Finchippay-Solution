@@ -12,11 +12,9 @@ const registerWebhookSchema = z.object({
   url: z
     .string({ required_error: WEBHOOK_FIELDS_REQUIRED })
     .url("Invalid URL format")
-    .refine(
-      (value) =>
-        process.env.NODE_ENV !== "production" || value.startsWith("https://"),
-      { message: "Webhook URL must use HTTPS in production" },
-    ),
+    .refine((value) => process.env.NODE_ENV !== "production" || value.startsWith("https://"), {
+      message: "Webhook URL must use HTTPS in production",
+    }),
   secret: z
     .string({ required_error: WEBHOOK_FIELDS_REQUIRED })
     .min(8, "Secret must be at least 8 characters for HMAC-SHA256 security"),
@@ -30,9 +28,7 @@ const registerWebhookSchema = z.object({
     )
     .min(1, "topics must contain at least one topic")
     .default(["all"])
-    .transform((topics) =>
-      topics.includes("all") ? ["all"] : [...new Set(topics)],
-    ),
+    .transform((topics) => (topics.includes("all") ? ["all"] : [...new Set(topics)])),
 });
 
 module.exports = {

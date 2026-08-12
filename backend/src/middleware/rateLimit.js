@@ -3,10 +3,7 @@
 const rateLimit = require("express-rate-limit");
 const { formatErrorResponse } = require("../../../shared/errorCodes");
 const logger = require("../utils/logger");
-const {
-  createRateLimitHandler,
-  recordRateLimitAllowed,
-} = require("./rateLimitMetrics");
+const { createRateLimitHandler, recordRateLimitAllowed } = require("./rateLimitMetrics");
 
 let redisClient;
 let RedisStore;
@@ -112,4 +109,3 @@ module.exports = {
   strictLimiter,
   authRefreshLimiter,
 };
-

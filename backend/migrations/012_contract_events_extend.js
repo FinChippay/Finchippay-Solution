@@ -36,17 +36,17 @@ exports.up = async function (knex) {
   if (client === "pg" || client === "postgresql") {
     await knex.schema.raw(
       `CREATE INDEX IF NOT EXISTS idx_events_type_ledger
-         ON contract_events (event_type, ledger_sequence)`
+         ON contract_events (event_type, ledger_sequence)`,
     );
     // GIN index on payload for JSONB path queries
     await knex.schema.raw(
       `CREATE INDEX IF NOT EXISTS idx_events_payload
-         ON contract_events USING GIN (payload)`
+         ON contract_events USING GIN (payload)`,
     );
   } else {
     await knex.schema.raw(
       `CREATE INDEX IF NOT EXISTS idx_events_type_ledger
-         ON contract_events (event_type, ledger_sequence)`
+         ON contract_events (event_type, ledger_sequence)`,
     );
   }
 };

@@ -90,12 +90,7 @@ router.put("/", verifyJWT, requireAdmin, async (req, res, next) => {
 router.post("/test", verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const { method, route, limit, windowMs } = req.body;
-    const result = await rateLimitConfigService.testRule(
-      method,
-      route,
-      limit,
-      windowMs,
-    );
+    const result = await rateLimitConfigService.testRule(method, route, limit, windowMs);
     res.json({ success: true, result });
   } catch (err) {
     next(err);

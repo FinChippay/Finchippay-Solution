@@ -12,15 +12,9 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
-const {
-  authChallengeQuerySchema,
-  authTokenBodySchema,
-} = require("../validation/schemas");
+const { authChallengeQuerySchema, authTokenBodySchema } = require("../validation/schemas");
 const tokenService = require("../services/tokenService");
 const { sendError } = require("../utils/errorResponse");
 
@@ -62,9 +56,7 @@ router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
   } catch (e) {
     res
       .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
-      .json(
-        formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }),
-      );
+      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
   }
 });
 
@@ -115,9 +107,7 @@ router.post("/", validate(authTokenBodySchema), async (req, res, next) => {
     }
     res
       .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
-      .json(
-        formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }),
-      );
+      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
   }
 });
 
@@ -127,9 +117,7 @@ router.post("/refresh", authRefreshLimiter, async (req, res) => {
   if (!refreshToken) {
     return res
       .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-      .json(
-        formatErrorResponse("VAL_MISSING_FIELD", { fields: ["refreshToken"] }),
-      );
+      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["refreshToken"] }));
   }
 
   const rotated = await tokenService.rotateRefreshToken(
@@ -196,7 +184,10 @@ router.post("/revoke", async (req, res) => {
 
   if (sessionId && publicKey) {
     const revoked = await tokenService.revokeSessionById(sessionId, publicKey);
-    return res.json({ success: revoked, message: revoked ? "Session revoked." : "Session not found." });
+    return res.json({
+      success: revoked,
+      message: revoked ? "Session revoked." : "Session not found.",
+    });
   }
 
   const tokenToRevoke = refreshToken || req.cookies?.refreshToken;
@@ -256,4 +247,4 @@ router.post("/logout", async (req, res) => {
   res.json({ success: true, message: "Logged out successfully." });
 });
 
-module.exports = router;
+module.exports = router;

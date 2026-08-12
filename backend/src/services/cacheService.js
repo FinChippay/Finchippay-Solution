@@ -30,10 +30,7 @@ const tracer = require("../config/tracing").getTracer("cache-service");
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const REDIS_URL = process.env.REDIS_URL || null;
-const DEFAULT_TTL_SECONDS = parseInt(
-  process.env.REDIS_CACHE_TTL_DEFAULT || "60",
-  10,
-);
+const DEFAULT_TTL_SECONDS = parseInt(process.env.REDIS_CACHE_TTL_DEFAULT || "60", 10);
 const LRU_MAX_ENTRIES = 512;
 
 // ─── Redis client (lazy initialised) ─────────────────────────────────────────
@@ -65,9 +62,7 @@ async function initRedis() {
       maxRetriesPerRequest: 2,
       retryStrategy(times) {
         if (times > 10) {
-          logger.error(
-            "Redis retry limit reached — switching to degraded mode",
-          );
+          logger.error("Redis retry limit reached — switching to degraded mode");
           redisStatus = "degraded";
           redisReady = false;
           return null; // stop retrying
@@ -200,9 +195,7 @@ function lruDelPattern(pattern) {
 // ─── Pattern-to-regex helper ─────────────────────────────────────────────────
 
 function patternToRegex(pattern) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*");
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   return new RegExp(`^${escaped}$`);
 }
 
@@ -288,10 +281,7 @@ async function set(key, value, ttlSeconds = DEFAULT_TTL_SECONDS) {
       try {
         await redis.set(key, serialized, "EX", ttlSeconds);
       } catch (err) {
-        logger.warn(
-          { err, key },
-          "Redis set failed — value stored in LRU only",
-        );
+        logger.warn({ err, key }, "Redis set failed — value stored in LRU only");
       }
     }
 
@@ -364,13 +354,7 @@ async function delPattern(pattern) {
       try {
         let cursor = "0";
         do {
-          const [nextCursor, keys] = await redis.scan(
-            cursor,
-            "MATCH",
-            pattern,
-            "COUNT",
-            100,
-          );
+          const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
           cursor = nextCursor;
           if (keys && keys.length > 0) {
             await redis.del(...keys);

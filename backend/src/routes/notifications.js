@@ -9,10 +9,7 @@ const express = require("express");
 const router = express.Router();
 const knex = require("../db/connection");
 const notificationService = require("../services/notificationService");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const {
   registerEmailSchema,
@@ -32,11 +29,7 @@ const logger = require("../utils/logger");
 router.post("/email", validate(registerEmailSchema), async (req, res, next) => {
   try {
     const { publicKey, email, events } = req.validated;
-    const preference = await notificationService.registerEmail(
-      publicKey,
-      email,
-      { events },
-    );
+    const preference = await notificationService.registerEmail(publicKey, email, { events });
     return res.status(201).json({ success: true, preference });
   } catch (err) {
     next(err);
@@ -91,8 +84,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
-      const preference =
-        await notificationService.getEmailPreference(publicKey);
+      const preference = await notificationService.getEmailPreference(publicKey);
       if (!preference) {
         return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
           formatErrorResponse("RES_NOT_FOUND", {
@@ -118,8 +110,7 @@ router.delete(
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
-      const deleted =
-        await notificationService.deleteEmailPreference(publicKey);
+      const deleted = await notificationService.deleteEmailPreference(publicKey);
       if (!deleted) {
         return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
           formatErrorResponse("RES_NOT_FOUND", {
@@ -175,9 +166,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
-      let row = await knex("notification_preferences")
-        .where("public_key", publicKey)
-        .first();
+      let row = await knex("notification_preferences").where("public_key", publicKey).first();
 
       if (!row) {
         // Return defaults
@@ -259,8 +248,7 @@ router.put(
       const data = {
         public_key: publicKey,
         event_channels: JSON.stringify(channels),
-        quiet_hours_enabled:
-          quietHoursEnabled !== undefined ? quietHoursEnabled : false,
+        quiet_hours_enabled: quietHoursEnabled !== undefined ? quietHoursEnabled : false,
         quiet_hours_start: quietHoursStart || "22:00",
         quiet_hours_end: quietHoursEnd || "07:00",
         timezone: timezone || "UTC",
@@ -271,17 +259,13 @@ router.put(
       };
 
       if (existing) {
-        await knex("notification_preferences")
-          .where("public_key", publicKey)
-          .update(data);
+        await knex("notification_preferences").where("public_key", publicKey).update(data);
       } else {
         data.created_at = new Date().toISOString();
         await knex("notification_preferences").insert(data);
       }
 
-      const saved = await knex("notification_preferences")
-        .where("public_key", publicKey)
-        .first();
+      const saved = await knex("notification_preferences").where("public_key", publicKey).first();
 
       logger.info(
         {

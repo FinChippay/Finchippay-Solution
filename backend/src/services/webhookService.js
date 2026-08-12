@@ -74,8 +74,7 @@ const RETRY_WORKER_INTERVAL = 30000;
  * Must be set in the environment; defaults to a generated value that won't
  * survive restarts — force explicit configuration in production.
  */
-const WEBHOOK_SECRET_KEY =
-  process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
+const WEBHOOK_SECRET_KEY = process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
 
 if (!process.env.WEBHOOK_SECRET_KEY && process.env.NODE_ENV !== "test") {
   logger.warn(
@@ -111,10 +110,7 @@ let retryWorkerTimer = null;
  * @returns {string} hex digest
  */
 function hashSecret(id, secret) {
-  return crypto
-    .createHmac("sha256", WEBHOOK_SECRET_KEY)
-    .update(`${id}:${secret}`)
-    .digest("hex");
+  return crypto.createHmac("sha256", WEBHOOK_SECRET_KEY).update(`${id}:${secret}`).digest("hex");
 }
 
 // ─── ID generation ────────────────────────────────────────────────────────────
@@ -197,9 +193,7 @@ async function deleteWebhook(id) {
 
   if (deleted) {
     logger.info({ type: "webhook_deleted", id });
-    const remaining = Array.from(webhooks.values()).filter(
-      (w) => w.publicKey === publicKey,
-    );
+    const remaining = Array.from(webhooks.values()).filter((w) => w.publicKey === publicKey);
     if (remaining.length === 0 && publicKey && activeStreams.has(publicKey)) {
       activeStreams.get(publicKey)();
       activeStreams.delete(publicKey);
@@ -340,12 +334,7 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
   const deliveryId = crypto.randomUUID();
   const payloadStr = JSON.stringify(payload);
   const timestamp = new Date().toISOString();
-  const idempotencyKey = generateIdempotencyKey(
-    webhook.id,
-    eventType,
-    payloadStr,
-    timestamp,
-  );
+  const idempotencyKey = generateIdempotencyKey(webhook.id, eventType, payloadStr, timestamp);
 
   try {
     await knex("webhook_events").insert({
@@ -431,20 +420,23 @@ async function writeToDeadLetterQueue(deliveryId, webhook, payload, errorMsg, re
  */
 async function handleDeliveryFailure(deliveryId, webhook, errorMsg, payload) {
   const currentAttempt = (webhook.attempts || 0) + 1;
-  const nextRetrySeconds = RETRY_INTERVALS_SECONDS[Math.min(currentAttempt - 1, RETRY_INTERVALS_SECONDS.length - 1)];
+  const nextRetrySeconds =
+    RETRY_INTERVALS_SECONDS[Math.min(currentAttempt - 1, RETRY_INTERVALS_SECONDS.length - 1)];
   const nextRetryAt = new Date(Date.now() + nextRetrySeconds * 1000).toISOString();
   const isDead = currentAttempt >= MAX_RETRIES;
   const now = new Date().toISOString();
 
   try {
-    await knex("webhook_deliveries").where("id", deliveryId).update({
-      attempts: currentAttempt,
-      retry_attempts: currentAttempt,
-      last_attempt_at: now,
-      last_error: errorMsg,
-      next_retry_at: isDead ? null : nextRetryAt,
-      status: isDead ? "dead" : "pending",
-    });
+    await knex("webhook_deliveries")
+      .where("id", deliveryId)
+      .update({
+        attempts: currentAttempt,
+        retry_attempts: currentAttempt,
+        last_attempt_at: now,
+        last_error: errorMsg,
+        next_retry_at: isDead ? null : nextRetryAt,
+        status: isDead ? "dead" : "pending",
+      });
   } catch (err) {
     logger.error({
       type: "webhook_retry_update_error",
@@ -460,7 +452,9 @@ async function handleDeliveryFailure(deliveryId, webhook, errorMsg, payload) {
     try {
       const row = await knex("webhook_deliveries").where("id", deliveryId).first();
       retryTimestamps = row ? [{ attempt: currentAttempt, at: now, error: errorMsg }] : [];
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
     await writeToDeadLetterQueue(deliveryId, webhook, payload, errorMsg, retryTimestamps);
     logger.error({
       type: "webhook_delivery_dead",
@@ -494,11 +488,7 @@ async function processRetryQueue() {
       .where("status", "pending")
       .where("attempts", "<", MAX_RETRIES)
       .andWhere(function () {
-        this.whereNull("next_retry_at").orWhere(
-          "next_retry_at",
-          "<=",
-          new Date().toISOString(),
-        );
+        this.whereNull("next_retry_at").orWhere("next_retry_at", "<=", new Date().toISOString());
       })
       .orderBy([
         { column: "delivery_priority", order: "desc" },
@@ -625,17 +615,55 @@ async function retryDeadDeliveries(publicKey) {
 function startMonitoring(webhook) {
   metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
   if (activeStreams.has(webhook.publicKey)) return;
-  const closeStream = server.payments().forAccount(webhook.publicKey).cursor("now").stream({
-    onmessage: async (payment) => {
-      if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
-      try { const cache = getCache(); if (cache) { await cache.del(`account:${webhook.publicKey}`); await cache.delPattern(`payments:${webhook.publicKey}:*`); } } catch { /* cache clear failure is non-critical */ }
-      const payload = { event: "payment.received", publicKey: webhook.publicKey, payment: { id: payment.id, from: payment.from, to: payment.to, amount: payment.amount, asset: payment.asset_type === "native" ? "XLM" : payment.asset_code, createdAt: payment.created_at } };
-      const hooks = await getWebhooksByPublicKey(webhook.publicKey);
-      const deliveries = hooks.map((h) => { const promise = deliverWebhook(h, payload, "payment.received").finally(() => pendingDeliveries.delete(promise)); pendingDeliveries.add(promise); return promise; });
-      await Promise.allSettled(deliveries);
-    },
-    onerror: (err) => { logger.error({ type: "horizon_sse_error", publicKey: webhook.publicKey, error: err.message }); metrics.horizonRequestsTotal.inc({ operation: "sse", status: "error" }); activeStreams.delete(webhook.publicKey); metrics.activeWebhookStreams.set(activeStreams.size); },
-  });
+  const closeStream = server
+    .payments()
+    .forAccount(webhook.publicKey)
+    .cursor("now")
+    .stream({
+      onmessage: async (payment) => {
+        if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
+        try {
+          const cache = getCache();
+          if (cache) {
+            await cache.del(`account:${webhook.publicKey}`);
+            await cache.delPattern(`payments:${webhook.publicKey}:*`);
+          }
+        } catch {
+          /* cache clear failure is non-critical */
+        }
+        const payload = {
+          event: "payment.received",
+          publicKey: webhook.publicKey,
+          payment: {
+            id: payment.id,
+            from: payment.from,
+            to: payment.to,
+            amount: payment.amount,
+            asset: payment.asset_type === "native" ? "XLM" : payment.asset_code,
+            createdAt: payment.created_at,
+          },
+        };
+        const hooks = await getWebhooksByPublicKey(webhook.publicKey);
+        const deliveries = hooks.map((h) => {
+          const promise = deliverWebhook(h, payload, "payment.received").finally(() =>
+            pendingDeliveries.delete(promise),
+          );
+          pendingDeliveries.add(promise);
+          return promise;
+        });
+        await Promise.allSettled(deliveries);
+      },
+      onerror: (err) => {
+        logger.error({
+          type: "horizon_sse_error",
+          publicKey: webhook.publicKey,
+          error: err.message,
+        });
+        metrics.horizonRequestsTotal.inc({ operation: "sse", status: "error" });
+        activeStreams.delete(webhook.publicKey);
+        metrics.activeWebhookStreams.set(activeStreams.size);
+      },
+    });
   activeStreams.set(webhook.publicKey, closeStream);
   metrics.activeWebhookStreams.set(activeStreams.size);
   logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
@@ -703,10 +731,7 @@ async function replayEvents(publicKey, { eventIds, since, until }) {
   for (const event of eventsToReplay) {
     const webhook = await getWebhookById(event.webhook_id);
     if (!webhook) continue;
-    const payload =
-      typeof event.payload === "string"
-        ? JSON.parse(event.payload)
-        : event.payload;
+    const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
     deliverWebhook(webhook, payload, event.event_type);
     replayCount++;
   }
@@ -757,4 +782,24 @@ async function getDeliveryById(publicKey, id) {
   return delivery || null;
 }
 
-module.exports = { registerWebhook, getWebhooksByPublicKey, deleteWebhook, signPayload, deliverWebhook, getDeadDeliveries, retryDeadDeliveries, startRetryWorker, stopRetryWorker, closeAllStreams, getEvents, replayEvents, getEventStats, processRetryQueue, getDeliveries, getDeliveryById, restoreWebhooks, MAX_RETRIES, RETRY_INTERVALS_SECONDS };
+module.exports = {
+  registerWebhook,
+  getWebhooksByPublicKey,
+  deleteWebhook,
+  signPayload,
+  deliverWebhook,
+  getDeadDeliveries,
+  retryDeadDeliveries,
+  startRetryWorker,
+  stopRetryWorker,
+  closeAllStreams,
+  getEvents,
+  replayEvents,
+  getEventStats,
+  processRetryQueue,
+  getDeliveries,
+  getDeliveryById,
+  restoreWebhooks,
+  MAX_RETRIES,
+  RETRY_INTERVALS_SECONDS,
+};

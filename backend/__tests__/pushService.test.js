@@ -95,10 +95,7 @@ describe("addSubscription", () => {
 
   it.each([
     ["no endpoint", { keys: { p256dh: "a", auth: "b" } }],
-    [
-      "a non-HTTPS endpoint",
-      { endpoint: "http://x.test", keys: { p256dh: "a", auth: "b" } },
-    ],
+    ["a non-HTTPS endpoint", { endpoint: "http://x.test", keys: { p256dh: "a", auth: "b" } }],
     ["no keys", { endpoint: "https://push.example.com/x" }],
   ])("rejects a subscription with %s", async (_label, bad) => {
     await expect(pushService.addSubscription(ALICE, bad)).rejects.toThrow(
@@ -108,10 +105,7 @@ describe("addSubscription", () => {
 
   it("requires a public key", async () => {
     await expect(
-      pushService.addSubscription(
-        "",
-        subscription("https://push.example.com/x"),
-      ),
+      pushService.addSubscription("", subscription("https://push.example.com/x")),
     ).rejects.toThrow(/publicKey is required/i);
   });
 });
@@ -124,9 +118,7 @@ describe("removeSubscription", () => {
     expect(await pushService.removeSubscription(ALICE, endpoint)).toEqual({
       removed: 1,
     });
-    expect(await knex("push_subscriptions").where({ endpoint })).toHaveLength(
-      0,
-    );
+    expect(await knex("push_subscriptions").where({ endpoint })).toHaveLength(0);
   });
 
   it("will not remove another account's subscription", async () => {
@@ -136,26 +128,15 @@ describe("removeSubscription", () => {
     expect(await pushService.removeSubscription(BOB, endpoint)).toEqual({
       removed: 0,
     });
-    expect(await knex("push_subscriptions").where({ endpoint })).toHaveLength(
-      1,
-    );
+    expect(await knex("push_subscriptions").where({ endpoint })).toHaveLength(1);
   });
 });
 
 describe("sendNotification", () => {
   it("sends to every device registered for the account", async () => {
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/a1"),
-    );
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/a2"),
-    );
-    await pushService.addSubscription(
-      BOB,
-      subscription("https://push.example.com/b1"),
-    );
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/a1"));
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/a2"));
+    await pushService.addSubscription(BOB, subscription("https://push.example.com/b1"));
 
     const result = await pushService.sendNotification(ALICE, {
       title: "Payment received",
@@ -168,10 +149,7 @@ describe("sendNotification", () => {
   });
 
   it("serialises title, body and data into the payload the service worker parses", async () => {
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/a1"),
-    );
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/a1"));
 
     await pushService.sendNotification(ALICE, {
       title: "Payment received",
@@ -188,14 +166,8 @@ describe("sendNotification", () => {
   });
 
   it("prunes endpoints the push service reports as gone", async () => {
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/dead"),
-    );
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/live"),
-    );
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/dead"));
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/live"));
 
     mockSendNotification.mockImplementation((sub) => {
       if (sub.endpoint.endsWith("/dead")) {
@@ -215,16 +187,11 @@ describe("sendNotification", () => {
     const remaining = await knex("push_subscriptions").where({
       public_key: ALICE,
     });
-    expect(remaining.map((r) => r.endpoint)).toEqual([
-      "https://push.example.com/live",
-    ]);
+    expect(remaining.map((r) => r.endpoint)).toEqual(["https://push.example.com/live"]);
   });
 
   it("keeps subscriptions when the failure may be transient", async () => {
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/a1"),
-    );
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/a1"));
 
     mockSendNotification.mockRejectedValue(
       Object.assign(new Error("Too Many Requests"), { statusCode: 429 }),
@@ -236,16 +203,11 @@ describe("sendNotification", () => {
     });
 
     expect(result).toMatchObject({ sent: 0, failed: 1, pruned: 0 });
-    expect(
-      await knex("push_subscriptions").where({ public_key: ALICE }),
-    ).toHaveLength(1);
+    expect(await knex("push_subscriptions").where({ public_key: ALICE })).toHaveLength(1);
   });
 
   it("does not throw when a send fails, so callers can fire and forget", async () => {
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/a1"),
-    );
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/a1"));
     mockSendNotification.mockRejectedValue(new Error("network down"));
 
     await expect(
@@ -264,10 +226,7 @@ describe("sendNotification", () => {
   });
 
   it("is a no-op when VAPID keys are absent", async () => {
-    await pushService.addSubscription(
-      ALICE,
-      subscription("https://push.example.com/a1"),
-    );
+    await pushService.addSubscription(ALICE, subscription("https://push.example.com/a1"));
     withoutVapidKeys();
 
     const result = await pushService.sendNotification(ALICE, {

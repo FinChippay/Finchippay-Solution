@@ -16,10 +16,7 @@ const { verifyJWT } = require("../middleware/auth");
 const { sensitiveLimiter } = require("../middleware/rateLimit");
 const { sendError } = require("../utils/errorResponse");
 const { validate } = require("../validation/middleware");
-const {
-  sep12CustomerBodySchema,
-  sep12CustomerQuerySchema,
-} = require("../validation/schemas");
+const { sep12CustomerBodySchema, sep12CustomerQuerySchema } = require("../validation/schemas");
 
 /**
  * POST /api/sep12/customer
@@ -43,16 +40,9 @@ router.post(
       const { anchorName, fields } = req.validated;
 
       const authHeader = req.headers.authorization;
-      const jwt = authHeader?.startsWith("Bearer ")
-        ? authHeader.split(" ")[1]
-        : undefined;
+      const jwt = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
-      const record = await sep12Service.putCustomer(
-        publicKey,
-        anchorName,
-        fields,
-        jwt,
-      );
+      const record = await sep12Service.putCustomer(publicKey, anchorName, fields, jwt);
 
       res.json({
         success: true,
@@ -92,9 +82,7 @@ router.get(
       const { anchorName } = req.validated;
 
       const authHeader = req.headers.authorization;
-      const jwt = authHeader?.startsWith("Bearer ")
-        ? authHeader.split(" ")[1]
-        : undefined;
+      const jwt = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
       const record = await sep12Service.getCustomer(publicKey, anchorName, jwt);
 
@@ -136,15 +124,9 @@ router.get(
       const { anchorName } = req.validated;
 
       const authHeader = req.headers.authorization;
-      const jwt = authHeader?.startsWith("Bearer ")
-        ? authHeader.split(" ")[1]
-        : undefined;
+      const jwt = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
-      const status = await sep12Service.getCustomerStatus(
-        publicKey,
-        anchorName,
-        jwt,
-      );
+      const status = await sep12Service.getCustomerStatus(publicKey, anchorName, jwt);
 
       res.json({ success: true, data: status });
     } catch (err) {

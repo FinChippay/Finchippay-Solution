@@ -7,7 +7,12 @@ const request = require("supertest");
 jest.mock("../src/services/ipfsService", () => ({
   uploadMetadata: jest.fn(async (metadata) => ({ cid: "QmTest" })),
   fetchMetadata: jest.fn(async () => ({ hello: "world" })),
-  mintWithIpfs: jest.fn(async ({ publicKey, memo, metadata }) => ({ cid: "QmTest", memo: memo || "QmTest", publicKey, metadata })),
+  mintWithIpfs: jest.fn(async ({ publicKey, memo, metadata }) => ({
+    cid: "QmTest",
+    memo: memo || "QmTest",
+    publicKey,
+    metadata,
+  })),
 }));
 
 const ipfsRoutes = require("../src/routes/receipts");
@@ -22,7 +27,9 @@ function app() {
 
 describe("IPFS receipt routes", () => {
   it("uploads metadata and returns a CID", async () => {
-    const res = await request(app()).post("/api/receipts/ipfs").send({ metadata: { invoice: "1" } });
+    const res = await request(app())
+      .post("/api/receipts/ipfs")
+      .send({ metadata: { invoice: "1" } });
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.cid).toBe("QmTest");
@@ -35,11 +42,13 @@ describe("IPFS receipt routes", () => {
   });
 
   it("mints receipt metadata with an IPFS memo", async () => {
-    const res = await request(app()).post("/api/receipts/mint-with-ipfs").send({
-      publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-      memo: "invoice-1",
-      metadata: { invoice: "1" },
-    });
+    const res = await request(app())
+      .post("/api/receipts/mint-with-ipfs")
+      .send({
+        publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        memo: "invoice-1",
+        metadata: { invoice: "1" },
+      });
     expect(res.status).toBe(201);
     expect(res.body.data.memo).toBe("invoice-1");
     expect(ipfsService.mintWithIpfs).toHaveBeenCalled();

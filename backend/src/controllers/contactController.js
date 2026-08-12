@@ -20,9 +20,7 @@ async function getContacts(req, res, next) {
       .where({ public_key: publicKey })
       .orderBy("name", "asc");
 
-    const contacts = await db("contacts")
-      .where({ public_key: publicKey })
-      .orderBy("name", "asc");
+    const contacts = await db("contacts").where({ public_key: publicKey }).orderBy("name", "asc");
 
     const groupMembership = await db("contact_group_membership")
       .join("contacts", "contact_group_membership.contact_id", "contacts.id")
@@ -123,15 +121,12 @@ async function syncContacts(req, res, next) {
 
       // Re-sync group membership for this contact
       if (contact.groups) {
-        await db("contact_group_membership")
-          .where({ contact_id: contactId })
-          .del();
+        await db("contact_group_membership").where({ contact_id: contactId }).del();
 
         for (const groupName of contact.groups) {
           const gId = upsertedGroupIds[groupName];
           if (gId) {
-            await db("contact_group_membership")
-              .insert({ contact_id: contactId, group_id: gId });
+            await db("contact_group_membership").insert({ contact_id: contactId, group_id: gId });
           }
         }
       }

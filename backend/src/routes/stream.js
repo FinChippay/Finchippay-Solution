@@ -39,9 +39,7 @@ router.get("/:publicKey", async (req, res) => {
 
   // Replay missed events if Last-Event-ID is provided
   if (lastEventId) {
-    const missedEvents = eventBuffer.filter(
-      (e) => e.publicKey === publicKey && e.id > lastEventId
-    );
+    const missedEvents = eventBuffer.filter((e) => e.publicKey === publicKey && e.id > lastEventId);
     for (const ev of missedEvents) {
       res.write(`id: ${ev.id}\n`);
       res.write(`event: ${ev.type}\n`);

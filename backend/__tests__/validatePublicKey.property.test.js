@@ -92,9 +92,7 @@ describe("validatePublicKey — property-based tests", () => {
         })
         .filter((s) => !s.startsWith("G")),
       // Contains lowercase letters
-      fc
-        .string({ minLength: 56, maxLength: 56 })
-        .filter((s) => /[a-z]/.test(s)),
+      fc.string({ minLength: 56, maxLength: 56 }).filter((s) => /[a-z]/.test(s)),
     );
 
     fc.assert(
@@ -111,17 +109,7 @@ describe("validatePublicKey — property-based tests", () => {
    * rather than crashing with a TypeError or returning silently.
    */
   it("throws an Error (not a crash) for non-string inputs", () => {
-    const nonStrings = [
-      null,
-      undefined,
-      0,
-      42,
-      true,
-      false,
-      {},
-      [],
-      Symbol("x"),
-    ];
+    const nonStrings = [null, undefined, 0, 42, true, false, {}, [], Symbol("x")];
 
     for (const value of nonStrings) {
       expect(() => validatePublicKey(value)).toThrow(Error);

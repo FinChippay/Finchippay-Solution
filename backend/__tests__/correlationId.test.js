@@ -46,9 +46,7 @@ describe("correlationIdMiddleware", () => {
 
   it("ignores an invalid incoming header and generates a fresh ID instead", async () => {
     const app = buildApp();
-    const res = await request(app)
-      .get("/ok")
-      .set("X-Correlation-ID", "not valid! header value");
+    const res = await request(app).get("/ok").set("X-Correlation-ID", "not valid! header value");
 
     expect(res.headers["x-correlation-id"]).not.toBe("not valid! header value");
     expect(res.headers["x-correlation-id"]).toMatch(/^[A-Za-z0-9-]{1,128}$/);
@@ -65,10 +63,7 @@ describe("correlationIdMiddleware", () => {
 
   it("assigns a different correlation ID to each request when none is supplied", async () => {
     const app = buildApp();
-    const [res1, res2] = await Promise.all([
-      request(app).get("/ok"),
-      request(app).get("/ok"),
-    ]);
+    const [res1, res2] = await Promise.all([request(app).get("/ok"), request(app).get("/ok")]);
 
     expect(res1.headers["x-correlation-id"]).not.toBe(res2.headers["x-correlation-id"]);
   });

@@ -37,17 +37,11 @@ var transport = null;
 
 function initTransport() {
   if (!isEnabled) {
-    logger.info(
-      { type: "notification_disabled" },
-      "Email notifications are disabled",
-    );
+    logger.info({ type: "notification_disabled" }, "Email notifications are disabled");
     return false;
   }
   if (!smtpConfig.host || !smtpConfig.auth.user || !smtpConfig.auth.pass) {
-    logger.warn(
-      { type: "notification_misconfigured" },
-      "SMTP not fully configured",
-    );
+    logger.warn({ type: "notification_misconfigured" }, "SMTP not fully configured");
     return false;
   }
   try {
@@ -60,16 +54,10 @@ function initTransport() {
         pass: smtpConfig.auth.pass,
       },
     });
-    logger.info(
-      { type: "notification_transport_ready" },
-      "SMTP transport initialized",
-    );
+    logger.info({ type: "notification_transport_ready" }, "SMTP transport initialized");
     return true;
   } catch (err) {
-    logger.error(
-      { type: "notification_transport_error", error: err.message },
-      "Failed",
-    );
+    logger.error({ type: "notification_transport_error", error: err.message }, "Failed");
     return false;
   }
 }
@@ -183,9 +171,7 @@ async function registerEmail(publicKey, email, options) {
       updated_at: new Date().toISOString(),
     });
   }
-  var saved = await knex("notification_email_preferences")
-    .where("public_key", publicKey)
-    .first();
+  var saved = await knex("notification_email_preferences").where("public_key", publicKey).first();
   logger.info(
     {
       type: "notification_email_registered",
@@ -204,9 +190,7 @@ async function registerEmail(publicKey, email, options) {
 }
 
 async function getEmailPreference(publicKey) {
-  var row = await knex("notification_email_preferences")
-    .where("public_key", publicKey)
-    .first();
+  var row = await knex("notification_email_preferences").where("public_key", publicKey).first();
   if (!row) return null;
   return {
     publicKey: row.public_key,
@@ -218,14 +202,9 @@ async function getEmailPreference(publicKey) {
 }
 
 async function deleteEmailPreference(publicKey) {
-  var deleted = await knex("notification_email_preferences")
-    .where("public_key", publicKey)
-    .del();
+  var deleted = await knex("notification_email_preferences").where("public_key", publicKey).del();
   if (deleted) {
-    logger.info(
-      { type: "notification_email_deleted", publicKey: publicKey },
-      "Deleted",
-    );
+    logger.info({ type: "notification_email_deleted", publicKey: publicKey }, "Deleted");
     return true;
   }
   return false;

@@ -18,22 +18,11 @@ const metrics = require("../src/services/metricsService");
 
 const DOCS = path.join(__dirname, "..", "..", "docs");
 
-const dashboard = JSON.parse(
-  fs.readFileSync(path.join(DOCS, "grafana-dashboard.json"), "utf8"),
-);
-const alerts = yaml.load(
-  fs.readFileSync(path.join(DOCS, "prometheus-alerts.yml"), "utf8"),
-);
-const scrapeConfig = yaml.load(
-  fs.readFileSync(path.join(DOCS, "prometheus.yml"), "utf8"),
-);
-const notifiers = yaml.load(
-  fs.readFileSync(path.join(DOCS, "grafana-notifiers.yml"), "utf8"),
-);
-const runbook = fs.readFileSync(
-  path.join(DOCS, "monitoring-runbook.md"),
-  "utf8",
-);
+const dashboard = JSON.parse(fs.readFileSync(path.join(DOCS, "grafana-dashboard.json"), "utf8"));
+const alerts = yaml.load(fs.readFileSync(path.join(DOCS, "prometheus-alerts.yml"), "utf8"));
+const scrapeConfig = yaml.load(fs.readFileSync(path.join(DOCS, "prometheus.yml"), "utf8"));
+const notifiers = yaml.load(fs.readFileSync(path.join(DOCS, "grafana-notifiers.yml"), "utf8"));
+const runbook = fs.readFileSync(path.join(DOCS, "monitoring-runbook.md"), "utf8");
 
 /** Metric names the backend registers, including default Node.js metrics. */
 async function exposedMetricNames() {
@@ -65,12 +54,49 @@ function metricsIn(expr) {
     .replace(/\[[^\]]*\]/g, "");
 
   const PROMQL_KEYWORDS = new Set([
-    "rate", "irate", "increase", "sum", "avg", "min", "max", "count", "by",
-    "without", "on", "ignoring", "group_left", "group_right", "clamp_min",
-    "clamp_max", "histogram_quantile", "topk", "bottomk", "label_replace",
-    "abs", "ceil", "floor", "round", "delta", "idelta", "deriv", "predict_linear",
-    "time", "vector", "scalar", "absent", "changes", "resets", "and", "or",
-    "unless", "offset", "le", "quantile", "stddev", "stdvar", "up",
+    "rate",
+    "irate",
+    "increase",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "count",
+    "by",
+    "without",
+    "on",
+    "ignoring",
+    "group_left",
+    "group_right",
+    "clamp_min",
+    "clamp_max",
+    "histogram_quantile",
+    "topk",
+    "bottomk",
+    "label_replace",
+    "abs",
+    "ceil",
+    "floor",
+    "round",
+    "delta",
+    "idelta",
+    "deriv",
+    "predict_linear",
+    "time",
+    "vector",
+    "scalar",
+    "absent",
+    "changes",
+    "resets",
+    "and",
+    "or",
+    "unless",
+    "offset",
+    "le",
+    "quantile",
+    "stddev",
+    "stdvar",
+    "up",
   ]);
 
   return [...withoutFunctions.matchAll(/\b([a-z_][a-z0-9_]*)\b/gi)]
@@ -119,9 +145,7 @@ describe("metricsService", () => {
   it("exports the counters the instrumented call sites use", () => {
     expect(typeof metrics.rateLimitHitsTotal.inc).toBe("function");
     expect(typeof metrics.webhookDeliveriesTotal.inc).toBe("function");
-    expect(typeof metrics.webhookDeliveryDurationSeconds.startTimer).toBe(
-      "function",
-    );
+    expect(typeof metrics.webhookDeliveryDurationSeconds.startTimer).toBe("function");
     expect(typeof metrics.contractEventsProcessedTotal.inc).toBe("function");
     expect(typeof metrics.contractEventIndexerLagLedgers.set).toBe("function");
   });
@@ -207,9 +231,7 @@ describe("grafana-dashboard.json", () => {
   });
 
   it("describes each new panel so an operator knows what it means", () => {
-    const newPanels = dashboard.panels.filter(
-      (p) => p.id >= 100 && p.type !== "row",
-    );
+    const newPanels = dashboard.panels.filter((p) => p.id >= 100 && p.type !== "row");
 
     expect(newPanels.length).toBeGreaterThanOrEqual(6);
     for (const panel of newPanels) {
@@ -323,14 +345,13 @@ describe("prometheus.yml", () => {
   });
 
   it("routes alerts to an Alertmanager", () => {
-    expect(scrapeConfig.alerting.alertmanagers[0].static_configs[0].targets)
-      .toContain("alertmanager:9093");
+    expect(scrapeConfig.alerting.alertmanagers[0].static_configs[0].targets).toContain(
+      "alertmanager:9093",
+    );
   });
 
   it("still scrapes the backend", () => {
-    const job = scrapeConfig.scrape_configs.find(
-      (j) => j.job_name === "finchippay-backend",
-    );
+    const job = scrapeConfig.scrape_configs.find((j) => j.job_name === "finchippay-backend");
     expect(job.metrics_path).toBe("/metrics");
   });
 });
@@ -342,18 +363,13 @@ describe("grafana-notifiers.yml", () => {
     expect(names).toContain("finchippay-email");
     expect(names).toContain("finchippay-slack");
 
-    const types = notifiers.contactPoints.flatMap((c) =>
-      c.receivers.map((r) => r.type),
-    );
+    const types = notifiers.contactPoints.flatMap((c) => c.receivers.map((r) => r.type));
     expect(types).toContain("email");
     expect(types).toContain("slack");
   });
 
   it("reads secrets from the environment rather than committing them", () => {
-    const raw = fs.readFileSync(
-      path.join(DOCS, "grafana-notifiers.yml"),
-      "utf8",
-    );
+    const raw = fs.readFileSync(path.join(DOCS, "grafana-notifiers.yml"), "utf8");
 
     expect(raw).toContain("${SLACK_WEBHOOK_URL}");
     expect(raw).toContain("${ALERT_EMAIL_TO}");
@@ -366,9 +382,7 @@ describe("grafana-notifiers.yml", () => {
     expect(names).toContain(policy.receiver);
 
     const criticalRoute = policy.routes.find((r) =>
-      r.object_matchers.some(
-        ([label, , value]) => label === "severity" && value === "critical",
-      ),
+      r.object_matchers.some(([label, , value]) => label === "severity" && value === "critical"),
     );
     expect(criticalRoute).toBeDefined();
     expect(names).toContain(criticalRoute.receiver);

@@ -43,8 +43,7 @@ jest.mock("../src/db/connection", () =>
         where: jest.fn((column, value) => {
           const rows = webhookRows.filter((row) => row[column] === value);
           return {
-            then: (resolve, reject) =>
-              Promise.resolve(rows).then(resolve, reject),
+            then: (resolve, reject) => Promise.resolve(rows).then(resolve, reject),
             first: async () => rows[0],
           };
         }),
@@ -90,10 +89,7 @@ describe("webhook topic subscriptions", () => {
     );
 
     expect(registered.topics).toEqual(["payment.received", "stream.claimed"]);
-    expect(JSON.parse(webhookRows[0].topics)).toEqual([
-      "payment.received",
-      "stream.claimed",
-    ]);
+    expect(JSON.parse(webhookRows[0].topics)).toEqual(["payment.received", "stream.claimed"]);
   });
 
   it("defaults omitted topics to all", async () => {
@@ -108,12 +104,9 @@ describe("webhook topic subscriptions", () => {
   });
 
   it("lists subscribed topics without exposing the signing secret", async () => {
-    await service.registerWebhook(
-      ACCOUNT,
-      "https://example.test/webhook",
-      "supersecret",
-      ["payment.received"],
-    );
+    await service.registerWebhook(ACCOUNT, "https://example.test/webhook", "supersecret", [
+      "payment.received",
+    ]);
 
     const hooks = await service.getWebhooksByPublicKey(ACCOUNT);
 
@@ -154,11 +147,7 @@ describe("webhook topic subscriptions", () => {
       topics: ["all"],
     };
 
-    await service.deliverWebhook(
-      explicit,
-      { event: "payment.received" },
-      "payment.received",
-    );
+    await service.deliverWebhook(explicit, { event: "payment.received" }, "payment.received");
     await service.deliverWebhook(
       all,
       { event: "scheduled_transaction.pending_signature" },

@@ -77,16 +77,12 @@ describe("ERROR_CODES registry", () => {
 
   it("every httpStatus is a valid HTTP status code (100–599 or 0)", () => {
     for (const entry of Object.values(ERROR_CODES)) {
-      expect([0, ...Array.from({ length: 500 }, (_, i) => i + 100)]).toContain(
-        entry.httpStatus,
-      );
+      expect([0, ...Array.from({ length: 500 }, (_, i) => i + 100)]).toContain(entry.httpStatus);
     }
   });
 
   it("has expected auth error codes", () => {
-    const authCodes = Object.keys(ERROR_CODES).filter((k) =>
-      k.startsWith("AUTH_"),
-    );
+    const authCodes = Object.keys(ERROR_CODES).filter((k) => k.startsWith("AUTH_"));
     expect(authCodes).toContain("AUTH_MISSING_TOKEN");
     expect(authCodes).toContain("AUTH_EXPIRED_TOKEN");
     expect(authCodes).toContain("AUTH_INVALID_TOKEN");
@@ -96,9 +92,7 @@ describe("ERROR_CODES registry", () => {
   });
 
   it("has expected validation error codes", () => {
-    const valCodes = Object.keys(ERROR_CODES).filter((k) =>
-      k.startsWith("VAL_"),
-    );
+    const valCodes = Object.keys(ERROR_CODES).filter((k) => k.startsWith("VAL_"));
     expect(valCodes).toContain("VAL_INVALID_PUBLIC_KEY");
     expect(valCodes).toContain("VAL_MISSING_FIELD");
     expect(valCodes).toContain("VAL_INVALID_JSON");
@@ -107,9 +101,7 @@ describe("ERROR_CODES registry", () => {
   });
 
   it("has expected resource error codes", () => {
-    const resCodes = Object.keys(ERROR_CODES).filter((k) =>
-      k.startsWith("RES_"),
-    );
+    const resCodes = Object.keys(ERROR_CODES).filter((k) => k.startsWith("RES_"));
     expect(resCodes).toContain("RES_NOT_FOUND");
     expect(resCodes).toContain("RES_CONFLICT");
     expect(resCodes).toContain("RES_ROUTE_NOT_FOUND");
@@ -300,17 +292,13 @@ describe("correlation ID injection (#270)", () => {
   it("adds correlationId once a provider is registered", () => {
     setCorrelationIdProvider(() => "req-abc-123");
 
-    expect(formatErrorResponse("RES_NOT_FOUND").error.correlationId).toBe(
-      "req-abc-123",
-    );
+    expect(formatErrorResponse("RES_NOT_FOUND").error.correlationId).toBe("req-abc-123");
   });
 
   it("omits the field when the provider returns nothing", () => {
     setCorrelationIdProvider(() => undefined);
 
-    expect(formatErrorResponse("RES_NOT_FOUND").error).not.toHaveProperty(
-      "correlationId",
-    );
+    expect(formatErrorResponse("RES_NOT_FOUND").error).not.toHaveProperty("correlationId");
   });
 
   it("never lets a throwing provider break error formatting", () => {
@@ -335,9 +323,7 @@ describe("correlation ID injection (#270)", () => {
   it("ignores a non-function provider", () => {
     setCorrelationIdProvider("not-a-function");
 
-    expect(formatErrorResponse("SRV_INTERNAL").error).not.toHaveProperty(
-      "correlationId",
-    );
+    expect(formatErrorResponse("SRV_INTERNAL").error).not.toHaveProperty("correlationId");
   });
 });
 
@@ -348,8 +334,6 @@ describe("formatErrorResponse() message override", () => {
     });
 
     expect(body.error.code).toBe("AUTH_FORBIDDEN");
-    expect(body.error.message).toBe(
-      "You may only access your own account data.",
-    );
+    expect(body.error.message).toBe("You may only access your own account data.");
   });
 });

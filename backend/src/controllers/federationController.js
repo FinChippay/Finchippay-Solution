@@ -7,9 +7,7 @@
 
 const axios = require("axios");
 const usernameService = require("../services/usernameService");
-const {
-  stellarAddress: stellarAddressSchema,
-} = require("../validation/schemas");
+const { stellarAddress: stellarAddressSchema } = require("../validation/schemas");
 
 /**
  * GET /federation?q=<query>&type=<type>
@@ -149,9 +147,7 @@ async function forwardFederation(query, type) {
     response.data.account_id &&
     !stellarAddressSchema.safeParse(response.data.account_id).success
   ) {
-    const error = new Error(
-      "Invalid Stellar address returned from federation server",
-    );
+    const error = new Error("Invalid Stellar address returned from federation server");
     error.status = 502;
     error.errorCode = "SRV_FEDERATION_FAILED";
     throw error;

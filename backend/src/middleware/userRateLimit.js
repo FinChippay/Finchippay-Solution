@@ -9,9 +9,7 @@ const baseLimiter = rateLimit({
   windowMs: process.env.USER_RATE_LIMIT_WINDOW_MS
     ? parseInt(process.env.USER_RATE_LIMIT_WINDOW_MS, 10)
     : 1 * 60 * 1000,
-  limit: process.env.USER_RATE_LIMIT_MAX
-    ? parseInt(process.env.USER_RATE_LIMIT_MAX, 10)
-    : 30,
+  limit: process.env.USER_RATE_LIMIT_MAX ? parseInt(process.env.USER_RATE_LIMIT_MAX, 10) : 30,
   keyGenerator: (req) => {
     return req.user?.sub || req.ip;
   },
@@ -25,8 +23,8 @@ const baseLimiter = rateLimit({
     res.status(429).json({
       error: {
         code: "RATE_LIMITED_USER",
-        message: "Too many requests from this account"
-      }
+        message: "Too many requests from this account",
+      },
     });
   },
 });
@@ -40,7 +38,7 @@ function userLimiter(req, res, next) {
     if (err) {
       return next(err);
     }
-    
+
     // express-rate-limit attaches `req.rateLimit` which contains:
     // limit, current, remaining, resetTime
     if (req.rateLimit) {
@@ -49,11 +47,11 @@ function userLimiter(req, res, next) {
       if (req.rateLimit.resetTime) {
         res.setHeader(
           "X-RateLimit-User-Reset",
-          Math.ceil(req.rateLimit.resetTime.getTime() / 1000)
+          Math.ceil(req.rateLimit.resetTime.getTime() / 1000),
         );
       }
     }
-    
+
     next();
   });
 }

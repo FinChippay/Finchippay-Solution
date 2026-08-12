@@ -31,9 +31,7 @@ function validateUsername(username) {
     throw err;
   }
   if (!/^[a-zA-Z0-9]{3,20}$/.test(username)) {
-    const err = new Error(
-      "Username must be 3–20 characters and contain only letters and numbers",
-    );
+    const err = new Error("Username must be 3–20 characters and contain only letters and numbers");
     err.status = 400;
     throw err;
   }
@@ -75,9 +73,7 @@ async function registerUsername(username, publicKey) {
   validatePublicKey(publicKey);
 
   // Check for existing username
-  const existingUsername = await knex("usernames")
-    .where("username", username)
-    .first();
+  const existingUsername = await knex("usernames").where("username", username).first();
   if (existingUsername) {
     const err = new Error("Username already registered");
     err.status = 409;
@@ -85,9 +81,7 @@ async function registerUsername(username, publicKey) {
   }
 
   // Check for existing public key
-  const existingKey = await knex("usernames")
-    .where("public_key", publicKey)
-    .first();
+  const existingKey = await knex("usernames").where("public_key", publicKey).first();
   if (existingKey) {
     const err = new Error("Public key already registered to another username");
     err.status = 409;

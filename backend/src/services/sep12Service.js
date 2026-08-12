@@ -52,8 +52,7 @@ function _customerKey(publicKey, anchorName) {
 const ANCHORS = {
   anchorusd_testnet: {
     name: "AnchorUSD (Testnet)",
-    sep12Url:
-      process.env.ANCHOR_SEP12_URL || "https://api-testnet.anchorusd.com/sep12",
+    sep12Url: process.env.ANCHOR_SEP12_URL || "https://api-testnet.anchorusd.com/sep12",
   },
 };
 
@@ -109,9 +108,9 @@ function _validateField(key, value) {
     if (value.type && !SEP12_FIELD_TYPES.has(value.type)) {
       throw Object.assign(
         new Error(
-          `Invalid field type "${value.type}" for "${key}". Allowed: ${[
-            ...SEP12_FIELD_TYPES,
-          ].join(", ")}`,
+          `Invalid field type "${value.type}" for "${key}". Allowed: ${[...SEP12_FIELD_TYPES].join(
+            ", ",
+          )}`,
         ),
         { status: 400 },
       );
@@ -184,9 +183,7 @@ async function _proxyPutCustomer(publicKey, sep12Url, fields, jwt) {
 
   if (!response.ok) {
     throw Object.assign(
-      new Error(
-        `Anchor SEP-12 PUT failed (${response.status}): ${responseBody}`,
-      ),
+      new Error(`Anchor SEP-12 PUT failed (${response.status}): ${responseBody}`),
       { status: response.status, anchorResponse: parsed },
     );
   }
@@ -226,9 +223,7 @@ async function _proxyGetCustomer(publicKey, sep12Url, jwt) {
 
   if (!response.ok) {
     throw Object.assign(
-      new Error(
-        `Anchor SEP-12 GET failed (${response.status}): ${responseBody}`,
-      ),
+      new Error(`Anchor SEP-12 GET failed (${response.status}): ${responseBody}`),
       { status: response.status, anchorResponse: parsed },
     );
   }
@@ -250,11 +245,7 @@ async function _proxyGetCustomer(publicKey, sep12Url, jwt) {
 async function putCustomer(publicKey, anchorName, fields, jwt) {
   const anchor = resolveAnchor(anchorName);
 
-  if (
-    !fields ||
-    typeof fields !== "object" ||
-    Object.keys(fields).length === 0
-  ) {
+  if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
     const err = new Error("fields object is required and must not be empty");
     err.status = 400;
     throw err;
@@ -268,18 +259,10 @@ async function putCustomer(publicKey, anchorName, fields, jwt) {
   // Proxy to the anchor
   let anchorResponse;
   try {
-    anchorResponse = await _proxyPutCustomer(
-      publicKey,
-      anchor.sep12Url,
-      fields,
-      jwt,
-    );
+    anchorResponse = await _proxyPutCustomer(publicKey, anchor.sep12Url, fields, jwt);
     logger.info({ publicKey, anchorName }, "SEP-12 PUT /customer success");
   } catch (err) {
-    logger.error(
-      { err, publicKey, anchorName },
-      "SEP-12 PUT /customer proxy failed",
-    );
+    logger.error({ err, publicKey, anchorName }, "SEP-12 PUT /customer proxy failed");
     throw err;
   }
 
@@ -323,18 +306,13 @@ async function getCustomer(publicKey, anchorName, jwt) {
   try {
     anchorResponse = await _proxyGetCustomer(publicKey, anchor.sep12Url, jwt);
   } catch (err) {
-    logger.error(
-      { err, publicKey, anchorName },
-      "SEP-12 GET /customer proxy failed",
-    );
+    logger.error({ err, publicKey, anchorName }, "SEP-12 GET /customer proxy failed");
     throw err;
   }
 
   // Merge anchor response with local record
   const existing = customers.get(key);
-  const status = _mapAnchorStatus(
-    anchorResponse?.status ?? existing?.status ?? "NONE",
-  );
+  const status = _mapAnchorStatus(anchorResponse?.status ?? existing?.status ?? "NONE");
 
   const record = {
     publicKey,

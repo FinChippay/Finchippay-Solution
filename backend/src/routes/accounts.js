@@ -9,10 +9,7 @@ const express = require("express");
 const router = express.Router();
 const { strictLimiter, sensitiveLimiter } = require("../middleware/rateLimit");
 const { userLimiter } = require("../middleware/userRateLimit");
-const {
-  sanitizePublicKey,
-  sanitizeUsername,
-} = require("../middleware/sanitization");
+const { sanitizePublicKey, sanitizeUsername } = require("../middleware/sanitization");
 const { verifyJWT } = require("../middleware/auth");
 const { validate } = require("../validation/middleware");
 const {

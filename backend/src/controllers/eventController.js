@@ -61,15 +61,13 @@ async function getEvents(req, res, next) {
       }
     }
 
-    const { events, total } = await eventIndexer.queryEventsByPublicKey(
-      publicKey,
-      { limit, offset },
-    );
+    const { events, total } = await eventIndexer.queryEventsByPublicKey(publicKey, {
+      limit,
+      offset,
+    });
 
     const hasMore = offset + limit < total;
-    const nextCursor = hasMore
-      ? encodeCursor({ offset: offset + limit })
-      : null;
+    const nextCursor = hasMore ? encodeCursor({ offset: offset + limit }) : null;
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
     res.json({
@@ -114,10 +112,7 @@ async function getStats(req, res, next) {
       },
     });
   } catch (err) {
-    logger.error(
-      { err, publicKey: req.params.publicKey },
-      "getStats (events) error",
-    );
+    logger.error({ err, publicKey: req.params.publicKey }, "getStats (events) error");
     next(err);
   }
 }
@@ -142,16 +137,14 @@ async function getEventsByType(req, res, next) {
     const { publicKey, eventType } = req.params;
     const { limit = 20, offset = 0, since } = req.validated || req.query;
 
-    const { events, total } = await eventIndexer.queryEventsByType(
-      publicKey,
-      eventType,
-      { limit: Number(limit), offset: Number(offset), since },
-    );
+    const { events, total } = await eventIndexer.queryEventsByType(publicKey, eventType, {
+      limit: Number(limit),
+      offset: Number(offset),
+      since,
+    });
 
     const hasMore = offset + limit < total;
-    const nextCursor = hasMore
-      ? encodeCursor({ offset: offset + limit })
-      : null;
+    const nextCursor = hasMore ? encodeCursor({ offset: offset + limit }) : null;
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
     res.json({

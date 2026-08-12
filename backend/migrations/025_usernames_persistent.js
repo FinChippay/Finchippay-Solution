@@ -39,7 +39,9 @@ exports.up = async function (knex) {
   await addIfMissing("updated_at", (t) => t.timestamp("updated_at").defaultTo(knex.fn.now()));
 
   // CREATE INDEX IF NOT EXISTS is supported on both SQLite and Postgres.
-  await knex.schema.raw("CREATE INDEX IF NOT EXISTS idx_usernames_public_key ON usernames(public_key)");
+  await knex.schema.raw(
+    "CREATE INDEX IF NOT EXISTS idx_usernames_public_key ON usernames(public_key)",
+  );
   await knex.schema.raw("CREATE INDEX IF NOT EXISTS idx_usernames_lookup ON usernames(username)");
 };
 

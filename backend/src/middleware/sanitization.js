@@ -11,10 +11,7 @@
 
 "use strict";
 
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * Sanitize and validate a Stellar public key path parameter.

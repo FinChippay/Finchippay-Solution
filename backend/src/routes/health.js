@@ -112,16 +112,10 @@ router.get("/ready", async (_req, res, next) => {
       disk_space: diskSpace,
     };
 
-    const criticalFailure = CRITICAL_CHECK_KEYS.some(
-      (key) => checks[key].status === "unhealthy",
-    );
+    const criticalFailure = CRITICAL_CHECK_KEYS.some((key) => checks[key].status === "unhealthy");
     const anyDegraded = Object.values(checks).some((c) => c.status !== "healthy");
 
-    const summary = criticalFailure
-      ? "critical_failure"
-      : anyDegraded
-        ? "degraded"
-        : "all_healthy";
+    const summary = criticalFailure ? "critical_failure" : anyDegraded ? "degraded" : "all_healthy";
 
     res.status(criticalFailure ? 503 : 200).json({
       status: criticalFailure ? "not_ready" : "ready",
@@ -166,10 +160,7 @@ router.get("/dependencies", verifyJWT, requireAdmin, async (_req, res, next) => 
     const checkedAt = new Date().toISOString();
 
     const dependencies = Object.fromEntries(
-      Object.entries(results).map(([name, result]) => [
-        name,
-        { ...result, checkedAt },
-      ]),
+      Object.entries(results).map(([name, result]) => [name, { ...result, checkedAt }]),
     );
 
     res.json({ dependencies });

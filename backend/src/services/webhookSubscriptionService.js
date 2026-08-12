@@ -14,8 +14,7 @@ const {
   matchesWebhookTopic,
 } = require("./webhookTopics");
 
-const HORIZON_URL =
-  process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 const server = new Horizon.Server(HORIZON_URL);
 const activeStreams = new Map();
 const pendingDeliveries = new Set();
@@ -84,11 +83,7 @@ async function getWebhooksByPublicKey(publicKey) {
   }));
 }
 
-async function deliverWebhook(
-  webhook,
-  payload,
-  eventType = "payment.received",
-) {
+async function deliverWebhook(webhook, payload, eventType = "payment.received") {
   let resolvedWebhook = webhook;
   if (!resolvedWebhook.secret && resolvedWebhook.id) {
     resolvedWebhook = await getWebhookRecordById(resolvedWebhook.id);
@@ -148,11 +143,9 @@ function startMonitoring(publicKey) {
 
         const hooks = await getWebhookRecordsByPublicKey(publicKey);
         const deliveries = hooks.map((hook) => {
-          const promise = deliverWebhook(
-            hook,
-            payload,
-            "payment.received",
-          ).finally(() => pendingDeliveries.delete(promise));
+          const promise = deliverWebhook(hook, payload, "payment.received").finally(() =>
+            pendingDeliveries.delete(promise),
+          );
           pendingDeliveries.add(promise);
           return promise;
         });
@@ -221,10 +214,7 @@ async function replayEvents(publicKey, { eventIds, since, until }) {
     const webhook = await getWebhookRecordById(event.webhook_id);
     if (!webhook) continue;
 
-    const payload =
-      typeof event.payload === "string"
-        ? JSON.parse(event.payload)
-        : event.payload;
+    const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
     const result = await deliverWebhook(webhook, payload, event.event_type);
     if (result.delivered) replayed += 1;
   }

@@ -104,9 +104,7 @@ describe("URL-encoded body size limits (#353)", () => {
 describe("Improved 413 error response (#353)", () => {
   it("returns PAYLOAD_TOO_LARGE error code with descriptive message", async () => {
     const oversized = "a".repeat(2 * 1024 * 1024); // 2MB, well over 1mb limit
-    const res = await request(app)
-      .post("/api/webhooks")
-      .send({ padding: oversized });
+    const res = await request(app).post("/api/webhooks").send({ padding: oversized });
 
     if (res.status === 413) {
       expect(res.body).toHaveProperty("error", "PAYLOAD_TOO_LARGE");

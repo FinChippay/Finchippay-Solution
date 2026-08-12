@@ -13,9 +13,7 @@ function errorResponses() {
   const found = [];
   for (const [route, pathItem] of Object.entries(spec.paths || {})) {
     for (const [method, operation] of Object.entries(pathItem)) {
-      for (const [status, response] of Object.entries(
-        operation?.responses || {},
-      )) {
+      for (const [status, response] of Object.entries(operation?.responses || {})) {
         if (Number(status) >= 400) {
           found.push({ route, method, status, response });
         }
@@ -45,9 +43,7 @@ describe("ErrorResponse schema", () => {
 
   it("keeps the legacy Error schema resolvable", () => {
     expect(spec.components.schemas.Error).toBeDefined();
-    expect(spec.components.schemas.Error.allOf[0].$ref).toBe(
-      "#/components/schemas/ErrorResponse",
-    );
+    expect(spec.components.schemas.Error.allOf[0].$ref).toBe("#/components/schemas/ErrorResponse");
   });
 });
 
@@ -101,10 +97,7 @@ describe("documented error statuses", () => {
   it("every one returns the canonical error body", () => {
     const missing = found
       .filter((entry) => !entry.response.content)
-      .map(
-        (entry) =>
-          `${entry.method.toUpperCase()} ${entry.route} → ${entry.status}`,
-      );
+      .map((entry) => `${entry.method.toUpperCase()} ${entry.route} → ${entry.status}`);
 
     expect(missing).toEqual([]);
   });

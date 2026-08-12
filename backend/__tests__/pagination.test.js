@@ -40,14 +40,10 @@ describe("cursor codec", () => {
   });
 
   it("throws InvalidCursorError on a malformed cursor", () => {
-    expect(() => decodeCursor("!!!not-base64-json!!!")).toThrow(
-      InvalidCursorError,
-    );
+    expect(() => decodeCursor("!!!not-base64-json!!!")).toThrow(InvalidCursorError);
     expect(() => decodeCursor("")).toThrow(InvalidCursorError);
     // base64 of a non-object JSON value is rejected too
-    expect(() => decodeCursor(encodeCursor([1, 2, 3]))).toThrow(
-      InvalidCursorError,
-    );
+    expect(() => decodeCursor(encodeCursor([1, 2, 3]))).toThrow(InvalidCursorError);
   });
 });
 
@@ -229,9 +225,7 @@ describe("GET /api/tips/received/:creatorPublicKey (keyset)", () => {
   });
 
   it("returns the first page with a Link + X-Total-Count header", async () => {
-    const res = await request(app()).get(
-      `/api/tips/received/${CREATOR}?limit=2`,
-    );
+    const res = await request(app()).get(`/api/tips/received/${CREATOR}?limit=2`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
     expect(res.body.data[0].id).toBe(3);
@@ -241,9 +235,7 @@ describe("GET /api/tips/received/:creatorPublicKey (keyset)", () => {
   });
 
   it("follows nextCursor to a disjoint second page and stops", async () => {
-    const first = await request(app()).get(
-      `/api/tips/received/${CREATOR}?limit=2`,
-    );
+    const first = await request(app()).get(`/api/tips/received/${CREATOR}?limit=2`);
     const cursor = first.body.pagination.nextCursor;
 
     const second = await request(app()).get(
@@ -292,9 +284,7 @@ describe("GET /api/payments/:publicKey (Horizon cursor alignment)", () => {
 
   it("omits the Link header on a short (last) page but still sets X-Total-Count", async () => {
     // Fewer rows than the limit → last page, no next cursor.
-    stellarService.getPayments.mockResolvedValue([
-      { id: "op1", pagingToken: "111", amount: "1" },
-    ]);
+    stellarService.getPayments.mockResolvedValue([{ id: "op1", pagingToken: "111", amount: "1" }]);
 
     const res = await request(app()).get(`/api/payments/${ACCOUNT}?limit=2`);
     expect(res.status).toBe(200);

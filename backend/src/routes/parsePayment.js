@@ -115,8 +115,7 @@ const safeParse = (text) => {
       recipient: "",
       memo: "",
       isValid: false,
-      clarification:
-        "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
+      clarification: "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
     };
   }
 };
@@ -138,8 +137,7 @@ router.post(
           recipient: "",
           memo: "",
           isValid: false,
-          clarification:
-            "AI payment parsing is not configured. Set ANTHROPIC_API_KEY.",
+          clarification: "AI payment parsing is not configured. Set ANTHROPIC_API_KEY.",
         });
       }
 

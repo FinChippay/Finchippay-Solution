@@ -15,33 +15,26 @@ const {
   loosePublicKeyParamSchema,
   idParamSchema,
 } = require("../validation/schemas");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * POST /api/scheduled-transactions
  * Schedules a new transaction for future submission.
  * Body: { signedXDR: string, submitAt: string (ISO 8601), publicKey: string }
  */
-router.post(
-  "/",
-  validate(scheduleTransactionSchema),
-  async (req, res, next) => {
-    try {
-      const { signedXDR, submitAt, publicKey } = req.validated;
-      const schedule = await scheduledTransactionService.createSchedule({
-        signedXDR,
-        submitAt: new Date(submitAt),
-        publicKey,
-      });
-      res.status(201).json(schedule);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+router.post("/", validate(scheduleTransactionSchema), async (req, res, next) => {
+  try {
+    const { signedXDR, submitAt, publicKey } = req.validated;
+    const schedule = await scheduledTransactionService.createSchedule({
+      signedXDR,
+      submitAt: new Date(submitAt),
+      publicKey,
+    });
+    res.status(201).json(schedule);
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * POST /api/scheduled-transactions/pending/:id/submit
@@ -57,14 +50,9 @@ router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req
     if (!signedXDR) {
       return res
         .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(
-          formatErrorResponse("VAL_MISSING_FIELD", { fields: ["signedXDR"] }),
-        );
+        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["signedXDR"] }));
     }
-    const result = await scheduledTransactionService.submitPendingExecution(
-      id,
-      signedXDR,
-    );
+    const result = await scheduledTransactionService.submitPendingExecution(id, signedXDR);
     res.json(result);
   } catch (error) {
     next(error);
@@ -77,9 +65,7 @@ router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req
  */
 router.get("/:publicKey/pending", async (req, res, next) => {
   try {
-    const pending = await scheduledTransactionService.listPendingExecutions(
-      req.params.publicKey,
-    );
+    const pending = await scheduledTransactionService.listPendingExecutions(req.params.publicKey);
     res.json(pending);
   } catch (error) {
     next(error);
@@ -90,20 +76,15 @@ router.get("/:publicKey/pending", async (req, res, next) => {
  * GET /api/scheduled-transactions/:publicKey
  * Lists all schedules for a given public key.
  */
-router.get(
-  "/:publicKey",
-  validate(loosePublicKeyParamSchema, "params"),
-  async (req, res, next) => {
-    try {
-      const { publicKey } = req.validated;
-      const schedules =
-        await scheduledTransactionService.listSchedules(publicKey);
-      res.json(schedules);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+router.get("/:publicKey", validate(loosePublicKeyParamSchema, "params"), async (req, res, next) => {
+  try {
+    const { publicKey } = req.validated;
+    const schedules = await scheduledTransactionService.listSchedules(publicKey);
+    res.json(schedules);
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * PUT /api/scheduled-transactions/:id
@@ -115,10 +96,7 @@ router.get(
 router.put("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
-    const updated = await scheduledTransactionService.updateSchedule(
-      id,
-      req.body,
-    );
+    const updated = await scheduledTransactionService.updateSchedule(id, req.body);
     res.json(updated);
   } catch (error) {
     next(error);

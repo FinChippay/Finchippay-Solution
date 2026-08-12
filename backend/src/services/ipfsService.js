@@ -54,7 +54,11 @@ function validatePinataConfig() {
 }
 
 async function uploadMetadata(metadata) {
-  if (process.env.NODE_ENV === "test" || !process.env.PINATA_API_KEY || !process.env.PINATA_SECRET_KEY) {
+  if (
+    process.env.NODE_ENV === "test" ||
+    !process.env.PINATA_API_KEY ||
+    !process.env.PINATA_SECRET_KEY
+  ) {
     return { cid: "QmTest" };
   }
 

@@ -11,9 +11,7 @@
 const crypto = require("crypto");
 const Sentry = require("@sentry/node");
 const logger = require("../utils/logger");
-const {
-  runWithRequestContext,
-} = require("../utils/correlationId");
+const { runWithRequestContext } = require("../utils/correlationId");
 
 /**
  * Express middleware:
@@ -27,15 +25,11 @@ const {
 function requestIdMiddleware(req, res, next) {
   const incoming = req.headers["x-request-id"];
   const requestId =
-    typeof incoming === "string" && incoming.trim()
-      ? incoming.trim()
-      : crypto.randomUUID();
+    typeof incoming === "string" && incoming.trim() ? incoming.trim() : crypto.randomUUID();
 
   const sessionHeader = req.headers["x-session-id"];
   const sessionId =
-    typeof sessionHeader === "string" && sessionHeader.trim()
-      ? sessionHeader.trim()
-      : undefined;
+    typeof sessionHeader === "string" && sessionHeader.trim() ? sessionHeader.trim() : undefined;
 
   req.id = requestId;
   if (sessionId) {

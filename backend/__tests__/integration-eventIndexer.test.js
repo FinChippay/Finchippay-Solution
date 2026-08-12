@@ -20,12 +20,9 @@ const express = require("express");
 
 const nock = require("nock");
 
-const SOROBAN_RPC_URL =
-  process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-const TEST_PUBLIC_KEY =
-  "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
-const TEST_CONTRACT_ID =
-  "CDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
+const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+const TEST_PUBLIC_KEY = "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
+const TEST_CONTRACT_ID = "CDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
 
 // Override env vars for the indexer service BEFORE requiring it
 process.env.SOROBAN_RPC_URL = SOROBAN_RPC_URL;
@@ -118,9 +115,7 @@ describe("Event Indexer Integration", () => {
 
     it("handles RPC errors without crashing the poll loop", async () => {
       // Mock the RPC to return a 500 error
-      nock(SOROBAN_RPC_URL)
-        .post("/")
-        .reply(500, { error: "Internal Server Error" });
+      nock(SOROBAN_RPC_URL).post("/").reply(500, { error: "Internal Server Error" });
 
       // Start should not crash
       expect(() => eventIndexer.start()).not.toThrow();
@@ -177,25 +172,19 @@ describe("Event Indexer Integration", () => {
     });
 
     it("returns 400 for invalid limit", async () => {
-      const res = await request(app).get(
-        `/api/events/${TEST_PUBLIC_KEY}?limit=-1`,
-      );
+      const res = await request(app).get(`/api/events/${TEST_PUBLIC_KEY}?limit=-1`);
 
       expect(res.status).toBe(400);
     });
 
     it("returns 400 for invalid offset", async () => {
-      const res = await request(app).get(
-        `/api/events/${TEST_PUBLIC_KEY}?offset=-5`,
-      );
+      const res = await request(app).get(`/api/events/${TEST_PUBLIC_KEY}?offset=-5`);
 
       expect(res.status).toBe(400);
     });
 
     it("caps limit at 100", async () => {
-      const res = await request(app).get(
-        `/api/events/${TEST_PUBLIC_KEY}?limit=999`,
-      );
+      const res = await request(app).get(`/api/events/${TEST_PUBLIC_KEY}?limit=999`);
 
       expect(res.status).toBe(200);
       expect(res.body.pagination.limit).toBe(100);
@@ -206,9 +195,7 @@ describe("Event Indexer Integration", () => {
 
   describe("GET /api/events/:publicKey/stats", () => {
     it("returns zero total for unknown public key", async () => {
-      const res = await request(app).get(
-        `/api/events/${TEST_PUBLIC_KEY}/stats`,
-      );
+      const res = await request(app).get(`/api/events/${TEST_PUBLIC_KEY}/stats`);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);

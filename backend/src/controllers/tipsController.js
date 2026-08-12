@@ -44,8 +44,7 @@ async function recordTip(req, res, next) {
     // Input has already been validated by `tipSchema` (see validate()
     // middleware) — asset defaults to "XLM", amount is a positive decimal
     // string, both keys are valid Stellar addresses.
-    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } =
-      req.validated;
+    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } = req.validated;
 
     const tip = await tipsService.recordTip({
       senderPublicKey,
@@ -98,13 +97,10 @@ async function getTipsReceived(req, res, next) {
     const { creatorPublicKey } = req.validated;
     const { limit, cursor } = req.pagination;
 
-    const { tips, total } = await tipsService.getTipsReceived(
-      creatorPublicKey,
-      {
-        limit,
-        cursor,
-      },
-    );
+    const { tips, total } = await tipsService.getTipsReceived(creatorPublicKey, {
+      limit,
+      cursor,
+    });
     const stats = await tipsService.getTipsStats(creatorPublicKey);
 
     const { data, nextCursor } = buildPage(tips, limit, tipCursor);

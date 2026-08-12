@@ -196,9 +196,7 @@ describe("Scheduled Transaction Executor", () => {
         next_retry_at: nextRetry,
       });
 
-      const execution = await knex("scheduled_txn_executions")
-        .where("id", executionId)
-        .first();
+      const execution = await knex("scheduled_txn_executions").where("id", executionId).first();
 
       expect(execution.status).toBe("pending");
       expect(execution.next_retry_at).toEqual(nextRetry);
@@ -272,13 +270,9 @@ describe("Scheduled Transaction Executor", () => {
       });
 
       // Update schedule status to failed
-      await knex("scheduled_transactions")
-        .where("id", scheduleId)
-        .update({ status: "failed" });
+      await knex("scheduled_transactions").where("id", scheduleId).update({ status: "failed" });
 
-      const schedule = await knex("scheduled_transactions")
-        .where("id", scheduleId)
-        .first();
+      const schedule = await knex("scheduled_transactions").where("id", scheduleId).first();
       expect(schedule.status).toBe("failed");
 
       const execution = await knex("scheduled_txn_executions")
@@ -424,9 +418,7 @@ describe("Scheduled Transaction Executor", () => {
       });
 
       expect(schedule).toBeDefined();
-      const retrieved = await knex("scheduled_transactions")
-        .where("id", scheduleId)
-        .first();
+      const retrieved = await knex("scheduled_transactions").where("id", scheduleId).first();
       expect(retrieved.memo).toBeNull();
     });
 

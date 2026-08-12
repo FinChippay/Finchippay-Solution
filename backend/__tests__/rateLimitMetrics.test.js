@@ -59,9 +59,7 @@ async function getMetricValue(name, labels) {
 
   const snapshot = await metric.get();
   const sample = snapshot.values.find((value) =>
-    Object.entries(labels).every(
-      ([labelName, expected]) => value.labels[labelName] === expected,
-    ),
+    Object.entries(labels).every(([labelName, expected]) => value.labels[labelName] === expected),
   );
 
   return sample?.value ?? 0;
@@ -240,20 +238,12 @@ describe("rolling rate-limit statistics", () => {
     const now = Date.parse("2026-07-24T12:00:00.000Z");
     const oldIp = "192.0.2.250";
 
-    recordRateLimitBreach(
-      makeRequest({ ip: oldIp }),
-      "strict",
-      now - 24 * 60 * 60 * 1000 - 1,
-    );
+    recordRateLimitBreach(makeRequest({ ip: oldIp }), "strict", now - 24 * 60 * 60 * 1000 - 1);
 
     for (let index = 0; index < 12; index += 1) {
       const ip = `198.51.100.${index + 1}`;
       for (let count = 0; count <= index; count += 1) {
-        recordRateLimitBreach(
-          makeRequest({ ip }),
-          "strict",
-          now - index * 1_000,
-        );
+        recordRateLimitBreach(makeRequest({ ip }), "strict", now - index * 1_000);
       }
     }
 
@@ -270,9 +260,7 @@ describe("rolling rate-limit statistics", () => {
     );
     expect(stats.breachHistory).toHaveLength(78);
     expect(stats.breachHistory).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ ipHash: hashIp(oldIp) }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ ipHash: hashIp(oldIp) })]),
     );
   });
 });
@@ -301,9 +289,7 @@ describe("GET /api/admin/rate-limit-stats", () => {
   }
 
   it("rejects requests without a JWT", async () => {
-    const response = await request(createApp()).get(
-      "/api/admin/rate-limit-stats",
-    );
+    const response = await request(createApp()).get("/api/admin/rate-limit-stats");
 
     expect(response.status).toBe(401);
     expect(response.body.error?.code).toBe("AUTH_MISSING_HEADER");

@@ -23,9 +23,7 @@ const config = {
 };
 
 if (isPostgres && !config.connection) {
-  throw new Error(
-    `DATABASE_URL must be set for NODE_ENV=${env} (DB_PROVIDER=postgres)`,
-  );
+  throw new Error(`DATABASE_URL must be set for NODE_ENV=${env} (DB_PROVIDER=postgres)`);
 }
 
 const knex = require("knex")(config);
@@ -42,7 +40,7 @@ if (env === "development") {
     if (count === 4) {
       logger.warn(
         { sql: query.sql },
-        `[N+1] Potential N+1 query detected: ${sqlShape} (called 4+ times)`
+        `[N+1] Potential N+1 query detected: ${sqlShape} (called 4+ times)`,
       );
     }
   });

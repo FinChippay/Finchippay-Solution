@@ -49,7 +49,10 @@ async function performBackup() {
     exec(command, (error) => {
       if (error) {
         // Fallback for sqlite file copy if sqlite3 CLI is absent
-        if (provider !== "postgres" && fs.existsSync(process.env.SQLITE_FILE || "./database.sqlite")) {
+        if (
+          provider !== "postgres" &&
+          fs.existsSync(process.env.SQLITE_FILE || "./database.sqlite")
+        ) {
           try {
             fs.copyFileSync(process.env.SQLITE_FILE || "./database.sqlite", filePath);
           } catch (copyErr) {

@@ -31,9 +31,7 @@ jest.mock("../src/services/webhookSubscriptionService", () => {
       deadDeliveries.filter((d) => d.publicKey === publicKey),
     ),
     retryDeadDeliveries: jest.fn((publicKey) => {
-      const count = deadDeliveries.filter(
-        (d) => d.publicKey === publicKey,
-      ).length;
+      const count = deadDeliveries.filter((d) => d.publicKey === publicKey).length;
       return { reset: count };
     }),
     getEvents: jest.fn(() => []),
@@ -62,9 +60,7 @@ beforeEach(() => {
 
 describe("POST /api/webhooks", () => {
   it("requires publicKey, url, and secret", async () => {
-    const res = await request(app())
-      .post("/api/webhooks")
-      .send({ url: "https://x.test/h" });
+    const res = await request(app()).post("/api/webhooks").send({ url: "https://x.test/h" });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/required/i);
   });

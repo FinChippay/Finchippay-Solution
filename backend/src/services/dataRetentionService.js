@@ -37,7 +37,9 @@ async function purgeOldData() {
   const purged = {};
 
   try {
-    purged.webhookDeliveries = await db("webhook_deliveries").where("created_at", "<", cutoff).del();
+    purged.webhookDeliveries = await db("webhook_deliveries")
+      .where("created_at", "<", cutoff)
+      .del();
   } catch (err) {
     logger.error({ err }, "Failed to purge webhook_deliveries");
     purged.webhookDeliveries = 0;

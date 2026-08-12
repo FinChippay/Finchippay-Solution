@@ -6,9 +6,15 @@ function requestLogger(req, res, next) {
 
   // Log on request start
   if (req.log) {
-    req.log.info({ method: req.method, url: req.originalUrl || req.url, correlationId }, "Request started");
+    req.log.info(
+      { method: req.method, url: req.originalUrl || req.url, correlationId },
+      "Request started",
+    );
   } else {
-    logger.info({ method: req.method, url: req.originalUrl || req.url, correlationId }, "Request started");
+    logger.info(
+      { method: req.method, url: req.originalUrl || req.url, correlationId },
+      "Request started",
+    );
   }
 
   // Log on response finish
@@ -23,7 +29,7 @@ function requestLogger(req, res, next) {
           responseTime,
           correlationId,
         },
-        "Request finished"
+        "Request finished",
       );
     } else {
       logger.info(
@@ -34,7 +40,7 @@ function requestLogger(req, res, next) {
           responseTime,
           correlationId,
         },
-        "Request finished"
+        "Request finished",
       );
     }
   });

@@ -68,8 +68,7 @@ function sqliteConfig(defaultFilename) {
  * the environment that is actually selected.
  */
 function postgresConfig() {
-  const connectionString =
-    process.env.DATABASE_URL || process.env.DATABASE_URL_PROD;
+  const connectionString = process.env.DATABASE_URL || process.env.DATABASE_URL_PROD;
 
   return {
     client: "pg",
@@ -89,9 +88,7 @@ module.exports = {
     ? postgresConfig()
     : sqliteConfig(path.join(__dirname, "data", "finchippay.db")),
 
-  test: usePostgres
-    ? postgresConfig()
-    : sqliteConfig(path.join(__dirname, "data", "test.db")),
+  test: usePostgres ? postgresConfig() : sqliteConfig(path.join(__dirname, "data", "test.db")),
 
   // Production defaults to PostgreSQL. Set DB_PROVIDER=sqlite only for
   // single-node / evaluation deployments.

@@ -22,8 +22,7 @@ module.exports = async function globalSetup() {
     return;
   }
 
-  const dbFile =
-    process.env.DB_FILENAME || path.join(__dirname, "data", "test.db");
+  const dbFile = process.env.DB_FILENAME || path.join(__dirname, "data", "test.db");
   process.env.DB_FILENAME = dbFile;
 
   // Ensure the data directory exists and start from a clean database.

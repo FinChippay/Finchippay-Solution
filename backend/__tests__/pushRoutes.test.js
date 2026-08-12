@@ -127,10 +127,7 @@ describe("POST /api/push/subscribe", () => {
 
   it.each([
     ["a missing subscription", {}],
-    [
-      "a non-HTTPS endpoint",
-      { subscription: { ...SUBSCRIPTION, endpoint: "http://x.test/a" } },
-    ],
+    ["a non-HTTPS endpoint", { subscription: { ...SUBSCRIPTION, endpoint: "http://x.test/a" } }],
     ["missing keys", { subscription: { endpoint: ENDPOINT } }],
   ])("rejects %s with 400", async (_label, body) => {
     const res = await request(app())
@@ -197,9 +194,7 @@ describe("GET /api/push/subscriptions", () => {
       },
     ]);
 
-    const res = await request(app())
-      .get("/api/push/subscriptions")
-      .set("Authorization", auth(ME));
+    const res = await request(app()).get("/api/push/subscriptions").set("Authorization", auth(ME));
 
     expect(res.status).toBe(200);
     expect(pushService.listSubscriptions).toHaveBeenCalledWith(ME);

@@ -33,15 +33,9 @@ function redactStellarKeys(obj) {
     return obj.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
   }
   if (obj instanceof Error) {
-    obj.message = obj.message.replace(
-      STELLAR_SECRET_KEY_PATTERN,
-      REDACTED_STELLAR,
-    );
+    obj.message = obj.message.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
     if (obj.stack) {
-      obj.stack = obj.stack.replace(
-        STELLAR_SECRET_KEY_PATTERN,
-        REDACTED_STELLAR,
-      );
+      obj.stack = obj.stack.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR);
     }
     return obj;
   }
@@ -49,9 +43,7 @@ function redactStellarKeys(obj) {
     try {
       const str = JSON.stringify(obj);
       if (STELLAR_SECRET_KEY_PATTERN.test(str)) {
-        return JSON.parse(
-          str.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR),
-        );
+        return JSON.parse(str.replace(STELLAR_SECRET_KEY_PATTERN, REDACTED_STELLAR));
       }
     } catch {
       /* non-serialisable — leave as-is */

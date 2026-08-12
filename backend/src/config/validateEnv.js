@@ -66,11 +66,11 @@ function parseAllowedOrigins(raw) {
 }
 
 function collectErrors(env) {
-  if (!env.JWT_SECRET && env.NODE_ENV === 'production') {
-    throw new Error('FATAL: JWT_SECRET must be set in production.');
+  if (!env.JWT_SECRET && env.NODE_ENV === "production") {
+    throw new Error("FATAL: JWT_SECRET must be set in production.");
   }
-  if (env.JWT_SECRET === 'finchippay_secret_key') {
-    throw new Error('FATAL: JWT_SECRET is set to the insecure default value.');
+  if (env.JWT_SECRET === "finchippay_secret_key") {
+    throw new Error("FATAL: JWT_SECRET is set to the insecure default value.");
   }
 
   const errors = [];
@@ -78,9 +78,7 @@ function collectErrors(env) {
   // Database provider validation
   const dbProvider = (env.DB_PROVIDER || "sqlite").toLowerCase();
   if (!["sqlite", "postgres"].includes(dbProvider)) {
-    errors.push(
-      `DB_PROVIDER must be "sqlite" or "postgres", got "${dbProvider}"`,
-    );
+    errors.push(`DB_PROVIDER must be "sqlite" or "postgres", got "${dbProvider}"`);
   }
 
   if (dbProvider === "postgres") {
@@ -100,16 +98,12 @@ function collectErrors(env) {
   if (!stellarNetwork) {
     errors.push('STELLAR_NETWORK is required (e.g. "testnet" or "mainnet")');
   } else if (!VALID_NETWORKS.includes(stellarNetwork)) {
-    errors.push(
-      `STELLAR_NETWORK must be "testnet" or "mainnet", got "${stellarNetwork}"`,
-    );
+    errors.push(`STELLAR_NETWORK must be "testnet" or "mainnet", got "${stellarNetwork}"`);
   }
 
   const horizonUrl = env.HORIZON_URL?.trim();
   if (!horizonUrl) {
-    errors.push(
-      'HORIZON_URL is required (e.g. "https://horizon-testnet.stellar.org")',
-    );
+    errors.push('HORIZON_URL is required (e.g. "https://horizon-testnet.stellar.org")');
   } else {
     try {
       new URL(horizonUrl);
@@ -126,9 +120,7 @@ function collectErrors(env) {
         "RATE_LIMIT_IP_HASH_SALT is required in production for stable, privacy-preserving rate-limit analytics",
       );
     } else if (rateLimitHashSalt.length < 32) {
-      errors.push(
-        "RATE_LIMIT_IP_HASH_SALT must contain at least 32 characters in production",
-      );
+      errors.push("RATE_LIMIT_IP_HASH_SALT must contain at least 32 characters in production");
     }
   }
 
@@ -160,9 +152,7 @@ function collectErrors(env) {
       try {
         new URL(otelEndpoint);
       } catch {
-        errors.push(
-          `OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL, got "${otelEndpoint}"`,
-        );
+        errors.push(`OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL, got "${otelEndpoint}"`);
       }
     }
   }
@@ -175,9 +165,7 @@ function collectErrors(env) {
       !redisUrl.startsWith("redis://") &&
       !redisUrl.startsWith("rediss://")
     ) {
-      errors.push(
-        `REDIS_URL must start with redis:// or rediss://, got "${redisUrl}"`,
-      );
+      errors.push(`REDIS_URL must start with redis:// or rediss://, got "${redisUrl}"`);
     }
   }
 
@@ -199,7 +187,7 @@ function collectErrors(env) {
       );
     }
   }
-    // ANCHORS_CONFIG is optional but if set must be valid JSON.
+  // ANCHORS_CONFIG is optional but if set must be valid JSON.
   if (env.ANCHORS_CONFIG) {
     try {
       JSON.parse(env.ANCHORS_CONFIG);
@@ -211,7 +199,7 @@ function collectErrors(env) {
   // WEBHOOK_ENCRYPTION_KEY is required in production for encrypting webhook secrets at rest.
   if (env.NODE_ENV === "production" && !env.WEBHOOK_ENCRYPTION_KEY?.trim()) {
     errors.push(
-      'WEBHOOK_ENCRYPTION_KEY is required in production — generate one with: openssl rand -hex 32',
+      "WEBHOOK_ENCRYPTION_KEY is required in production — generate one with: openssl rand -hex 32",
     );
   }
 
@@ -281,14 +269,8 @@ function collectErrors(env) {
   // a mailto: or https: URI.
   if (env.VAPID_SUBJECT) {
     const subject = String(env.VAPID_SUBJECT).trim();
-    if (
-      subject.length > 0 &&
-      !subject.startsWith("mailto:") &&
-      !subject.startsWith("https://")
-    ) {
-      errors.push(
-        `VAPID_SUBJECT must be a mailto: or https:// URL, got "${subject}"`,
-      );
+    if (subject.length > 0 && !subject.startsWith("mailto:") && !subject.startsWith("https://")) {
+      errors.push(`VAPID_SUBJECT must be a mailto: or https:// URL, got "${subject}"`);
     }
   }
 

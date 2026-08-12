@@ -14,15 +14,20 @@ describe("User Rate Limiter", () => {
     app.set("trust proxy", 1);
 
     // Mock auth middleware that populates req.user.sub
-    app.use("/api/auth-endpoint", (req, res, next) => {
-      const authHeader = req.headers.authorization;
-      if (authHeader) {
-        req.user = { sub: authHeader.split(" ")[1] };
-      }
-      next();
-    }, userLimiter, (req, res) => {
-      res.status(200).json({ ok: true });
-    });
+    app.use(
+      "/api/auth-endpoint",
+      (req, res, next) => {
+        const authHeader = req.headers.authorization;
+        if (authHeader) {
+          req.user = { sub: authHeader.split(" ")[1] };
+        }
+        next();
+      },
+      userLimiter,
+      (req, res) => {
+        res.status(200).json({ ok: true });
+      },
+    );
 
     // Mock unauthenticated endpoint
     app.use("/api/public-endpoint", userLimiter, (req, res) => {
@@ -31,17 +36,13 @@ describe("User Rate Limiter", () => {
   });
 
   it("should allow requests under the limit for an authenticated user", async () => {
-    const res1 = await request(app)
-      .get("/api/auth-endpoint")
-      .set("Authorization", "Bearer UserA");
-    
+    const res1 = await request(app).get("/api/auth-endpoint").set("Authorization", "Bearer UserA");
+
     expect(res1.status).toBe(200);
     expect(res1.headers["x-ratelimit-user-remaining"]).toBe("29");
 
-    const res2 = await request(app)
-      .get("/api/auth-endpoint")
-      .set("Authorization", "Bearer UserA");
-    
+    const res2 = await request(app).get("/api/auth-endpoint").set("Authorization", "Bearer UserA");
+
     expect(res2.status).toBe(200);
     expect(res2.headers["x-ratelimit-user-remaining"]).toBe("28");
   });
@@ -51,12 +52,10 @@ describe("User Rate Limiter", () => {
     for (let i = 0; i < 30; i++) {
       await request(app).get("/api/auth-endpoint").set("Authorization", "Bearer UserB");
     }
-    
+
     // 31st request should be blocked
-    const res = await request(app)
-      .get("/api/auth-endpoint")
-      .set("Authorization", "Bearer UserB");
-    
+    const res = await request(app).get("/api/auth-endpoint").set("Authorization", "Bearer UserB");
+
     expect(res.status).toBe(429);
     expect(res.body.error.code).toBe("RATE_LIMITED_USER");
     expect(res.body.error.message).toBe("Too many requests from this account");
@@ -68,7 +67,7 @@ describe("User Rate Limiter", () => {
     for (let i = 0; i < 30; i++) {
       await request(app).get("/api/auth-endpoint").set("Authorization", "Bearer UserC");
     }
-    
+
     // UserC is blocked
     const resC = await request(app).get("/api/auth-endpoint").set("Authorization", "Bearer UserC");
     expect(resC.status).toBe(429);
@@ -84,7 +83,7 @@ describe("User Rate Limiter", () => {
     for (let i = 0; i < 30; i++) {
       await request(app).get("/api/public-endpoint").set("X-Forwarded-For", "1.2.3.4");
     }
-    
+
     // 31st is blocked
     const res1 = await request(app).get("/api/public-endpoint").set("X-Forwarded-For", "1.2.3.4");
     expect(res1.status).toBe(429);

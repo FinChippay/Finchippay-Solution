@@ -39,7 +39,6 @@ async function isDbAvailable() {
   }
 }
 
-
 /**
  * Issue a new access token (15 mins) and refresh token (7 days).
  *
@@ -103,9 +102,7 @@ async function rotateRefreshToken(oldToken, deviceInfo = null, ipAddress = null)
 
     // Replay attack detection: if token is already revoked, revoke ALL user tokens
     if (record.revoked) {
-      await knex("refresh_tokens")
-        .where("public_key", record.public_key)
-        .update({ revoked: true });
+      await knex("refresh_tokens").where("public_key", record.public_key).update({ revoked: true });
       return null;
     }
 
@@ -169,9 +166,7 @@ async function revokeToken(token) {
   const hash = hashToken(token);
 
   if (await isDbAvailable()) {
-    const count = await knex("refresh_tokens")
-      .where("token_hash", hash)
-      .update({ revoked: true });
+    const count = await knex("refresh_tokens").where("token_hash", hash).update({ revoked: true });
     return count > 0;
   } else {
     const record = memoryStore.get(hash);
@@ -276,11 +271,7 @@ async function getActiveSessions(publicKey) {
   } else {
     const results = [];
     for (const item of memoryStore.values()) {
-      if (
-        item.publicKey === publicKey &&
-        !item.revoked &&
-        item.expiresAt > Date.now()
-      ) {
+      if (item.publicKey === publicKey && !item.revoked && item.expiresAt > Date.now()) {
         results.push({
           id: item.id,
           publicKey: item.publicKey,

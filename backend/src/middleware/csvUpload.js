@@ -11,8 +11,7 @@
 
 const multer = require("multer");
 
-const CSV_UPLOAD_MAX_SIZE =
-  parseInt(process.env.CSV_UPLOAD_MAX_SIZE, 10) || 10 * 1024 * 1024; // 10MB default
+const CSV_UPLOAD_MAX_SIZE = parseInt(process.env.CSV_UPLOAD_MAX_SIZE, 10) || 10 * 1024 * 1024; // 10MB default
 
 const upload = multer({
   storage: multer.memoryStorage(),

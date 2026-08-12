@@ -8,10 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const webhookService = require("../services/webhookSubscriptionService");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const { registerWebhookSchema } = require("../validation/webhookSchemas");
 const {
@@ -39,12 +36,7 @@ const {
 router.post("/", validate(registerWebhookSchema), async (req, res) => {
   try {
     const { publicKey, url, secret, topics } = req.validated;
-    const webhook = await webhookService.registerWebhook(
-      publicKey,
-      url,
-      secret,
-      topics,
-    );
+    const webhook = await webhookService.registerWebhook(publicKey, url, secret, topics);
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
     return res
@@ -57,19 +49,15 @@ router.post("/", validate(registerWebhookSchema), async (req, res) => {
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account.
  */
-router.get(
-  "/:publicKey",
-  validate(publicKeyParamSchema, "params"),
-  async (req, res, next) => {
-    try {
-      const { publicKey } = req.validated;
-      const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
-      return res.json({ webhooks: hooks });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
+router.get("/:publicKey", validate(publicKeyParamSchema, "params"), async (req, res, next) => {
+  try {
+    const { publicKey } = req.validated;
+    const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
+    return res.json({ webhooks: hooks });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * GET /api/webhooks/:publicKey/events
@@ -201,9 +189,9 @@ router.get(
       const { id } = req.params;
       const delivery = await webhookService.getDeliveryById(publicKey, id);
       if (!delivery) {
-        return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-          formatErrorResponse("RES_NOT_FOUND", { resourceType: "delivery", id }),
-        );
+        return res
+          .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+          .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "delivery", id }));
       }
       return res.json({ delivery });
     } catch (err) {
@@ -216,26 +204,22 @@ router.get(
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */
-router.delete(
-  "/:id",
-  validate(idParamSchema, "params"),
-  async (req, res, next) => {
-    try {
-      const { id } = req.validated;
-      const deleted = await webhookService.deleteWebhook(id);
-      if (!deleted) {
-        return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-          formatErrorResponse("RES_NOT_FOUND", {
-            resourceType: "webhook",
-            id,
-          }),
-        );
-      }
-      return res.json({ success: true, message: "Webhook " + id + " deleted" });
-    } catch (err) {
-      next(err);
+router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
+  try {
+    const { id } = req.validated;
+    const deleted = await webhookService.deleteWebhook(id);
+    if (!deleted) {
+      return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
+        formatErrorResponse("RES_NOT_FOUND", {
+          resourceType: "webhook",
+          id,
+        }),
+      );
     }
-  },
-);
+    return res.json({ success: true, message: "Webhook " + id + " deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;

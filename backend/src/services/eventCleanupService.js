@@ -11,11 +11,9 @@ let cleanupTimer = null;
 async function runCleanup() {
   try {
     const cutoffDate = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    
-    const deletedCount = await knex("webhook_events")
-      .where("created_at", "<", cutoffDate)
-      .del();
-      
+
+    const deletedCount = await knex("webhook_events").where("created_at", "<", cutoffDate).del();
+
     if (deletedCount > 0) {
       logger.info({
         type: "webhook_event_cleanup",

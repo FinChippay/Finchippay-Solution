@@ -22,10 +22,7 @@ const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { verifyJWT } = require("../middleware/auth");
 const { validate } = require("../validation/middleware");
-const {
-  pushSubscribeSchema,
-  pushUnsubscribeSchema,
-} = require("../validation/schemas");
+const { pushSubscribeSchema, pushUnsubscribeSchema } = require("../validation/schemas");
 const { sendError } = require("../utils/errorResponse");
 const pushService = require("../services/pushService");
 const logger = require("../utils/logger");
@@ -78,17 +75,12 @@ router.post(
       const publicKey = req.user.publicKey;
       const { subscription } = req.validated;
 
-      const { created } = await pushService.addSubscription(
-        publicKey,
-        subscription,
-      );
+      const { created } = await pushService.addSubscription(publicKey, subscription);
 
       return res.status(created ? 201 : 200).json({
         success: true,
         data: { created },
-        message: created
-          ? "Push subscription registered"
-          : "Push subscription updated",
+        message: created ? "Push subscription registered" : "Push subscription updated",
       });
     } catch (err) {
       next(err);
@@ -113,18 +105,12 @@ router.post(
       const publicKey = req.user.publicKey;
       const { endpoint } = req.validated;
 
-      const { removed } = await pushService.removeSubscription(
-        publicKey,
-        endpoint,
-      );
+      const { removed } = await pushService.removeSubscription(publicKey, endpoint);
 
       return res.json({
         success: true,
         data: { removed },
-        message:
-          removed > 0
-            ? "Push subscription removed"
-            : "No matching push subscription",
+        message: removed > 0 ? "Push subscription removed" : "No matching push subscription",
       });
     } catch (err) {
       next(err);
@@ -138,28 +124,23 @@ router.post(
  * value is a bearer-like capability for that device, and the UI only needs
  * enough to tell devices apart.
  */
-router.get(
-  "/subscriptions",
-  strictLimiter,
-  verifyJWT,
-  async (req, res, next) => {
-    try {
-      const rows = await pushService.listSubscriptions(req.user.publicKey);
+router.get("/subscriptions", strictLimiter, verifyJWT, async (req, res, next) => {
+  try {
+    const rows = await pushService.listSubscriptions(req.user.publicKey);
 
-      return res.json({
-        success: true,
-        data: rows.map((row) => ({
-          id: row.id,
-          endpointPreview: `${String(row.endpoint).slice(0, 40)}…`,
-          createdAt: row.created_at,
-          lastUsedAt: row.last_used_at,
-        })),
-      });
-    } catch (err) {
-      logger.debug({ err }, "Failed to list push subscriptions");
-      next(err);
-    }
-  },
-);
+    return res.json({
+      success: true,
+      data: rows.map((row) => ({
+        id: row.id,
+        endpointPreview: `${String(row.endpoint).slice(0, 40)}…`,
+        createdAt: row.created_at,
+        lastUsedAt: row.last_used_at,
+      })),
+    });
+  } catch (err) {
+    logger.debug({ err }, "Failed to list push subscriptions");
+    next(err);
+  }
+});
 
 module.exports = router;

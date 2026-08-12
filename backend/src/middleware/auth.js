@@ -13,10 +13,7 @@
 
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
-const {
-  formatErrorResponse,
-  ERROR_CODES,
-} = require("../../../shared/errorCodes");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**
  * JWT signing secret — MUST be configured in all non-test environments.
@@ -32,9 +29,7 @@ const JWT_SECRET =
   (process.env.NODE_ENV === "test"
     ? "test-jwt-secret-for-unit-tests-only"
     : (() => {
-        throw new Error(
-          "JWT_SECRET is not set. Generate one: openssl rand -hex 32",
-        );
+        throw new Error("JWT_SECRET is not set. Generate one: openssl rand -hex 32");
       })());
 
 /**
@@ -84,9 +79,7 @@ function verifyJWT(req, res, next) {
       // carries a correlation ID (#270).
       return res
         .status(ERROR_CODES.TOKEN_EXPIRED.httpStatus)
-        .json(
-          formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }),
-        );
+        .json(formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }));
     }
     const errorCode = "AUTH_INVALID_TOKEN";
     return res

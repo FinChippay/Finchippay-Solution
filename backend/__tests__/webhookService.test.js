@@ -95,9 +95,7 @@ function mockMakeBuilder(tableName) {
       return builder;
     },
     select() {
-      return Promise.resolve(
-        Array.from(getStore().values()).filter(matchesRow),
-      );
+      return Promise.resolve(Array.from(getStore().values()).filter(matchesRow));
     },
     first() {
       const row = Array.from(getStore().values()).find(matchesRow);
@@ -351,7 +349,12 @@ describe("signPayload", () => {
   });
 
   it("builds a SEP-0045 compatible payload and headers", () => {
-    const payload = webhookService.buildPayload("payment.received", { amount: "1" }, "secret", "v2");
+    const payload = webhookService.buildPayload(
+      "payment.received",
+      { amount: "1" },
+      "secret",
+      "v2",
+    );
     expect(payload).toHaveProperty("id");
     expect(payload).toHaveProperty("timestamp");
     expect(payload).toHaveProperty("type", "payment.received");
@@ -362,11 +365,7 @@ describe("signPayload", () => {
 
 describe("closeAllStreams (graceful shutdown on SIGTERM/SIGINT)", () => {
   it("closes every active Horizon SSE stream so none leak past process exit", async () => {
-    await webhookService.registerWebhook(
-      ACCOUNT_D,
-      "https://x.test/shutdown",
-      "secret-shutdown",
-    );
+    await webhookService.registerWebhook(ACCOUNT_D, "https://x.test/shutdown", "secret-shutdown");
     const closeHandle = mockStreamCloseHandles[mockStreamCloseHandles.length - 1];
     expect(closeHandle).not.toHaveBeenCalled();
 
@@ -376,20 +375,12 @@ describe("closeAllStreams (graceful shutdown on SIGTERM/SIGINT)", () => {
   });
 
   it("clears activeStreams so a later registration opens a fresh stream", async () => {
-    await webhookService.registerWebhook(
-      ACCOUNT_E,
-      "https://x.test/a",
-      "secret-a",
-    );
+    await webhookService.registerWebhook(ACCOUNT_E, "https://x.test/a", "secret-a");
     const firstCloseHandle = mockStreamCloseHandles[mockStreamCloseHandles.length - 1];
 
     await webhookService.closeAllStreams();
 
-    await webhookService.registerWebhook(
-      ACCOUNT_E,
-      "https://x.test/b",
-      "secret-b",
-    );
+    await webhookService.registerWebhook(ACCOUNT_E, "https://x.test/b", "secret-b");
     const secondCloseHandle = mockStreamCloseHandles[mockStreamCloseHandles.length - 1];
 
     expect(secondCloseHandle).not.toBe(firstCloseHandle);

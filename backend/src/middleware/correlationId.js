@@ -14,9 +14,7 @@ const correlationAls = new AsyncLocalStorage();
 function correlationIdMiddleware(req, res, next) {
   const incoming = req.headers[HEADER_NAME];
   const correlationId =
-    typeof incoming === "string" && VALID_ID_PATTERN.test(incoming)
-      ? incoming
-      : randomUUID();
+    typeof incoming === "string" && VALID_ID_PATTERN.test(incoming) ? incoming : randomUUID();
 
   req.correlationId = correlationId;
   req.log = logger.child({ correlationId });

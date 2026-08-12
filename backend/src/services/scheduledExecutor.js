@@ -156,7 +156,7 @@ async function submitScheduledTransaction(schedule) {
 
     logger.warn(
       { scheduleId: schedule.id, recipient: schedule.recipient },
-      "Scheduled transaction queued for owner signature submission"
+      "Scheduled transaction queued for owner signature submission",
     );
 
     return {
@@ -236,19 +236,14 @@ async function notifyFailure(schedule, execution) {
       executedAt: execution.executed_at,
     };
 
-    await Promise.allSettled(
-      hooks.map((h) => webhookService.deliverWebhook(h, payload)),
-    );
+    await Promise.allSettled(hooks.map((h) => webhookService.deliverWebhook(h, payload)));
 
     logger.info(
       { scheduleId: schedule.id, hooks: hooks.length },
       "Sent failure notification webhooks",
     );
   } catch (err) {
-    logger.error(
-      { scheduleId: schedule.id, err },
-      "Failed to send failure notification",
-    );
+    logger.error({ scheduleId: schedule.id, err }, "Failed to send failure notification");
   }
 }
 
@@ -275,10 +270,7 @@ async function executeDueTransaction(schedule) {
     });
 
     // Update next run time for recurring schedules
-    const nextRun = scheduledTransactionService.estimateNextRun(
-      schedule.frequency,
-      new Date(),
-    );
+    const nextRun = scheduledTransactionService.estimateNextRun(schedule.frequency, new Date());
     if (nextRun) {
       await knex("scheduled_transactions")
         .where("id", schedule.id)
@@ -322,9 +314,7 @@ async function executeDueTransaction(schedule) {
         errorCode,
       });
 
-      await knex("scheduled_transactions")
-        .where("id", schedule.id)
-        .update({ status: "failed" });
+      await knex("scheduled_transactions").where("id", schedule.id).update({ status: "failed" });
 
       await notifyFailure(schedule, execution);
 
@@ -341,15 +331,10 @@ async function executeDueTransaction(schedule) {
  * @param {object} execution - Execution history record
  */
 async function handleRetry(execution) {
-  const schedule = await knex("scheduled_transactions")
-    .where("id", execution.schedule_id)
-    .first();
+  const schedule = await knex("scheduled_transactions").where("id", execution.schedule_id).first();
 
   if (!schedule) {
-    logger.warn(
-      { executionId: execution.id },
-      "Scheduled transaction not found for retry",
-    );
+    logger.warn({ executionId: execution.id }, "Scheduled transaction not found for retry");
     return;
   }
 
@@ -362,19 +347,14 @@ async function handleRetry(execution) {
 
   if (result.success) {
     // Success on retry
-    await knex("scheduled_txn_executions")
-      .where("id", execution.id)
-      .update({
-        status: "submitted",
-        submitted_hash: result.hash,
-        resolved_at: new Date(),
-      });
+    await knex("scheduled_txn_executions").where("id", execution.id).update({
+      status: "submitted",
+      submitted_hash: result.hash,
+      resolved_at: new Date(),
+    });
 
     // Update schedule next run
-    const nextRun = scheduledTransactionService.estimateNextRun(
-      schedule.frequency,
-      new Date(),
-    );
+    const nextRun = scheduledTransactionService.estimateNextRun(schedule.frequency, new Date());
     if (nextRun) {
       await knex("scheduled_transactions")
         .where("id", schedule.id)
@@ -394,14 +374,12 @@ async function handleRetry(execution) {
     if (isRetryable && nextAttempt < MAX_RETRIES) {
       // Queue next retry
       const nextRetryAt = new Date(Date.now() + RETRY_INTERVAL_MS);
-      await knex("scheduled_txn_executions")
-        .where("id", execution.id)
-        .update({
-          attempt_number: nextAttempt,
-          error_message: result.error?.message,
-          error_code: errorCode,
-          next_retry_at: nextRetryAt,
-        });
+      await knex("scheduled_txn_executions").where("id", execution.id).update({
+        attempt_number: nextAttempt,
+        error_message: result.error?.message,
+        error_code: errorCode,
+        next_retry_at: nextRetryAt,
+      });
 
       logger.info(
         { scheduleId: schedule.id, attempt: nextAttempt, nextRetry: nextRetryAt },
@@ -409,19 +387,15 @@ async function handleRetry(execution) {
       );
     } else {
       // Final failure
-      await knex("scheduled_txn_executions")
-        .where("id", execution.id)
-        .update({
-          status: "failed",
-          attempt_number: nextAttempt,
-          error_message: result.error?.message,
-          error_code: errorCode,
-          resolved_at: new Date(),
-        });
+      await knex("scheduled_txn_executions").where("id", execution.id).update({
+        status: "failed",
+        attempt_number: nextAttempt,
+        error_message: result.error?.message,
+        error_code: errorCode,
+        resolved_at: new Date(),
+      });
 
-      await knex("scheduled_transactions")
-        .where("id", schedule.id)
-        .update({ status: "failed" });
+      await knex("scheduled_transactions").where("id", schedule.id).update({ status: "failed" });
 
       await notifyFailure(schedule, {
         ...execution,
@@ -461,10 +435,7 @@ async function executeCycle() {
         try {
           await executeDueTransaction(schedule);
         } catch (err) {
-          logger.error(
-            { scheduleId: schedule.id, err },
-            "Error executing due transaction",
-          );
+          logger.error({ scheduleId: schedule.id, err }, "Error executing due transaction");
         }
       }
     }
@@ -477,17 +448,18 @@ async function executeCycle() {
         try {
           await handleRetry(execution);
         } catch (err) {
-          logger.error(
-            { executionId: execution.id, err },
-            "Error handling retry",
-          );
+          logger.error({ executionId: execution.id, err }, "Error handling retry");
         }
       }
     }
 
     const cycleDuration = Date.now() - cycleStart;
     logger.debug(
-      { dueCount: dueTransactions.length, retryCount: pendingRetries.length, durationMs: cycleDuration },
+      {
+        dueCount: dueTransactions.length,
+        retryCount: pendingRetries.length,
+        durationMs: cycleDuration,
+      },
       "Executor cycle completed",
     );
   } catch (err) {
@@ -510,7 +482,11 @@ function start() {
   }
 
   logger.info(
-    { intervalMs: EXECUTOR_INTERVAL_MS, maxRetries: MAX_RETRIES, retryIntervalMs: RETRY_INTERVAL_MS },
+    {
+      intervalMs: EXECUTOR_INTERVAL_MS,
+      maxRetries: MAX_RETRIES,
+      retryIntervalMs: RETRY_INTERVAL_MS,
+    },
     "Starting scheduled executor",
   );
 
@@ -522,7 +498,7 @@ function start() {
   // Then run on interval
   executorTimer = setInterval(() => {
     executeCycle().catch((err) => {
-      logger.error({ err }, "Executor cycle error" );
+      logger.error({ err }, "Executor cycle error");
     });
   }, EXECUTOR_INTERVAL_MS);
 }
@@ -555,9 +531,7 @@ function isStarted() {
  * @returns {Promise<object>} Execution result
  */
 async function executeNow(scheduleId) {
-  const schedule = await knex("scheduled_transactions")
-    .where("id", scheduleId)
-    .first();
+  const schedule = await knex("scheduled_transactions").where("id", scheduleId).first();
 
   if (!schedule) {
     const err = new Error("Scheduled transaction not found");
@@ -580,9 +554,10 @@ async function executeNow(scheduleId) {
     hash: result.success ? result.hash : null,
     errorMessage: result.error?.message,
     errorCode: result.error?.code,
-    nextRetryAt: !result.success && isRetryableError(result.error?.code)
-      ? new Date(Date.now() + RETRY_INTERVAL_MS)
-      : null,
+    nextRetryAt:
+      !result.success && isRetryableError(result.error?.code)
+        ? new Date(Date.now() + RETRY_INTERVAL_MS)
+        : null,
   });
 
   return {

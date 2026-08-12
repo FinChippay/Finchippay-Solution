@@ -33,20 +33,12 @@ const API_ROUTE_FAMILIES = new Set([
   "turrets",
   "webhooks",
 ]);
-const ROOT_ROUTE_FAMILIES = new Set([
-  ".well-known",
-  "federation",
-  "health",
-  "metrics",
-]);
+const ROOT_ROUTE_FAMILIES = new Set([".well-known", "federation", "health", "metrics"]);
 
 let decisionHistory = [];
 
 function getMaxEvents() {
-  const configured = Number.parseInt(
-    process.env.RATE_LIMIT_METRICS_MAX_EVENTS,
-    10,
-  );
+  const configured = Number.parseInt(process.env.RATE_LIMIT_METRICS_MAX_EVENTS, 10);
 
   if (!Number.isFinite(configured) || configured < 100) {
     return DEFAULT_MAX_EVENTS;
@@ -76,17 +68,12 @@ function normaliseClientIp(ip) {
  */
 function hashIp(ip) {
   const salt = process.env.RATE_LIMIT_IP_HASH_SALT || fallbackHashSalt;
-  return crypto
-    .createHmac("sha256", salt)
-    .update(normaliseClientIp(ip))
-    .digest("hex");
+  return crypto.createHmac("sha256", salt).update(normaliseClientIp(ip)).digest("hex");
 }
 
 function normalisePath(path) {
   const withoutQuery = String(path || "/").split("?")[0] || "/";
-  const withLeadingSlash = withoutQuery.startsWith("/")
-    ? withoutQuery
-    : `/${withoutQuery}`;
+  const withLeadingSlash = withoutQuery.startsWith("/") ? withoutQuery : `/${withoutQuery}`;
 
   return withLeadingSlash
     .replace(/\/{2,}/g, "/")
@@ -125,16 +112,11 @@ function normaliseRateLimitRoute(req = {}) {
   let path;
 
   if (typeof routePath === "string") {
-    const baseUrl =
-      req.baseUrl && req.baseUrl !== "/" ? String(req.baseUrl) : "";
+    const baseUrl = req.baseUrl && req.baseUrl !== "/" ? String(req.baseUrl) : "";
     path = `${baseUrl}${routePath === "/" ? "" : routePath}` || "/";
   } else {
     path = req.path || req.originalUrl || "/";
-    if (
-      req.baseUrl &&
-      req.baseUrl !== "/" &&
-      !String(path).startsWith(String(req.baseUrl))
-    ) {
+    if (req.baseUrl && req.baseUrl !== "/" && !String(path).startsWith(String(req.baseUrl))) {
       path = `${req.baseUrl}${String(path).startsWith("/") ? "" : "/"}${path}`;
     }
     path = normaliseUnmatchedRouteFamily(path);
@@ -148,9 +130,7 @@ function pruneHistory(now = Date.now()) {
   const nowMs = asTimestamp(now);
   const cutoff = nowMs - STATS_WINDOW_MS;
 
-  decisionHistory = decisionHistory.filter(
-    (event) => event.timestampMs >= cutoff,
-  );
+  decisionHistory = decisionHistory.filter((event) => event.timestampMs >= cutoff);
 
   const maxEvents = getMaxEvents();
   if (decisionHistory.length > maxEvents) {
@@ -215,14 +195,7 @@ function recordRateLimitBreach(req, limiterType, timestamp) {
 /**
  * express-rate-limit v7 replacement for the removed onLimitReached callback.
  */
-function onLimitReached(
-  req,
-  res,
-  next,
-  options,
-  limiterType,
-  configuredHandler,
-) {
+function onLimitReached(req, res, next, options, limiterType, configuredHandler) {
   recordRateLimitBreach(req, limiterType);
 
   if (typeof configuredHandler === "function") {
@@ -266,19 +239,14 @@ function getRateLimitStats(now = Date.now()) {
   const topLimitedIps = [...ipTotals.entries()]
     .map(([ipHash, breaches]) => ({ ipHash, breaches }))
     .sort(
-      (left, right) =>
-        right.breaches - left.breaches ||
-        left.ipHash.localeCompare(right.ipHash),
+      (left, right) => right.breaches - left.breaches || left.ipHash.localeCompare(right.ipHash),
     )
     .slice(0, 10);
 
   const perRouteHitRates = [...routeTotals.values()]
     .map((entry) => ({
       ...entry,
-      breachRate:
-        entry.total === 0
-          ? 0
-          : Number((entry.blocked / entry.total).toFixed(4)),
+      breachRate: entry.total === 0 ? 0 : Number((entry.blocked / entry.total).toFixed(4)),
     }))
     .sort(
       (left, right) =>

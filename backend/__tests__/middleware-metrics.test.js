@@ -72,11 +72,9 @@ describe("trackHttpMetrics middleware", () => {
     await request(app).get("/test").expect(200);
 
     await expect(
-      metrics.register.getSingleMetric("finchippay_http_requests_total").get()
+      metrics.register.getSingleMetric("finchippay_http_requests_total").get(),
     ).resolves.toMatchObject({
-      values: expect.arrayContaining([
-        expect.objectContaining({ value: 1 }),
-      ]),
+      values: expect.arrayContaining([expect.objectContaining({ value: 1 })]),
     });
   });
 
@@ -100,7 +98,9 @@ describe("trackHttpMetrics middleware", () => {
 
     await request(app).get("/metrics").expect(200);
 
-    const totalSnap = await metrics.register.getSingleMetric("finchippay_http_requests_total").get();
+    const totalSnap = await metrics.register
+      .getSingleMetric("finchippay_http_requests_total")
+      .get();
     expect(totalSnap.values).toBeUndefined();
   });
 
@@ -111,7 +111,9 @@ describe("trackHttpMetrics middleware", () => {
 
     await request(app).get("/api/metrics").expect(200);
 
-    const totalSnap = await metrics.register.getSingleMetric("finchippay_http_requests_total").get();
+    const totalSnap = await metrics.register
+      .getSingleMetric("finchippay_http_requests_total")
+      .get();
     expect(totalSnap.values).toBeUndefined();
   });
 
@@ -121,11 +123,9 @@ describe("trackHttpMetrics middleware", () => {
     await request(app).get("/nonexistent").expect(404);
 
     await expect(
-      metrics.register.getSingleMetric("finchippay_http_requests_total").get()
+      metrics.register.getSingleMetric("finchippay_http_requests_total").get(),
     ).resolves.toMatchObject({
-      values: expect.arrayContaining([
-        expect.objectContaining({ value: 1 }),
-      ]),
+      values: expect.arrayContaining([expect.objectContaining({ value: 1 })]),
     });
   });
 
@@ -136,10 +136,15 @@ describe("trackHttpMetrics middleware", () => {
 
     await request(app).get("/error").expect(500);
 
-    const totalSnap = await metrics.register.getSingleMetric("finchippay_http_requests_total").get();
+    const totalSnap = await metrics.register
+      .getSingleMetric("finchippay_http_requests_total")
+      .get();
     expect(totalSnap.values).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ value: 1, labels: expect.objectContaining({ status_code: "500" }) }),
+        expect.objectContaining({
+          value: 1,
+          labels: expect.objectContaining({ status_code: "500" }),
+        }),
       ]),
     );
   });

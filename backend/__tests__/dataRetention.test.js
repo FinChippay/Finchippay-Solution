@@ -121,9 +121,7 @@ describe("GDPR delete/export endpoints", () => {
     const controller = require("../src/controllers/accountController");
     const app = buildApp(controller);
 
-    const res = await request(app).post(
-      "/api/accounts/GABCDEF1234567890/gdpr-delete",
-    );
+    const res = await request(app).post("/api/accounts/GABCDEF1234567890/gdpr-delete");
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -136,8 +134,7 @@ describe("GDPR delete/export endpoints", () => {
     jest.doMock("../src/db", () => {
       const mockDb = jest.fn((table) => {
         if (table === "tips") return makeQueryChain([fakeTip]);
-        if (table === "usernames")
-          return makeQueryChain({ username: "alice" });
+        if (table === "usernames") return makeQueryChain({ username: "alice" });
         return makeQueryChain([]);
       });
       return mockDb;
@@ -145,9 +142,7 @@ describe("GDPR delete/export endpoints", () => {
     const controller = require("../src/controllers/accountController");
     const app = buildApp(controller);
 
-    const res = await request(app).get(
-      "/api/accounts/GABCDEF1234567890/gdpr-export",
-    );
+    const res = await request(app).get("/api/accounts/GABCDEF1234567890/gdpr-export");
 
     expect(res.status).toBe(200);
     expect(res.body.data.publicKey).toBe("GABCDEF1234567890");

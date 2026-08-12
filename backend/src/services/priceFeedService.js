@@ -56,9 +56,7 @@ function nowMs() {
 
 function isCacheFresh(state) {
   return (
-    state.value !== null &&
-    state.value !== undefined &&
-    nowMs() - state.fetchedAt < CACHE_TTL_MS
+    state.value !== null && state.value !== undefined && nowMs() - state.fetchedAt < CACHE_TTL_MS
   );
 }
 
@@ -77,9 +75,7 @@ async function timedFetch(url, options = {}) {
     });
     const latencyMs = nowMs() - start;
     if (!res.ok) {
-      const err = new Error(
-        `Provider responded with HTTP ${res.status} for ${url}`,
-      );
+      const err = new Error(`Provider responded with HTTP ${res.status} for ${url}`);
       err.status = res.status;
       err.latencyMs = latencyMs;
       throw err;
@@ -214,9 +210,7 @@ async function getXLMPrice(options = {}) {
 
   const result = await probeAllProviders();
   if (!result) {
-    const err = new Error(
-      "All XLM/USD price providers are currently unreachable",
-    );
+    const err = new Error("All XLM/USD price providers are currently unreachable");
     err.status = 503;
     err.errorCode = "PRICE_FEED_UNAVAILABLE";
     throw err;
@@ -249,17 +243,11 @@ function getPriceFeedStatus() {
     const state = providerState[name];
     const age = state.fetchedAt ? nowMs() - state.fetchedAt : null;
     providers[name] = {
-      status: state.lastError
-        ? "error"
-        : state.value !== null
-          ? "ok"
-          : "unknown",
+      status: state.lastError ? "error" : state.value !== null ? "ok" : "unknown",
       latencyMs: state.lastLatencyMs,
       lastError: state.lastError,
       lastSuccessAt:
-        state.value !== null && !state.lastError
-          ? new Date(state.fetchedAt).toISOString()
-          : null,
+        state.value !== null && !state.lastError ? new Date(state.fetchedAt).toISOString() : null,
       cacheAgeMs: age,
       cachedPrice: state.value,
     };
@@ -267,9 +255,7 @@ function getPriceFeedStatus() {
 
   return {
     activeProvider: lastSuccessfulProvider,
-    activeProviderAt: lastSuccessfulAt
-      ? new Date(lastSuccessfulAt).toISOString()
-      : null,
+    activeProviderAt: lastSuccessfulAt ? new Date(lastSuccessfulAt).toISOString() : null,
     cacheTtlMs: CACHE_TTL_MS,
     timeoutMs: PROVIDER_TIMEOUT_MS,
     providers,
