@@ -21,7 +21,7 @@ const nextConfig = {
   },
 
   // Use static export for Docker/nginx deployments (set NEXT_OUTPUT=export).
-  // For Vercel, leave unset so SSR/ISR/API routes work.
+  // Leave unset for SSR/ISR/API routes.
   ...(process.env.NEXT_OUTPUT === "export" ? { output: "export" } : {}),
   images: {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],

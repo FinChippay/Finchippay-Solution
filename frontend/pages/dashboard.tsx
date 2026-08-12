@@ -987,7 +987,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       <Head>
         <title>Dashboard | Finchippay-Solution</title>
         <meta name="description" content="Manage your Stellar account, view balances, send payments, and monitor streaming, escrow, and multi-sig activity. Real-time dashboard with analytics and wallet summary." />
-        <link rel="canonical" href="https://finchippay.vercel.app/dashboard" />
+        
       </Head>
       <div className="mb-8">
         {/* Focus target after wallet connect / navigation so focus lands on the

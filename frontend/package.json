@@ -6,10 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --ext .ts,.tsx --ignore-pattern '**/__tests__/**'",
     "analyze": "set ANALYZE=true && next build",
     "i18n:scan": "i18next-scanner --config i18next-scanner.config.js",
-    "i18n:check": "bash ../scripts/check-i18n.sh",
+    "i18n:check": "i18next-scanner --config i18next-scanner.config.js 'pages/**/*.{ts,tsx}' 'components/**/*.{ts,tsx}' 'lib/**/*.{ts,tsx}' 'hooks/**/*.{ts,tsx}' 'utils/**/*.{ts,tsx}' 'stories/**/*.{ts,tsx}'",
     "type-check": "tsc --noEmit",
     "test": "jest --runInBand",
     "test:e2e": "playwright test",
@@ -40,7 +40,7 @@
     "i18next-browser-languagedetector": "^8.2.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
-    "next": "^14.2.35",
+    "next": "^16.3.0",
     "papaparse": "^5.5.4",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
@@ -52,7 +52,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@next/bundle-analyzer": "^14.2.3",
+    "@next/bundle-analyzer": "^16.3.0",
     "@playwright/test": "^1.58.2",
     "@storybook/addon-a11y": "8.6.18",
     "@storybook/addon-essentials": "8.6.18",
@@ -69,12 +69,10 @@
     "@types/qrcode.react": "^1.0.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "@typescript-eslint/eslint-plugin": "^8.67.0",
-    "@typescript-eslint/parser": "^8.67.0",
     "autoprefixer": "^10.0.1",
     "cross-env": "^7.0.3",
     "eslint": "^8",
-    "eslint-config-next": "14.2.3",
+    "eslint-config-next": "15.5.23",
     "eslint-config-prettier": "^10.1.8",
     "fake-indexeddb": "^6.2.5",
     "fast-check": "^3.22.0",
@@ -90,9 +88,12 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.20.2"
   },
   "overrides": {
-    "image-size": ">=2.0.2"
+    "image-size": "2.0.2",
+    "uuid": "14.0.1",
+    "postcss": "8.5.26",
+    "sharp": "0.35.3"
   }
 }

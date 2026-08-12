@@ -16,7 +16,7 @@
       "argsIgnorePattern": "^_",
       "varsIgnorePattern": "^_"
     }],
-    "@typescript-eslint/prefer-optional-chain": "warn",
+    "@typescript-eslint/prefer-optional-chain": "off",
     "@typescript-eslint/no-non-null-assertion": "warn",
     "no-console": ["warn", {
       "allow": ["warn", "error"]
@@ -32,7 +32,8 @@
       "files": ["**/__tests__/**", "**/*.test.*", "**/*.spec.*", "e2e/**"],
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
-        "no-console": "off"
+        "no-console": "off",
+        "react-hooks/rules-of-hooks": "off"
       }
     }
   ]

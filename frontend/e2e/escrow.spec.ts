@@ -1,6 +1,6 @@
 // frontend/e2e/escrow.spec.ts
-import { test, expect } from './fixtures';
 import { nativeToScVal } from '@stellar/stellar-sdk';
+import { test, expect } from './fixtures';
 
 const SENDER_PUBLIC_KEY = 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV';
 const RECIPIENT_PUBLIC_KEY = 'GBPMK2QWQ2JKMSFL6EK44LNK45QWGS7IJBLUZXBT5B2FZXOG77GRQ5J4';
@@ -498,7 +498,7 @@ test.describe('Escrow E2E Flow', () => {
     // wallet (SENDER_PUBLIC_KEY). After release, claim 3 XLM and verify the
     // remaining balance is updated to 70000000 stroops (7 XLM).
     let currentEscrowAmount = BigInt(100000000);
-    let currentStatus = 'Pending';
+    const currentStatus = 'Pending';
 
     await page.route('**/soroban-testnet.stellar.org/**', async route => {
       const postData = route.request().postDataJSON();

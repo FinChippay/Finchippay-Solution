@@ -5,7 +5,7 @@
 
 "use strict";
 
-const db = require("../db/knex");
+const db = require("../db/connection");
 
 /**
  * GET /contacts/:publicKey

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
 /**
- * Health check endpoint for Vercel deployment verification.
+ * Health check endpoint for deployment verification.
  * Responds with 200 OK and basic build/deployment metadata.
  */
 export default function handler(_req: NextApiRequest, res: NextApiResponse) {
@@ -9,6 +9,6 @@ export default function handler(_req: NextApiRequest, res: NextApiResponse) {
     status: "ok",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
-    version: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "unknown",
+    version: process.env.NEXT_PUBLIC_VERSION || "unknown",
   });
 }

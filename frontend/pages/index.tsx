@@ -45,7 +45,7 @@ export default function Home() {
       <Head>
         <title>Home | Finchippay-Solution</title>
         <meta name="description" content="Experience lightning-fast payments on the Stellar network. Send funds globally with streaming, escrow, multi-sig, and batch payments — non-custodial and secure." />
-        <link rel="canonical" href="https://finchippay.vercel.app/" />
+        
       </Head>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-stellar-500/5 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-20 right-0 w-[300px] h-[300px] bg-stellar-600/5 rounded-full blur-2xl pointer-events-none" />

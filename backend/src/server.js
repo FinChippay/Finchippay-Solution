@@ -25,7 +25,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
-const { limitHandler } = require("./middleware/rateLimit");
+const { strictLimiter, createInstrumentedLimiter } = require("./middleware/rateLimit");
 const Sentry = require("@sentry/node");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
@@ -41,7 +41,6 @@ const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
 const { restoreWebhooks } = require("./services/webhookService");
 const parsePaymentRoutes = require("./routes/parsePayment");
-const { strictLimiter } = require("./middleware/rateLimit");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
 const sep12Routes = require("./routes/sep12");
@@ -67,15 +66,17 @@ const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
-const { requestIdMiddleware } = require("./middleware/requestId");
 const { errorLogFields } = require("./utils/errorResponse");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const shutdownState = require("./services/shutdownState");
 const { closeAll: closeBalanceStreams } = require("./services/balanceStreamService");
 const { zodErrorHandler } = require("./validation/middleware");
-// errorResponse registers getRequestId as the shared registry's
+// Requiring errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider (#270).
+require("./utils/errorResponse");
+const { requestIdMiddleware } = require("./middleware/requestId");
 const traceContextMiddleware = require("./middleware/tracing");
+const crypto = require("crypto");
 
 const { ApolloServer } = require("apollo-server-express");
 const { ApolloServerPluginLandingPageGraphQLPlayground } = require("apollo-server-core");
@@ -158,6 +159,7 @@ function getFederationServerUrl(req) {
  * The backend serves no HTML pages of its own except Swagger UI at /api/docs,
  * so the policy is intentionally restrictive.
  */
+// Helmet and rate-limit are configured via securityHeaders + createInstrumentedLimiter
 const securityHeaders = require("./middleware/securityHeaders");
 const corsConfig = require("./middleware/corsConfig");
 
@@ -254,15 +256,16 @@ TRANSFER_SERVER_SEP0024="${transferServerUrl}"
 });
 
 // Global rate limiting — 100 requests per 15 minutes per IP.
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
-  // Counts rejections into rate_limit_hits_total{limiter="global"} (#272).
-  handler: limitHandler("global", "RATE_LIMITED_GLOBAL"),
-});
+const limiter = createInstrumentedLimiter(
+  {
+    windowMs: 15 * 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
+  },
+  "global",
+);
 app.use(limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────

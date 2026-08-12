@@ -6,7 +6,6 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { logger } from "@/lib/logger";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AccountSwitcher from "@/components/AccountSwitcher";

@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import ContactImportModal from "@/components/ContactImportModal";
 import WalletConnect from "@/components/WalletConnect";
 import { useContacts } from "@/hooks/useContacts";

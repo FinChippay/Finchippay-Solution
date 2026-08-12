@@ -48,7 +48,7 @@ jest.mock("../src/services/webhookSubscriptionService", () => ({
   deleteWebhook: jest.fn(),
 }));
 
-const app = require("../src/server");
+const app = require("../src/app");
 
 const tipsService = require("../src/services/tipsService");
 const turretsService = require("../src/services/turretsService");
