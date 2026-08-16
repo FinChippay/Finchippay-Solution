@@ -36,6 +36,7 @@ jobs:
       - run: cargo check --target wasm32v1-none
       - run: cargo test
       - run: cargo test --test integration
+      - run: cargo test --test integration_cross_contract
       - if: ${{ matrix.rust-channel == 'stable' }}
         run: cargo build --target wasm32v1-none --release
 
