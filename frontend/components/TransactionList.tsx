@@ -19,6 +19,7 @@ import {
 } from "@/components/icons";
 import { useContacts } from "@/hooks/useContacts";
 import { logger } from "@/lib/logger";
+import { getQueueCount } from "@/lib/offlineQueue";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -169,6 +170,7 @@ function TransactionList({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [queuedCount, setQueuedCount] = useState(0);
   
   type PendingAction =
     | { type: "ADD"; payload: PaymentRecord }
@@ -352,6 +354,35 @@ function TransactionList({
     if (!isVisible) return;
     fetchPayments();
   }, [fetchPayments, isVisible]);
+
+  // ── Offline queue badge ──────────────────────────────────────────────────
+  // Number of payments queued offline (from the generic + legacy queues).
+  useEffect(() => {
+    let active = true;
+
+    const refreshQueued = async () => {
+      try {
+        const count = await getQueueCount();
+        if (active) setQueuedCount(count);
+      } catch {
+        // IndexedDB unavailable — leave the badge hidden.
+      }
+    };
+
+    void refreshQueued();
+    const intervalId = window.setInterval(() => void refreshQueued(), 15_000);
+
+    const onSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === "QUEUE_PROCESSED") void refreshQueued();
+    };
+    navigator.serviceWorker?.addEventListener("message", onSwMessage);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      navigator.serviceWorker?.removeEventListener("message", onSwMessage);
+    };
+  }, []);
 
   const handleLoadMore = () => fetchPayments(true);
 
@@ -562,6 +593,16 @@ function TransactionList({
           {stalePaymentsAt && (
             <div className="mb-4 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200">
               Offline history snapshot from {formatSnapshotTime(stalePaymentsAt)}
+            </div>
+          )}
+
+          {queuedCount > 0 && (
+            <div
+              className="mb-4 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200"
+              data-testid="offline-queue-list-badge"
+            >
+              {queuedCount} transaction{queuedCount > 1 ? "s" : ""} queued
+              offline
             </div>
           )}
 

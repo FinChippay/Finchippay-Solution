@@ -1,17 +1,18 @@
 /**
  * Finchippay Service Worker
  *
- * Caching strategies per issue #91:
+ * Caching strategies (issues #91, #483):
  *  - /_next/static/       Cache-first (hash-busted URLs, indefinite)
  *  - API transaction list  Stale-while-revalidate (60 s TTL)
  *  - API account balances  Network-first with cache fallback (30 s TTL)
+ *  - Price feeds           Stale-while-revalidate (60 s TTL)
  *  - Horizon data          Cache-first (5 min TTL)
- *  - App shell (pages)     Network-first with cache fallback
+ *  - App shell (pages)     Network-first with cache fallback + /offline fallback
  *
- * Also handles push notifications for incoming payments.
+ * Also handles push notifications and the offline transaction queue.
  */
 
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const PRECACHE = `finchippay-precache-${CACHE_VERSION}`;
 const STATIC_ASSETS = `finchippay-static-${CACHE_VERSION}`;
 const API_CACHE = `finchippay-api-${CACHE_VERSION}`;
@@ -31,6 +32,7 @@ const APP_SHELL_URLS = [
   "/transactions",
   "/contacts",
   "/settings",
+  "/offline",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
@@ -249,6 +251,7 @@ async function handleNavigation(request) {
   } catch {
     return (
       (await cache.match(request)) ||
+      (await cache.match("/offline")) ||
       (await cache.match("/")) ||
       Response.error()
     );
@@ -339,6 +342,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // ── Price feeds (CoinGecko) — stale-while-revalidate ──────────────────
+  if (url.hostname === "api.coingecko.com") {
+    event.respondWith(staleWhileRevalidate(request));
+    return;
+  }
+
   // ── Other same-origin / runtime-cacheable — network-first ──────────────
   if (RUNTIME_CACHE_HOSTS.has(url.hostname)) {
     event.respondWith(networkFirst(request));
@@ -381,8 +390,21 @@ self.addEventListener("push", (event) => {
 // The same DB_NAME / TX_STORE constants must match offlineQueue.ts.
 
 const QUEUE_DB_NAME = "finchippay-offline-queue";
-const QUEUE_DB_VERSION = 2;
+const QUEUE_DB_VERSION = 3;
 const QUEUE_TX_STORE = "transactions";
+const QUEUE_ENTRIES_STORE = "entries";
+const QUEUE_PAYMENT_TYPE = "payment";
+const QUEUE_MAX_RETRIES = 3;
+const QUEUE_BASE_RETRY_DELAY_MS = 1000;
+const QUEUE_MAX_RETRY_DELAY_MS = 30000;
+
+function backoffMs(retryCount) {
+  const exponent = Math.max(0, Math.floor(retryCount || 0));
+  return Math.min(
+    QUEUE_BASE_RETRY_DELAY_MS * Math.pow(2, exponent),
+    QUEUE_MAX_RETRY_DELAY_MS
+  );
+}
 
 /** Open (and upgrade if needed) the offline-queue IndexedDB. */
 function openQueueDB() {
@@ -402,6 +424,16 @@ function openQueueDB() {
       if (oldVersion < 2) {
         if (!db.objectStoreNames.contains(QUEUE_TX_STORE)) {
           const store = db.createObjectStore(QUEUE_TX_STORE, { keyPath: "id" });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("createdAt", "createdAt", { unique: false });
+        }
+      }
+
+      if (oldVersion < 3) {
+        if (!db.objectStoreNames.contains(QUEUE_ENTRIES_STORE)) {
+          const store = db.createObjectStore(QUEUE_ENTRIES_STORE, {
+            keyPath: "id",
+          });
           store.createIndex("status", "status", { unique: false });
           store.createIndex("createdAt", "createdAt", { unique: false });
         }
@@ -461,10 +493,158 @@ function getHorizonUrl() {
 }
 
 /**
- * Core submission loop — called by the "sync" event and also re-exported via
- * postMessage for manual "Retry" triggers from the OfflineBanner UI.
+ * Submit a signed XDR envelope to Horizon. Throws on network failure or a
+ * non-2xx Horizon error.
  */
-async function submitQueuedPayments() {
+async function submitXdrToHorizon(horizonUrl, signedXDR) {
+  const body = new URLSearchParams({ tx: signedXDR });
+  const response = await fetch(`${horizonUrl}/transactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const json = await response.json();
+      detail =
+        json?.extras?.result_codes?.transaction ?? json?.detail ?? detail;
+    } catch { /* ignore */ }
+    throw new Error(`Horizon ${response.status}: ${detail}`);
+  }
+}
+
+/** Coerce an unknown stored value into a safe queue entry (or null). */
+function sanitizeQueueEntry(raw) {
+  if (typeof raw !== "object" || raw === null) return null;
+  if (typeof raw.id !== "string" || typeof raw.type !== "string") return null;
+
+  const status =
+    raw.status === "pending" ||
+    raw.status === "processing" ||
+    raw.status === "failed"
+      ? raw.status
+      : "failed";
+  const retryCount =
+    typeof raw.retryCount === "number" && Number.isFinite(raw.retryCount)
+      ? Math.max(0, Math.floor(raw.retryCount))
+      : 0;
+
+  const entry = {
+    id: raw.id,
+    type: raw.type,
+    payload: "payload" in raw ? raw.payload : null,
+    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    status,
+    retryCount,
+  };
+  if (typeof raw.lastError === "string") entry.lastError = raw.lastError;
+  if (typeof raw.lastAttemptAt === "number") {
+    entry.lastAttemptAt = raw.lastAttemptAt;
+  }
+  if (typeof raw.nextRetryAt === "number") {
+    entry.nextRetryAt = raw.nextRetryAt;
+  }
+  return entry;
+}
+
+/** Retrieve all generic queue entries, oldest-first. */
+function getGenericEntries(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_ENTRIES_STORE, "readonly");
+    const req = tx.objectStore(QUEUE_ENTRIES_STORE).getAll();
+    req.onsuccess = () => {
+      const raw = Array.isArray(req.result) ? req.result : [];
+      const entries = raw
+        .map(sanitizeQueueEntry)
+        .filter(Boolean)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      resolve(entries);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Persist a changed generic entry. */
+function putGenericEntry(db, entry) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_ENTRIES_STORE, "readwrite");
+    tx.objectStore(QUEUE_ENTRIES_STORE).put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Remove a submitted generic entry. */
+function deleteGenericEntry(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_ENTRIES_STORE, "readwrite");
+    tx.objectStore(QUEUE_ENTRIES_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Drain the generic queue in FIFO order. Only entries whose payload carries a
+ * signed XDR can be submitted here; unsigned payment intents require Freighter
+ * (main thread only), so they are left pending and reported via the returned
+ * boolean so a window can finish them.
+ */
+async function drainGenericQueue(db) {
+  const entries = await getGenericEntries(db);
+  const now = Date.now();
+  let hasUnsignedPayments = false;
+
+  for (const entry of entries) {
+    if (entry.status === "processing") continue;
+    if ((entry.retryCount || 0) >= QUEUE_MAX_RETRIES) continue;
+    if (entry.nextRetryAt && entry.nextRetryAt > now) continue;
+    if (entry.status !== "pending" && entry.status !== "failed") continue;
+
+    const payload =
+      entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+    const signedXDR =
+      typeof payload.signedXDR === "string" ? payload.signedXDR : null;
+
+    if (!signedXDR) {
+      if (entry.type === QUEUE_PAYMENT_TYPE) hasUnsignedPayments = true;
+      continue;
+    }
+
+    await putGenericEntry(db, {
+      ...entry,
+      status: "processing",
+      lastAttemptAt: Date.now(),
+    });
+
+    try {
+      await submitXdrToHorizon(getHorizonUrl(), signedXDR);
+      await deleteGenericEntry(db, entry.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const retryCount = (entry.retryCount || 0) + 1;
+      await putGenericEntry(db, {
+        ...entry,
+        status: "failed",
+        retryCount,
+        lastError: message,
+        lastAttemptAt: Date.now(),
+        nextRetryAt: Date.now() + backoffMs(retryCount),
+      });
+    }
+  }
+
+  return hasUnsignedPayments;
+}
+
+/**
+ * Core submission loop — drains the legacy signed-XDR queue and then the
+ * generic queue in FIFO order. Called by the "sync" event and re-triggered via
+ * postMessage for manual "Retry" from the OfflineBanner UI.
+ */
+async function drainQueue() {
   let db;
   try {
     db = await openQueueDB();
@@ -473,35 +653,15 @@ async function submitQueuedPayments() {
     return;
   }
 
+  // Legacy signed-XDR transactions.
   const pending = await getPendingTransactions(db);
   const horizonUrl = getHorizonUrl();
-
   for (const record of pending) {
-    // Mark in-flight so the UI can show a spinner.
     await putTransaction(db, { ...record, status: "submitting" });
-
     try {
-      const body = new URLSearchParams({ tx: record.signedXDR });
-      const response = await fetch(`${horizonUrl}/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body,
-      });
-
-      if (!response.ok) {
-        let detail = response.statusText;
-        try {
-          const json = await response.json();
-          detail =
-            json?.extras?.result_codes?.transaction ?? json?.detail ?? detail;
-        } catch { /* ignore */ }
-        throw new Error(`Horizon ${response.status}: ${detail}`);
-      }
-
-      // ✓ Success — remove from queue.
+      await submitXdrToHorizon(horizonUrl, record.signedXDR);
       await deleteTransaction(db, record.id);
     } catch (err) {
-      // ✗ Failure — persist error for the next retry.
       await putTransaction(db, {
         ...record,
         status: "failed",
@@ -511,18 +671,33 @@ async function submitQueuedPayments() {
     }
   }
 
+  // Generic queue entries.
+  let hasUnsignedPayments = false;
+  try {
+    hasUnsignedPayments = await drainGenericQueue(db);
+  } catch {
+    // The generic store may not exist yet in older workers; ignore.
+  }
+
   db.close();
 
-  // Notify all open tabs so they can refresh the queue badge / banner.
+  // Notify all open tabs so they can refresh the queue badge / banner and, when
+  // necessary, finish unsigned payments via Freighter on the main thread.
   const clientList = await self.clients.matchAll({ type: "window" });
   for (const client of clientList) {
     client.postMessage({ type: "QUEUE_PROCESSED" });
+    if (hasUnsignedPayments) {
+      client.postMessage({ type: "QUEUE_NEEDS_SIGNING" });
+    }
   }
 }
 
 self.addEventListener("sync", (event) => {
-  if (event.tag === "submit-payments") {
-    event.waitUntil(submitQueuedPayments());
+  if (
+    event.tag === "submit-payments" ||
+    event.tag === "process-transaction-queue"
+  ) {
+    event.waitUntil(drainQueue());
   }
 });
 
@@ -532,7 +707,7 @@ self.addEventListener("sync", (event) => {
  */
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "RETRY_QUEUE") {
-    event.waitUntil(submitQueuedPayments());
+    event.waitUntil(drainQueue());
   }
 });
 
