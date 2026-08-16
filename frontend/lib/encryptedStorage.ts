@@ -12,7 +12,7 @@
  * persistence (it never writes plaintext).
  */
 
-import { encrypt, decrypt } from "@/lib/encryption";
+import { encrypt, decrypt, DecryptionError, TamperDetectedError, WrongKeyError } from "@/lib/encryption";
 
 const ENVELOPE_VERSION = 2 as const;
 
@@ -43,6 +43,8 @@ export interface EncryptedStoreOptions<T> {
   revive: (raw: unknown) => T | null;
   /** Optional de-duplication applied after merging sources. */
   dedupe?: (items: T[]) => T[];
+  /** Optional callback for decryption errors with user-friendly messages. */
+  onDecryptionError?: (error: DecryptionError) => void;
 }
 
 export interface EncryptedStore<T> {
@@ -55,15 +57,21 @@ export interface EncryptedStore<T> {
   subscribe: (callback: (items: T[]) => void) => () => void;
   /** True when a stored envelope was encrypted for a different wallet. */
   needsReEncryption: (owner: string) => boolean;
+  /** Get the last decryption error, if any. */
+  getLastError: () => DecryptionError | null;
+  /** Clear the last decryption error. */
+  clearLastError: () => void;
 }
 
 export function createEncryptedStore<T>(options: EncryptedStoreOptions<T>): EncryptedStore<T> {
-  const { storageKey, eventName, legacyKeys = [], revive, dedupe } = options;
+  const { storageKey, eventName, legacyKeys = [], revive, dedupe, onDecryptionError } = options;
 
   // In-memory decrypted cache. `null` means "not yet unlocked this session".
   let cache: T[] | null = null;
   // Serialises background writes so rapid saves persist in order.
   let writeQueue: Promise<void> = Promise.resolve();
+  // Track the last decryption error for UI feedback
+  let lastError: DecryptionError | null = null;
 
   function reviveArray(raw: unknown): T[] {
     if (!Array.isArray(raw)) return [];
@@ -146,6 +154,7 @@ export function createEncryptedStore<T>(options: EncryptedStoreOptions<T>): Encr
   async function unlock(key: CryptoKey, owner: string): Promise<void> {
     currentKey = key;
     currentOwner = owner;
+    lastError = null; // Clear previous errors on new unlock
 
     const raw = readRaw(storageKey);
 
@@ -161,9 +170,24 @@ export function createEncryptedStore<T>(options: EncryptedStoreOptions<T>): Encr
             persist(cache, key, owner);
             removeLegacy();
           }
-        } catch {
-          // Corrupt/undecryptable payload — start from legacy plaintext only.
-          cache = applyDedupe(readLegacyPlaintext());
+        } catch (error) {
+          // Handle specific decryption errors with user-friendly messages
+          if (error instanceof DecryptionError) {
+            lastError = error;
+            if (onDecryptionError) {
+              onDecryptionError(error);
+            }
+            // For tamper errors, start from legacy only as a safety measure
+            if (error instanceof TamperDetectedError) {
+              cache = applyDedupe(readLegacyPlaintext());
+            } else {
+              // For other errors (wrong key, etc.), preserve cache if available
+              cache = cache ?? [];
+            }
+          } else {
+            // Corrupt/undecryptable payload — start from legacy plaintext only.
+            cache = applyDedupe(readLegacyPlaintext());
+          }
         }
       } else {
         // Different wallet: cannot decrypt. Preserve any in-memory data so the
@@ -244,6 +268,14 @@ export function createEncryptedStore<T>(options: EncryptedStoreOptions<T>): Encr
     return isEnvelope(raw) && raw.owner !== owner;
   }
 
+  function getLastError(): DecryptionError | null {
+    return lastError;
+  }
+
+  function clearLastError(): void {
+    lastError = null;
+  }
+
   // Session key/owner scoped to this store instance (mirrors the module-level
   // session key in encryption.ts but lets each store persist independently).
   let currentKey: CryptoKey | null = null;
@@ -258,5 +290,7 @@ export function createEncryptedStore<T>(options: EncryptedStoreOptions<T>): Encr
     clear,
     subscribe,
     needsReEncryption,
+    getLastError,
+    clearLastError,
   };
 }

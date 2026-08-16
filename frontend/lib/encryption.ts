@@ -19,6 +19,52 @@
  * for this change.
  */
 
+// ─── Custom Error Types ─────────────────────────────────────────────────────
+
+export class EncryptionError extends Error {
+  constructor(message: string, public readonly userMessage: string) {
+    super(message);
+    this.name = "EncryptionError";
+  }
+}
+
+export class DecryptionError extends EncryptionError {
+  constructor(message: string, userMessage: string) {
+    super(message, userMessage);
+    this.name = "DecryptionError";
+  }
+}
+
+export class TamperDetectedError extends DecryptionError {
+  constructor() {
+    super(
+      "Ciphertext authentication failed - data may have been tampered with",
+      "Your encrypted data appears to be corrupted or tampered with. This could indicate a security issue or data corruption."
+    );
+    this.name = "TamperDetectedError";
+  }
+}
+
+export class WrongKeyError extends DecryptionError {
+  constructor() {
+    super(
+      "Decryption failed - incorrect key",
+      "Unable to decrypt your data. This may happen if you're using a different wallet than the one used to encrypt this data."
+    );
+    this.name = "WrongKeyError";
+  }
+}
+
+export class InvalidCiphertextError extends DecryptionError {
+  constructor() {
+    super(
+      "Invalid ciphertext format",
+      "The encrypted data format is invalid. This may indicate data corruption."
+    );
+    this.name = "InvalidCiphertextError";
+  }
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /** localStorage key holding the base64 PBKDF2 salt shared across encrypted stores. */
@@ -26,6 +72,7 @@ export const ENCRYPTION_SALT_STORAGE_KEY = "finchippay:enc-salt";
 
 const SALT_BYTES = 16;
 const IV_BYTES = 12; // 96-bit nonce recommended for AES-GCM
+const VERSION_BYTES = 1; // Version byte for ciphertext format
 const PBKDF2_ITERATIONS = 150_000;
 const AES_KEY_LENGTH = 256;
 
@@ -146,12 +193,14 @@ export async function deriveKey(publicKey: string, salt: Uint8Array): Promise<Cr
 
 /**
  * Encrypt a string or JSON-serialisable object with AES-GCM.
- * Returns base64 of `iv || ciphertext` so it can be stored as text.
+ * Returns base64 of `version || iv || ciphertext` so it can be stored as text.
+ * Version field allows for future algorithm migration.
  */
 export async function encrypt(data: string | object, key: CryptoKey): Promise<string> {
   const subtle = getSubtle();
   const plaintext = typeof data === "string" ? data : JSON.stringify(data);
   const iv = getRandomBytes(IV_BYTES);
+  const version = 1; // Current encryption format version
 
   const ciphertext = await subtle.encrypt(
     { name: "AES-GCM", iv: iv as unknown as BufferSource },
@@ -160,33 +209,79 @@ export async function encrypt(data: string | object, key: CryptoKey): Promise<st
   );
 
   const cipherBytes = new Uint8Array(ciphertext);
-  const combined = new Uint8Array(iv.length + cipherBytes.length);
-  combined.set(iv, 0);
-  combined.set(cipherBytes, iv.length);
+  const combined = new Uint8Array(1 + iv.length + cipherBytes.length);
+  combined.set([version], 0);
+  combined.set(iv, 1);
+  combined.set(cipherBytes, 1 + iv.length);
   return bytesToBase64(combined);
 }
 
 /**
  * Decrypt a base64 payload produced by {@link encrypt}. Rejects when the key is
  * wrong or the ciphertext has been tampered with (AES-GCM authentication).
+ * Handles versioned ciphertext format for future algorithm migration.
+ * @throws {DecryptionError} When decryption fails with user-friendly message
  */
 export async function decrypt(encryptedData: string, key: CryptoKey): Promise<string> {
   const subtle = getSubtle();
   const combined = base64ToBytes(encryptedData);
-  if (combined.length <= IV_BYTES) {
-    throw new Error("Invalid encrypted payload.");
+  
+  // Handle legacy format (no version byte) - exactly IV_BYTES + some ciphertext
+  if (combined.length > IV_BYTES && combined.length < IV_BYTES + VERSION_BYTES + 10) {
+    // Legacy format: iv || ciphertext (no version byte)
+    const iv = combined.slice(0, IV_BYTES);
+    const cipherBytes = combined.slice(IV_BYTES);
+    
+    if (cipherBytes.length === 0) {
+      throw new InvalidCiphertextError();
+    }
+
+    try {
+      const plaintext = await subtle.decrypt(
+        { name: "AES-GCM", iv: iv as unknown as BufferSource },
+        key,
+        cipherBytes as unknown as BufferSource
+      );
+      return new TextDecoder().decode(plaintext);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "OperationError") {
+        throw new TamperDetectedError();
+      }
+      throw new WrongKeyError();
+    }
+  }
+  
+  // Versioned format: version || iv || ciphertext
+  if (combined.length < VERSION_BYTES + IV_BYTES + 1) {
+    throw new InvalidCiphertextError();
+  }
+  
+  const version = combined[0];
+  const iv = combined.slice(VERSION_BYTES, VERSION_BYTES + IV_BYTES);
+  const cipherBytes = combined.slice(VERSION_BYTES + IV_BYTES);
+  
+  if (iv.length !== IV_BYTES || cipherBytes.length === 0) {
+    throw new InvalidCiphertextError();
   }
 
-  const iv = combined.slice(0, IV_BYTES);
-  const cipherBytes = combined.slice(IV_BYTES);
-
-  const plaintext = await subtle.decrypt(
-    { name: "AES-GCM", iv: iv as unknown as BufferSource },
-    key,
-    cipherBytes as unknown as BufferSource
-  );
-
-  return new TextDecoder().decode(plaintext);
+  try {
+    const plaintext = await subtle.decrypt(
+      { name: "AES-GCM", iv: iv as unknown as BufferSource },
+      key,
+      cipherBytes as unknown as BufferSource
+    );
+    return new TextDecoder().decode(plaintext);
+  } catch (error) {
+    // Distinguish between tamper detection and wrong key based on error
+    if (error instanceof DOMException) {
+      if (error.name === "OperationError") {
+        // This is typically authentication failure (tampering)
+        throw new TamperDetectedError();
+      }
+    }
+    // Other errors are likely wrong key or other issues
+    throw new WrongKeyError();
+  }
 }
 
 // ─── Session key holder (in-memory only) ────────────────────────────────────
