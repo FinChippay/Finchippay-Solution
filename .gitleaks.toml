@@ -1,0 +1,57 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+# Allowlist for known-safe test fixtures and documentation
+[allowlist]
+description = "Global allowlist for known-safe patterns"
+paths = [
+  '''docs/security/secret-rotation\.md''',
+  '''\.example$''',
+  '''\.sample$''',
+  '''backend/\.env\.example''',
+  '''frontend/\.env\.example''',
+  '''backend/__tests__''',
+  '''frontend/__tests__''',
+  '''frontend/e2e''',
+  '''docker-compose''',
+  '''ENV\.md''',
+  '''PR_.*\.md''',
+  '''terraform''',
+  '''docs/api\.md''',
+  '''docs/sdk\.md''',
+  '''.github/workflows/kubernetes-deploy\.yml''',
+  '''sdk/src/index\.ts''',
+]
+
+# Additional custom rules for this project
+[[rules]]
+description = "Stellar Secret Key"
+id = "stellar-secret-key"
+regex = '''S[A-Z0-9]{55}'''
+keywords = ["S"]
+
+[[rules]]
+description = "JWT Secret"
+id = "jwt-secret"
+regex = '''(?i)jwt[_-]?secret['"]?\s*[:=]\s*['"][^'"]{10,}['"]'''
+keywords = ["jwt", "secret"]
+
+[[rules]]
+description = "Database Connection String"
+id = "database-url"
+regex = '''(?i)(mongodb|mysql|postgres|postgresql)://[^:]+:[^@]+@'''
+keywords = ["mongodb://", "mysql://", "postgres://", "postgresql://"]
+
+[[rules]]
+description = "AWS Access Key"
+id = "aws-access-key"
+regex = '''(?i)aws[_-]?(access[_-]?key[_-]?id|secret[_-]?access[_-]?key)['"]?\s*[:=]\s*['"][A-Z0-9]{20}['"]'''
+keywords = ["aws", "access", "key"]
+
+[[rules]]
+description = "Private Key"
+id = "private-key"
+regex = '''-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----'''
+keywords = ["BEGIN", "PRIVATE KEY"]
