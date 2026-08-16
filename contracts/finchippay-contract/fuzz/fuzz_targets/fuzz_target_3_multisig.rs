@@ -85,7 +85,7 @@ fuzz_target!(|data: &[u8]| {
     env.mock_all_auths();
 
     // --- Create multi-sig proposal ---
-    let current_ledger = env.ledger().sequence();
+    let current_ledger = env.ledger().get().sequence_number;
     let expiry = current_ledger + expiry_offset;
 
     let proposal_id = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -178,7 +178,7 @@ fuzz_target!(|data: &[u8]| {
         let p = client.get_multisig(&proposal_id);
         if matches!(p.status, finchippay_contract::MultiSigStatus::Pending) {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.cancel_multisig(&proposal_id);
+                client.cancel_multisig(&proposal_id, &proposer);
             }));
             if result.is_ok() {
                 let p = client.get_multisig(&proposal_id);
@@ -193,7 +193,7 @@ fuzz_target!(|data: &[u8]| {
     // --- Timeout proposal ---
     if should_timeout {
         // Fast-forward past expiration
-        env.ledger().set_sequence_number(expiry + 10);
+        env.ledger().with_mut(|li| li.sequence_number = expiry + 10);
 
         let p = client.get_multisig(&proposal_id);
         if matches!(p.status, finchippay_contract::MultiSigStatus::Pending) {

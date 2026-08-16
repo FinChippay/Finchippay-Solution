@@ -1,6 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use soroban_sdk::testutils::Ledger;
 use soroban_sdk::{
     testutils::Address as _,
     Address, Env, Symbol,
@@ -56,7 +57,7 @@ fuzz_target!(|data: &[u8]| {
         .iter()
         .map(|b| (b % 95 + 32) as u8)
         .take(10)
-        .collect::<Vec<u8>>();
+        .collect::<std::vec::Vec<u8>>();
     let memo_str = std::str::from_utf8(&memo_str).unwrap_or("fuzz");
     let memo = Symbol::new(&env, memo_str);
 
@@ -80,7 +81,7 @@ fuzz_target!(|data: &[u8]| {
 
     // --- create_escrow with fuzzed memo ---
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let release = env.ledger().sequence() + 100;
+        let release = env.ledger().get().sequence_number + 100;
         let escrow_id = client.create_escrow(&token_id, &from, &to, &amount, &release, &memo);
         let escrow = client.get_escrow(&escrow_id);
         assert_eq!(escrow.memo, memo, "memo should round-trip through escrow");
