@@ -136,7 +136,7 @@ pub fn ttl_class_symbol(env: &Env, class: &TtlClass) -> Symbol {
 /// counter itself, so the count is `1 + items` and is never zero.
 pub fn ttl_class_len(env: &Env, class: &TtlClass) -> u32 {
     match class {
-        TtlClass::Config => TTL_CONFIG_KEYS,
+        TtlClass::Config => TTL_CONFIG_KEYS + counter(env, &DataKey::ArbitratorCount),
         TtlClass::Receipts => 1 + counter(env, &DataKey::TotalReceiptCount),
         TtlClass::Escrows => 1 + counter(env, &DataKey::EscrowCount),
         TtlClass::Streams => 1 + counter(env, &DataKey::StreamCount),
@@ -168,7 +168,21 @@ pub fn bump_config_key(env: &Env, index: u32) -> u32 {
         5 => bump_to_floor_if_present(env, &DataKey::AdminSigners),
         6 => bump_to_floor_if_present(env, &DataKey::AdminSignersThreshold),
         7 => bump_to_floor_if_present(env, &DataKey::Arbitrators),
-        _ => bump_to_floor_if_present(env, &DataKey::ArbitratorCount),
+        8 => bump_to_floor_if_present(env, &DataKey::ArbitratorCount),
+        _ => {
+            let arbitrators: Option<soroban_sdk::Vec<Address>> =
+                env.storage().persistent().get(&DataKey::Arbitrators);
+            let arbitrator = match arbitrators
+                .and_then(|items| items.get(index.saturating_sub(TTL_CONFIG_KEYS)))
+            {
+                Some(arbitrator) => arbitrator,
+                None => return 0,
+            };
+            bump_to_floor_if_present(env, &DataKey::ArbitratorStake(arbitrator.clone()))
+                + bump_to_floor_if_present(env, &DataKey::ArbitratorStakeToken(arbitrator.clone()))
+                + bump_to_floor_if_present(env, &DataKey::ArbitratorTier(arbitrator.clone()))
+                + bump_to_floor_if_present(env, &DataKey::ArbitratorActiveEscrows(arbitrator))
+        }
     }
 }
 
@@ -208,7 +222,12 @@ pub fn bump_ttl_class_item(env: &Env, class: &TtlClass, index: u32) -> u32 {
             match recipient {
                 Some(recipient) => {
                     bump_to_floor(env, &recipient_key);
+                    let escrow_id = index - 1;
                     1 + bump_to_floor_if_present(env, &DataKey::EscrowByRecipient(recipient))
+                        + bump_to_floor_if_present(env, &DataKey::AppealedArbitrator(escrow_id, 1))
+                        + bump_to_floor_if_present(env, &DataKey::AppealAppellant(escrow_id, 1))
+                        + bump_to_floor_if_present(env, &DataKey::AppealedArbitrator(escrow_id, 2))
+                        + bump_to_floor_if_present(env, &DataKey::AppealAppellant(escrow_id, 2))
                 }
                 None => 0,
             }

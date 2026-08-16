@@ -8,11 +8,32 @@ use soroban_sdk::{token, Address, Env, Symbol, Vec};
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_admin, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
-    ContractError, DataKey, Escrow, EscrowStatus, MAX_ESCROW_AMOUNT, MAX_ESCROW_LEDGERS,
-    MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
+    ContractError, DataKey, Escrow, EscrowStatus, ARBITRATOR_SLASH_BPS, DISPUTE_REVIEW_LEDGERS,
+    MAX_APPEAL_DEPTH, MAX_ESCROW_AMOUNT, MAX_ESCROW_LEDGERS, MAX_USER_ESCROWS,
+    MIN_ARBITRATOR_STAKE, MIN_ESCROW_AMOUNT,
 };
 
 use crate::storage::*;
+
+fn increase_arbitrator_assignments(env: &Env, arbitrator: &Address) {
+    let key = DataKey::ArbitratorActiveEscrows(arbitrator.clone());
+    let current: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+    let updated = current.checked_add(1).expect("assignment count overflow");
+    env.storage().persistent().set(&key, &updated);
+    bump_to_floor(env, &key);
+}
+
+fn decrease_arbitrator_assignments(env: &Env, arbitrator: &Address) {
+    let key = DataKey::ArbitratorActiveEscrows(arbitrator.clone());
+    let current: u32 = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .expect("Arbitrator assignment count not found");
+    let updated = current.checked_sub(1).expect("assignment count underflow");
+    env.storage().persistent().set(&key, &updated);
+    bump(env, &key);
+}
 /// Lock `amount` tokens from `from` until `release_ledger`. Returns the escrow ID.
 ///
 /// Funds are held by the contract itself until `claim_escrow` or `cancel_escrow`.
@@ -86,6 +107,9 @@ pub fn create_escrow(
         disputed: false,
         dispute_raised_by: Option::None,
         dispute_raised_at: 0,
+        appeal_depth: 0,
+        appeal_arbitrator: Option::None,
+        resolution_ledger: 0,
     };
 
     env.storage()
@@ -145,6 +169,9 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("disputed escrow must be resolved by its arbitrator");
+    }
     if env.ledger().sequence() < escrow.release_ledger {
         panic!("release_ledger not reached");
     }
@@ -163,6 +190,9 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
     let remaining = escrow.amount.checked_sub(claim_amount).expect("overflow");
     if remaining == 0 {
         escrow.status = EscrowStatus::Released;
+        if let Some(arbitrator) = escrow.arbitrator.clone() {
+            decrease_arbitrator_assignments(&env, &arbitrator);
+        }
     }
     escrow.amount = remaining;
 
@@ -229,6 +259,9 @@ pub fn claim_escrow(env: Env, id: u32) {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("disputed escrow must be resolved by its arbitrator");
+    }
     if env.ledger().sequence() < escrow.release_ledger {
         panic!("release_ledger not reached");
     }
@@ -239,6 +272,9 @@ pub fn claim_escrow(env: Env, id: u32) {
     decrease_locked_balance(&env, &escrow.token, escrow.amount);
 
     escrow.status = EscrowStatus::Released;
+    if let Some(arbitrator) = escrow.arbitrator.clone() {
+        decrease_arbitrator_assignments(&env, &arbitrator);
+    }
     r_escrows.set(idx, escrow.clone());
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
@@ -283,6 +319,9 @@ pub fn cancel_escrow(env: Env, id: u32) {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("disputed escrow must be resolved by its arbitrator");
+    }
     if env.ledger().sequence() >= escrow.release_ledger {
         panic!("release_ledger already reached — cancellation is no longer allowed");
     }
@@ -293,6 +332,9 @@ pub fn cancel_escrow(env: Env, id: u32) {
     decrease_locked_balance(&env, &escrow.token, escrow.amount);
 
     escrow.status = EscrowStatus::Cancelled;
+    if let Some(arbitrator) = escrow.arbitrator.clone() {
+        decrease_arbitrator_assignments(&env, &arbitrator);
+    }
     r_escrows.set(idx, escrow.clone());
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
@@ -350,11 +392,45 @@ pub fn escrow_count(env: Env) -> u32 {
 
 // ─── Dispute resolution ──────────────────────────────────────────────────
 
-pub fn add_arbitrator(env: Env, admin: Address, arbitrator: Address) {
+pub fn add_arbitrator(
+    env: Env,
+    admin: Address,
+    arbitrator: Address,
+    stake_token: Address,
+    stake_amount: i128,
+    tier: u32,
+) {
     admin.require_auth();
     let stored = get_admin(&env);
     if admin != stored {
         panic!("Unauthorized");
+    }
+    register_arbitrator_with_tier(env, arbitrator, stake_amount, stake_token, tier);
+}
+
+/// Register a primary arbitrator by locking the caller's own stake.
+pub fn register_arbitrator(
+    env: Env,
+    arbitrator: Address,
+    stake_amount: i128,
+    stake_token: Address,
+) {
+    register_arbitrator_with_tier(env, arbitrator, stake_amount, stake_token, 0);
+}
+
+fn register_arbitrator_with_tier(
+    env: Env,
+    arbitrator: Address,
+    stake_amount: i128,
+    stake_token: Address,
+    tier: u32,
+) {
+    arbitrator.require_auth();
+    if stake_amount < MIN_ARBITRATOR_STAKE {
+        panic!("Arbitrator stake is below the minimum");
+    }
+    if tier > MAX_APPEAL_DEPTH {
+        panic!("Invalid arbitrator tier");
     }
 
     let mut arbitrators: Vec<Address> = env
@@ -366,6 +442,25 @@ pub fn add_arbitrator(env: Env, admin: Address, arbitrator: Address) {
     if arbitrators.contains(&arbitrator) {
         panic!("Arbitrator already registered");
     }
+
+    let token = get_token_client(&env, &stake_token);
+    let contract = env.current_contract_address();
+    require_transfer_succeeded(&env, &token, &arbitrator, &contract, &stake_amount);
+    increase_locked_balance(&env, &stake_token, stake_amount);
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::ArbitratorStake(arbitrator.clone()), &stake_amount);
+    bump_to_floor(&env, &DataKey::ArbitratorStake(arbitrator.clone()));
+    env.storage().persistent().set(
+        &DataKey::ArbitratorStakeToken(arbitrator.clone()),
+        &stake_token,
+    );
+    bump_to_floor(&env, &DataKey::ArbitratorStakeToken(arbitrator.clone()));
+    env.storage()
+        .persistent()
+        .set(&DataKey::ArbitratorTier(arbitrator.clone()), &tier);
+    bump_to_floor(&env, &DataKey::ArbitratorTier(arbitrator.clone()));
 
     arbitrators.push_back(arbitrator.clone());
     env.storage()
@@ -379,8 +474,10 @@ pub fn add_arbitrator(env: Env, admin: Address, arbitrator: Address) {
         .set(&DataKey::ArbitratorCount, &count);
     bump_to_floor(&env, &DataKey::ArbitratorCount);
 
-    env.events()
-        .publish((Symbol::new(&env, "arbitrator_added"),), arbitrator);
+    env.events().publish(
+        (Symbol::new(&env, "arbitrator_added"),),
+        (arbitrator, stake_token, stake_amount, tier),
+    );
 }
 
 /// Admin: remove an arbitrator from the global arbitrator list.
@@ -399,6 +496,12 @@ pub fn remove_arbitrator(env: Env, admin: Address, arbitrator: Address) {
 
     if !arbitrators.contains(&arbitrator) {
         panic!("Arbitrator not found");
+    }
+    let assignment_key = DataKey::ArbitratorActiveEscrows(arbitrator.clone());
+    let active_escrows: u32 = env.storage().persistent().get(&assignment_key).unwrap_or(0);
+    bump_if_present(&env, &assignment_key);
+    if active_escrows > 0 {
+        panic!("Arbitrator still has active escrows");
     }
 
     let mut new_list = Vec::new(&env);
@@ -419,8 +522,35 @@ pub fn remove_arbitrator(env: Env, admin: Address, arbitrator: Address) {
         .set(&DataKey::ArbitratorCount, &count);
     bump_to_floor(&env, &DataKey::ArbitratorCount);
 
-    env.events()
-        .publish((Symbol::new(&env, "arbitrator_removed"),), arbitrator);
+    let stake_key = DataKey::ArbitratorStake(arbitrator.clone());
+    let stake: i128 = env
+        .storage()
+        .persistent()
+        .get(&stake_key)
+        .expect("Arbitrator stake not found");
+    bump(&env, &stake_key);
+    let token_key = DataKey::ArbitratorStakeToken(arbitrator.clone());
+    let stake_token: Address = env
+        .storage()
+        .persistent()
+        .get(&token_key)
+        .expect("Arbitrator stake token not found");
+    bump(&env, &token_key);
+
+    let token = get_token_client(&env, &stake_token);
+    contract_transfer_out(&env, &token, &arbitrator, &stake);
+    decrease_locked_balance(&env, &stake_token, stake);
+    env.storage().persistent().remove(&stake_key);
+    env.storage().persistent().remove(&token_key);
+    env.storage()
+        .persistent()
+        .remove(&DataKey::ArbitratorTier(arbitrator.clone()));
+    env.storage().persistent().remove(&assignment_key);
+
+    env.events().publish(
+        (Symbol::new(&env, "arbitrator_removed"),),
+        (arbitrator, stake),
+    );
 }
 
 /// Create a disputable escrow with a designated arbitrator.
@@ -458,6 +588,15 @@ pub fn create_disputable_escrow(
     if !arbitrators.contains(&arbitrator) {
         panic!("Arbitrator is not registered");
     }
+    let stake: i128 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::ArbitratorStake(arbitrator.clone()))
+        .unwrap_or(0);
+    bump_if_present(&env, &DataKey::ArbitratorStake(arbitrator.clone()));
+    if stake < MIN_ARBITRATOR_STAKE {
+        panic!("Arbitrator does not have the minimum stake");
+    }
 
     let rkey = DataKey::EscrowByRecipient(to.clone());
     let mut r_escrows: Vec<Escrow> = env
@@ -473,6 +612,7 @@ pub fn create_disputable_escrow(
     let contract_address = env.current_contract_address();
     require_transfer_succeeded(&env, &token, &from, &contract_address, &amount);
     increase_locked_balance(&env, &token_address, amount);
+    increase_arbitrator_assignments(&env, &arbitrator);
 
     let next_id: u32 = env
         .storage()
@@ -492,6 +632,9 @@ pub fn create_disputable_escrow(
         disputed: false,
         dispute_raised_by: Option::None,
         dispute_raised_at: 0,
+        appeal_depth: 0,
+        appeal_arbitrator: Option::None,
+        resolution_ledger: 0,
     };
 
     env.storage()
@@ -569,13 +712,179 @@ pub fn raise_dispute(env: Env, escrow_id: u32, by: Address) {
     escrow.disputed = true;
     escrow.dispute_raised_by = Some(by.clone());
     escrow.dispute_raised_at = env.ledger().sequence();
+    let review_period_end = escrow
+        .dispute_raised_at
+        .checked_add(DISPUTE_REVIEW_LEDGERS)
+        .expect("review period overflow");
 
     r_escrows.set(idx, escrow);
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
 
-    env.events()
-        .publish((Symbol::new(&env, "dispute_raised"),), (escrow_id, by));
+    env.events().publish(
+        (Symbol::new(&env, "dispute_raised"),),
+        (escrow_id, by, review_period_end),
+    );
+}
+
+/// Escalate a pending dispute to a registered higher-tier arbitrator.
+pub fn appeal_dispute(env: Env, escrow_id: u32, appellant: Address, appeal_to: Address) {
+    appellant.require_auth();
+
+    let recipient: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowRecipient(escrow_id))
+        .unwrap_or_else(|| panic!("Escrow not found"));
+    bump(&env, &DataKey::EscrowRecipient(escrow_id));
+
+    let rkey = DataKey::EscrowByRecipient(recipient);
+    let mut r_escrows: Vec<Escrow> = env
+        .storage()
+        .persistent()
+        .get(&rkey)
+        .expect("escrow list not found");
+
+    let mut found_index = None;
+    let mut escrow = None;
+    for i in 0..r_escrows.len() {
+        let e = r_escrows.get(i).unwrap();
+        if e.id == escrow_id {
+            found_index = Some(i);
+            escrow = Some(e);
+            break;
+        }
+    }
+
+    let mut escrow = escrow.expect("escrow not found");
+    let idx = found_index.unwrap();
+
+    if escrow.status != EscrowStatus::Pending || !escrow.disputed {
+        panic!("Only an unresolved dispute can be appealed");
+    }
+    if appellant != escrow.from && appellant != escrow.to {
+        panic!("Only escrow participants can appeal");
+    }
+    if escrow.appeal_depth >= MAX_APPEAL_DEPTH {
+        panic!("Maximum appeal depth reached");
+    }
+
+    let now = env.ledger().sequence();
+    let review_period_end = escrow
+        .dispute_raised_at
+        .checked_add(DISPUTE_REVIEW_LEDGERS)
+        .expect("review period overflow");
+    if now >= review_period_end {
+        panic!("Appeal period has elapsed");
+    }
+
+    let current_arbitrator = escrow
+        .arbitrator
+        .clone()
+        .unwrap_or_else(|| panic!("Escrow is not disputable"));
+    if current_arbitrator == appeal_to {
+        panic!("Appeal arbitrator must be different");
+    }
+
+    let arbitrators: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Arbitrators)
+        .unwrap_or_else(|| panic!("No arbitrators registered"));
+    bump(&env, &DataKey::Arbitrators);
+    if !arbitrators.contains(&appeal_to) {
+        panic!("Appeal arbitrator is not registered");
+    }
+
+    let current_tier = get_arbitrator_tier(env.clone(), current_arbitrator.clone());
+    let appeal_tier = get_arbitrator_tier(env.clone(), appeal_to.clone());
+    if appeal_tier <= current_tier {
+        panic!("Appeals require a higher-tier arbitrator");
+    }
+    let appeal_stake = get_arbitrator_stake(env.clone(), appeal_to.clone());
+    if appeal_stake < MIN_ARBITRATOR_STAKE {
+        panic!("Appeal arbitrator does not have the minimum stake");
+    }
+
+    increase_arbitrator_assignments(&env, &appeal_to);
+    escrow.appeal_depth = escrow.appeal_depth.checked_add(1).expect("appeal overflow");
+    escrow.arbitrator = Some(appeal_to.clone());
+    escrow.appeal_arbitrator = Some(appeal_to.clone());
+    escrow.dispute_raised_at = now;
+    let new_review_period_end = now
+        .checked_add(DISPUTE_REVIEW_LEDGERS)
+        .expect("review period overflow");
+
+    env.storage().persistent().set(
+        &DataKey::AppealedArbitrator(escrow_id, escrow.appeal_depth),
+        &current_arbitrator,
+    );
+    bump_to_floor(
+        &env,
+        &DataKey::AppealedArbitrator(escrow_id, escrow.appeal_depth),
+    );
+    env.storage().persistent().set(
+        &DataKey::AppealAppellant(escrow_id, escrow.appeal_depth),
+        &appellant,
+    );
+    bump_to_floor(
+        &env,
+        &DataKey::AppealAppellant(escrow_id, escrow.appeal_depth),
+    );
+
+    r_escrows.set(idx, escrow);
+    env.storage().persistent().set(&rkey, &r_escrows);
+    bump(&env, &rkey);
+
+    env.events().publish(
+        (Symbol::new(&env, "dispute_appealed"),),
+        (
+            escrow_id,
+            appellant,
+            current_arbitrator,
+            appeal_to,
+            new_review_period_end,
+        ),
+    );
+}
+
+fn slash_arbitrator(env: &Env, arbitrator: &Address, beneficiary: &Address) -> i128 {
+    let stake_key = DataKey::ArbitratorStake(arbitrator.clone());
+    let stake: i128 = env.storage().persistent().get(&stake_key).unwrap_or(0);
+    if stake <= 0 {
+        return 0;
+    }
+    bump(env, &stake_key);
+
+    let slash_amount = stake
+        .checked_mul(ARBITRATOR_SLASH_BPS)
+        .expect("slash amount overflow")
+        / 10_000;
+    if slash_amount <= 0 {
+        return 0;
+    }
+
+    let token_key = DataKey::ArbitratorStakeToken(arbitrator.clone());
+    let stake_token: Address = env
+        .storage()
+        .persistent()
+        .get(&token_key)
+        .expect("Arbitrator stake token not found");
+    bump(env, &token_key);
+
+    let token = get_token_client(env, &stake_token);
+    contract_transfer_out(env, &token, beneficiary, &slash_amount);
+    decrease_locked_balance(env, &stake_token, slash_amount);
+
+    let remaining = stake.checked_sub(slash_amount).expect("stake underflow");
+    env.storage().persistent().set(&stake_key, &remaining);
+    bump(env, &stake_key);
+
+    env.events().publish(
+        (Symbol::new(env, "arbitrator_slashed"),),
+        (arbitrator.clone(), beneficiary.clone(), slash_amount),
+    );
+    slash_amount
 }
 
 /// Resolve a dispute. Only the designated arbitrator can call this.
@@ -627,43 +936,77 @@ pub fn resolve_dispute(
     if escrow.arbitrator != Some(arbitrator.clone()) {
         panic!("Only the designated arbitrator can resolve this dispute");
     }
+    let review_period_end = escrow
+        .dispute_raised_at
+        .checked_add(DISPUTE_REVIEW_LEDGERS)
+        .expect("review period overflow");
+    if env.ledger().sequence() < review_period_end {
+        panic!("Review period has not elapsed");
+    }
 
     let client = token::Client::new(&env, &escrow.token);
-    let contract = env.current_contract_address();
 
     let transferred;
+    let prevailing_party;
     if resolution == Symbol::new(&env, "release") {
-        if amount <= 0 || amount > escrow.amount {
+        if to != escrow.to || amount != escrow.amount {
             panic!("Invalid release amount");
         }
-        client.transfer(&contract, &to, &amount);
+        contract_transfer_out(&env, &client, &escrow.to, &amount);
         transferred = amount;
+        prevailing_party = Some(escrow.to.clone());
     } else if resolution == Symbol::new(&env, "refund") {
         // Refund the full escrow amount to the original sender
-        client.transfer(&contract, &escrow.from, &escrow.amount);
+        contract_transfer_out(&env, &client, &escrow.from, &escrow.amount);
         transferred = escrow.amount;
+        prevailing_party = Some(escrow.from.clone());
     } else if resolution == Symbol::new(&env, "split") {
-        if amount <= 0 || amount >= escrow.amount {
+        if to != escrow.to || amount <= 0 || amount >= escrow.amount {
             panic!("Invalid split amount");
         }
-        let refund = escrow.amount - amount;
-        client.transfer(&contract, &to, &amount);
-        client.transfer(&contract, &escrow.from, &refund);
+        let refund = escrow.amount.checked_sub(amount).expect("split underflow");
+        contract_transfer_out(&env, &client, &escrow.to, &amount);
+        contract_transfer_out(&env, &client, &escrow.from, &refund);
         transferred = escrow.amount;
+        prevailing_party = Option::None;
     } else {
         panic!("Invalid resolution type");
     }
 
     escrow.status = EscrowStatus::Released;
+    escrow.resolution_ledger = env.ledger().sequence();
     decrease_locked_balance(&env, &escrow.token, transferred);
+    decrease_arbitrator_assignments(&env, &arbitrator);
 
+    let appeal_depth = escrow.appeal_depth;
     r_escrows.set(idx, escrow);
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
 
+    let mut slashed: i128 = 0;
+    for depth in 1..=appeal_depth {
+        let appellant_key = DataKey::AppealAppellant(escrow_id, depth);
+        let displaced_key = DataKey::AppealedArbitrator(escrow_id, depth);
+        let appellant: Option<Address> = env.storage().persistent().get(&appellant_key);
+        let displaced: Option<Address> = env.storage().persistent().get(&displaced_key);
+        bump_if_present(&env, &appellant_key);
+        bump_if_present(&env, &displaced_key);
+
+        if let Some(displaced) = displaced {
+            if let (Some(winner), Some(appellant)) = (&prevailing_party, &appellant) {
+                if appellant == winner {
+                    slashed = slashed
+                        .checked_add(slash_arbitrator(&env, &displaced, winner))
+                        .expect("total slash overflow");
+                }
+            }
+            decrease_arbitrator_assignments(&env, &displaced);
+        }
+    }
+
     env.events().publish(
         (Symbol::new(&env, "dispute_resolved"),),
-        (escrow_id, resolution, to, amount),
+        (escrow_id, resolution, to, amount, slashed),
     );
 }
 
@@ -677,4 +1020,24 @@ pub fn get_arbitrators(env: Env) -> Vec<Address> {
         .unwrap_or(Vec::new(&env));
     bump_if_present(&env, &key);
     arbitrators
+}
+
+/// Return an arbitrator's remaining locked stake.
+pub fn get_arbitrator_stake(env: Env, arbitrator: Address) -> i128 {
+    let key = DataKey::ArbitratorStake(arbitrator);
+    let stake = env.storage().persistent().get(&key).unwrap_or(0);
+    bump_if_present(&env, &key);
+    stake
+}
+
+/// Return an arbitrator's registered hierarchy tier.
+pub fn get_arbitrator_tier(env: Env, arbitrator: Address) -> u32 {
+    let key = DataKey::ArbitratorTier(arbitrator);
+    let tier = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic!("Arbitrator tier not found"));
+    bump(&env, &key);
+    tier
 }

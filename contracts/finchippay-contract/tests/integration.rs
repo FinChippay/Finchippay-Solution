@@ -2,6 +2,7 @@
 
 use finchippay_contract::{
     ContractError, EscrowStatus, FinchippayContract, FinchippayContractClient, MultiSigStatus,
+    DISPUTE_REVIEW_LEDGERS, MIN_ARBITRATOR_STAKE,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
@@ -42,6 +43,25 @@ fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Addre
 
 fn advance_ledger(env: &Env, to: u32) {
     env.ledger().with_mut(|l| l.sequence_number = to);
+}
+
+fn register_arbitrator(
+    env: &Env,
+    client: &FinchippayContractClient<'_>,
+    admin: &Address,
+    token_id: &Address,
+    arbitrator: &Address,
+    tier: u32,
+) {
+    token::StellarAssetClient::new(env, token_id)
+        .mint(arbitrator, &MIN_ARBITRATOR_STAKE);
+    client.add_arbitrator(
+        admin,
+        arbitrator,
+        token_id,
+        &MIN_ARBITRATOR_STAKE,
+        &tier,
+    );
 }
 
 // ─── Admin & Initialization ─────────────────────────────────────────────────
@@ -478,6 +498,463 @@ fn test_claim_escrow_partial() {
     let escrow = client.get_escrow(&id);
     assert_eq!(escrow.amount, 1_500);
     assert_eq!(escrow.status, EscrowStatus::Pending);
+}
+
+// ─── Escrow Disputes ────────────────────────────────────────────────────────
+
+#[test]
+fn test_arbitrator_registration_requires_minimum_stake() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &arbitrator, MIN_ARBITRATOR_STAKE);
+    let result = client.try_add_arbitrator(
+        &admin,
+        &arbitrator,
+        &token_id,
+        &(MIN_ARBITRATOR_STAKE - 1),
+        &0,
+    );
+
+    assert!(result.is_err());
+    assert_eq!(client.get_arbitrator_stake(&arbitrator), 0);
+}
+
+#[test]
+fn test_arbitrator_registration_locks_stake_and_tier() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &arbitrator, MIN_ARBITRATOR_STAKE);
+    client.add_arbitrator(
+        &admin,
+        &arbitrator,
+        &token_id,
+        &MIN_ARBITRATOR_STAKE,
+        &1,
+    );
+
+    assert_eq!(
+        client.get_arbitrator_stake(&arbitrator),
+        MIN_ARBITRATOR_STAKE
+    );
+    assert_eq!(client.get_arbitrator_tier(&arbitrator), 1);
+    assert_eq!(
+        token::Client::new(&env, &token_id).balance(&contract_id),
+        MIN_ARBITRATOR_STAKE
+    );
+}
+
+#[test]
+fn test_self_registration_creates_primary_arbitrator() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &arbitrator, MIN_ARBITRATOR_STAKE);
+    client.register_arbitrator(&arbitrator, &MIN_ARBITRATOR_STAKE, &token_id);
+
+    assert_eq!(client.get_arbitrator_tier(&arbitrator), 0);
+    assert_eq!(
+        client.get_arbitrator_stake(&arbitrator),
+        MIN_ARBITRATOR_STAKE
+    );
+}
+
+#[test]
+fn test_arbitrator_cannot_unstake_with_active_escrow() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &arbitrator, 0);
+    let release = env.ledger().sequence() + 10_000;
+    client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    assert!(client
+        .try_remove_arbitrator(&admin, &arbitrator)
+        .is_err());
+}
+
+#[test]
+fn test_dispute_resolution_requires_review_period() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &arbitrator, 0);
+    let release = env.ledger().sequence() + 10_000;
+    let id =
+        client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+    client.raise_dispute(&id, &from);
+
+    let result = client.try_resolve_dispute(
+        &id,
+        &arbitrator,
+        &Symbol::new(&env, "release"),
+        &to,
+        &2_000,
+    );
+    assert!(result.is_err());
+
+    let raised_at = client.get_escrow(&id).dispute_raised_at;
+    advance_ledger(&env, raised_at + DISPUTE_REVIEW_LEDGERS);
+    client.resolve_dispute(
+        &id,
+        &arbitrator,
+        &Symbol::new(&env, "release"),
+        &to,
+        &2_000,
+    );
+    assert_eq!(client.get_escrow(&id).resolution_ledger, env.ledger().sequence());
+}
+
+#[test]
+fn test_sender_can_appeal_to_higher_tier() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &to);
+    client.appeal_dispute(&id, &from, &appellate);
+
+    let escrow = client.get_escrow(&id);
+    assert_eq!(escrow.arbitrator, Some(appellate.clone()));
+    assert_eq!(escrow.appeal_arbitrator, Some(appellate));
+    assert_eq!(escrow.appeal_depth, 1);
+}
+
+#[test]
+fn test_recipient_can_appeal_to_higher_tier() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &from);
+    client.appeal_dispute(&id, &to, &appellate);
+
+    assert_eq!(client.get_escrow(&id).appeal_depth, 1);
+}
+
+#[test]
+fn test_appeal_rejects_same_arbitrator() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &arbitrator, 0);
+    let release = env.ledger().sequence() + 10_000;
+    let id =
+        client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+    client.raise_dispute(&id, &from);
+
+    assert!(client
+        .try_appeal_dispute(&id, &from, &arbitrator)
+        .is_err());
+}
+
+#[test]
+fn test_appeal_requires_registered_higher_tier_arbitrator() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let peer = Address::generate(&env);
+    let unregistered = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &peer, 0);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &from);
+
+    assert!(client
+        .try_appeal_dispute(&id, &from, &unregistered)
+        .is_err());
+    assert!(client.try_appeal_dispute(&id, &from, &peer).is_err());
+}
+
+#[test]
+fn test_appeal_resets_review_period() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &from);
+
+    let initial_raised_at = client.get_escrow(&id).dispute_raised_at;
+    advance_ledger(&env, initial_raised_at + DISPUTE_REVIEW_LEDGERS - 1);
+    client.appeal_dispute(&id, &from, &appellate);
+    let appealed_at = client.get_escrow(&id).dispute_raised_at;
+
+    assert!(client
+        .try_resolve_dispute(
+            &id,
+            &appellate,
+            &Symbol::new(&env, "refund"),
+            &from,
+            &2_000,
+        )
+        .is_err());
+
+    advance_ledger(&env, appealed_at + DISPUTE_REVIEW_LEDGERS);
+    client.resolve_dispute(
+        &id,
+        &appellate,
+        &Symbol::new(&env, "refund"),
+        &from,
+        &2_000,
+    );
+}
+
+#[test]
+fn test_appeal_rejects_after_review_window() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &from);
+
+    let raised_at = client.get_escrow(&id).dispute_raised_at;
+    advance_ledger(&env, raised_at + DISPUTE_REVIEW_LEDGERS);
+    assert!(client
+        .try_appeal_dispute(&id, &from, &appellate)
+        .is_err());
+}
+
+#[test]
+fn test_appeal_depth_is_limited_to_two() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    let final_arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    register_arbitrator(
+        &env,
+        &client,
+        &admin,
+        &token_id,
+        &final_arbitrator,
+        2,
+    );
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &from);
+    client.appeal_dispute(&id, &from, &appellate);
+    client.appeal_dispute(&id, &to, &final_arbitrator);
+
+    assert_eq!(client.get_escrow(&id).appeal_depth, 2);
+    assert!(client
+        .try_appeal_dispute(&id, &from, &primary)
+        .is_err());
+}
+
+#[test]
+fn test_disputed_escrow_cannot_bypass_arbitration() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &arbitrator, 0);
+    let release = env.ledger().sequence() + 10;
+    let id =
+        client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+    client.raise_dispute(&id, &from);
+
+    assert!(client.try_cancel_escrow(&id).is_err());
+    advance_ledger(&env, release);
+    assert!(client.try_claim_escrow(&id).is_err());
+}
+
+#[test]
+fn test_successful_appeal_slashes_displaced_arbitrator() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &to);
+    client.appeal_dispute(&id, &from, &appellate);
+
+    let appealed_at = client.get_escrow(&id).dispute_raised_at;
+    advance_ledger(&env, appealed_at + DISPUTE_REVIEW_LEDGERS);
+    client.resolve_dispute(
+        &id,
+        &appellate,
+        &Symbol::new(&env, "refund"),
+        &from,
+        &2_000,
+    );
+
+    let slash_amount = MIN_ARBITRATOR_STAKE / 2;
+    assert_eq!(
+        client.get_arbitrator_stake(&primary),
+        MIN_ARBITRATOR_STAKE - slash_amount
+    );
+    assert_eq!(
+        token::Client::new(&env, &token_id).balance(&from),
+        10_000 + slash_amount
+    );
+}
+
+#[test]
+fn test_displaced_arbitrator_stake_remains_locked_until_resolution() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &to);
+    client.appeal_dispute(&id, &from, &appellate);
+
+    assert!(client.try_remove_arbitrator(&admin, &primary).is_err());
+
+    let appealed_at = client.get_escrow(&id).dispute_raised_at;
+    advance_ledger(&env, appealed_at + DISPUTE_REVIEW_LEDGERS);
+    client.resolve_dispute(
+        &id,
+        &appellate,
+        &Symbol::new(&env, "refund"),
+        &from,
+        &2_000,
+    );
+
+    client.remove_arbitrator(&admin, &primary);
+    assert_eq!(client.get_arbitrator_stake(&primary), 0);
+}
+
+#[test]
+fn test_unsuccessful_appeal_does_not_slash_arbitrator() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let primary = Address::generate(&env);
+    let appellate = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    register_arbitrator(&env, &client, &admin, &token_id, &primary, 0);
+    register_arbitrator(&env, &client, &admin, &token_id, &appellate, 1);
+    let release = env.ledger().sequence() + 10_000;
+    let id = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &primary);
+    client.raise_dispute(&id, &to);
+    client.appeal_dispute(&id, &from, &appellate);
+
+    let appealed_at = client.get_escrow(&id).dispute_raised_at;
+    advance_ledger(&env, appealed_at + DISPUTE_REVIEW_LEDGERS);
+    client.resolve_dispute(
+        &id,
+        &appellate,
+        &Symbol::new(&env, "release"),
+        &to,
+        &2_000,
+    );
+
+    assert_eq!(
+        client.get_arbitrator_stake(&primary),
+        MIN_ARBITRATOR_STAKE
+    );
+    assert_eq!(token::Client::new(&env, &token_id).balance(&from), 8_000);
 }
 
 // ─── Stream Flow ─────────────────────────────────────────────────────────────
@@ -1239,5 +1716,3 @@ fn test_approve_emergency_withdrawal() {
     let withdrawal = client.get_emergency_withdrawal(&wid);
     assert_eq!(withdrawal.approvals.len(), 1);
 }
-
-
