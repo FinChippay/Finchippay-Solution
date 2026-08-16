@@ -8,7 +8,8 @@ use soroban_sdk::{token, Address, Env, Symbol, Vec};
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_admin, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
-    ContractError, DataKey, Escrow, EscrowStatus, EscrowSummary, Milestone, MAX_ESCROW_AMOUNT,
+    BatchClaimCursor, BatchClaimResult, BatchEscrowInput, BatchEscrowResult, ContractError,
+    DataKey, Escrow, EscrowStatus, BATCH_ESCROW_CURSOR_STEP, MAX_BATCH_SIZE, MAX_ESCROW_AMOUNT,
     MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
 };
 
@@ -725,6 +726,428 @@ pub fn escrow_count(env: Env) -> u32 {
         let c = env.storage().persistent().get(&key).unwrap_or(0);
         bump_if_present(&env, &key);
         c
+    }
+}
+
+// ─── Batch escrow operations ───────────────────────────────────────────────
+
+/// Create up to `MAX_BATCH_SIZE` escrows in a single transaction.
+///
+/// The total amount of all *valid* items is transferred from `from` to the
+/// contract in a single `require_transfer_succeeded` call before any escrow is
+/// recorded (one transfer instead of N), and the locked balance is updated
+/// once at the end. Items that fail per-item validation (self-transfer,
+/// out-of-bounds amount, out-of-range release ledger, recipient index full)
+/// are reported as `Skipped(index)` and do not block the rest of the batch.
+///
+/// # Panics
+/// - If `recipients` is empty or longer than `MAX_BATCH_SIZE`.
+pub fn batch_create_escrow(
+    env: Env,
+    token_address: Address,
+    from: Address,
+    recipients: Vec<BatchEscrowInput>,
+) -> Vec<BatchEscrowResult> {
+    let _guard = ReentrancyGuard::acquire(&env);
+    require_initialized(&env);
+    require_not_paused(&env);
+    from.require_auth();
+    if recipients.len() == 0 {
+        panic!("recipients must not be empty");
+    }
+    if recipients.len() > MAX_BATCH_SIZE {
+        panic!("batch exceeds maximum size");
+    }
+
+    let current_ledger = env.ledger().sequence();
+    let mut results: Vec<BatchEscrowResult> = Vec::new(&env);
+    // Parallel to `recipients`: whether the item passed per-item validation.
+    let mut valid: Vec<bool> = Vec::new(&env);
+    // Total amount of the valid items; this is what actually moves in the
+    // single transfer and what the locked balance is raised by at the end.
+    let mut total_amount: i128 = 0;
+    // Recipient escrow indexes loaded once and written back once, keyed by
+    // recipient, plus the projected per-recipient count so the
+    // `MAX_USER_ESCROWS` cap is enforced even when several batch items target
+    // the same recipient.
+    let mut lists: soroban_sdk::Map<Address, Vec<Escrow>> = soroban_sdk::Map::new(&env);
+    let mut dirty: soroban_sdk::Map<Address, bool> = soroban_sdk::Map::new(&env);
+    let mut projected: soroban_sdk::Map<Address, u32> = soroban_sdk::Map::new(&env);
+
+    // Pass 1 — validate every item and compute the single transfer amount.
+    for i in 0..recipients.len() {
+        let input = recipients.get(i).unwrap();
+        let mut skipped = false;
+        if from == input.to {
+            skipped = true;
+        }
+        if input.amount <= 0 || input.amount > MAX_ESCROW_AMOUNT || input.amount < MIN_ESCROW_AMOUNT
+        {
+            skipped = true;
+        }
+        if input.release_ledger <= current_ledger
+            || input.release_ledger > current_ledger + MAX_ESCROW_LEDGERS
+        {
+            skipped = true;
+        }
+        if !skipped {
+            // Load the recipient's escrow index once per unique recipient.
+            if !lists.contains_key(input.to.clone()) {
+                let key = DataKey::EscrowByRecipient(input.to.clone());
+                let list: Vec<Escrow> = env
+                    .storage()
+                    .persistent()
+                    .get(&key)
+                    .unwrap_or(Vec::new(&env));
+                lists.set(input.to.clone(), list);
+            }
+            let base_len = lists.get(input.to.clone()).unwrap().len();
+            let projected_count = projected.get(input.to.clone()).unwrap_or(0);
+            if base_len.checked_add(projected_count).expect("overflow") >= MAX_USER_ESCROWS {
+                skipped = true;
+            } else {
+                projected.set(input.to.clone(), projected_count + 1);
+            }
+        }
+        // Every position gets an entry now so the returned vector lines up
+        // with the input order; valid positions are overwritten in pass 3.
+        results.push_back(BatchEscrowResult::Skipped(i));
+        if skipped {
+            valid.push_back(false);
+        } else {
+            valid.push_back(true);
+            dirty.set(input.to.clone(), true);
+            total_amount = total_amount.checked_add(input.amount).expect("overflow");
+        }
+    }
+
+    // Pass 2 — move the funds once, before any state is written. Skipped items
+    // are never funded, so no refund bookkeeping is needed.
+    if total_amount > 0 {
+        let token = get_token_client(&env, &token_address);
+        let contract_address = env.current_contract_address();
+        require_transfer_succeeded(&env, &token, &from, &contract_address, &total_amount);
+    }
+
+    // Pass 3 — create the escrow records for the valid items.
+    let mut next_id: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowCount)
+        .unwrap_or(0);
+    let mut created_count: u32 = 0;
+    for i in 0..recipients.len() {
+        if !valid.get(i).unwrap() {
+            continue;
+        }
+        let input = recipients.get(i).unwrap();
+        let escrow = Escrow {
+            id: next_id,
+            from: from.clone(),
+            to: input.to.clone(),
+            token: token_address.clone(),
+            amount: input.amount,
+            release_ledger: input.release_ledger,
+            status: EscrowStatus::Pending,
+            memo: input.memo.clone(),
+            arbitrator: Option::None,
+            disputed: false,
+            dispute_raised_by: Option::None,
+            dispute_raised_at: 0,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowRecipient(next_id), &input.to);
+        bump_to_floor(&env, &DataKey::EscrowRecipient(next_id));
+
+        let mut list = lists.get(input.to.clone()).unwrap();
+        list.push_back(escrow);
+        lists.set(input.to.clone(), list);
+
+        results.set(i, BatchEscrowResult::Success(next_id));
+        next_id = next_id.checked_add(1).expect("overflow");
+        created_count += 1;
+    }
+
+    // Pass 4 — persist the touched recipient indexes, the counter, and the
+    // locked balance, each exactly once.
+    for (to, _) in dirty.iter() {
+        let key = DataKey::EscrowByRecipient(to.clone());
+        let updated = lists.get(to).unwrap();
+        env.storage().persistent().set(&key, &updated);
+        bump_to_floor(&env, &key);
+    }
+    if created_count > 0 {
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowCount, &next_id);
+        bump(&env, &DataKey::EscrowCount);
+    }
+    if total_amount > 0 {
+        increase_locked_balance(&env, &token_address, total_amount);
+    }
+
+    let skipped_count = recipients
+        .len()
+        .checked_sub(created_count)
+        .expect("underflow");
+    env.events().publish(
+        (Symbol::new(&env, "batch_escrow_created"),),
+        (from, created_count, skipped_count, total_amount),
+    );
+
+    results
+}
+
+/// Claim up to `BATCH_ESCROW_CURSOR_STEP` matured escrows, resuming from
+/// `start_index` into `escrow_ids`. Each call returns a `BatchClaimCursor`;
+/// pass `next_index` back as `start_index` (with the same `escrow_ids`) to
+/// process the next chunk. `max_items == 0` means the default cursor step.
+///
+/// Partial-success semantics: an id that is missing, not pending, or not yet
+/// matured is reported as `Skipped(index)` and never blocks the other ids.
+/// The recipient (`to`) of every escrow in the chunk must have authorised the
+/// call — each one is checked via `require_auth` as it is processed.
+pub fn batch_claim_escrow(
+    env: Env,
+    escrow_ids: Vec<u32>,
+    start_index: u32,
+    max_items: u32,
+) -> BatchClaimCursor {
+    let _guard = ReentrancyGuard::acquire(&env);
+    require_not_paused(&env);
+
+    let len = escrow_ids.len();
+    let start = start_index.min(len);
+    let step = if max_items == 0 {
+        BATCH_ESCROW_CURSOR_STEP
+    } else {
+        max_items.min(BATCH_ESCROW_CURSOR_STEP)
+    };
+    let end = (start + step).min(len);
+
+    let mut results: Vec<BatchClaimResult> = Vec::new(&env);
+    // Claimed amounts accumulated per token so the locked balance is updated
+    // once per token at the end instead of once per escrow.
+    let mut claimed_by_token: soroban_sdk::Map<Address, i128> = soroban_sdk::Map::new(&env);
+
+    for i in start..end {
+        let id = escrow_ids.get(i).unwrap();
+
+        let recipient: Address = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::EscrowRecipient(id))
+        {
+            Some(r) => r,
+            None => {
+                results.push_back(BatchClaimResult::Skipped(i));
+                continue;
+            }
+        };
+        bump(&env, &DataKey::EscrowRecipient(id));
+
+        let rkey = DataKey::EscrowByRecipient(recipient);
+        let mut r_escrows: Vec<Escrow> = match env.storage().persistent().get(&rkey) {
+            Some(list) => list,
+            None => {
+                results.push_back(BatchClaimResult::Skipped(i));
+                continue;
+            }
+        };
+
+        let mut found_index = None;
+        for j in 0..r_escrows.len() {
+            if r_escrows.get(j).unwrap().id == id {
+                found_index = Some(j);
+                break;
+            }
+        }
+        let idx = match found_index {
+            Some(j) => j,
+            None => {
+                results.push_back(BatchClaimResult::Skipped(i));
+                continue;
+            }
+        };
+
+        let mut escrow = r_escrows.get(idx).unwrap();
+        if escrow.status != EscrowStatus::Pending {
+            results.push_back(BatchClaimResult::Skipped(i));
+            continue;
+        }
+        if env.ledger().sequence() < escrow.release_ledger {
+            results.push_back(BatchClaimResult::Skipped(i));
+            continue;
+        }
+        // Auth: each escrow's recipient must have authorised the call. Every
+        // unique `to` in the chunk is covered by its own require_auth as its
+        // escrows are processed.
+        escrow.to.require_auth();
+
+        let amount = escrow.amount;
+        let to = escrow.to.clone();
+        let token_address = escrow.token.clone();
+
+        // Checks-effects-interactions: commit the released state and the
+        // per-token claimed total before the external transfers, so a
+        // re-entrant claim cannot observe a still-pending escrow.
+        escrow.status = EscrowStatus::Released;
+        r_escrows.set(idx, escrow);
+        env.storage().persistent().set(&rkey, &r_escrows);
+        bump(&env, &rkey);
+
+        let prev = claimed_by_token.get(token_address.clone()).unwrap_or(0);
+        claimed_by_token.set(
+            token_address.clone(),
+            prev.checked_add(amount).expect("overflow"),
+        );
+
+        let token = get_token_client(&env, &token_address);
+        contract_transfer_out(&env, &token, &to, &amount);
+        results.push_back(BatchClaimResult::Success(amount));
+    }
+
+    let mut total_claimed: i128 = 0;
+    for (token_address, total) in claimed_by_token.iter() {
+        total_claimed = total_claimed.checked_add(total).expect("overflow");
+        decrease_locked_balance(&env, &token_address, total);
+    }
+
+    env.events().publish(
+        (Symbol::new(&env, "batch_escrow_claimed"),),
+        (start, end, total_claimed),
+    );
+
+    BatchClaimCursor {
+        start_index: start,
+        next_index: end,
+        results,
+        done: end >= len,
+    }
+}
+
+/// Cancel up to `BATCH_ESCROW_CURSOR_STEP` pending escrows, resuming from
+/// `start_index` into `escrow_ids`. Mirrors `batch_claim_escrow`: each call
+/// returns a `BatchClaimCursor` used to continue with `next_index`.
+///
+/// Only the escrow creator (`from`) may cancel, so the `from` address of every
+/// escrow in the chunk must have authorised the call. An id that is missing,
+/// not pending, or already past its release ledger is reported as
+/// `Skipped(index)` and never blocks the other ids.
+pub fn batch_cancel_escrow(
+    env: Env,
+    escrow_ids: Vec<u32>,
+    start_index: u32,
+    max_items: u32,
+) -> BatchClaimCursor {
+    let _guard = ReentrancyGuard::acquire(&env);
+    require_not_paused(&env);
+
+    let len = escrow_ids.len();
+    let start = start_index.min(len);
+    let step = if max_items == 0 {
+        BATCH_ESCROW_CURSOR_STEP
+    } else {
+        max_items.min(BATCH_ESCROW_CURSOR_STEP)
+    };
+    let end = (start + step).min(len);
+
+    let mut results: Vec<BatchClaimResult> = Vec::new(&env);
+    let mut refunded_by_token: soroban_sdk::Map<Address, i128> = soroban_sdk::Map::new(&env);
+
+    for i in start..end {
+        let id = escrow_ids.get(i).unwrap();
+
+        let recipient: Address = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::EscrowRecipient(id))
+        {
+            Some(r) => r,
+            None => {
+                results.push_back(BatchClaimResult::Skipped(i));
+                continue;
+            }
+        };
+        bump(&env, &DataKey::EscrowRecipient(id));
+
+        let rkey = DataKey::EscrowByRecipient(recipient);
+        let mut r_escrows: Vec<Escrow> = match env.storage().persistent().get(&rkey) {
+            Some(list) => list,
+            None => {
+                results.push_back(BatchClaimResult::Skipped(i));
+                continue;
+            }
+        };
+
+        let mut found_index = None;
+        for j in 0..r_escrows.len() {
+            if r_escrows.get(j).unwrap().id == id {
+                found_index = Some(j);
+                break;
+            }
+        }
+        let idx = match found_index {
+            Some(j) => j,
+            None => {
+                results.push_back(BatchClaimResult::Skipped(i));
+                continue;
+            }
+        };
+
+        let mut escrow = r_escrows.get(idx).unwrap();
+        if escrow.status != EscrowStatus::Pending {
+            results.push_back(BatchClaimResult::Skipped(i));
+            continue;
+        }
+        if env.ledger().sequence() >= escrow.release_ledger {
+            results.push_back(BatchClaimResult::Skipped(i));
+            continue;
+        }
+        // Auth: only the escrow creator can cancel, so every `from` in the
+        // chunk must have authorised the call.
+        escrow.from.require_auth();
+
+        let amount = escrow.amount;
+        let from_addr = escrow.from.clone();
+        let token_address = escrow.token.clone();
+
+        // Checks-effects-interactions: commit the cancelled state before the
+        // external refund transfers.
+        escrow.status = EscrowStatus::Cancelled;
+        r_escrows.set(idx, escrow);
+        env.storage().persistent().set(&rkey, &r_escrows);
+        bump(&env, &rkey);
+
+        let prev = refunded_by_token.get(token_address.clone()).unwrap_or(0);
+        refunded_by_token.set(
+            token_address.clone(),
+            prev.checked_add(amount).expect("overflow"),
+        );
+
+        let token = get_token_client(&env, &token_address);
+        contract_transfer_out(&env, &token, &from_addr, &amount);
+        results.push_back(BatchClaimResult::Success(amount));
+    }
+
+    let mut total_refunded: i128 = 0;
+    for (token_address, total) in refunded_by_token.iter() {
+        total_refunded = total_refunded.checked_add(total).expect("overflow");
+        decrease_locked_balance(&env, &token_address, total);
+    }
+
+    env.events().publish(
+        (Symbol::new(&env, "batch_escrow_cancelled"),),
+        (start, end, total_refunded),
+    );
+
+    BatchClaimCursor {
+        start_index: start,
+        next_index: end,
+        results,
+        done: end >= len,
     }
 }
 
