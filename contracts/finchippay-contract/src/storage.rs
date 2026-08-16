@@ -223,6 +223,7 @@ pub fn bump_ttl_class_item(env: &Env, class: &TtlClass, index: u32) -> u32 {
                 Some(stream) => {
                     bump_to_floor(env, &stream_key);
                     1 + bump_to_floor_if_present(env, &DataKey::StreamByPayer(stream.payer))
+                        + bump_to_floor_if_present(env, &DataKey::RecurringStreamConfig(index - 1))
                 }
                 None => 0,
             }

@@ -8,8 +8,8 @@ use soroban_sdk::{Address, Env, Symbol, Vec};
 use crate::{
     claimable_at, contract_transfer_out, decrease_locked_balance, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
-    ContractError, DataKey, Escrow, Stream, MAX_PAGE_SIZE, MAX_STREAM_DEPOSIT, MAX_STREAM_RATE,
-    MAX_USER_STREAMS,
+    ContractError, DataKey, Escrow, RecurringStreamConfig, RecurringStreamStatus, Stream,
+    MAX_PAGE_SIZE, MAX_STREAM_DEPOSIT, MAX_STREAM_RATE, MAX_USER_STREAMS,
 };
 
 use crate::storage::*;
@@ -97,6 +97,233 @@ pub fn open_stream(
         (payer, recipient, rate_per_ledger, deposit),
     );
     id
+}
+
+// ─── Recurring streams ───────────────────────────────────────────────────────
+
+/// Open a recurring payment stream that automatically chains successive
+/// billing cycles.
+///
+/// The first cycle's `deposit_per_cycle` is transferred from `payer` to the
+/// contract immediately. When that cycle is fully claimed, anyone can call
+/// `advance_recurring_stream` to mark it complete and deduct the next cycle's
+/// deposit from `payer`, up to `max_cycles` total cycles.
+///
+/// Returns the stream ID (also used to query `get_recurring_status`).
+pub fn open_recurring_stream(
+    env: Env,
+    token_address: Address,
+    payer: Address,
+    recipient: Address,
+    rate_per_ledger: i128,
+    deposit_per_cycle: i128,
+    cycle_ledgers: u32,
+    max_cycles: u32,
+) -> u32 {
+    require_initialized(&env);
+    require_not_paused(&env);
+    payer.require_auth();
+    if payer == recipient {
+        panic!("cannot open stream to yourself");
+    }
+    if rate_per_ledger <= 0 {
+        panic!("rate_per_ledger must be positive");
+    }
+    if rate_per_ledger > MAX_STREAM_RATE {
+        panic!("rate_per_ledger exceeds maximum");
+    }
+    if deposit_per_cycle <= 0 {
+        panic!("deposit_per_cycle must be positive");
+    }
+    if deposit_per_cycle > MAX_STREAM_DEPOSIT {
+        panic!("deposit_per_cycle exceeds maximum stream size");
+    }
+    if cycle_ledgers == 0 {
+        panic!("cycle_ledgers must be positive");
+    }
+    if max_cycles == 0 {
+        panic!("max_cycles must be positive");
+    }
+
+    // Lock the first cycle's deposit in the contract.
+    let token = get_token_client(&env, &token_address);
+    let contract_address = env.current_contract_address();
+    require_transfer_succeeded(&env, &token, &payer, &contract_address, &deposit_per_cycle);
+
+    let id: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::StreamCount)
+        .unwrap_or(0);
+
+    let stream = Stream {
+        id,
+        payer: payer.clone(),
+        recipient: recipient.clone(),
+        token: token_address,
+        rate_per_ledger,
+        deposited: deposit_per_cycle,
+        claimed: 0,
+        start_ledger: env.ledger().sequence(),
+        closed: false,
+        paused_at_ledger: 0,
+        total_paused_duration: 0,
+    };
+    increase_locked_balance(&env, &stream.token, deposit_per_cycle);
+
+    let config = RecurringStreamConfig {
+        cycle_ledgers,
+        amount_per_cycle: deposit_per_cycle,
+        max_cycles,
+        cycles_completed: 0,
+    };
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Stream(id), &stream);
+    bump_to_floor(&env, &DataKey::Stream(id));
+    env.storage()
+        .persistent()
+        .set(&DataKey::RecurringStreamConfig(id), &config);
+    bump_to_floor(&env, &DataKey::RecurringStreamConfig(id));
+    env.storage()
+        .persistent()
+        .set(&DataKey::StreamCount, &(id + 1));
+    bump(&env, &DataKey::StreamCount);
+
+    let s_key = DataKey::StreamByPayer(payer.clone());
+    let mut p_streams: Vec<u32> = env
+        .storage()
+        .persistent()
+        .get(&s_key)
+        .unwrap_or(Vec::new(&env));
+    if p_streams.len() < MAX_USER_STREAMS {
+        p_streams.push_back(id);
+        env.storage().persistent().set(&s_key, &p_streams);
+        bump_to_floor(&env, &s_key);
+    }
+
+    env.events().publish(
+        (Symbol::new(&env, "stream_open"), id),
+        (
+            payer.clone(),
+            recipient.clone(),
+            rate_per_ledger,
+            deposit_per_cycle,
+        ),
+    );
+    env.events().publish(
+        (Symbol::new(&env, "recurring_cycle_start"), id),
+        (1u32, deposit_per_cycle),
+    );
+    id
+}
+
+/// Advance a recurring stream to its next billing cycle.
+///
+/// Anyone may call this, but the cycle only advances once the current cycle's
+/// deposit has been fully claimed. Marking a depleted cycle complete is
+/// permissionless; funding the next cycle additionally requires the payer's
+/// authorisation, because it deducts `amount_per_cycle` from the payer.
+///
+/// Once `max_cycles` have been completed, further calls panic.
+pub fn advance_recurring_stream(env: Env, stream_id: u32) {
+    require_not_paused(&env);
+
+    let mut stream: Stream = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Stream(stream_id))
+        .expect("stream not found");
+    let mut config: RecurringStreamConfig = env
+        .storage()
+        .persistent()
+        .get(&DataKey::RecurringStreamConfig(stream_id))
+        .expect("not a recurring stream");
+
+    if stream.closed {
+        panic!("stream is closed");
+    }
+    if config.cycles_completed >= config.max_cycles {
+        panic!("max_cycles reached; no more advances");
+    }
+    // A cycle is depleted only when every deposited unit has been claimed.
+    if stream.deposited > stream.claimed {
+        panic!("current cycle not depleted");
+    }
+
+    // Mark the depleted cycle complete.
+    let cycle_just_completed = config.cycles_completed.checked_add(1).expect("overflow");
+    config.cycles_completed = cycle_just_completed;
+
+    env.events().publish(
+        (Symbol::new(&env, "recurring_cycle_end"), stream_id),
+        cycle_just_completed,
+    );
+
+    // Fund the next cycle if one remains.
+    if cycle_just_completed < config.max_cycles {
+        // The next deposit is deducted from the payer, so the payer must
+        // authorise this transfer (even though any address may invoke it).
+        stream.payer.require_auth();
+        let token = get_token_client(&env, &stream.token);
+        let contract_address = env.current_contract_address();
+        require_transfer_succeeded(
+            &env,
+            &token,
+            &stream.payer,
+            &contract_address,
+            &config.amount_per_cycle,
+        );
+        increase_locked_balance(&env, &stream.token, config.amount_per_cycle);
+        stream.deposited = stream
+            .deposited
+            .checked_add(config.amount_per_cycle)
+            .expect("overflow");
+        if stream.deposited > MAX_STREAM_DEPOSIT {
+            panic!("deposit exceeds maximum stream size");
+        }
+
+        let next_cycle = cycle_just_completed.checked_add(1).expect("overflow");
+        env.events().publish(
+            (Symbol::new(&env, "recurring_cycle_start"), stream_id),
+            (next_cycle, config.amount_per_cycle),
+        );
+    }
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Stream(stream_id), &stream);
+    bump(&env, &DataKey::Stream(stream_id));
+    env.storage()
+        .persistent()
+        .set(&DataKey::RecurringStreamConfig(stream_id), &config);
+    bump(&env, &DataKey::RecurringStreamConfig(stream_id));
+}
+
+/// Return the lifecycle progress of a recurring stream.
+///
+/// Panics if `stream_id` does not exist or is not a recurring stream.
+pub fn get_recurring_status(env: Env, stream_id: u32) -> RecurringStreamStatus {
+    if !env.storage().persistent().has(&DataKey::Stream(stream_id)) {
+        panic!("stream not found");
+    }
+    let config: RecurringStreamConfig = env
+        .storage()
+        .persistent()
+        .get(&DataKey::RecurringStreamConfig(stream_id))
+        .expect("not a recurring stream");
+    bump(&env, &DataKey::Stream(stream_id));
+    bump(&env, &DataKey::RecurringStreamConfig(stream_id));
+
+    let cycles_remaining = config
+        .max_cycles
+        .checked_sub(config.cycles_completed)
+        .expect("underflow");
+    RecurringStreamStatus {
+        cycles_completed: config.cycles_completed,
+        cycles_remaining,
+    }
 }
 
 /// Recipient claims all currently claimable tokens from stream `id`.
