@@ -9,6 +9,9 @@
 //! - **Escrow**: time-locked token custody with claim / cancel flows.
 //! - **Streaming Payments**: continuous per-ledger token streams that
 //!   recipients can drain at any time; payers can top-up or close early.
+//! - **Recurring Payments**: streaming payments that automatically chain
+//!   successive billing cycles, deducting each cycle's deposit from the payer
+//!   on demand — no manual top-up or close-and-reopen required.
 //! - **Multi-Sig Payments**: N-of-M threshold approvals before a payment
 //!   executes, fully on-chain with no trusted third-party.
 //! - **Batch Sends**: fan-out a single token transfer to many recipients in
@@ -41,8 +44,8 @@ pub mod streams;
 pub mod yield_escrow;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env,
-    Symbol, TryIntoVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+    TryIntoVal, Val, Vec,
 };
 
 use crate::storage::{MIN_TTL_LEDGERS, TTL_CLASS_COUNT};
@@ -281,6 +284,39 @@ pub fn claimable_at(stream: &Stream, current_ledger: u32) -> i128 {
     (capped - stream.claimed).max(0)
 }
 
+/// Configuration for a recurring payment stream that automatically chains
+/// successive billing cycles.
+///
+/// A recurring stream reuses the ordinary `Stream` mechanics: each cycle's
+/// deposit drips to the recipient at `rate_per_ledger`. When a cycle is fully
+/// claimed, `advance_recurring_stream` marks it complete and — if cycles
+/// remain — deducts the next `amount_per_cycle` deposit from the payer, so no
+/// manual top-up or close-and-reopen is required.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RecurringStreamConfig {
+    /// Number of ledgers in each billing cycle. Informational for off-chain
+    /// schedulers; the actual drip is governed by the stream's rate.
+    pub cycle_ledgers: u32,
+    /// Token base units deposited from the payer at the start of each cycle.
+    pub amount_per_cycle: i128,
+    /// Total number of cycles. Once `cycles_completed` reaches this value no
+    /// further advances are possible.
+    pub max_cycles: u32,
+    /// How many cycles have been fully claimed and therefore completed.
+    pub cycles_completed: u32,
+}
+
+/// Read-only view of a recurring stream's lifecycle progress.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RecurringStreamStatus {
+    /// Cycles fully claimed so far.
+    pub cycles_completed: u32,
+    /// Cycles still to be claimed (including the current in-progress cycle).
+    pub cycles_remaining: u32,
+}
+
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct VestingSchedule {
@@ -431,7 +467,7 @@ const MAX_ADMIN_SIGNERS: u32 = 20;
 /// or any persistent struct field layout changes. The admin must call
 /// `validate_storage_compatibility` before upgrading to ensure the new WASM
 /// declares a layout version >= this value, preventing bricked storage.
-const STORAGE_LAYOUT_VERSION: u32 = 3;
+const STORAGE_LAYOUT_VERSION: u32 = 4;
 
 // ─── Storage TTL classes ──────────────────────────────────────────────────────
 
@@ -518,6 +554,8 @@ pub enum DataKey {
     // Streaming
     StreamCount,
     Stream(u32),
+    /// Recurring-payment configuration keyed by the underlying stream id.
+    RecurringStreamConfig(u32),
     LockedBalance(Address),
     LastContractBalance(Address),
     // Multi-sig
@@ -1037,7 +1075,11 @@ impl FinchippayContract {
         // (fast hot-key path). Admin-initiated pausing goes through
         // `propose_admin_action`, so no single key can freeze the contract.
         let stored_pauser: Option<Address> = env.storage().persistent().get(&DataKey::Pauser);
-        if stored_pauser.as_ref().map(|p| p == &caller).unwrap_or(false) {
+        if stored_pauser
+            .as_ref()
+            .map(|p| p == &caller)
+            .unwrap_or(false)
+        {
             env.storage().persistent().set(&DataKey::Paused, &true);
             bump_to_floor(&env, &DataKey::Paused);
             env.events().publish((Symbol::new(&env, "paused"),), ());
@@ -1056,7 +1098,11 @@ impl FinchippayContract {
         // Mirror `pause`: only the designated pauser lifts the circuit breaker
         // directly; admin-initiated unpausing uses `propose_admin_action`.
         let stored_pauser: Option<Address> = env.storage().persistent().get(&DataKey::Pauser);
-        if stored_pauser.as_ref().map(|p| p == &caller).unwrap_or(false) {
+        if stored_pauser
+            .as_ref()
+            .map(|p| p == &caller)
+            .unwrap_or(false)
+        {
             env.storage().persistent().set(&DataKey::Paused, &false);
             bump_to_floor(&env, &DataKey::Paused);
             env.events().publish((Symbol::new(&env, "unpaused"),), ());
@@ -1269,7 +1315,8 @@ impl FinchippayContract {
                 .expect("invalid set_pauser payload");
             env.storage().persistent().set(&DataKey::Pauser, &pauser);
             bump_to_floor(env, &DataKey::Pauser);
-            env.events().publish((Symbol::new(env, "pauser_set"),), pauser);
+            env.events()
+                .publish((Symbol::new(env, "pauser_set"),), pauser);
         } else if action == &Symbol::new(env, "upgrade") {
             let wasm_hash: BytesN<32> = proposal
                 .action_data
@@ -1286,7 +1333,8 @@ impl FinchippayContract {
             // Reject downgrades before touching the WASM (same guard as the
             // legacy single-admin `upgrade` entrypoint).
             Self::validate_storage_compatibility(env.clone(), layout_version);
-            env.deployer().update_current_contract_wasm(wasm_hash.clone());
+            env.deployer()
+                .update_current_contract_wasm(wasm_hash.clone());
             let current_ver: u32 = env
                 .storage()
                 .persistent()
@@ -2428,6 +2476,46 @@ impl FinchippayContract {
         streams::list_escrows_by_recipient(env, recipient, offset, limit)
     }
 
+    /// Open a recurring payment stream that automatically chains successive
+    /// billing cycles. The first cycle's `deposit_per_cycle` is transferred
+    /// from `payer` immediately; each subsequent cycle is funded on demand by
+    /// `advance_recurring_stream`.
+    ///
+    /// Returns the stream ID.
+    pub fn open_recurring_stream(
+        env: Env,
+        token_address: Address,
+        payer: Address,
+        recipient: Address,
+        rate_per_ledger: i128,
+        deposit_per_cycle: i128,
+        cycle_ledgers: u32,
+        max_cycles: u32,
+    ) -> u32 {
+        streams::open_recurring_stream(
+            env,
+            token_address,
+            payer,
+            recipient,
+            rate_per_ledger,
+            deposit_per_cycle,
+            cycle_ledgers,
+            max_cycles,
+        )
+    }
+
+    /// Advance a recurring stream into its next billing cycle. Anyone may call
+    /// this; the current cycle must be fully claimed first, and funding the
+    /// next cycle deducts `amount_per_cycle` from the payer.
+    pub fn advance_recurring_stream(env: Env, stream_id: u32) {
+        streams::advance_recurring_stream(env, stream_id)
+    }
+
+    /// Return the lifecycle progress of a recurring stream.
+    pub fn get_recurring_status(env: Env, stream_id: u32) -> RecurringStreamStatus {
+        streams::get_recurring_status(env, stream_id)
+    }
+
     // Internal: compute claimable amount for a stream at the current ledger.
     pub(crate) fn _claimable(env: &Env, stream: &Stream) -> i128 {
         if stream.closed {
@@ -3489,15 +3577,9 @@ mod tests {
         let mut signers = Vec::new(&env);
         signers.push_back(admin.clone());
         signers.push_back(signer_b);
-        let data: Vec<Val> = Vec::from_array(
-            &env,
-            [signers.into_val(&env), 2u32.into_val(&env)],
-        );
-        let pid = client.propose_admin_action(
-            &admin,
-            &Symbol::new(&env, "set_admin_signers"),
-            &data,
-        );
+        let data: Vec<Val> = Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
+        let pid =
+            client.propose_admin_action(&admin, &Symbol::new(&env, "set_admin_signers"), &data);
 
         // Threshold-1 deploy auto-executes the rotation on propose.
         assert!(client.get_admin_action_proposal(&pid).executed);
@@ -3520,11 +3602,8 @@ mod tests {
         proposed.push_back(signer_a.clone());
         proposed.push_back(new_signer);
         let data: Vec<Val> = Vec::from_array(&env, [proposed.into_val(&env), 2u32.into_val(&env)]);
-        let pid = client.propose_admin_action(
-            &signer_a,
-            &Symbol::new(&env, "set_admin_signers"),
-            &data,
-        );
+        let pid =
+            client.propose_admin_action(&signer_a, &Symbol::new(&env, "set_admin_signers"), &data);
         assert!(!client.get_admin_action_proposal(&pid).executed);
         assert_eq!(client.get_admin_signers().len(), 2);
         assert_eq!(client.get_admin_signers_threshold(), 2);

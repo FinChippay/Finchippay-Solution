@@ -63,7 +63,10 @@ fn test_initialize_cannot_be_called_twice() {
     let signers = Vec::from_array(&env, [admin.clone()]);
     client.initialize(&signers, &1);
     let result = client.try_initialize(&signers, &1);
-    assert_eq!(result.unwrap_err().unwrap(), ContractError::AlreadyInitialized);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ContractError::AlreadyInitialized
+    );
 }
 
 #[test]
@@ -360,7 +363,14 @@ fn test_claim_escrow_after_release() {
 
     let token_id = create_token(&env, &admin, &from, 5_000);
     let release = env.ledger().sequence() + 1;
-    let id = client.create_escrow(&token_id, &from, &to, &2_000, &release, &Symbol::new(&env, "deposit"));
+    let id = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &2_000,
+        &release,
+        &Symbol::new(&env, "deposit"),
+    );
 
     advance_ledger(&env, release + 1);
     client.claim_escrow(&id);
@@ -381,7 +391,14 @@ fn test_claim_escrow_emits_event() {
 
     let token_id = create_token(&env, &admin, &from, 5_000);
     let release = env.ledger().sequence() + 1;
-    let id = client.create_escrow(&token_id, &from, &to, &2_000, &release, &Symbol::new(&env, "deposit"));
+    let id = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &2_000,
+        &release,
+        &Symbol::new(&env, "deposit"),
+    );
     advance_ledger(&env, release + 1);
     client.claim_escrow(&id);
 
@@ -400,7 +417,14 @@ fn test_cancel_escrow_before_release() {
 
     let token_id = create_token(&env, &admin, &from, 5_000);
     let release = env.ledger().sequence() + 100;
-    let id = client.create_escrow(&token_id, &from, &to, &2_000, &release, &Symbol::new(&env, "deposit"));
+    let id = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &2_000,
+        &release,
+        &Symbol::new(&env, "deposit"),
+    );
 
     client.cancel_escrow(&id);
     let escrow = client.get_escrow(&id);
@@ -418,7 +442,14 @@ fn test_cancel_escrow_emits_event() {
 
     let token_id = create_token(&env, &admin, &from, 5_000);
     let release = env.ledger().sequence() + 100;
-    let id = client.create_escrow(&token_id, &from, &to, &2_000, &release, &Symbol::new(&env, "deposit"));
+    let id = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &2_000,
+        &release,
+        &Symbol::new(&env, "deposit"),
+    );
     client.cancel_escrow(&id);
 
     let events = env.events().all().filter_by_contract(&contract_id);
@@ -436,7 +467,14 @@ fn test_create_escrow_emits_event() {
 
     let token_id = create_token(&env, &admin, &from, 5_000);
     let release = env.ledger().sequence() + 100;
-    client.create_escrow(&token_id, &from, &to, &2_000, &release, &Symbol::new(&env, "deposit"));
+    client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &2_000,
+        &release,
+        &Symbol::new(&env, "deposit"),
+    );
 
     let events = env.events().all().filter_by_contract(&contract_id);
     assert_eq!(events.events().len(), 1);
@@ -453,7 +491,14 @@ fn test_get_user_escrows() {
 
     let token_id = create_token(&env, &admin, &from, 10_000);
     let release = env.ledger().sequence() + 100;
-    let id = client.create_escrow(&token_id, &from, &to, &1_000, &release, &Symbol::new(&env, ""));
+    let id = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &1_000,
+        &release,
+        &Symbol::new(&env, ""),
+    );
     let ids = client.get_user_escrows(&to);
     assert_eq!(ids.len(), 1);
     assert_eq!(ids.get(0).unwrap(), id);
@@ -470,7 +515,14 @@ fn test_claim_escrow_partial() {
 
     let token_id = create_token(&env, &admin, &from, 5_000);
     let release = env.ledger().sequence() + 1;
-    let id = client.create_escrow(&token_id, &from, &to, &2_000, &release, &Symbol::new(&env, ""));
+    let id = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &2_000,
+        &release,
+        &Symbol::new(&env, ""),
+    );
     advance_ledger(&env, release + 1);
 
     let remaining = client.claim_escrow_partial(&id, &500);
@@ -653,6 +705,169 @@ fn test_list_streams_by_payer() {
     assert_eq!(streams.len(), 2);
 }
 
+// ─── Recurring Stream Flow ───────────────────────────────────────────────────
+
+#[test]
+fn test_open_recurring_stream() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 5_000);
+    let sid = client.open_recurring_stream(&token_id, &payer, &recipient, &10, &500, &50, &3);
+    assert_eq!(sid, 0);
+
+    let stream = client.get_stream(&sid);
+    assert_eq!(stream.payer, payer);
+    assert_eq!(stream.recipient, recipient);
+    assert_eq!(stream.deposited, 500);
+    assert_eq!(stream.rate_per_ledger, 10);
+
+    let status = client.get_recurring_status(&sid);
+    assert_eq!(status.cycles_completed, 0);
+    assert_eq!(status.cycles_remaining, 3);
+}
+
+#[test]
+fn test_advance_recurring_stream_deducts_next_cycle() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 10_000);
+    let token = token::Client::new(&env, &token_id);
+
+    let start = env.ledger().sequence();
+    let sid = client.open_recurring_stream(&token_id, &payer, &recipient, &10, &500, &50, &3);
+
+    // Drain the first cycle (10/ledger * 50 ledgers = 500).
+    advance_ledger(&env, start + 50);
+    let claimed = client.claim_stream(&sid, &recipient);
+    assert_eq!(claimed, 500);
+
+    // Advance into cycle 2: the next deposit is deducted from the payer.
+    client.advance_recurring_stream(&sid);
+    let stream = client.get_stream(&sid);
+    assert_eq!(stream.deposited, 1_000);
+
+    let status = client.get_recurring_status(&sid);
+    assert_eq!(status.cycles_completed, 1);
+    assert_eq!(status.cycles_remaining, 2);
+
+    // Payer has been debited for two cycles (500 + 500).
+    assert_eq!(token.balance(&payer), 9_000);
+}
+
+#[test]
+fn test_recurring_stream_stops_after_max_cycles() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 10_000);
+    let token = token::Client::new(&env, &token_id);
+
+    let start = env.ledger().sequence();
+    let sid = client.open_recurring_stream(&token_id, &payer, &recipient, &10, &500, &50, &2);
+
+    // Cycle 1.
+    advance_ledger(&env, start + 50);
+    client.claim_stream(&sid, &recipient);
+    client.advance_recurring_stream(&sid);
+
+    // Cycle 2.
+    advance_ledger(&env, start + 100);
+    client.claim_stream(&sid, &recipient);
+    client.advance_recurring_stream(&sid);
+
+    let status = client.get_recurring_status(&sid);
+    assert_eq!(status.cycles_completed, 2);
+    assert_eq!(status.cycles_remaining, 0);
+
+    // No further advance is possible once max_cycles is reached.
+    assert!(client.try_advance_recurring_stream(&sid).is_err());
+    assert_eq!(token.balance(&recipient), 1_000);
+}
+
+#[test]
+fn test_advance_recurring_stream_requires_depleted_cycle() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 5_000);
+    let sid = client.open_recurring_stream(&token_id, &payer, &recipient, &10, &500, &50, &3);
+
+    // Nothing claimed yet, so the first cycle is not depleted.
+    assert!(client.try_advance_recurring_stream(&sid).is_err());
+}
+
+#[test]
+fn test_open_recurring_stream_emits_events() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 5_000);
+    client.open_recurring_stream(&token_id, &payer, &recipient, &10, &500, &50, &3);
+
+    // stream_open + recurring_cycle_start.
+    let events = env.events().all().filter_by_contract(&contract_id);
+    assert_eq!(events.events().len(), 2);
+}
+
+#[test]
+fn test_advance_recurring_stream_emits_cycle_events() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 10_000);
+    let start = env.ledger().sequence();
+    let sid = client.open_recurring_stream(&token_id, &payer, &recipient, &10, &500, &50, &3);
+
+    advance_ledger(&env, start + 50);
+    client.claim_stream(&sid, &recipient);
+    client.advance_recurring_stream(&sid);
+
+    // recurring_cycle_end (cycle 1) + recurring_cycle_start (cycle 2).
+    let events = env.events().all().filter_by_contract(&contract_id);
+    assert_eq!(events.events().len(), 2);
+}
+
+#[test]
+fn test_get_recurring_status_on_plain_stream_panics() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &payer, 5_000);
+    let sid = client.open_stream(&token_id, &payer, &recipient, &10, &500);
+
+    assert!(client.try_get_recurring_status(&sid).is_err());
+}
+
 // ─── MultiSig Flow ───────────────────────────────────────────────────────────
 
 #[test]
@@ -780,7 +995,9 @@ fn test_create_multisig_emits_event() {
     let mut signers = Vec::new(&env);
     signers.push_back(s1.clone());
     let expiry = env.ledger().sequence() + 1000;
-    client.create_multisig(&token_id, &proposer, &recipient, &2_000, &1, &signers, &expiry);
+    client.create_multisig(
+        &token_id, &proposer, &recipient, &2_000, &1, &signers, &expiry,
+    );
 
     let events = env.events().all().filter_by_contract(&contract_id);
     assert_eq!(events.events().len(), 1);
@@ -801,8 +1018,12 @@ fn test_multisig_count() {
     signers.push_back(s1.clone());
     let expiry = env.ledger().sequence() + 1000;
 
-    client.create_multisig(&token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry);
-    client.create_multisig(&token_id, &proposer, &recipient, &2_000, &1, &signers, &expiry);
+    client.create_multisig(
+        &token_id, &proposer, &recipient, &1_000, &1, &signers, &expiry,
+    );
+    client.create_multisig(
+        &token_id, &proposer, &recipient, &2_000, &1, &signers, &expiry,
+    );
 
     assert_eq!(client.get_multisig_count(), 2);
 }
@@ -1001,7 +1222,14 @@ fn test_view_functions_return_correct_data() {
     assert_eq!(stream.payer, from);
 
     let release = env.ledger().sequence() + 100;
-    let eid = client.create_escrow(&token_id, &from, &to, &1_000, &release, &Symbol::new(&env, "v"));
+    let eid = client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &1_000,
+        &release,
+        &Symbol::new(&env, "v"),
+    );
     let escrow = client.get_escrow(&eid);
     assert_eq!(escrow.id, eid);
     assert_eq!(escrow.amount, 1_000);
@@ -1034,7 +1262,14 @@ fn test_get_contract_stats() {
     let token_id = create_token(&env, &admin, &from, 10_000);
 
     let release = env.ledger().sequence() + 100;
-    client.create_escrow(&token_id, &from, &to, &1_000, &release, &Symbol::new(&env, ""));
+    client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &1_000,
+        &release,
+        &Symbol::new(&env, ""),
+    );
     client.open_stream(&token_id, &from, &to, &10, &500);
 
     let mut signers = Vec::new(&env);
@@ -1200,8 +1435,7 @@ fn test_initiate_emergency_withdrawal() {
     signers.push_back(signer2.clone());
     // Rotate to a 2-of-2 signer set via the multi-sig path (threshold-1 deploy
     // auto-executes on propose).
-    let data: Vec<Val> =
-        Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
+    let data: Vec<Val> = Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
     client.propose_admin_action(&admin, &Symbol::new(&env, "set_admin_signers"), &data);
 
     let token_id = create_token(&env, &admin, &contract_id, 5_000);
@@ -1228,8 +1462,7 @@ fn test_approve_emergency_withdrawal() {
     signers.push_back(signer2.clone());
     // Rotate to a 2-of-2 signer set via the multi-sig path (threshold-1 deploy
     // auto-executes on propose).
-    let data: Vec<Val> =
-        Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
+    let data: Vec<Val> = Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
     client.propose_admin_action(&admin, &Symbol::new(&env, "set_admin_signers"), &data);
 
     let token_id = create_token(&env, &admin, &contract_id, 5_000);
@@ -1239,5 +1472,3 @@ fn test_approve_emergency_withdrawal() {
     let withdrawal = client.get_emergency_withdrawal(&wid);
     assert_eq!(withdrawal.approvals.len(), 1);
 }
-
-
