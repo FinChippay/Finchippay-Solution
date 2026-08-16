@@ -187,6 +187,12 @@ pub struct Escrow {
     pub dispute_raised_by: Option<Address>,
     /// Ledger at which the dispute was raised.
     pub dispute_raised_at: u32,
+    /// Number of times the dispute has been escalated.
+    pub appeal_depth: u32,
+    /// Current appellate arbitrator, when the dispute has been appealed.
+    pub appeal_arbitrator: Option<Address>,
+    /// Ledger at which the final resolution was executed.
+    pub resolution_ledger: u32,
 }
 
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
@@ -400,6 +406,14 @@ const MAX_ESCROW_AMOUNT: i128 = 1_000_000_000_000_000_000;
 const MAX_MULTISIG_AMOUNT: i128 = 1_000_000_000_000_000_000;
 /// Minimum amount for a single escrow deposit (prevents dust attacks).
 const MIN_ESCROW_AMOUNT: i128 = 1_000;
+/// Mandatory review delay before a disputed escrow can be resolved.
+pub const DISPUTE_REVIEW_LEDGERS: u32 = 1_000;
+/// Maximum number of appellate escalations for one dispute.
+pub const MAX_APPEAL_DEPTH: u32 = 2;
+/// Minimum stake required to register an arbitrator.
+pub const MIN_ARBITRATOR_STAKE: i128 = 100_000_000;
+/// Share of a displaced arbitrator's remaining stake paid on a successful appeal.
+pub const ARBITRATOR_SLASH_BPS: i128 = 5_000;
 /// Minimum amount for a single multi-sig proposal.
 const MIN_MULTISIG_AMOUNT: i128 = 1_000;
 /// Maximum signers allowed in a multi-sig proposal.
@@ -425,7 +439,7 @@ const MAX_ADMIN_SIGNERS: u32 = 20;
 /// or any persistent struct field layout changes. The admin must call
 /// `validate_storage_compatibility` before upgrading to ensure the new WASM
 /// declares a layout version >= this value, preventing bricked storage.
-const STORAGE_LAYOUT_VERSION: u32 = 3;
+const STORAGE_LAYOUT_VERSION: u32 = 4;
 
 // ─── Storage TTL classes ──────────────────────────────────────────────────────
 
@@ -509,6 +523,18 @@ pub enum DataKey {
     ArbitratorCount,
     /// Registered arbitrators for disputable escrows.
     Arbitrators,
+    /// Amount of stake currently locked for an arbitrator.
+    ArbitratorStake(Address),
+    /// Token contract used for an arbitrator's stake.
+    ArbitratorStakeToken(Address),
+    /// Hierarchy tier assigned to an arbitrator.
+    ArbitratorTier(Address),
+    /// Number of unsettled disputable escrows assigned to an arbitrator.
+    ArbitratorActiveEscrows(Address),
+    /// Arbitrator displaced at a specific appeal depth for an escrow.
+    AppealedArbitrator(u32, u32),
+    /// Participant who filed an appeal at a specific depth for an escrow.
+    AppealAppellant(u32, u32),
     // Streaming
     StreamCount,
     Stream(u32),
@@ -2232,9 +2258,26 @@ impl FinchippayContract {
 
     // ─── Dispute resolution ──────────────────────────────────────────────────
 
-    /// Admin: add an arbitrator to the global arbitrator list.
-    pub fn add_arbitrator(env: Env, admin: Address, arbitrator: Address) {
-        escrow::add_arbitrator(env, admin, arbitrator)
+    /// Admin: register a tiered arbitrator and lock their stake.
+    pub fn add_arbitrator(
+        env: Env,
+        admin: Address,
+        arbitrator: Address,
+        stake_token: Address,
+        stake_amount: i128,
+        tier: u32,
+    ) {
+        escrow::add_arbitrator(env, admin, arbitrator, stake_token, stake_amount, tier)
+    }
+
+    /// Register a primary arbitrator by locking the caller's own stake.
+    pub fn register_arbitrator(
+        env: Env,
+        arbitrator: Address,
+        stake_amount: i128,
+        stake_token: Address,
+    ) {
+        escrow::register_arbitrator(env, arbitrator, stake_amount, stake_token)
     }
 
     /// Admin: remove an arbitrator from the global arbitrator list.
@@ -2270,6 +2313,16 @@ impl FinchippayContract {
         escrow::raise_dispute(env, escrow_id, by)
     }
 
+    /// Escalate a dispute to a registered higher-tier arbitrator.
+    pub fn appeal_dispute(
+        env: Env,
+        escrow_id: u32,
+        appellant: Address,
+        appeal_to: Address,
+    ) {
+        escrow::appeal_dispute(env, escrow_id, appellant, appeal_to)
+    }
+
     /// Resolve a dispute. Only the designated arbitrator can call this.
     /// Resolution types: "release" (to recipient), "refund" (to sender),
     /// "split" (amount to recipient, rest to sender).
@@ -2287,6 +2340,16 @@ impl FinchippayContract {
     /// Return the list of registered arbitrators.
     pub fn get_arbitrators(env: Env) -> Vec<Address> {
         escrow::get_arbitrators(env)
+    }
+
+    /// Return an arbitrator's remaining locked stake.
+    pub fn get_arbitrator_stake(env: Env, arbitrator: Address) -> i128 {
+        escrow::get_arbitrator_stake(env, arbitrator)
+    }
+
+    /// Return an arbitrator's registered hierarchy tier.
+    pub fn get_arbitrator_tier(env: Env, arbitrator: Address) -> u32 {
+        escrow::get_arbitrator_tier(env, arbitrator)
     }
 
     // ─── Streaming payments ───────────────────────────────────────────────────
