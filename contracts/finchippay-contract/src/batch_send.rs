@@ -12,6 +12,7 @@ use crate::{
     VestingSchedule, MAX_BATCH_SIZE, MAX_VESTING_AMOUNT, MAX_VESTING_DURATION_LEDGERS,
 };
 
+use crate::events::*;
 use crate::storage::*;
 // ─── Batch send ───────────────────────────────────────────────────────────
 
@@ -95,10 +96,13 @@ pub fn batch_send(
             ),
         );
 
-        env.events().publish(
-            (Symbol::new(&env, "tip"), from.clone(), to.clone()),
-            (amount, memo),
-        );
+        env.events().publish_event(&TipSent {
+            from: from.clone(),
+            to: to.clone(),
+            amount,
+            ledger: env.ledger().sequence(),
+            memo,
+        });
     }
 
     for (to, (final_count, batch_accumulated_amount)) in recipient_updates.iter() {
@@ -123,10 +127,11 @@ pub fn batch_send(
         bump(&env, &DataKey::TipCount(to.clone()));
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "batch_sent"),),
-        (from, recipients.len(), total_amount),
-    );
+    env.events().publish_event(&BatchSent {
+        sender: from,
+        recipient_count: recipients.len(),
+        total_amount,
+    });
     Ok(())
 }
 
@@ -229,10 +234,11 @@ pub fn batch_send_multi(
         bump_to_floor(&env, &DataKey::TipRecord(to.clone(), count));
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "batch_sent_multi"),),
-        (from, recipients.len(), total_amount),
-    );
+    env.events().publish_event(&BatchSentMulti {
+        sender: from,
+        recipient_count: recipients.len(),
+        total_amount,
+    });
     Ok(())
 }
 
@@ -326,10 +332,14 @@ pub fn create_vesting(
         .set(&DataKey::VestingCount, &(next_id + 1));
     bump(&env, &DataKey::VestingCount);
 
-    env.events().publish(
-        (Symbol::new(&env, "vesting_create"), next_id),
-        (from, beneficiary, amount, cliff_ledger, end_ledger),
-    );
+    env.events().publish_event(&VestingCreate {
+        vesting_id: next_id,
+        from,
+        beneficiary,
+        amount,
+        cliff_ledger,
+        end_ledger,
+    });
 
     next_id
 }
@@ -387,10 +397,11 @@ pub fn claim_vesting(env: Env, id: u32, beneficiary: Address) -> i128 {
         .set(&DataKey::Vesting(id), &vesting);
     bump(&env, &DataKey::Vesting(id));
 
-    env.events().publish(
-        (Symbol::new(&env, "vesting_claim"), id),
-        (beneficiary, claimable),
-    );
+    env.events().publish_event(&VestingClaim {
+        vesting_id: id,
+        beneficiary,
+        amount: claimable,
+    });
 
     claimable
 }
@@ -431,10 +442,11 @@ pub fn revoke_vesting(env: Env, id: u32, admin: Address) {
         .set(&DataKey::Vesting(id), &vesting);
     bump(&env, &DataKey::Vesting(id));
 
-    env.events().publish(
-        (Symbol::new(&env, "vesting_revoke"), id),
-        (vesting.funder, unclaimed),
-    );
+    env.events().publish_event(&VestingRevoke {
+        vesting_id: id,
+        funder: vesting.funder,
+        amount: unclaimed,
+    });
 }
 
 pub fn get_vesting(env: Env, id: u32) -> VestingSchedule {

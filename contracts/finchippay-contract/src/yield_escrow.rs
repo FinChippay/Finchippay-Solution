@@ -25,6 +25,7 @@
 
 use soroban_sdk::{contracttype, token, Address, Env, Symbol};
 
+use crate::events::*;
 use crate::storage;
 use crate::DataKey;
 
@@ -115,10 +116,14 @@ pub fn create_yield_escrow(
     env.storage().persistent().set(&escrow_key, &escrow);
     storage::bump_to_floor(env, &escrow_key);
 
-    env.events().publish(
-        (Symbol::new(env, "yield_escrow_create"), id),
-        (from.clone(), to.clone(), token_a.clone(), amount, shares),
-    );
+    env.events().publish_event(&YieldEscrowCreate {
+        escrow_id: id,
+        from: from.clone(),
+        to: to.clone(),
+        token: token_a.clone(),
+        amount,
+        shares,
+    });
 
     id
 }
@@ -153,10 +158,11 @@ pub fn claim_yield_escrow(env: &Env, id: u64) -> i128 {
     env.storage().persistent().set(&escrow_key, &escrow);
     storage::bump(env, &escrow_key);
 
-    env.events().publish(
-        (Symbol::new(env, "yield_escrow_claim"), id),
-        (escrow.to.clone(), total),
-    );
+    env.events().publish_event(&YieldEscrowClaim {
+        escrow_id: id,
+        to: escrow.to.clone(),
+        amount: total,
+    });
 
     total
 }
@@ -189,10 +195,11 @@ pub fn cancel_yield_escrow(env: &Env, id: u64) -> i128 {
     env.storage().persistent().set(&escrow_key, &escrow);
     storage::bump(env, &escrow_key);
 
-    env.events().publish(
-        (Symbol::new(env, "yield_escrow_cancelled"), id),
-        (escrow.from.clone(), refund),
-    );
+    env.events().publish_event(&YieldEscrowCancelled {
+        escrow_id: id,
+        from: escrow.from.clone(),
+        amount: refund,
+    });
 
     refund
 }

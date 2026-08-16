@@ -28,27 +28,27 @@ const STELLAR_ADDRESS_RE = /G[A-Z2-7]{55}/g;
  * `url` is the click target the service worker opens.
  */
 const EVENT_NOTIFICATIONS = {
-  receipt: {
+  receipt_minted: {
     title: "Payment received",
     body: "A payment just landed in your Finchippay account.",
     url: "/dashboard",
   },
-  stream_open: {
+  stream_opened: {
     title: "Payment stream opened",
     body: "A stream was opened for you. Funds become claimable as it accrues.",
     url: "/dashboard",
   },
-  stream_claim: {
+  stream_claimed: {
     title: "Stream claimed",
     body: "A payment stream claim completed.",
     url: "/dashboard",
   },
-  escrow_create: {
+  escrow_created: {
     title: "Escrow created",
     body: "An escrow naming you was created. You will be able to claim it once it unlocks.",
     url: "/escrow",
   },
-  escrow_claim: {
+  escrow_claimed: {
     title: "Escrow claimed",
     body: "An escrow claim completed.",
     url: "/escrow",

@@ -3,7 +3,7 @@
 //! N-of-M threshold approval payment proposals with auto-execution,
 //! expiration, and cancellation. Extracted from the main FinchippayContract impl.
 
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_token_client, increase_locked_balance,
@@ -12,6 +12,7 @@ use crate::{
     MIN_MULTISIG_AMOUNT,
 };
 
+use crate::events::*;
 use crate::storage::*;
 // ─── Multi-sig payments ───────────────────────────────────────────────────
 
@@ -103,10 +104,15 @@ pub fn create_multisig(
         .set(&DataKey::MultiSigCount, &(id + 1));
     bump(&env, &DataKey::MultiSigCount);
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_create"), id),
-        (proposer, recipient, amount, threshold),
-    );
+    env.events().publish_event(&MultisigCreated {
+        proposal_id: id,
+        proposer,
+        recipient,
+        amount,
+        threshold,
+        signers_count: proposal.signers.len(),
+        expiration_ledger,
+    });
     id
 }
 
@@ -146,14 +152,12 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
 
     proposal.approvals.push_back(signer.clone());
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_approve"), proposal_id),
-        (
-            signer.clone(),
-            proposal.approvals.len() + 1,
-            proposal.threshold,
-        ),
-    );
+    env.events().publish_event(&MultisigApproved {
+        proposal_id,
+        approver: signer.clone(),
+        count: proposal.approvals.len(),
+        threshold: proposal.threshold,
+    });
 
     // Auto-execute if threshold is reached.
     if proposal.approvals.len() >= proposal.threshold {
@@ -161,10 +165,11 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
         contract_transfer_out(&env, &token, &proposal.recipient, &proposal.amount);
         decrease_locked_balance(&env, &proposal.token, proposal.amount);
         proposal.status = MultiSigStatus::Executed;
-        env.events().publish(
-            (Symbol::new(&env, "multisig_executed"), proposal_id),
-            (proposal.recipient.clone(), proposal.amount),
-        );
+        env.events().publish_event(&MultisigExecuted {
+            proposal_id,
+            recipient: proposal.recipient.clone(),
+            amount: proposal.amount,
+        });
     }
 
     env.storage()
@@ -204,10 +209,11 @@ pub fn timeout_multisig(env: Env, proposal_id: u32) {
         .set(&DataKey::MultiSig(proposal_id), &proposal);
     bump(&env, &DataKey::MultiSig(proposal_id));
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_timeout"), proposal_id),
-        (proposal.proposer.clone(), proposal.amount),
-    );
+    env.events().publish_event(&MultisigTimeout {
+        proposal_id,
+        proposer: proposal.proposer.clone(),
+        amount: proposal.amount,
+    });
 }
 
 /// The proposer cancels the proposal before execution; funds are refunded.
@@ -238,10 +244,11 @@ pub fn cancel_multisig(env: Env, proposal_id: u32, proposer: Address) {
         .set(&DataKey::MultiSig(proposal_id), &proposal);
     bump(&env, &DataKey::MultiSig(proposal_id));
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_cancelled"),),
-        (proposal_id, proposer, proposal.amount),
-    );
+    env.events().publish_event(&MultisigCancelled {
+        proposal_id,
+        proposer,
+        amount: proposal.amount,
+    });
 }
 
 /// Return the multi-sig proposal for `proposal_id`.

@@ -35,15 +35,18 @@
 pub mod airdrop;
 pub mod batch_send;
 pub mod escrow;
+pub mod events;
 pub mod multi_sig;
 pub mod storage;
 pub mod streams;
 pub mod yield_escrow;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env,
-    Symbol, TryIntoVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+    TryIntoVal, Val, Vec,
 };
+
+use crate::events::*;
 
 use crate::storage::{MIN_TTL_LEDGERS, TTL_CLASS_COUNT};
 // Bring all TTL primitives (bump, bump_to_floor, ttl_class_*, etc.) into scope
@@ -902,12 +905,7 @@ pub(crate) fn assert_invariants(env: &Env, domain: Symbol) {
 #[contract]
 pub struct FinchippayContract;
 
-/// NOTE: env.events().publish() is the stable Soroban events API.
-/// The #[contractevent] macro is available in newer SDK versions; this
-/// codebase will migrate when the project's MSRV and SDK version are
-/// bumped in a coordinated upgrade cycle. Tracked in issue #event-migration.
 #[contractimpl]
-#[allow(deprecated)]
 impl FinchippayContract {
     // ─── Admin ────────────────────────────────────────────────────────────────
 
@@ -962,7 +960,7 @@ impl FinchippayContract {
         // at this point, and all are at the TTL floor, so the guarantee that
         // `get_min_ttl` reports for the class already holds.
         set_ttl_watermark(&env, &TtlClass::Config);
-        env.events().publish((Symbol::new(&env, "init"),), admin);
+        env.events().publish_event(&Init { admin });
         Ok(())
     }
 
@@ -979,8 +977,7 @@ impl FinchippayContract {
         }
         env.storage().persistent().set(&DataKey::Admin, &new_admin);
         bump(&env, &DataKey::Admin);
-        env.events()
-            .publish((Symbol::new(&env, "admin_transfer"),), new_admin);
+        env.events().publish_event(&AdminTransfer { new_admin });
     }
 
     /// Return the legacy single-admin address (the first signer passed to
@@ -1026,10 +1023,14 @@ impl FinchippayContract {
         // (fast hot-key path). Admin-initiated pausing goes through
         // `propose_admin_action`, so no single key can freeze the contract.
         let stored_pauser: Option<Address> = env.storage().persistent().get(&DataKey::Pauser);
-        if stored_pauser.as_ref().map(|p| p == &caller).unwrap_or(false) {
+        if stored_pauser
+            .as_ref()
+            .map(|p| p == &caller)
+            .unwrap_or(false)
+        {
             env.storage().persistent().set(&DataKey::Paused, &true);
             bump_to_floor(&env, &DataKey::Paused);
-            env.events().publish((Symbol::new(&env, "paused"),), ());
+            env.events().publish_event(&Paused {});
         } else {
             panic!("Unauthorized");
         }
@@ -1045,10 +1046,14 @@ impl FinchippayContract {
         // Mirror `pause`: only the designated pauser lifts the circuit breaker
         // directly; admin-initiated unpausing uses `propose_admin_action`.
         let stored_pauser: Option<Address> = env.storage().persistent().get(&DataKey::Pauser);
-        if stored_pauser.as_ref().map(|p| p == &caller).unwrap_or(false) {
+        if stored_pauser
+            .as_ref()
+            .map(|p| p == &caller)
+            .unwrap_or(false)
+        {
             env.storage().persistent().set(&DataKey::Paused, &false);
             bump_to_floor(&env, &DataKey::Paused);
-            env.events().publish((Symbol::new(&env, "unpaused"),), ());
+            env.events().publish_event(&Unpaused {});
         } else {
             panic!("Unauthorized");
         }
@@ -1119,10 +1124,11 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::AdminActionCount, &counter);
         bump(&env, &DataKey::AdminActionCount);
-        env.events().publish(
-            (Symbol::new(&env, "admin_action_proposed"),),
-            (counter, action_type.clone(), proposer.clone()),
-        );
+        env.events().publish_event(&AdminActionProposed {
+            proposal_id: counter,
+            action_type: action_type.clone(),
+            proposer: proposer.clone(),
+        });
 
         // Threshold 1: the proposer's recorded approval already meets it.
         if threshold == 1 {
@@ -1131,10 +1137,12 @@ impl FinchippayContract {
                 .persistent()
                 .set(&DataKey::AdminActionProposal(counter), &proposal);
             bump(&env, &DataKey::AdminActionProposal(counter));
-            env.events().publish(
-                (Symbol::new(&env, "admin_action_approved"),),
-                (counter, proposer, 1u32, threshold),
-            );
+            env.events().publish_event(&AdminActionApproved {
+                proposal_id: counter,
+                approver: proposer,
+                count: 1u32,
+                threshold,
+            });
             Self::execute_admin_action(&env, &proposal);
         }
 
@@ -1181,10 +1189,12 @@ impl FinchippayContract {
         proposal.approvals.push_back(approver.clone());
         let approval_count = proposal.approvals.len() as u32;
 
-        env.events().publish(
-            (Symbol::new(&env, "admin_action_approved"),),
-            (proposal_id, approver, approval_count, proposal.threshold),
-        );
+        env.events().publish_event(&AdminActionApproved {
+            proposal_id,
+            approver,
+            count: approval_count,
+            threshold: proposal.threshold,
+        });
 
         // Auto-execute when threshold met
         if approval_count >= proposal.threshold {
@@ -1241,10 +1251,10 @@ impl FinchippayContract {
                 .persistent()
                 .set(&DataKey::AdminSignersThreshold, &threshold);
             bump_to_floor(env, &DataKey::AdminSignersThreshold);
-            env.events().publish(
-                (Symbol::new(env, "admin_signers_set"),),
-                (threshold, signers.len()),
-            );
+            env.events().publish_event(&AdminSignersSet {
+                threshold,
+                signer_count: signers.len(),
+            });
         } else if action == &Symbol::new(env, "set_pauser") {
             let pauser: Address = proposal
                 .action_data
@@ -1254,7 +1264,7 @@ impl FinchippayContract {
                 .expect("invalid set_pauser payload");
             env.storage().persistent().set(&DataKey::Pauser, &pauser);
             bump_to_floor(env, &DataKey::Pauser);
-            env.events().publish((Symbol::new(env, "pauser_set"),), pauser);
+            env.events().publish_event(&PauserSet { pauser });
         } else if action == &Symbol::new(env, "upgrade") {
             let wasm_hash: BytesN<32> = proposal
                 .action_data
@@ -1271,7 +1281,8 @@ impl FinchippayContract {
             // Reject downgrades before touching the WASM (same guard as the
             // legacy single-admin `upgrade` entrypoint).
             Self::validate_storage_compatibility(env.clone(), layout_version);
-            env.deployer().update_current_contract_wasm(wasm_hash.clone());
+            env.deployer()
+                .update_current_contract_wasm(wasm_hash.clone());
             let current_ver: u32 = env
                 .storage()
                 .persistent()
@@ -1285,10 +1296,11 @@ impl FinchippayContract {
                 .persistent()
                 .set(&DataKey::StorageLayoutVersion, &layout_version);
             bump(env, &DataKey::StorageLayoutVersion);
-            env.events().publish(
-                (Symbol::new(env, "upgraded"),),
-                (current_ver + 1, wasm_hash, layout_version),
-            );
+            env.events().publish_event(&Upgraded {
+                new_version: current_ver + 1,
+                wasm_hash,
+                layout_version,
+            });
         } else if action == &Symbol::new(env, "rescue_tokens") {
             let token_address: Address = proposal
                 .action_data
@@ -1319,10 +1331,11 @@ impl FinchippayContract {
                 panic!("insufficient unlocked balance");
             }
             contract_transfer_out(env, &token, &to, &amount);
-            env.events().publish(
-                (Symbol::new(env, "rescue_tokens"),),
-                (token_address, amount, to),
-            );
+            env.events().publish_event(&RescueTokens {
+                token: token_address,
+                amount,
+                to,
+            });
         } else {
             panic!("unknown admin action");
         }
@@ -1332,14 +1345,14 @@ impl FinchippayContract {
     fn do_pause(env: &Env) {
         env.storage().persistent().set(&DataKey::Paused, &true);
         bump(env, &DataKey::Paused);
-        env.events().publish((Symbol::new(env, "paused"),), ());
+        env.events().publish_event(&Paused {});
     }
 
     /// Execute unpause without auth check.
     fn do_unpause(env: &Env) {
         env.storage().persistent().set(&DataKey::Paused, &false);
         bump(env, &DataKey::Paused);
-        env.events().publish((Symbol::new(env, "unpaused"),), ());
+        env.events().publish_event(&Unpaused {});
     }
 
     /// Return the current pauser address, if one is set.
@@ -1429,10 +1442,11 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::StorageLayoutVersion, &new_layout_version);
         bump(&env, &DataKey::StorageLayoutVersion);
-        env.events().publish(
-            (Symbol::new(&env, "upgraded"),),
-            (current_ver + 1, new_wasm_hash, new_layout_version),
-        );
+        env.events().publish_event(&Upgraded {
+            new_version: current_ver + 1,
+            wasm_hash: new_wasm_hash,
+            layout_version: new_layout_version,
+        });
     }
 
     // ─── Storage lifetime management ───────────────────────────────────────────
@@ -1509,10 +1523,11 @@ impl FinchippayContract {
             .set(&cursor_key, &(class_index, key_index));
         bump_to_floor(&env, &cursor_key);
 
-        env.events().publish(
-            (Symbol::new(&env, "ttl_bumped"),),
-            (bumped, class_index, key_index),
-        );
+        env.events().publish_event(&TtlBumped {
+            keys_bumped: bumped,
+            class_index,
+            key_index,
+        });
         bumped
     }
 
@@ -1667,10 +1682,11 @@ impl FinchippayContract {
         }
         contract_transfer_out(&env, &token, &to, &amount);
 
-        env.events().publish(
-            (Symbol::new(&env, "rescue_tokens"),),
-            (token_address, amount, to),
-        );
+        env.events().publish_event(&RescueTokens {
+            token: token_address,
+            amount,
+            to,
+        });
     }
 
     // ─── Emergency withdrawal (time-delayed, multi-sig) ────────────────────────
@@ -1742,10 +1758,13 @@ impl FinchippayContract {
             .set(&DataKey::EmergencyWithdrawalCount, &(id + 1));
         bump(&env, &DataKey::EmergencyWithdrawalCount);
 
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_initiated"), id),
-            (admin, token_address, amount, activation_ledger),
-        );
+        env.events().publish_event(&EmergencyWithdrawalInitiated {
+            withdrawal_id: id,
+            initiator: admin,
+            token: token_address,
+            amount,
+            activation_ledger,
+        });
         id
     }
 
@@ -1779,10 +1798,12 @@ impl FinchippayContract {
 
         withdrawal.approvals.push_back(signer.clone());
 
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_approve"), id),
-            (signer, withdrawal.approvals.len(), withdrawal.threshold),
-        );
+        env.events().publish_event(&EmergencyWithdrawalApproved {
+            withdrawal_id: id,
+            signer,
+            count: withdrawal.approvals.len(),
+            threshold: withdrawal.threshold,
+        });
 
         // Auto-execute if threshold reached AND activation ledger passed.
         // If the threshold is met but the delay has not elapsed, we just record
@@ -1796,10 +1817,11 @@ impl FinchippayContract {
             let amount = withdrawal.amount;
             contract_transfer_out(&env, &token, &to, &amount);
             withdrawal.status = EmergencyWithdrawalStatus::Executed;
-            env.events().publish(
-                (Symbol::new(&env, "emergency_withdrawal_executed"), id),
-                (to, amount),
-            );
+            env.events().publish_event(&EmergencyWithdrawalExecuted {
+                withdrawal_id: id,
+                to,
+                amount,
+            });
         }
 
         env.storage()
@@ -1839,10 +1861,11 @@ impl FinchippayContract {
             .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
         bump(&env, &DataKey::EmergencyWithdrawal(id));
 
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_executed"), id),
-            (withdrawal.to, withdrawal.amount),
-        );
+        env.events().publish_event(&EmergencyWithdrawalExecuted {
+            withdrawal_id: id,
+            to: withdrawal.to,
+            amount: withdrawal.amount,
+        });
     }
 
     /// Cancel a pending emergency withdrawal. Any admin may call this before
@@ -1872,10 +1895,11 @@ impl FinchippayContract {
             .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
         bump(&env, &DataKey::EmergencyWithdrawal(id));
 
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_cancelled"), id),
-            (admin, withdrawal.amount),
-        );
+        env.events().publish_event(&EmergencyWithdrawalCancelled {
+            withdrawal_id: id,
+            admin,
+            amount: withdrawal.amount,
+        });
     }
 
     /// Return the emergency withdrawal record for `id`.
@@ -1967,20 +1991,26 @@ impl FinchippayContract {
             .set(&DataKey::TipCount(to.clone()), &(count + 1));
         bump(&env, &DataKey::TipCount(to.clone()));
 
+        let ledger = env.ledger().sequence();
         let record = TipRecord {
             from: from.clone(),
             to: to.clone(),
             amount,
-            ledger: env.ledger().sequence(),
-            memo,
+            ledger,
+            memo: memo.clone(),
         };
         env.storage()
             .persistent()
             .set(&DataKey::TipRecord(to.clone(), count), &record);
         bump_to_floor(&env, &DataKey::TipRecord(to.clone(), count));
 
-        env.events()
-            .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), amount);
+        env.events().publish_event(&TipSent {
+            from,
+            to,
+            amount,
+            ledger,
+            memo,
+        });
         assert_invariants(&env, Symbol::new(&env, "all"));
     }
 
@@ -2085,8 +2115,10 @@ impl FinchippayContract {
             .set(&DataKey::TotalReceiptCount, &(global_count + 1));
         bump(&env, &DataKey::TotalReceiptCount);
 
-        env.events()
-            .publish((Symbol::new(&env, "receipt"), from), count);
+        env.events().publish_event(&ReceiptMinted {
+            payer: from,
+            receipt_index: count,
+        });
         count
     }
 
@@ -2582,8 +2614,7 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::FeeCollector, &collector);
         bump(&env, &DataKey::FeeCollector);
-        env.events()
-            .publish((Symbol::new(&env, "fee_collector_set"),), collector);
+        env.events().publish_event(&FeeCollectorSet { collector });
         Ok(())
     }
 
@@ -2606,8 +2637,9 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::SwapFee, &new_fee_bps);
         bump(&env, &DataKey::SwapFee);
-        env.events()
-            .publish((Symbol::new(&env, "swap_fee_set"),), new_fee_bps);
+        env.events().publish_event(&SwapFeeSet {
+            fee_bps: new_fee_bps,
+        });
         Ok(())
     }
 
@@ -2684,15 +2716,14 @@ impl FinchippayContract {
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
 
-        env.events().publish(
-            (
-                Symbol::new(&env, "swap"),
-                caller.clone(),
-                token_in.clone(),
-                token_out.clone(),
-            ),
-            (amount_in, amount_out, fee),
-        );
+        env.events().publish_event(&Swap {
+            caller: caller.clone(),
+            token_in: token_in.clone(),
+            token_out: token_out.clone(),
+            amount_in,
+            amount_out,
+            fee,
+        });
 
         Ok(amount_out)
     }
@@ -2755,15 +2786,14 @@ impl FinchippayContract {
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
 
-        env.events().publish(
-            (
-                Symbol::new(&env, "swap"),
-                caller.clone(),
-                token_in.clone(),
-                token_out.clone(),
-            ),
-            (amount_in, amount_out, fee),
-        );
+        env.events().publish_event(&Swap {
+            caller: caller.clone(),
+            token_in: token_in.clone(),
+            token_out: token_out.clone(),
+            amount_in,
+            amount_out,
+            fee,
+        });
 
         Ok(amount_in)
     }
@@ -2772,12 +2802,11 @@ impl FinchippayContract {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, Events as _, Ledger},
-        vec, Address, Env, IntoVal, Symbol,
+        vec, Address, Env, Event, IntoVal, Symbol,
     };
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -3451,15 +3480,9 @@ mod tests {
         let mut signers = Vec::new(&env);
         signers.push_back(admin.clone());
         signers.push_back(signer_b);
-        let data: Vec<Val> = Vec::from_array(
-            &env,
-            [signers.into_val(&env), 2u32.into_val(&env)],
-        );
-        let pid = client.propose_admin_action(
-            &admin,
-            &Symbol::new(&env, "set_admin_signers"),
-            &data,
-        );
+        let data: Vec<Val> = Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
+        let pid =
+            client.propose_admin_action(&admin, &Symbol::new(&env, "set_admin_signers"), &data);
 
         // Threshold-1 deploy auto-executes the rotation on propose.
         assert!(client.get_admin_action_proposal(&pid).executed);
@@ -3482,11 +3505,8 @@ mod tests {
         proposed.push_back(signer_a.clone());
         proposed.push_back(new_signer);
         let data: Vec<Val> = Vec::from_array(&env, [proposed.into_val(&env), 2u32.into_val(&env)]);
-        let pid = client.propose_admin_action(
-            &signer_a,
-            &Symbol::new(&env, "set_admin_signers"),
-            &data,
-        );
+        let pid =
+            client.propose_admin_action(&signer_a, &Symbol::new(&env, "set_admin_signers"), &data);
         assert!(!client.get_admin_action_proposal(&pid).executed);
         assert_eq!(client.get_admin_signers().len(), 2);
         assert_eq!(client.get_admin_signers_threshold(), 2);
@@ -4315,14 +4335,12 @@ mod tests {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![
-                &env,
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "escrow_cancelled"),).into_val(&env),
-                    (id, from, 2_000i128).into_val(&env),
-                ),
-            ]
+            [EscrowCancelled {
+                escrow_id: id,
+                from,
+                amount: 2_000i128,
+            }
+            .to_xdr(&env, &contract_id)]
         );
     }
 
@@ -4341,14 +4359,13 @@ mod tests {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![
-                &env,
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "stream_topped_up"),).into_val(&env),
-                    (sid, payer, 500i128, 1_500i128).into_val(&env),
-                ),
-            ]
+            [StreamToppedUp {
+                stream_id: sid,
+                payer,
+                amount: 500i128,
+                deposited: 1_500i128,
+            }
+            .to_xdr(&env, &contract_id)]
         );
     }
 
@@ -4373,14 +4390,12 @@ mod tests {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![
-                &env,
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "multisig_cancelled"),).into_val(&env),
-                    (id, proposer, 2_000i128).into_val(&env),
-                ),
-            ]
+            [MultisigCancelled {
+                proposal_id: id,
+                proposer,
+                amount: 2_000i128,
+            }
+            .to_xdr(&env, &contract_id)]
         );
     }
 
@@ -4403,28 +4418,35 @@ mod tests {
         let mut memos = soroban_sdk::Vec::new(&env);
         memos.push_back(Symbol::new(&env, "m1"));
         memos.push_back(Symbol::new(&env, "m2"));
+        let ledger = env.ledger().sequence();
         client.batch_send(&token_id, &from, &recipients, &amounts, &memos);
 
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![
-                &env,
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "tip"), from.clone(), to1.clone()).into_val(&env),
-                    (300i128, Symbol::new(&env, "m1")).into_val(&env),
-                ),
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "tip"), from.clone(), to2.clone()).into_val(&env),
-                    (200i128, Symbol::new(&env, "m2")).into_val(&env),
-                ),
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "batch_sent"),).into_val(&env),
-                    (from, 2u32, 500i128).into_val(&env),
-                ),
+            [
+                TipSent {
+                    from: from.clone(),
+                    to: to1.clone(),
+                    amount: 300i128,
+                    ledger,
+                    memo: Symbol::new(&env, "m1"),
+                }
+                .to_xdr(&env, &contract_id),
+                TipSent {
+                    from: from.clone(),
+                    to: to2.clone(),
+                    amount: 200i128,
+                    ledger,
+                    memo: Symbol::new(&env, "m2"),
+                }
+                .to_xdr(&env, &contract_id),
+                BatchSent {
+                    sender: from,
+                    recipient_count: 2u32,
+                    total_amount: 500i128,
+                }
+                .to_xdr(&env, &contract_id),
             ]
         );
     }
@@ -4453,23 +4475,26 @@ mod tests {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![
-                &env,
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "admin_action_proposed"),).into_val(&env),
-                    (1u64, Symbol::new(&env, "rescue_tokens"), admin.clone()).into_val(&env),
-                ),
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "admin_action_approved"),).into_val(&env),
-                    (1u64, admin.clone(), 1u32, 1u32).into_val(&env),
-                ),
-                (
-                    contract_id.clone(),
-                    (Symbol::new(&env, "rescue_tokens"),).into_val(&env),
-                    (token_id.clone(), 400i128, to.clone()).into_val(&env),
-                ),
+            [
+                AdminActionProposed {
+                    proposal_id: 1u64,
+                    action_type: Symbol::new(&env, "rescue_tokens"),
+                    proposer: admin.clone(),
+                }
+                .to_xdr(&env, &contract_id),
+                AdminActionApproved {
+                    proposal_id: 1u64,
+                    approver: admin,
+                    count: 1u32,
+                    threshold: 1u32,
+                }
+                .to_xdr(&env, &contract_id),
+                RescueTokens {
+                    token: token_id.clone(),
+                    amount: 400i128,
+                    to: to.clone(),
+                }
+                .to_xdr(&env, &contract_id),
             ]
         );
 

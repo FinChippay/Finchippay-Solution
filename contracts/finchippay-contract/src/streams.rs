@@ -3,7 +3,7 @@
 //! Continuous per-ledger token streams with claim, top-up, close, reject,
 //! and transfer operations. Extracted from the main FinchippayContract impl.
 
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::{
     claimable_at, contract_transfer_out, decrease_locked_balance, get_token_client,
@@ -12,6 +12,7 @@ use crate::{
     MAX_USER_STREAMS,
 };
 
+use crate::events::*;
 use crate::storage::*;
 // ─── Streaming payments ───────────────────────────────────────────────────
 
@@ -92,10 +93,13 @@ pub fn open_stream(
         bump_to_floor(&env, &s_key);
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_open"), id),
-        (payer, recipient, rate_per_ledger, deposit),
-    );
+    env.events().publish_event(&StreamOpened {
+        stream_id: id,
+        payer,
+        recipient,
+        rate: rate_per_ledger,
+        deposit,
+    });
     id
 }
 
@@ -132,10 +136,11 @@ pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
     contract_transfer_out(&env, &token, &recipient, &claimable);
     decrease_locked_balance(&env, &stream.token, claimable);
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_claim"), stream_id),
-        (recipient, claimable),
-    );
+    env.events().publish_event(&StreamClaimed {
+        stream_id,
+        recipient,
+        amount: claimable,
+    });
     claimable
 }
 
@@ -174,10 +179,12 @@ pub fn top_up_stream(env: Env, stream_id: u32, payer: Address, amount: i128) {
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_topped_up"),),
-        (stream_id, payer, amount, stream.deposited),
-    );
+    env.events().publish_event(&StreamToppedUp {
+        stream_id,
+        payer,
+        amount,
+        deposited: stream.deposited,
+    });
 }
 
 /// Payer closes the stream early. Any unclaimed streamed tokens are sent to
@@ -242,16 +249,18 @@ pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
     env.storage().persistent().set(&s_key, &new_streams);
     bump(&env, &s_key);
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_close"), stream_id),
-        (payer, refund),
-    );
+    env.events().publish_event(&StreamClose {
+        stream_id,
+        payer,
+        refund,
+    });
 
     // Emit final close event for indexing/UI.
-    env.events().publish(
-        (Symbol::new(&env, "stream_closed"), stream_id),
-        (refund, claimable),
-    );
+    env.events().publish_event(&StreamClosed {
+        stream_id,
+        refund,
+        claimable,
+    });
     refund
 }
 
@@ -304,10 +313,11 @@ pub fn reject_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_reject"), stream_id),
-        (recipient, refund),
-    );
+    env.events().publish_event(&StreamReject {
+        stream_id,
+        recipient,
+        refund,
+    });
     refund
 }
 
@@ -358,10 +368,11 @@ pub fn transfer_stream(
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_transfer"), stream_id),
-        (current_recipient, new_recipient),
-    );
+    env.events().publish_event(&StreamTransfer {
+        stream_id,
+        from: current_recipient,
+        to: new_recipient,
+    });
 }
 
 /// Return the stream record for `stream_id`.
