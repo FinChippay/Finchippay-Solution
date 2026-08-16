@@ -93,7 +93,7 @@ This document tracks what's shipped, what's in progress, and what's planned.
 ## 💡 Ideas / Community Requests
 
 - Multi-language i18n support (English, Spanish, French) ✅
-- RTL language support (Arabic, Hebrew) — noted as future work
+- RTL language support (Arabic, Hebrew) ✅
 - Milestone-based escrow releases
 - Subscription/recurring payments via Soroban streams
 - DAO treasury multi-sig management UI
@@ -129,4 +129,4 @@ Have an idea? [Open an issue](https://github.com/FinChippay/Finchippay-Solution/
 
 ---
 
-*Last updated: August 11, 2026*
+_Last updated: August 11, 2026_
