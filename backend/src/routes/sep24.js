@@ -22,7 +22,7 @@ const {
   sep24TransactionQuerySchema,
   sep24DepositWithdrawSchema,
 } = require("../validation/schemas");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * POST /api/sep24/transactions/deposit/interactive
@@ -47,8 +47,10 @@ router.post("/transactions/deposit/interactive", validate(sep24InteractiveSchema
       id: record.id,
     });
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message });
+    sendError(res, err.errorCode || "SRV_INTERNAL", {
+      status: err.status || 500,
+      details: { reason: err.message },
+    });
   }
 });
 
@@ -75,8 +77,10 @@ router.post("/transactions/withdraw/interactive", validate(sep24InteractiveSchem
       id: record.id,
     });
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message });
+    sendError(res, err.errorCode || "SRV_INTERNAL", {
+      status: err.status || 500,
+      details: { reason: err.message },
+    });
   }
 });
 
@@ -90,9 +94,7 @@ router.get("/transaction", validate(sep24TransactionQuerySchema, "query"), (req,
 
   const record = sep24Service.getTransaction(id);
   if (!record) {
-    return res
-      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
-      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "transaction" }));
+    return sendError(res, "RES_NOT_FOUND", { details: { resourceType: "transaction" } });
   }
 
   const txn = {
@@ -132,12 +134,10 @@ router.post("/deposit", validate(sep24DepositWithdrawSchema), async (req, res) =
     });
     res.json(result);
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json(
-      formatErrorResponse(err.errorCode || "SRV_INTERNAL", {
-        reason: err.message,
-      }),
-    );
+    sendError(res, err.errorCode || "SRV_INTERNAL", {
+      status: err.status || 500,
+      details: { reason: err.message },
+    });
   }
 });
 
@@ -160,12 +160,10 @@ router.post("/withdraw", validate(sep24DepositWithdrawSchema), async (req, res) 
     });
     res.json(result);
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json(
-      formatErrorResponse(err.errorCode || "SRV_INTERNAL", {
-        reason: err.message,
-      }),
-    );
+    sendError(res, err.errorCode || "SRV_INTERNAL", {
+      status: err.status || 500,
+      details: { reason: err.message },
+    });
   }
 });
 
@@ -176,9 +174,7 @@ router.post("/withdraw", validate(sep24DepositWithdrawSchema), async (req, res) 
 router.get("/transactions/:txId", (req, res) => {
   const record = sep24Service.getAnchorTransaction(req.params.txId);
   if (!record) {
-    return res
-      .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
-      .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "transaction" }));
+    return sendError(res, "RES_NOT_FOUND", { details: { resourceType: "transaction" } });
   }
   res.json({ transaction: record });
 });
@@ -192,12 +188,10 @@ router.post("/callback", (req, res) => {
     sep24Service.handleAnchorCallback(req.body);
     res.status(200).json({ received: true });
   } catch (err) {
-    const status = err.status || 400;
-    res.status(status).json(
-      formatErrorResponse(err.errorCode || "VAL_INVALID_JSON", {
-        reason: err.message,
-      }),
-    );
+    sendError(res, err.errorCode || "VAL_INVALID_JSON", {
+      status: err.status || 400,
+      details: { reason: err.message },
+    });
   }
 });
 

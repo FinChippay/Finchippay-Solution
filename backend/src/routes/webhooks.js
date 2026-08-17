@@ -8,7 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const webhookService = require("../services/webhookSubscriptionService");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 const { validate } = require("../validation/middleware");
 const { registerWebhookSchema } = require("../validation/webhookSchemas");
 const {
@@ -39,9 +39,7 @@ router.post("/", validate(registerWebhookSchema), async (req, res) => {
     const webhook = await webhookService.registerWebhook(publicKey, url, secret, topics);
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
-    return res
-      .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
-      .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
+    return sendError(res, "SRV_INTERNAL", { details: { reason: err.message } });
   }
 });
 
@@ -189,9 +187,9 @@ router.get(
       const { id } = req.params;
       const delivery = await webhookService.getDeliveryById(publicKey, id);
       if (!delivery) {
-        return res
-          .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
-          .json(formatErrorResponse("RES_NOT_FOUND", { resourceType: "delivery", id }));
+        return sendError(res, "RES_NOT_FOUND", {
+          details: { resourceType: "delivery", id },
+        });
       }
       return res.json({ delivery });
     } catch (err) {
@@ -209,12 +207,9 @@ router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) 
     const { id } = req.validated;
     const deleted = await webhookService.deleteWebhook(id);
     if (!deleted) {
-      return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-        formatErrorResponse("RES_NOT_FOUND", {
-          resourceType: "webhook",
-          id,
-        }),
-      );
+      return sendError(res, "RES_NOT_FOUND", {
+        details: { resourceType: "webhook", id },
+      });
     }
     return res.json({ success: true, message: "Webhook " + id + " deleted" });
   } catch (err) {

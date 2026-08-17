@@ -16,6 +16,7 @@
 "use strict";
 
 const express = require("express");
+const { sendError } = require("../utils/errorResponse");
 
 const JSON_BODY_METHODS = new Set(["POST", "PUT"]);
 
@@ -33,7 +34,9 @@ function requireJsonContentType(req, res, next) {
 
   const contentType = req.headers["content-type"] || "";
   if (!contentType.toLowerCase().includes("application/json")) {
-    return res.status(415).json({ error: "Content-Type must be application/json" });
+    return sendError(res, "VAL_CONTENT_TYPE", {
+      details: { received: contentType || null },
+    });
   }
 
   next();

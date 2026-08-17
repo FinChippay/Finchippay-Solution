@@ -21,6 +21,7 @@ const logger = require("../utils/logger");
 const emailTrackingService = require("../services/emailTrackingService");
 const emailVerificationService = require("../services/emailVerificationService");
 const notificationService = require("../services/notificationService");
+const { sendError } = require("../utils/errorResponse");
 
 const BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 
@@ -98,13 +99,19 @@ router.get("/track/:emailId/open.gif", async (req, res) => {
 router.get("/unsubscribe", async (req, res) => {
   const { token, category } = req.query;
   if (!token || typeof token !== "string") {
-    return res.status(400).json({ error: "Missing or invalid unsubscribe token" });
+    return sendError(res, "VAL_MISSING_FIELD", {
+      message: "Missing or invalid unsubscribe token",
+      details: { field: "token" },
+    });
   }
 
   try {
     const row = await knex("email_unsubscribes").where("token", token).first();
     if (!row) {
-      return res.status(400).json({ error: "Invalid unsubscribe token" });
+      return sendError(res, "VAL_INVALID_QUERY_PARAM", {
+        message: "Invalid unsubscribe token",
+        details: { field: "token" },
+      });
     }
 
     const targetCategory = category || row.category || "all";
@@ -128,7 +135,9 @@ router.get("/unsubscribe", async (req, res) => {
     });
   } catch (err) {
     logger.error({ type: "unsubscribe_error", error: err.message }, "Unsubscribe failed");
-    return res.status(500).json({ error: "Failed to process unsubscribe request" });
+    return sendError(res, "SRV_INTERNAL", {
+      message: "Failed to process unsubscribe request",
+    });
   }
 });
 
@@ -138,7 +147,10 @@ router.get("/unsubscribe", async (req, res) => {
 router.post("/unsubscribe", async (req, res) => {
   const { email, category, reason } = req.body || {};
   if (!email) {
-    return res.status(400).json({ error: "email is required" });
+    return sendError(res, "VAL_MISSING_FIELD", {
+      message: "email is required",
+      details: { field: "email" },
+    });
   }
 
   const targetCategory = category || "all";
@@ -160,7 +172,9 @@ router.post("/unsubscribe", async (req, res) => {
     return res.json({ success: true, email, category: targetCategory });
   } catch (err) {
     logger.error({ type: "unsubscribe_error", error: err.message }, "Unsubscribe failed");
-    return res.status(500).json({ error: "Failed to process unsubscribe request" });
+    return sendError(res, "SRV_INTERNAL", {
+      message: "Failed to process unsubscribe request",
+    });
   }
 });
 
@@ -200,16 +214,24 @@ router.post("/:publicKey/verify", async (req, res) => {
   const { email } = req.body || {};
 
   if (!email || typeof email !== "string" || !email.includes("@")) {
-    return res.status(400).json({ error: "Valid email address is required" });
+    return sendError(res, "VAL_MISSING_FIELD", {
+      message: "Valid email address is required",
+      details: { field: "email" },
+    });
   }
 
   try {
     const { rendered } = await emailVerificationService.initiateVerification(publicKey, email);
 
     // Queue the verification email
-    await notificationService.queueEmail(email, "email_verification", {
-      verificationUrl: `${BASE_URL}/api/emails/${encodeURIComponent(publicKey)}/confirm?token=PENDING`,
-    }, { publicKey });
+    await notificationService.queueEmail(
+      email,
+      "email_verification",
+      {
+        verificationUrl: `${BASE_URL}/api/emails/${encodeURIComponent(publicKey)}/confirm?token=PENDING`,
+      },
+      { publicKey },
+    );
 
     // Actually send immediately for verification flows
     const t = notificationService.isEnabled;
@@ -224,7 +246,9 @@ router.post("/:publicKey/verify", async (req, res) => {
     return res.json({ success: true, message: "Verification email sent" });
   } catch (err) {
     logger.error({ type: "verify_error", error: err.message }, "Verification initiation failed");
-    return res.status(500).json({ error: "Failed to send verification email" });
+    return sendError(res, "SRV_INTERNAL", {
+      message: "Failed to send verification email",
+    });
   }
 });
 
@@ -261,13 +285,19 @@ router.post("/:publicKey/confirm", async (req, res) => {
   const token = req.body?.token || req.query?.token;
 
   if (!token) {
-    return res.status(400).json({ error: "token is required" });
+    return sendError(res, "VAL_MISSING_FIELD", {
+      message: "token is required",
+      details: { field: "token" },
+    });
   }
 
   try {
     const result = await emailVerificationService.confirmVerification(publicKey, token);
     if (!result.success) {
-      return res.status(400).json({ error: result.error });
+      return sendError(res, "VAL_INVALID_QUERY_PARAM", {
+        message: result.error,
+        details: { field: "token" },
+      });
     }
     return res.json({
       success: true,
@@ -276,7 +306,7 @@ router.post("/:publicKey/confirm", async (req, res) => {
     });
   } catch (err) {
     logger.error({ type: "confirm_error", error: err.message }, "Verification confirmation failed");
-    return res.status(500).json({ error: "Failed to confirm verification" });
+    return sendError(res, "SRV_INTERNAL", { message: "Failed to confirm verification" });
   }
 });
 
@@ -286,18 +316,24 @@ router.get("/:publicKey/confirm", async (req, res) => {
   const { token } = req.query;
 
   if (!token) {
-    return res.status(400).json({ error: "token is required" });
+    return sendError(res, "VAL_MISSING_FIELD", {
+      message: "token is required",
+      details: { field: "token" },
+    });
   }
 
   try {
     const result = await emailVerificationService.confirmVerification(publicKey, token);
     if (!result.success) {
-      return res.status(400).json({ error: result.error });
+      return sendError(res, "VAL_INVALID_QUERY_PARAM", {
+        message: result.error,
+        details: { field: "token" },
+      });
     }
     return res.json({ success: true, email: result.email });
   } catch (err) {
     logger.error({ type: "confirm_error", error: err.message }, "Verification confirmation failed");
-    return res.status(500).json({ error: "Failed to confirm verification" });
+    return sendError(res, "SRV_INTERNAL", { message: "Failed to confirm verification" });
   }
 });
 
@@ -362,7 +398,7 @@ router.get("/status/:emailId", async (req, res) => {
     return res.json({ emailId, events });
   } catch (err) {
     logger.error({ type: "email_status_error", error: err.message }, "Status fetch failed");
-    return res.status(500).json({ error: "Failed to fetch email status" });
+    return sendError(res, "SRV_INTERNAL", { message: "Failed to fetch email status" });
   }
 });
 

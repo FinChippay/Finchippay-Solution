@@ -13,7 +13,7 @@
 
 const jwt = require("jsonwebtoken");
 const logger = require("../utils/logger");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * JWT signing secret — MUST be configured in all non-test environments.
@@ -45,26 +45,20 @@ const JWT_SECRET =
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res
-      .status(ERROR_CODES.AUTH_MISSING_HEADER.httpStatus)
-      .json(formatErrorResponse("AUTH_MISSING_HEADER"));
+    return sendError(res, "AUTH_MISSING_HEADER");
   }
 
   const token = authHeader.split(" ")[1];
   if (!token || token.length < 10) {
-    return res
-      .status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus)
-      .json(formatErrorResponse("AUTH_INVALID_TOKEN"));
+    return sendError(res, "AUTH_INVALID_TOKEN");
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded.publicKey || !/^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
-      return res.status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus).json(
-        formatErrorResponse("AUTH_INVALID_TOKEN", {
-          reason: "Token payload is malformed.",
-        }),
-      );
+      return sendError(res, "AUTH_INVALID_TOKEN", {
+        details: { reason: "Token payload is malformed." },
+      });
     }
     req.user = {
       ...decoded,
@@ -77,14 +71,9 @@ function verifyJWT(req, res, next) {
       // it is documented and asserted by existing consumers. It is registered
       // in the catalogue as a deprecated alias so it still resolves and still
       // carries a correlation ID (#270).
-      return res
-        .status(ERROR_CODES.TOKEN_EXPIRED.httpStatus)
-        .json(formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }));
+      return sendError(res, "TOKEN_EXPIRED", { details: { expiredAt: err.expiredAt } });
     }
-    const errorCode = "AUTH_INVALID_TOKEN";
-    return res
-      .status(ERROR_CODES[errorCode].httpStatus)
-      .json(formatErrorResponse(errorCode, { reason: err.message }));
+    return sendError(res, "AUTH_INVALID_TOKEN", { details: { reason: err.message } });
   }
 }
 
@@ -104,9 +93,7 @@ function requireAdmin(req, res, next) {
   );
 
   if (!req.user?.publicKey || !adminPublicKeys.has(req.user.publicKey)) {
-    return res
-      .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
-      .json(formatErrorResponse("AUTH_FORBIDDEN"));
+    return sendError(res, "AUTH_FORBIDDEN");
   }
 
   return next();

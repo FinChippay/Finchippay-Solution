@@ -62,7 +62,8 @@ describe("POST /api/webhooks", () => {
   it("requires publicKey, url, and secret", async () => {
     const res = await request(app()).post("/api/webhooks").send({ url: "https://x.test/h" });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/required/i);
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toMatch(/required/i);
   });
 
   it("defaults omitted topics to all", async () => {
@@ -132,7 +133,8 @@ describe("POST /api/webhooks", () => {
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/invalid webhook topic/i);
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toMatch(/invalid webhook topic/i);
   });
 });
 

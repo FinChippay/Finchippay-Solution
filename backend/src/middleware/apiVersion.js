@@ -15,6 +15,7 @@ const {
   isVersionDeprecated,
   getDeprecationHeaders,
 } = require("../config/apiVersions");
+const { sendError } = require("../utils/errorResponse");
 
 const API_PREFIX_REGEX = /^\/api\/v(\d+)\//;
 const API_ROOT_REGEX = /^\/api\//;
@@ -58,10 +59,9 @@ function apiVersionMiddleware(req, res, next) {
 
   // 4. Validate version is supported
   if (!version || !isVersionSupported(version)) {
-    return res.status(400).json({
-      error: "UNSUPPORTED_API_VERSION",
+    return sendError(res, "VAL_INVALID_QUERY_PARAM", {
       message: `API version "${version}" is not supported. Supported versions: v1`,
-      supportedVersions: ["v1"],
+      details: { requested: version, supportedVersions: ["v1"] },
     });
   }
 

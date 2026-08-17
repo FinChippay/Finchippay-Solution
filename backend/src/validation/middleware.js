@@ -4,8 +4,9 @@
  * a Zod schema and exposes the parsed (typed, defaulted, coerced) result to
  * downstream handlers as `req.validated`.
  *
- * Failure responses are consistent across every endpoint:
- *   HTTP 400  { error: "<first issue message>", details: { field: [messages] } }
+ * Failure responses are consistent across every endpoint: HTTP 400 as the
+ * problem+json envelope (#635), with the first issue message as `detail` and
+ * the per-field messages as `details`.
  *
  * Example usage (routes):
  *   const { validate } = require("../validation/middleware");
@@ -19,6 +20,14 @@
 "use strict";
 
 const { ZodError } = require("zod");
+const { sendError } = require("../utils/errorResponse");
+
+/**
+ * The catalogue code every schema failure is reported under. The registry has
+ * no code for "did not satisfy its schema", and VAL_MISSING_FIELD is its
+ * general-purpose 400 for a request body the API cannot work with.
+ */
+const VALIDATION_ERROR_CODE = "VAL_MISSING_FIELD";
 
 /**
  * Build the consistent 400 payload for a failed parse.
@@ -35,6 +44,18 @@ function formatZodError(zodError) {
     error: first ? first.message : "Validation failed",
     details: zodError.flatten().fieldErrors,
   };
+}
+
+/**
+ * Send a failed parse as the standard problem+json 400.
+ *
+ * @param {import("express").Response} res
+ * @param {ZodError} zodError
+ * @returns {import("express").Response}
+ */
+function sendZodError(res, zodError) {
+  const { error, details } = formatZodError(zodError);
+  return sendError(res, VALIDATION_ERROR_CODE, { message: error, details });
 }
 
 /**
@@ -63,7 +84,7 @@ function validate(schema, source = "body", options = {}) {
       if (options.errorResponse) {
         return res.status(options.status || 400).json(options.errorResponse);
       }
-      return res.status(400).json(formatZodError(result.error));
+      return sendZodError(res, result.error);
     }
 
     req.validated = { ...(req.validated || {}), ...result.data };
@@ -81,9 +102,9 @@ function validate(schema, source = "body", options = {}) {
  */
 function zodErrorHandler(err, req, res, next) {
   if (err instanceof ZodError) {
-    return res.status(400).json(formatZodError(err));
+    return sendZodError(res, err);
   }
   return next(err);
 }
 
-module.exports = { validate, zodErrorHandler, formatZodError };
+module.exports = { validate, zodErrorHandler, formatZodError, VALIDATION_ERROR_CODE };

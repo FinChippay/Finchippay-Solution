@@ -16,6 +16,7 @@ const paymentController = require("../controllers/paymentController");
 const { csvUploadMiddleware } = require("../middleware/csvUpload");
 const Papa = require("papaparse");
 const logger = require("../utils/logger");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * GET /api/payments/:publicKey
@@ -61,7 +62,10 @@ router.post(
   async (req, res, next) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ error: "No CSV file uploaded" });
+        return sendError(res, "VAL_MISSING_FIELD", {
+          message: "No CSV file uploaded",
+          details: { field: "file" },
+        });
       }
 
       const csvBuffer = req.file.buffer.toString("utf-8");
@@ -71,7 +75,10 @@ router.post(
         skipEmptyLines: true,
         complete: (results) => {
           if (!results.data || results.data.length === 0) {
-            return res.status(400).json({ error: "CSV file is empty or has no data rows" });
+            return sendError(res, "VAL_MISSING_FIELD", {
+              message: "CSV file is empty or has no data rows",
+              details: { field: "file" },
+            });
           }
 
           res.json({
@@ -83,7 +90,10 @@ router.post(
         },
         error: (parseError) => {
           logger.error({ err: parseError }, "CSV parsing failed");
-          res.status(400).json({ error: `CSV parsing failed: ${parseError.message}` });
+          sendError(res, "VAL_INVALID_JSON", {
+            message: "CSV parsing failed",
+            details: { reason: parseError.message },
+          });
         },
       });
     } catch (err) {

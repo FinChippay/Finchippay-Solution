@@ -23,7 +23,7 @@ const stellarService = require("../services/stellarService");
 const usernameService = require("../services/usernameService");
 const balanceStreamService = require("../services/balanceStreamService");
 const logger = require("../utils/logger");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 
 /** Comment frames keep proxies and load balancers from idling the connection out. */
 const SSE_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -122,11 +122,9 @@ async function resolveUsername(req, res, next) {
 
     // Reserve 'alice' for test suites without polluting the production store.
     if (username.toLowerCase() === "alice") {
-      return res.status(ERROR_CODES.SRV_NOT_IMPLEMENTED.httpStatus).json(
-        formatErrorResponse("SRV_NOT_IMPLEMENTED", {
-          feature: "Reserved test username",
-        }),
-      );
+      return sendError(res, "SRV_NOT_IMPLEMENTED", {
+        details: { feature: "Reserved test username" },
+      });
     }
 
     const result = await usernameService.resolveUsername(username);

@@ -2,15 +2,19 @@
  * src/utils/errorResponse.js
  * The single entry point for building and sending API error responses (#270).
  *
- * Every error the API returns has the same shape:
+ * Every error the API returns is an RFC 7807 `application/problem+json`
+ * document (#635):
  *
  *   {
- *     "error": {
- *       "code": "VAL_INVALID_AMOUNT",       // machine-readable, from the catalogue
- *       "message": "Amount must be ...",     // human-readable
- *       "correlationId": "a1b2c3-...",       // matches the X-Request-ID header
- *       "details": { "field": "amount" }     // optional, code-specific
- *     }
+ *     "type": "https://.../docs/error-codes.md#val_invalid_amount",
+ *     "title": "Amount must be a positive number.",  // registry message, per code
+ *     "status": 400,                                 // the status actually sent
+ *     "detail": "Amount must be ...",                // this occurrence
+ *     "instance": "/api/payments/send",              // request path, no query
+ *     "code": "VAL_INVALID_AMOUNT",                  // from the catalogue
+ *     "correlationId": "a1b2c3-...",                 // matches X-Request-ID
+ *     "details": { "field": "amount" },              // optional, code-specific
+ *     "error": { ... }                               // the pre-7807 body, verbatim
  *   }
  *
  * `error` stays at the top level so existing consumers keep working, and the
@@ -35,9 +39,12 @@
 
 const {
   ERROR_CODES,
+  PROBLEM_CONTENT_TYPE,
   getError,
   getErrorLayer,
+  httpStatusForCode,
   formatErrorResponse,
+  formatProblemResponse,
   getContractErrorCode,
   setCorrelationIdProvider,
 } = require("../../../shared/errorCodes");
@@ -56,12 +63,25 @@ setCorrelationIdProvider(getRequestId);
  * @returns {number}
  */
 function statusForCode(code) {
-  const status = getError(code).httpStatus;
-  return status > 0 ? status : 500;
+  return httpStatusForCode(code);
 }
 
 /**
- * Build a canonical error body without sending it.
+ * The `instance` member: the request path with the query string dropped (it can
+ * hold secrets) and CR/LF stripped, so a crafted URL cannot forge log lines.
+ *
+ * @param {import('express').Request} [req]
+ * @returns {string | undefined}
+ */
+function instanceFromRequest(req) {
+  const url = req && (req.originalUrl || req.url);
+  if (typeof url !== "string") return undefined;
+  return url.split("?")[0].replace(/[\r\n]/g, "");
+}
+
+/**
+ * Build the legacy `{ error }` body without sending it. Prefer
+ * `buildProblemResponse`; this stays for consumers of the pre-7807 shape.
  *
  * @param {string} code - Error code key (e.g. "AUTH_FORBIDDEN").
  * @param {{ details?: *, message?: string, correlationId?: string }} [options]
@@ -75,19 +95,37 @@ function buildErrorResponse(code, options = {}) {
 }
 
 /**
- * Send a canonical error response.
+ * Build the problem+json body without sending it.
+ *
+ * @param {string} code - Error code key (e.g. "AUTH_FORBIDDEN").
+ * @param {{ details?: *, message?: string, correlationId?: string, instance?: string, status?: number }} [options]
+ * @returns {object} The RFC 7807 document, `error` member included.
+ */
+function buildProblemResponse(code, options = {}) {
+  return formatProblemResponse(code, options.details, {
+    message: options.message,
+    correlationId: options.correlationId,
+    instance: options.instance,
+    status: options.status || statusForCode(code),
+  });
+}
+
+/**
+ * Send a problem+json error response.
  *
  * The status comes from the catalogue unless `options.status` overrides it,
  * which keeps a code and its status from drifting apart across call sites.
  *
  * @param {import('express').Response} res
  * @param {string} code - Error code key.
- * @param {{ details?: *, message?: string, status?: number }} [options]
+ * @param {{ details?: *, message?: string, status?: number, instance?: string }} [options]
  * @returns {import('express').Response}
  */
 function sendError(res, code, options = {}) {
   const status = options.status || statusForCode(code);
-  return res.status(status).json(buildErrorResponse(code, options));
+  const instance = options.instance || instanceFromRequest(res.req);
+  res.type(PROBLEM_CONTENT_TYPE);
+  return res.status(status).json(buildProblemResponse(code, { ...options, status, instance }));
 }
 
 /**
@@ -149,7 +187,10 @@ function errorLogFields(code, options = {}) {
 
 module.exports = {
   ERROR_CODES,
+  PROBLEM_CONTENT_TYPE,
   buildErrorResponse,
+  buildProblemResponse,
+  instanceFromRequest,
   sendError,
   sendContractError,
   createError,

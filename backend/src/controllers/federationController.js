@@ -8,6 +8,21 @@
 const axios = require("axios");
 const usernameService = require("../services/usernameService");
 const { stellarAddress: stellarAddressSchema } = require("../validation/schemas");
+const { sendError } = require("../utils/errorResponse");
+
+/**
+ * Catalogue code for an error that carries a status but no `errorCode`
+ * (thrown by services that predate the registry).
+ *
+ * @param {number} status
+ * @returns {string}
+ */
+function fallbackCodeForStatus(status) {
+  if (status === 404) return "RES_NOT_FOUND";
+  if (status === 409) return "RES_CONFLICT";
+  if (status >= 500) return "SRV_FEDERATION_FAILED";
+  return "VAL_INVALID_QUERY_PARAM";
+}
 
 /**
  * GET /federation?q=<query>&type=<type>
@@ -32,10 +47,13 @@ async function resolveFederation(req, res, next) {
     return res.json(result);
   } catch (err) {
     if (err.response && err.response.status === 404) {
-      return res.status(404).json({ error: "Not found" });
+      return sendError(res, "RES_NOT_FOUND", { details: { reason: "Not found" } });
     }
     if (err.status) {
-      return res.status(err.status).json({ error: err.message });
+      return sendError(res, err.errorCode || fallbackCodeForStatus(err.status), {
+        status: err.status,
+        details: { reason: err.message },
+      });
     }
     next(err);
   }

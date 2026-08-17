@@ -1,7 +1,7 @@
 "use strict";
 
 const rateLimit = require("express-rate-limit");
-const { formatErrorResponse } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 const logger = require("../utils/logger");
 const { createRateLimitHandler, recordRateLimitAllowed } = require("./rateLimitMetrics");
 
@@ -73,7 +73,7 @@ const strictLimiter = createInstrumentedLimiter(
     limit: 20,
     standardHeaders: true,
     legacyHeaders: false,
-    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    handler: (req, res) => sendError(res, "RATE_LIMITED_SENSITIVE"),
     ...(redisClient ? { store: createRedisStore("strict") } : {}),
   },
   "strict",
@@ -85,7 +85,7 @@ const sensitiveLimiter = createInstrumentedLimiter(
     limit: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    handler: (req, res) => sendError(res, "RATE_LIMITED_SENSITIVE"),
     ...(redisClient ? { store: createRedisStore("sensitive") } : {}),
   },
   "sensitive",
@@ -97,7 +97,7 @@ const authRefreshLimiter = createInstrumentedLimiter(
     limit: 5,
     standardHeaders: true,
     legacyHeaders: false,
-    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    handler: (req, res) => sendError(res, "RATE_LIMITED_SENSITIVE"),
     ...(redisClient ? { store: createRedisStore("authRefresh") } : {}),
   },
   "authRefresh",
