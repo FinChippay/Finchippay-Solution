@@ -42,7 +42,8 @@
     "openapi-typescript": "^7.0.0"
   },
   "dependencies": {
-    "autocannon": "^8.0.0"
+    "autocannon": "^8.0.0",
+    "knex": "^3.3.0"
   },
   "keywords": [
     "stellar",
