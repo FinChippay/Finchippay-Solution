@@ -8,6 +8,8 @@
  * - Decryption fails with the wrong key (only decryptable with the session key)
  * - Tampered ciphertext is rejected (GCM authentication)
  * - Each encryption uses a fresh IV
+ * - Versioned ciphertext format for migration support
+ * - Clear error messages for tamper detection and wrong key
  */
 
 import {
@@ -15,6 +17,9 @@ import {
   decrypt,
   deriveKey,
   getOrCreateSalt,
+  TamperDetectedError,
+  WrongKeyError,
+  InvalidCiphertextError,
 } from "@/lib/encryption";
 
 const PUBLIC_KEY_A = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
@@ -84,7 +89,7 @@ describe("decryption failures", () => {
 
     const encrypted = await encrypt("only for wallet A", keyA);
 
-    await expect(decrypt(encrypted, keyB)).rejects.toBeDefined();
+    await expect(decrypt(encrypted, keyB)).rejects.toThrow(WrongKeyError);
   });
 
   it("rejects tampered ciphertext (GCM authentication)", async () => {
@@ -97,6 +102,74 @@ describe("decryption failures", () => {
     const swapped = original === "A" ? "B" : "A";
     const tampered = encrypted.slice(0, idx) + swapped + encrypted.slice(idx + 1);
 
-    await expect(decrypt(tampered, key)).rejects.toBeDefined();
+    await expect(decrypt(tampered, key)).rejects.toThrow(TamperDetectedError);
+  });
+
+  it("provides user-friendly error message for tampered data", async () => {
+    const key = await keyFor(PUBLIC_KEY_A);
+    const encrypted = await encrypt("integrity matters", key);
+
+    const tampered = encrypted.slice(0, -1) + "X";
+
+    try {
+      await decrypt(tampered, key);
+      fail("Should have thrown TamperDetectedError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TamperDetectedError);
+      expect((error as TamperDetectedError).userMessage).toContain("corrupted");
+      expect((error as TamperDetectedError).userMessage).toContain("tampered");
+    }
+  });
+
+  it("provides user-friendly error message for wrong key", async () => {
+    const keyA = await keyFor(PUBLIC_KEY_A);
+    const keyB = await keyFor(PUBLIC_KEY_B);
+    const encrypted = await encrypt("secret data", keyA);
+
+    try {
+      await decrypt(encrypted, keyB);
+      fail("Should have thrown WrongKeyError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(WrongKeyError);
+      expect((error as WrongKeyError).userMessage).toContain("different wallet");
+    }
+  });
+
+  it("rejects invalid ciphertext format", async () => {
+    const key = await keyFor(PUBLIC_KEY_A);
+    
+    await expect(decrypt("invalid-base64!", key)).rejects.toThrow(InvalidCiphertextError);
+    await expect(decrypt("dGVzdA==", key)).rejects.toThrow(InvalidCiphertextError); // Too short
+  });
+});
+
+describe("versioned ciphertext", () => {
+  it("encrypts with version byte in ciphertext", async () => {
+    const key = await keyFor(PUBLIC_KEY_A);
+    const encrypted = await encrypt("versioned data", key);
+    
+    const bytes = Buffer.from(encrypted, 'base64');
+    // First byte should be version number (1)
+    expect(bytes[0]).toBe(1);
+    // Should be longer than legacy format (IV + version + ciphertext)
+    expect(bytes.length).toBeGreaterThan(13); // 12 IV + 1 version + at least some ciphertext
+  });
+
+  it("decrypts versioned ciphertext correctly", async () => {
+    const key = await keyFor(PUBLIC_KEY_A);
+    const message = "versioned test message";
+    
+    const encrypted = await encrypt(message, key);
+    const decrypted = await decrypt(encrypted, key);
+    
+    expect(decrypted).toBe(message);
+  });
+
+  it("rejects invalid version format", async () => {
+    const key = await keyFor(PUBLIC_KEY_A);
+    // Create invalid format with version byte but no IV
+    const invalid = Buffer.from([2]).toString('base64'); // Version 2 with no data
+    
+    await expect(decrypt(invalid, key)).rejects.toThrow(InvalidCiphertextError);
   });
 });
