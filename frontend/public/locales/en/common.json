@@ -316,6 +316,7 @@
     "loadingMore": "Loading more...",
     "needTestXlm": "Need test XLM?",
     "noTransactions": "No transactions yet",
+    "newest": "Newest",
     "offlineSnapshot": "Offline history snapshot from",
     "paymentHistory": "Payment history",
     "prefillSendForm": "Pre-fill send form with this transaction",

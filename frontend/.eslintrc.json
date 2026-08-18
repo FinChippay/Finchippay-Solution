@@ -1,5 +1,10 @@
 {
   "extends": ["next/core-web-vitals", "plugin:@typescript-eslint/recommended", "prettier"],
+  "settings": {
+    "next": {
+      "rootDir": "frontend"
+    }
+  },
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint"],
   "rules": {
