@@ -7,6 +7,11 @@
 
 const turretsService = require("../services/turretsService");
 const priceFeedService = require("../services/priceFeedService");
+const {
+  paginateInMemory,
+  setPaginationHeaders,
+  formatPaginatedResponse,
+} = require("../utils/paginate");
 
 /**
  * POST /api/turrets/challenge
@@ -64,8 +69,8 @@ async function deploy(req, res, next) {
  * GET /api/turrets
  * List all deployments, optionally filtered by owner.
  *
- * Query: { ownerPublicKey?: string }
- * Response: { success: true, data: DeploymentRecord[] }
+ * Query: { ownerPublicKey?: string, limit?: number, cursor?: string }
+ * Response: { success: true, data: DeploymentRecord[], pagination }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -73,9 +78,21 @@ async function deploy(req, res, next) {
  */
 async function list(req, res, next) {
   try {
-    const { ownerPublicKey } = req.validated;
-    const data = await turretsService.listDeployments(ownerPublicKey);
-    res.json({ success: true, data });
+    const ownerPublicKey =
+      req.validated?.ownerPublicKey || req.query.ownerPublicKey || req.params?.ownerPublicKey;
+    const rawData = await turretsService.listDeployments(ownerPublicKey);
+    const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+    const cursor = req.pagination?.cursor || null;
+
+    const { data, nextCursor, total } = paginateInMemory(
+      rawData || [],
+      { limit, cursor },
+      (d) => ({ id: d.id }),
+      (a, b) => String(b.id || "").localeCompare(String(a.id || "")),
+    );
+
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+    res.json(formatPaginatedResponse(data, nextCursor, total, { limit }));
   } catch (err) {
     next(err);
   }
@@ -93,7 +110,7 @@ async function list(req, res, next) {
  */
 async function getOne(req, res, next) {
   try {
-    const { id } = req.validated;
+    const { id } = req.validated || req.params;
     const data = await turretsService.getDeployment(id);
     res.json({ success: true, data });
   } catch (err) {
@@ -105,7 +122,7 @@ async function getOne(req, res, next) {
  * GET /api/turrets/:id/history
  * Get execution history for a deployment.
  *
- * Response: { success: true, data: ExecutionRecord[] }
+ * Response: { success: true, data: ExecutionRecord[], pagination }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -113,10 +130,21 @@ async function getOne(req, res, next) {
  */
 async function getHistory(req, res, next) {
   try {
-    const { id } = req.validated;
+    const { id } = req.validated || req.params;
     await turretsService.getDeployment(id); // throws 404 if not found
-    const data = await turretsService.getExecutionHistory(id);
-    res.json({ success: true, data });
+    const rawData = await turretsService.getExecutionHistory(id);
+    const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+    const cursor = req.pagination?.cursor || null;
+
+    const { data, nextCursor, total } = paginateInMemory(
+      rawData || [],
+      { limit, cursor },
+      (h) => ({ id: h.id || h.timestamp }),
+      (a, b) => (b.timestamp || 0) - (a.timestamp || 0),
+    );
+
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+    res.json(formatPaginatedResponse(data, nextCursor, total, { limit }));
   } catch (err) {
     next(err);
   }

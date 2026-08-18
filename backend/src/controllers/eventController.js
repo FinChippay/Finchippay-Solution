@@ -17,6 +17,7 @@ const {
   decodeCursor,
   InvalidCursorError,
   setPaginationHeaders,
+  formatPaginatedResponse,
 } = require("../utils/paginate");
 
 /**
@@ -70,17 +71,7 @@ async function getEvents(req, res, next) {
     const nextCursor = hasMore ? encodeCursor({ offset: offset + limit }) : null;
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
-    res.json({
-      success: true,
-      data: events,
-      pagination: {
-        limit,
-        offset,
-        total,
-        hasMore,
-        nextCursor,
-      },
-    });
+    res.json(formatPaginatedResponse(events, nextCursor, total, { limit, offset, hasMore }));
   } catch (err) {
     logger.error({ err, publicKey: req.params.publicKey }, "getEvents error");
     next(err);
@@ -147,17 +138,7 @@ async function getEventsByType(req, res, next) {
     const nextCursor = hasMore ? encodeCursor({ offset: offset + limit }) : null;
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
-    res.json({
-      success: true,
-      data: events,
-      pagination: {
-        limit,
-        offset,
-        total,
-        hasMore,
-        nextCursor,
-      },
-    });
+    res.json(formatPaginatedResponse(events, nextCursor, total, { limit, offset, hasMore }));
   } catch (err) {
     logger.error(
       { err, publicKey: req.params.publicKey, eventType: req.params.eventType },

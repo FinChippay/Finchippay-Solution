@@ -23,7 +23,7 @@ module.exports = {
     },
   },
   globalSetup: "<rootDir>/jest.globalSetup.js",
-  setupFilesAfterFramework: [],
+  setupFilesAfterEnv: [],
   verbose: true,
   clearMocks: true,
   restoreMocks: true,
