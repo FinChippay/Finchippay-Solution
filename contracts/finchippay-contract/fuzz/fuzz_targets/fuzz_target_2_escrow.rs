@@ -69,7 +69,7 @@ fuzz_target!(|data: &[u8]| {
     env.mock_all_auths();
 
     // --- Create escrow ---
-    let current_ledger = env.ledger().sequence();
+    let current_ledger = env.ledger().get().sequence_number;
     let release_ledger = current_ledger + release_offset;
 
     let escrow_id = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -95,7 +95,7 @@ fuzz_target!(|data: &[u8]| {
 
     // --- Advance ledger past release ---
     if should_claim {
-        env.ledger().set_sequence_number(release_ledger + 1);
+        env.ledger().with_mut(|li| li.sequence_number = release_ledger + 1);
 
         if should_claim_partial {
             let claim_amount = amount / partial_divisor as i128;
@@ -127,7 +127,7 @@ fuzz_target!(|data: &[u8]| {
     // --- Cancel escrow (only valid if not claimed and release not passed) ---
     if should_cancel {
         // Reset ledger to before release for cancellation
-        env.ledger().set_sequence_number(release_ledger - 1);
+        env.ledger().with_mut(|li| li.sequence_number = release_ledger - 1);
 
         // Only cancel if the escrow is still pending
         let esc = client.get_escrow(&escrow_id);
