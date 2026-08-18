@@ -658,7 +658,7 @@ function TransactionList({
             {isAdvanced && (
               <button
                 onClick={goToNewest}
-                disabled={loading || loadingMore}
+                disabled={loadingMore}
                 className="text-xs text-slate-600 dark:text-slate-400 hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors flex items-center gap-1 disabled:opacity-50"
                 title="Jump back to the newest transactions"
               >
