@@ -12,18 +12,24 @@ import { withCorrelation } from "./correlation";
  */
 export function generateTraceParent(): string {
   const version = "00";
-  // Generate random 16 bytes (32 hex characters) trace ID
-  const traceId = Array.from({ length: 16 }, () =>
-    Math.floor(Math.random() * 256)
-      .toString(16)
-      .padStart(2, "0"),
-  ).join("");
-  // Generate random 8 bytes (16 hex characters) parent ID (span ID)
-  const parentId = Array.from({ length: 8 }, () =>
-    Math.floor(Math.random() * 256)
-      .toString(16)
-      .padStart(2, "0"),
-  ).join("");
+  
+  const traceBuffer = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(traceBuffer);
+  } else {
+    // Fallback for SSR if crypto is not available globally
+    for (let i = 0; i < 16; i++) traceBuffer[i] = Math.floor(Math.random() * 256);
+  }
+  const traceId = Array.from(traceBuffer).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  const parentBuffer = new Uint8Array(8);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(parentBuffer);
+  } else {
+    for (let i = 0; i < 8; i++) parentBuffer[i] = Math.floor(Math.random() * 256);
+  }
+  const parentId = Array.from(parentBuffer).map((b) => b.toString(16).padStart(2, "0")).join("");
+
   const traceFlags = "01"; // Sampled
   return `${version}-${traceId}-${parentId}-${traceFlags}`;
 }
@@ -63,8 +69,21 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
               ? input.href
               : (input as Request).url;
 
-        // Only inject traceparent headers for relative paths or API endpoints
-        const isBackendApi = urlStr.includes("/api/") || !urlStr.startsWith("http");
+        // Only inject traceparent headers for relative paths or same-origin API endpoints
+        let isBackendApi = false;
+        if (!urlStr.startsWith("http")) {
+          isBackendApi = true;
+        } else {
+          try {
+            const parsedUrl = new URL(urlStr);
+            const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+            if (parsedUrl.origin === currentOrigin && parsedUrl.pathname.startsWith("/api/")) {
+              isBackendApi = true;
+            }
+          } catch (e) {
+            // Ignored
+          }
+        }
 
         if (isBackendApi) {
           const headers = new Headers(init?.headers);
