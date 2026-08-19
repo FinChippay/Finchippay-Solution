@@ -1,0 +1,105 @@
+# .github/workflows/greptile-label.yml
+# Greptile AI Code Review — PR labeling
+#
+# Adds the `needs-review` label to PRs so the Greptile GitHub App picks them
+# up for automated review (see .greptile/config.json `filtering.labels`).
+#
+# Uses `pull_request_target` (NOT `pull_request`) because PRs from forks get a
+# read-only GITHUB_TOKEN on `pull_request`, which made the previous `label-pr`
+# job fail with "Resource not accessible by integration". `pull_request_target`
+# runs in the base-repo context with write permissions, so labeling works for
+# fork PRs too.
+#
+# Security: this workflow NEVER checks out or executes PR code. It only calls
+# the GitHub API to add a label and post a comment, so untrusted fork code is
+# never run with elevated permissions.
+#
+# Note: `pull_request_target` only triggers when this file is on the default
+# branch (main), so it takes effect after this change is merged.
+
+name: Greptile PR Labeling
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review, reopened, synchronize]
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  label-pr:
+    name: Label PR for Review
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add needs-review label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const label = 'needs-review';
+
+            // Ensure the label exists; create it if missing
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+              });
+            } catch (e) {
+              if (e.status === 404) {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                  color: '0366d6',
+                  description: 'Ready for Greptile AI code review',
+                });
+                console.log(`🏷️  Created '${label}' label`);
+              } else {
+                throw e;
+              }
+            }
+
+            // Add the needs-review label so Greptile's config.json filter picks it up
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: [label]
+            });
+
+            console.log(`✅ Added '${label}' label to PR #${prNumber}`);
+
+      - name: Post Greptile review context
+        # Only on open/ready/reopen to avoid comment spam on every push.
+        if: github.event.action != 'synchronize'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const changedFiles = context.payload.pull_request.changed_files || 0;
+
+            const body = [
+              '## 🤖 Greptile AI Code Review',
+              '',
+              `Greptile will automatically review this PR (${changedFiles} file(s) changed).`,
+              '',
+              '**Review gates:**',
+              '- ✅ CodeQL Security Scan',
+              '- ✅ Custom rules (.greptile/config.json)',
+              '- ✅ Architecture guidelines (.greptile/rules.md)',
+              '',
+              '> To manually trigger a re-review, comment `@greptileai` on this PR.',
+              '> To skip review, add the `skip-review` label.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });

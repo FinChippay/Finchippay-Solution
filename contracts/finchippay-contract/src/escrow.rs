@@ -29,6 +29,7 @@ pub fn create_escrow(
     release_ledger: u32,
     memo: Symbol,
 ) -> Result<u32, ContractError> {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_initialized(&env);
     require_not_paused(&env);
     from.require_auth();
@@ -113,6 +114,7 @@ pub fn create_escrow(
 /// escrow recipient and the release ledger must have passed.
 /// Returns the remaining escrow amount after the partial claim.
 pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     let recipient: Address = env
         .storage()
@@ -156,19 +158,22 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
         panic!("claim amount exceeds escrow balance");
     }
 
-    let token = get_token_client(&env, &escrow.token);
-    contract_transfer_out(&env, &token, &escrow.to, &claim_amount);
-    decrease_locked_balance(&env, &escrow.token, claim_amount);
-
+    // Checks-effects-interactions: compute and commit all state changes before
+    // the external token transfer, so a re-entrant claim cannot observe a
+    // still-unclaimed escrow.
     let remaining = escrow.amount.checked_sub(claim_amount).expect("overflow");
     if remaining == 0 {
         escrow.status = EscrowStatus::Released;
     }
     escrow.amount = remaining;
+    decrease_locked_balance(&env, &escrow.token, claim_amount);
 
     r_escrows.set(idx, escrow.clone());
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
+
+    let token = get_token_client(&env, &escrow.token);
+    contract_transfer_out(&env, &token, &escrow.to, &claim_amount);
 
     env.events().publish(
         (Symbol::new(&env, "escrow_claim_partial"), id),
@@ -197,6 +202,7 @@ pub fn get_user_escrows(env: Env, recipient: Address) -> Vec<u32> {
 
 /// Recipient claims the escrowed funds after `release_ledger` has passed.
 pub fn claim_escrow(env: Env, id: u32) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     let recipient: Address = env
         .storage()
@@ -234,14 +240,17 @@ pub fn claim_escrow(env: Env, id: u32) {
     }
     escrow.to.require_auth();
 
-    let token = get_token_client(&env, &escrow.token);
-    contract_transfer_out(&env, &token, &escrow.to, &escrow.amount);
-    decrease_locked_balance(&env, &escrow.token, escrow.amount);
-
+    // Checks-effects-interactions: commit the released state and release the
+    // locked balance *before* the external token transfer, so a re-entrant
+    // claim cannot observe a still-pending escrow.
     escrow.status = EscrowStatus::Released;
+    decrease_locked_balance(&env, &escrow.token, escrow.amount);
     r_escrows.set(idx, escrow.clone());
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
+
+    let token = get_token_client(&env, &escrow.token);
+    contract_transfer_out(&env, &token, &escrow.to, &escrow.amount);
 
     env.events().publish(
         (Symbol::new(&env, "escrow_claim"), id),
@@ -251,6 +260,7 @@ pub fn claim_escrow(env: Env, id: u32) {
 
 /// Payer cancels the escrow before `release_ledger`; funds are returned.
 pub fn cancel_escrow(env: Env, id: u32) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     let recipient: Address = env
         .storage()
@@ -288,14 +298,16 @@ pub fn cancel_escrow(env: Env, id: u32) {
     }
     escrow.from.require_auth();
 
-    let token = get_token_client(&env, &escrow.token);
-    contract_transfer_out(&env, &token, &escrow.from, &escrow.amount);
-    decrease_locked_balance(&env, &escrow.token, escrow.amount);
-
+    // Checks-effects-interactions: commit the cancelled state and release the
+    // locked balance *before* the external token transfer.
     escrow.status = EscrowStatus::Cancelled;
+    decrease_locked_balance(&env, &escrow.token, escrow.amount);
     r_escrows.set(idx, escrow.clone());
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
+
+    let token = get_token_client(&env, &escrow.token);
+    contract_transfer_out(&env, &token, &escrow.from, &escrow.amount);
 
     env.events().publish(
         (Symbol::new(&env, "escrow_cancelled"),),
@@ -434,6 +446,7 @@ pub fn create_disputable_escrow(
     release_ledger: u32,
     arbitrator: Address,
 ) -> Result<u32, ContractError> {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_initialized(&env);
     require_not_paused(&env);
     from.require_auth();
@@ -589,6 +602,7 @@ pub fn resolve_dispute(
     to: Address,
     amount: i128,
 ) {
+    let _guard = ReentrancyGuard::acquire(&env);
     arbitrator.require_auth();
 
     // `EscrowRecipient(id)` holds the recipient address, not the escrow
@@ -628,38 +642,51 @@ pub fn resolve_dispute(
         panic!("Only the designated arbitrator can resolve this dispute");
     }
 
-    let client = token::Client::new(&env, &escrow.token);
-    let contract = env.current_contract_address();
+    let token_address = escrow.token.clone();
+    let sender = escrow.from.clone();
+    let escrow_amount = escrow.amount;
 
-    let transferred;
-    if resolution == Symbol::new(&env, "release") {
-        if amount <= 0 || amount > escrow.amount {
+    let release_sym = Symbol::new(&env, "release");
+    let refund_sym = Symbol::new(&env, "refund");
+    let split_sym = Symbol::new(&env, "split");
+
+    // Checks: validate the resolution and compute the outgoing transfers
+    // without executing them yet (checks-effects-interactions).
+    let (to_amount, sender_amount, transferred) = if resolution == release_sym {
+        if amount <= 0 || amount > escrow_amount {
             panic!("Invalid release amount");
         }
-        client.transfer(&contract, &to, &amount);
-        transferred = amount;
-    } else if resolution == Symbol::new(&env, "refund") {
-        // Refund the full escrow amount to the original sender
-        client.transfer(&contract, &escrow.from, &escrow.amount);
-        transferred = escrow.amount;
-    } else if resolution == Symbol::new(&env, "split") {
-        if amount <= 0 || amount >= escrow.amount {
+        (amount, 0, amount)
+    } else if resolution == refund_sym {
+        // Refund the full escrow amount to the original sender.
+        (0, escrow_amount, escrow_amount)
+    } else if resolution == split_sym {
+        if amount <= 0 || amount >= escrow_amount {
             panic!("Invalid split amount");
         }
-        let refund = escrow.amount - amount;
-        client.transfer(&contract, &to, &amount);
-        client.transfer(&contract, &escrow.from, &refund);
-        transferred = escrow.amount;
+        let refund = escrow_amount - amount;
+        (amount, refund, escrow_amount)
     } else {
         panic!("Invalid resolution type");
-    }
+    };
 
+    // Effects: commit the released state before the external transfers.
     escrow.status = EscrowStatus::Released;
-    decrease_locked_balance(&env, &escrow.token, transferred);
+    decrease_locked_balance(&env, &token_address, transferred);
 
     r_escrows.set(idx, escrow);
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
+
+    // Interactions: execute the transfers last.
+    let client = token::Client::new(&env, &token_address);
+    let contract = env.current_contract_address();
+    if to_amount > 0 {
+        client.transfer(&contract, &to, &to_amount);
+    }
+    if sender_amount > 0 {
+        client.transfer(&contract, &sender, &sender_amount);
+    }
 
     env.events().publish(
         (Symbol::new(&env, "dispute_resolved"),),

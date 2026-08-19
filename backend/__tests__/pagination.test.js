@@ -19,15 +19,61 @@ const {
   buildPage,
   paginateInMemory,
   setPaginationHeaders,
+  formatPaginatedResponse,
   InvalidCursorError,
 } = require("../src/utils/paginate");
-const { pagination } = require("../src/middleware/pagination");
+const { pagination, paginationMiddleware } = require("../src/middleware/pagination");
+
+jest.mock("@stellar/stellar-sdk", () => ({
+  Horizon: {
+    Server: jest.fn().mockImplementation(() => ({
+      payments: jest.fn(),
+      orderbook: jest.fn(),
+    })),
+  },
+  Asset: {
+    native: jest.fn(() => ({ isNative: () => true })),
+  },
+  Networks: {
+    TESTNET: "Test SDF Network ; October 2015",
+    PUBLIC: "Public Global Stellar Network ; September 2015",
+  },
+  Keypair: {
+    random: jest.fn(() => ({
+      publicKey: () => "GABC",
+      secret: () => "SABC",
+    })),
+    fromPublicKey: jest.fn(() => ({
+      publicKey: () => "GABC",
+    })),
+  },
+}));
+
+jest.mock("../src/config/stellar", () => ({
+  server: {
+    payments: jest.fn(),
+    orderbook: jest.fn(),
+  },
+  HORIZON_URL: "https://horizon-testnet.stellar.org",
+}));
 
 jest.mock("../src/services/tipsService");
 const tipsService = require("../src/services/tipsService");
 
 jest.mock("../src/services/stellarService");
 const stellarService = require("../src/services/stellarService");
+
+jest.mock("../src/services/eventIndexer");
+const eventIndexer = require("../src/services/eventIndexer");
+
+jest.mock("../src/services/webhookSubscriptionService");
+const webhookService = require("../src/services/webhookSubscriptionService");
+
+jest.mock("../src/services/turretsService");
+const turretsService = require("../src/services/turretsService");
+
+jest.mock("../src/services/scheduledTransactionService");
+const scheduledTransactionService = require("../src/services/scheduledTransactionService");
 
 // ─── Unit: cursor codec ────────────────────────────────────────────────────────
 describe("cursor codec", () => {
@@ -291,5 +337,215 @@ describe("GET /api/payments/:publicKey (Horizon cursor alignment)", () => {
     expect(res.body.pagination.nextCursor).toBeNull();
     expect(res.headers.link).toBeUndefined();
     expect(res.headers["x-total-count"]).toBe("57");
+  });
+});
+
+// ─── Unit: formatPaginatedResponse ─────────────────────────────────────────────
+describe("formatPaginatedResponse", () => {
+  it("formats a standard paginated response with nextCursor, hasMore, and total", () => {
+    const data = [{ id: 1 }, { id: 2 }];
+    const formatted = formatPaginatedResponse(data, "CURSOR123", 50, { limit: 20 });
+    expect(formatted.data).toEqual(data);
+    expect(formatted.pagination.nextCursor).toBe("CURSOR123");
+    expect(formatted.pagination.hasMore).toBe(true);
+    expect(formatted.pagination.total).toBe(50);
+    expect(formatted.pagination.limit).toBe(20);
+  });
+
+  it("handles last page with null nextCursor and hasMore = false", () => {
+    const data = [{ id: 1 }];
+    const formatted = formatPaginatedResponse(data, null, 1);
+    expect(formatted.pagination.nextCursor).toBeNull();
+    expect(formatted.pagination.hasMore).toBe(false);
+    expect(formatted.pagination.total).toBe(1);
+  });
+
+  it("handles empty data array gracefully", () => {
+    const formatted = formatPaginatedResponse([], "CURSOR_EMPTY", 0);
+    expect(formatted.data).toEqual([]);
+    expect(formatted.pagination.nextCursor).toBeNull();
+    expect(formatted.pagination.hasMore).toBe(false);
+    expect(formatted.pagination.total).toBe(0);
+  });
+});
+
+// ─── Integration: Accounts Payments Endpoint ──────────────────────────────────
+describe("GET /api/v1/accounts/:publicKey/payments", () => {
+  const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+
+  function app() {
+    const server = express();
+    server.use(paginationMiddleware);
+    server.use("/api/v1/accounts", require("../src/routes/accounts"));
+    return server;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    stellarService.countPaymentsApprox.mockResolvedValue(10);
+    stellarService.getPayments.mockResolvedValue([
+      { id: "op1", pagingToken: "101", amount: "5" },
+      { id: "op2", pagingToken: "102", amount: "15" },
+    ]);
+  });
+
+  it("returns paginated payments with standardized shape", async () => {
+    const res = await request(app()).get(`/api/v1/accounts/${ACCOUNT}/payments?limit=2`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.pagination.nextCursor).toBe("102");
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(10);
+  });
+});
+
+// ─── Integration: Events Endpoint ─────────────────────────────────────────────
+describe("GET /api/v1/events/:publicKey", () => {
+  const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+
+  function app() {
+    const server = express();
+    server.use(paginationMiddleware);
+    server.use("/api/v1/events", require("../src/routes/events"));
+    return server;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    eventIndexer.queryEventsByPublicKey.mockResolvedValue({
+      events: [
+        { id: "ev1", type: "transfer" },
+        { id: "ev2", type: "swap" },
+      ],
+      total: 5,
+    });
+  });
+
+  it("returns paginated events with standardized pagination shape", async () => {
+    const res = await request(app()).get(`/api/v1/events/${ACCOUNT}?limit=2`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.pagination.nextCursor).toBeTruthy();
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(5);
+  });
+});
+
+// ─── Integration: Webhooks Endpoint ───────────────────────────────────────────
+describe("GET /api/v1/webhooks/:publicKey", () => {
+  const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+
+  function app() {
+    const server = express();
+    server.use(paginationMiddleware);
+    server.use("/api/v1/webhooks", require("../src/routes/webhooks"));
+    return server;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    webhookService.getWebhooksByPublicKey.mockResolvedValue([
+      { id: "wh_3", url: "https://example.com/3" },
+      { id: "wh_2", url: "https://example.com/2" },
+      { id: "wh_1", url: "https://example.com/1" },
+    ]);
+  });
+
+  it("returns paginated webhooks list with standardized shape", async () => {
+    const res = await request(app()).get(`/api/v1/webhooks/${ACCOUNT}?limit=2`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.pagination.nextCursor).toBeTruthy();
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(3);
+  });
+});
+
+// ─── Integration: Turrets Endpoint ────────────────────────────────────────────
+describe("GET /api/v1/turrets", () => {
+  const OWNER = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+
+  function app() {
+    const server = express();
+    server.use(paginationMiddleware);
+    server.use("/api/v1/turrets", require("../src/routes/turrets"));
+    return server;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    turretsService.listDeployments.mockResolvedValue([
+      { id: "turret_3", ownerPublicKey: OWNER },
+      { id: "turret_2", ownerPublicKey: OWNER },
+      { id: "turret_1", ownerPublicKey: OWNER },
+    ]);
+    turretsService.getDeployment.mockResolvedValue({ id: "turret_1" });
+    turretsService.getExecutionHistory.mockResolvedValue([
+      { id: "exec_2", timestamp: 200 },
+      { id: "exec_1", timestamp: 100 },
+    ]);
+  });
+
+  it("returns paginated turrets deployments list", async () => {
+    const res = await request(app()).get(`/api/v1/turrets?limit=2`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.pagination.nextCursor).toBeTruthy();
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(3);
+  });
+
+  it("returns paginated execution history for a turret deployment", async () => {
+    const res = await request(app()).get(`/api/v1/turrets/turret_1/history?limit=1`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.pagination.nextCursor).toBeTruthy();
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(2);
+  });
+});
+
+// ─── Integration: Scheduled Transactions Endpoint ─────────────────────────────
+describe("GET /api/v1/scheduled-transactions/:publicKey", () => {
+  const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+
+  function app() {
+    const server = express();
+    server.use(paginationMiddleware);
+    server.use("/api/v1/scheduled-transactions", require("../src/routes/scheduledTransactions"));
+    return server;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    scheduledTransactionService.listSchedules.mockResolvedValue([
+      { id: "sched_3", publicKey: ACCOUNT },
+      { id: "sched_2", publicKey: ACCOUNT },
+      { id: "sched_1", publicKey: ACCOUNT },
+    ]);
+    scheduledTransactionService.listPendingExecutions.mockResolvedValue([
+      { id: "pend_2", publicKey: ACCOUNT },
+      { id: "pend_1", publicKey: ACCOUNT },
+    ]);
+  });
+
+  it("returns paginated scheduled transactions with standardized shape", async () => {
+    const res = await request(app()).get(`/api/v1/scheduled-transactions/${ACCOUNT}?limit=2`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.pagination.nextCursor).toBeTruthy();
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(3);
+  });
+
+  it("returns paginated pending executions with standardized shape", async () => {
+    const res = await request(app()).get(
+      `/api/v1/scheduled-transactions/${ACCOUNT}/pending?limit=1`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.pagination.nextCursor).toBeTruthy();
+    expect(res.body.pagination.hasMore).toBe(true);
+    expect(res.body.pagination.total).toBe(2);
   });
 });

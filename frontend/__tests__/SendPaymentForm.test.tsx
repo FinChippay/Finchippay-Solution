@@ -58,6 +58,19 @@ jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
 }));
 
+jest.mock("framer-motion", () => {
+  return {
+    Reorder: {
+      Group: ({ children, axis: _axis, values: _values, onReorder: _onReorder, ...props }: any) => <div data-testid="reorder-group" {...props}>{children}</div>,
+      Item: ({ children, value: _value, whileDrag: _whileDrag, ...props }: any) => <div data-testid="reorder-item" {...props}>{children}</div>,
+    },
+    motion: {
+      button: ({ children, whileHover: _whileHover, whileTap: _whileTap, ...props }: any) => <button {...props}>{children}</button>,
+      div: ({ children, whileHover: _whileHover, whileTap: _whileTap, initial: _initial, animate: _animate, transition: _transition, ...props }: any) => <div {...props}>{children}</div>,
+    },
+  };
+});
+
 import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
@@ -360,6 +373,30 @@ describe("SendPaymentForm", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("tx-hash")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("Payment Builder mode toggle", () => {
+    it("toggles between standard form and payment builder mode", async () => {
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const toggleButton = screen.getByRole("button", { name: /switch to payment builder/i });
+      expect(toggleButton).toBeInTheDocument();
+
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.getByText("Payment Builder")).toBeInTheDocument();
+        expect(screen.getByText("Quick Add")).toBeInTheDocument();
+        expect(screen.getByText("Batch Summary")).toBeInTheDocument();
+      });
+
+      const switchBack = screen.getByRole("button", { name: /switch to standard form/i });
+      fireEvent.click(switchBack);
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText(/G\.\.\./)).toBeInTheDocument();
       });
     });
   });

@@ -34,6 +34,8 @@
 //! | `emergency_withdrawal_executed` | (id, to, amount) | Funds rescued |
 //! | `admin_action_proposed` | (id, action_type, proposer) | Gov proposal created |
 //! | `admin_action_approved` | (id, approver, count, threshold) | Gov action approved |
+//! | `balance_reconciled` | (token, old, new) | Admin resynced cached contract balance |
+//! | `balance_drift_detected` | (token, cached, actual) | Cached vs actual balance drift surfaced |
 
 use soroban_sdk::Symbol;
 
@@ -129,5 +131,13 @@ impl Events {
 
     pub fn admin_action_approved(env: &soroban_sdk::Env) -> Symbol {
         Symbol::new(env, "admin_action_approved")
+    }
+
+    pub fn balance_reconciled(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "balance_reconciled")
+    }
+
+    pub fn balance_drift_detected(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "balance_drift_detected")
     }
 }

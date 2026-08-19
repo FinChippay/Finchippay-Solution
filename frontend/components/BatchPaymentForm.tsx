@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import BatchSummary from "@/components/BatchSummary";
+import CSVUpload from "@/components/CSVUpload";
 import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
 import QuickAddPanel from "@/components/QuickAddPanel";
 import { useContacts } from "@/hooks/useContacts";
@@ -78,6 +79,23 @@ export default function BatchPaymentForm({
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [distributionMode, setDistributionMode] = useState<"per-recipient" | "total">("per-recipient");
   const [groupTotalAmount, setGroupTotalAmount] = useState("");
+  const [showCSVUpload, setShowCSVUpload] = useState(false);
+
+  const handleCSVImport = (rows: Array<{ recipient?: string; amount?: string; asset?: string; memo?: string; isValid?: boolean }>) => {
+    const validRows = rows.filter((r) => r.isValid !== false && r.recipient && r.amount);
+    if (validRows.length === 0) return;
+    const newRecipients = validRows.slice(0, MAX_RECIPIENTS).map((row) => ({
+      ...createRecipient(),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      address: row.recipient || "",
+      amount: row.amount || "",
+      memo: row.memo || "",
+      token: AVAILABLE_TOKENS.find((t) => t.code === row.asset) || AVAILABLE_TOKENS[0],
+      status: "idle" as RecipientStatus,
+    }));
+    setRecipients(newRecipients);
+    setShowCSVUpload(false);
+  };
 
   const xlmBalanceValue = parseFloat(xlmBalance || "0");
   const availableXLM = Math.max(0, xlmBalanceValue - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM);
@@ -96,7 +114,7 @@ export default function BatchPaymentForm({
 
   const totalXLM = totalByToken["XLM"] || 0;
   const hasFailed = recipients.some((recipient) => recipient.status === "failed");
-  const hasPending = recipients.some((recipient) => recipient.status === "pending");
+  const _hasPending = recipients.some((recipient) => recipient.status === "pending");
   const canSubmit =
     !isProcessing &&
     recipients.some(
@@ -303,7 +321,7 @@ export default function BatchPaymentForm({
       )}
 
       <div className="space-y-4">
-        {recipients.map((recipient, index) => (
+        {recipients.map((recipient) => (
           <div key={recipient.id} className="rounded-3xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-col gap-3">
               <div className="grid gap-3 sm:grid-cols-3">
@@ -384,13 +402,19 @@ export default function BatchPaymentForm({
           </div>
         ))}
 
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-center">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto] items-center">
           <button
             type="button"
             onClick={handleAddRecipient}
             disabled={isProcessing || recipients.length >= MAX_RECIPIENTS}
             className="btn-secondary w-full py-2.5"
           >Add recipient</button>
+          <button
+            type="button"
+            onClick={() => setShowCSVUpload(!showCSVUpload)}
+            disabled={isProcessing}
+            className="btn-outline py-2.5 px-4 text-xs font-semibold"
+          >Import CSV</button>
           <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
             Total:{" "}
             <span className="font-semibold text-white">
@@ -398,6 +422,16 @@ export default function BatchPaymentForm({
             </span>
           </div>
         </div>
+
+        {showCSVUpload && (
+          <div className="p-4 rounded-2xl border border-white/10 bg-white/5">
+            <h3 className="text-sm font-semibold text-white mb-3">Import from CSV</h3>
+            <CSVUpload
+              onImport={handleCSVImport}
+              onCancel={() => setShowCSVUpload(false)}
+            />
+          </div>
+        )}
 
         <div className="flex items-center justify-center gap-3 pt-2">
           <button

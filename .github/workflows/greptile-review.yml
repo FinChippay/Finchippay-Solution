@@ -11,10 +11,12 @@
 #   3. Greptile automatically indexes the repo and reviews PRs
 #
 # What this workflow does:
-#   - Auto-labels PRs with "needs-review" so Greptile's filter picks them up
+#   - Validates the Greptile configuration on every PR (status check)
 #   - Comments on new issues with review context
 #   - Allows manual trigger of Greptile review via workflow_dispatch
-#   - Posts review status summaries
+#
+# PR auto-labeling (needs-review) is handled by greptile-label.yml via
+# pull_request_target so fork PRs get labeled too.
 #
 # Configuration: .greptile/config.json, .greptile/rules.md, .greptile/files.json
 
@@ -44,82 +46,6 @@ permissions:
   issues: write
 
 jobs:
-  # ─── Auto-label PRs for Greptile review ─────────────────────────────────
-  label-pr:
-    name: Label PR for Review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Add needs-review label
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const label = 'needs-review';
-
-            // Ensure the label exists; create it if missing
-            try {
-              await github.rest.issues.getLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-              });
-            } catch (e) {
-              if (e.status === 404) {
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: label,
-                  color: '0366d6',
-                  description: 'Ready for Greptile AI code review',
-                });
-                console.log(`🏷️  Created '${label}' label`);
-              } else {
-                throw e;
-              }
-            }
-
-            // Add the needs-review label so Greptile's config.json filter picks it up
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              labels: [label]
-            });
-
-            console.log(`✅ Added '${label}' label to PR #${prNumber}`);
-
-      - name: Post Greptile review context
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const changedFiles = context.payload.pull_request.changed_files || 0;
-
-            const body = [
-              '## 🤖 Greptile AI Code Review',
-              '',
-              `Greptile will automatically review this PR (${changedFiles} file(s) changed).`,
-              '',
-              '**Review gates:**',
-              '- ✅ CodeQL Security Scan',
-              '- ✅ Custom rules (.greptile/config.json)',
-              '- ✅ Architecture guidelines (.greptile/rules.md)',
-              '',
-              '> To manually trigger a re-review, comment `@greptileai` on this PR.',
-              '> To skip review, add the `skip-review` label.',
-            ].join('\n');
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body,
-            });
-
   # ─── Issue review context ──────────────────────────────────────────────
   issue-context:
     name: Issue Review Context
@@ -161,7 +87,9 @@ jobs:
   # ─── Manual Greptile review trigger ────────────────────────────────────
   manual-review:
     name: Manual Greptile Review
-    if: github.event_name == 'workflow_dispatch'
+    # Runs the Greptile config validation on every PR so the status check
+    # passes, and (via workflow_dispatch) triggers an actual Greptile review.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -193,7 +121,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Trigger Greptile PR review
-        if: github.event.inputs.pr_number != ''
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -210,7 +138,7 @@ jobs:
             console.log(`✅ Triggered Greptile review on PR #${prNumber}`);
 
       - name: Trigger full repo review
-        if: github.event.inputs.full_review == 'true'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.full_review == 'true'
         uses: actions/github-script@v7
         with:
           script: |

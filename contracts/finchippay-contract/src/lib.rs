@@ -112,6 +112,12 @@ pub enum ContractError {
     ProposalAlreadyExecuted = 26,
     /// The yield escrow has not reached its release ledger.
     ReleaseLedgerNotReached = 27,
+    /// A mutating entry point was re-entered while a previous call to the same
+    /// contract was still mid-flight. Raised by the non-reentrancy guard before
+    /// any state is read or written, so a hostile token contract cannot
+    /// double-claim, double-drain, or double-swap funds by calling back into
+    /// this contract from inside `token.transfer`.
+    ReentrantCall = 28,
 }
 
 // ─── Shared data types ────────────────────────────────────────────────────────
@@ -415,7 +421,7 @@ const MAX_VESTING_DURATION_LEDGERS: u32 = 31_536_000;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
-const CONTRACT_VERSION: u32 = 3;
+const CONTRACT_VERSION: u32 = 4;
 /// Mandatory delay in ledgers before an emergency withdrawal can be executed
 /// (≈24 hours at 5 s/ledger).
 const EMERGENCY_WITHDRAWAL_DELAY: u32 = 17_280;
@@ -526,8 +532,8 @@ pub enum DataKey {
     EmergencyWithdrawal(u32),
     /// List of addresses authorised to approve emergency withdrawals and
     /// gated admin actions (pause, unpause, set_pauser, set_admin_signers,
-    /// upgrade, rescue_tokens). Configured at `initialize` and updatable via
-    /// the `set_admin_signers` admin action.
+    /// upgrade, rescue_tokens, reconcile_balance). Configured at `initialize`
+    /// and updatable via the `set_admin_signers` admin action.
     AdminSigners,
     /// Number of approvals required from `AdminSigners` for emergency
     /// withdrawal execution and gated admin actions.
@@ -551,6 +557,11 @@ pub enum DataKey {
     // Swap / DEX configuration
     SwapFee,
     FeeCollector,
+    /// Non-reentrancy lock. Set for the duration of every value-transferring
+    /// entry point and removed on return (or rolled back on panic). Stored in
+    /// *instance* storage since it is transient per-invocation state, not
+    /// durable contract data.
+    Reentrant,
 }
 
 // ─── Helpers (TTL primitives re-exported from storage module) ────────────────
@@ -599,35 +610,71 @@ pub(crate) fn get_token_client<'a>(env: &'a Env, token_address: &'a Address) -> 
     token::Client::new(env, token_address)
 }
 
-/// Perform a token transfer and verify that the recipient's balance actually
-/// increased by at least `amount`. This guards against malicious/fake token
-/// contracts that report a successful `transfer` without moving any funds
-/// (phantom deposit attack).
+/// Read the contract's current token balance for `token`, keeping the cached
+/// [`DataKey::LastContractBalance`] mirror in sync and surfacing any drift.
 ///
-/// # Panics
-/// Panics with `TransferFailed` if the balance check does not hold.
+/// For **standard (non-rebasing, non-fee-on-transfer) assets** the cached value
+/// matches the real on-chain balance, so this is a cheap read. For rebasing or
+/// fee-on-transfer tokens — or any token whose balance can change without a
+/// transfer through this contract (e.g. a direct transfer to the contract
+/// address) — the cache can drift from `token.balance(contract)`. When that
+/// happens this helper:
+///
+/// 1. **surfaces** the drift by emitting a `balance_drift_detected` event with
+///    the `(cached, actual)` values — the stale value is never silently used;
+/// 2. **self-heals** by resyncing the cache to the actual on-chain balance;
+/// 3. **returns the actual balance**, so the phantom-deposit check in
+///    [`require_transfer_succeeded`] is always evaluated against the real
+///    on-chain balance, never a possibly-stale cache.
+#[allow(deprecated)]
 pub(crate) fn get_contract_balance(env: &Env, token: &token::Client) -> i128 {
     let key = DataKey::LastContractBalance(token.address.clone());
-    match env.storage().persistent().get(&key) {
-        Some(bal) => {
+    let actual = token.balance(&env.current_contract_address());
+    let cached: Option<i128> = env.storage().persistent().get(&key);
+    match cached {
+        Some(cached) => {
+            if cached != actual {
+                env.events().publish(
+                    (
+                        Symbol::new(env, "balance_drift_detected"),
+                        token.address.clone(),
+                    ),
+                    (cached, actual),
+                );
+                env.storage().persistent().set(&key, &actual);
+            }
             storage::bump(env, &key);
-            bal
+            actual
         }
         None => {
-            let bal = token.balance(&env.current_contract_address());
-            env.storage().persistent().set(&key, &bal);
+            env.storage().persistent().set(&key, &actual);
             storage::bump(env, &key);
-            bal
+            actual
         }
     }
 }
 
+/// Record the contract's cached balance for `token_address`.
 pub(crate) fn set_contract_balance(env: &Env, token_address: &Address, balance: i128) {
     let key = DataKey::LastContractBalance(token_address.clone());
     env.storage().persistent().set(&key, &balance);
     storage::bump(env, &key);
 }
 
+/// Perform a token transfer and verify that the recipient's balance actually
+/// increased by at least `amount`. This guards against malicious/fake token
+/// contracts that report a successful `transfer` without moving any funds
+/// (phantom deposit attack).
+///
+/// When the recipient is this contract, the "before" balance is read from the
+/// **actual on-chain balance** (via [`get_contract_balance`]), never from the
+/// possibly-stale cache. This keeps the check sound even for fee-on-transfer
+/// tokens whose `transfer` moves less than `amount`, and for rebasing tokens
+/// whose balance can drift between calls — so a drifted cache can never weaken
+/// the phantom-deposit check or let locked-balance accounting over-claim.
+///
+/// # Panics
+/// Panics with `TransferFailed` if the balance check does not hold.
 pub(crate) fn require_transfer_succeeded(
     env: &Env,
     token: &token::Client,
@@ -916,10 +963,10 @@ impl FinchippayContract {
     /// `admin_signers` must be non-empty, contain no duplicates, and have at
     /// most `MAX_ADMIN_SIGNERS` entries. `threshold` must be between 1 and
     /// `admin_signers.len()`. `pause`, `unpause`, `set_pauser`,
-    /// `set_admin_signers`, `upgrade`, and `rescue_tokens` all require
-    /// `threshold` approvals from this signer set (via
-    /// `propose_admin_action` / `approve_admin_action`) rather than a single
-    /// admin signature.
+    /// `set_admin_signers`, `upgrade`, `rescue_tokens`, and
+    /// `reconcile_balance` all require `threshold` approvals from this signer
+    /// set (via `propose_admin_action` / `approve_admin_action`) rather than a
+    /// single admin signature.
     ///
     /// The first signer is also stored as the legacy single `Admin` address
     /// for read-only convenience (`get_admin`) and for `transfer_admin`; it
@@ -993,7 +1040,7 @@ impl FinchippayContract {
     }
 
     /// Return the current admin signer set that governs `pause`, `unpause`,
-    /// `set_pauser`, `upgrade`, and `rescue_tokens`.
+    /// `set_pauser`, `upgrade`, `rescue_tokens`, and `reconcile_balance`.
     pub fn get_admin_signers(env: Env) -> Vec<Address> {
         get_admin_signers(&env)
     }
@@ -1068,6 +1115,9 @@ impl FinchippayContract {
         action_type: Symbol,
         action_data: Vec<Val>,
     ) -> u64 {
+        // The `rescue_tokens` admin action transfers funds, so the whole
+        // propose (and any auto-execution) is non-reentrant.
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         proposer.require_auth();
 
@@ -1146,6 +1196,7 @@ impl FinchippayContract {
     /// When approvals reach the threshold, the action is auto-executed
     /// immediately.
     pub fn approve_admin_action(env: Env, proposal_id: u64, approver: Address) {
+        let _guard = ReentrancyGuard::acquire(&env);
         approver.require_auth();
 
         // Validate signer
@@ -1323,9 +1374,49 @@ impl FinchippayContract {
                 (Symbol::new(env, "rescue_tokens"),),
                 (token_address, amount, to),
             );
+        } else if action == &Symbol::new(env, "reconcile_balance") {
+            let token_address: Address = proposal
+                .action_data
+                .get(0)
+                .unwrap()
+                .try_into_val(env)
+                .expect("invalid reconcile_balance payload");
+            Self::do_reconcile_balance(env, &token_address);
         } else {
             panic!("unknown admin action");
         }
+    }
+
+    /// Resync the cached [`DataKey::LastContractBalance`] for `token_address`
+    /// with the actual on-chain balance and emit a `balance_reconciled` event
+    /// carrying the `(old, new)` values.
+    ///
+    /// This is the explicit, admin-gated reconciliation path for when a
+    /// token's balance drifts from the cache — e.g. rebasing assets, direct
+    /// transfers to the contract address, or fee-on-transfer tokens. The
+    /// passive `balance_drift_detected` event from `get_contract_balance`
+    /// surfaces drift on reads; this entrypoint lets governance force a resync
+    /// (action_type `"reconcile_balance"` via `propose_admin_action`) and
+    /// leaves an auditable `balance_reconciled` record.
+    ///
+    /// Only reads balances and writes the cache — it performs no token
+    /// transfers — so it is safe to run inside the already-held reentrancy
+    /// guard of `propose_admin_action` / `approve_admin_action`.
+    fn do_reconcile_balance(env: &Env, token_address: &Address) {
+        let token = get_token_client(env, token_address);
+        let key = DataKey::LastContractBalance(token_address.clone());
+        let old = env.storage().persistent().get(&key).unwrap_or(0);
+        let new = token.balance(&env.current_contract_address());
+        if old != new {
+            env.storage().persistent().set(&key, &new);
+            storage::bump(env, &key);
+        } else {
+            storage::bump_if_present(env, &key);
+        }
+        env.events().publish(
+            (Symbol::new(env, "balance_reconciled"), token_address.clone()),
+            (old, new),
+        );
     }
 
     /// Execute pause without auth check (called from execute_admin_action).
@@ -1650,6 +1741,7 @@ impl FinchippayContract {
         amount: i128,
         to: Address,
     ) {
+        let _guard = ReentrancyGuard::acquire(&env);
         admin.require_auth();
         let stored = get_admin(&env);
         if admin != stored {
@@ -1753,6 +1845,7 @@ impl FinchippayContract {
     /// reaches the configured threshold AND the activation ledger has passed,
     /// the withdrawal executes automatically.
     pub fn approve_emergency_withdrawal(env: Env, id: u32, signer: Address) {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_not_paused(&env);
         signer.require_auth();
 
@@ -1791,27 +1884,38 @@ impl FinchippayContract {
         if withdrawal.approvals.len() >= withdrawal.threshold
             && env.ledger().sequence() >= withdrawal.activation_ledger
         {
-            let token = get_token_client(&env, &withdrawal.token);
+            // Checks-effects-interactions: commit the executed state *before*
+            // the external transfer, so a re-entrant call cannot observe a
+            // still-pending withdrawal. (Emergency withdrawals move only
+            // *unlocked* tokens, so `LockedBalance` is untouched.)
             let to = withdrawal.to.clone();
             let amount = withdrawal.amount;
-            contract_transfer_out(&env, &token, &to, &amount);
             withdrawal.status = EmergencyWithdrawalStatus::Executed;
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
+            bump(&env, &DataKey::EmergencyWithdrawal(id));
+
+            let token = get_token_client(&env, &withdrawal.token);
+            contract_transfer_out(&env, &token, &to, &amount);
             env.events().publish(
                 (Symbol::new(&env, "emergency_withdrawal_executed"), id),
                 (to, amount),
             );
+        } else {
+            env.storage()
+                .persistent()
+                .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
+            bump(&env, &DataKey::EmergencyWithdrawal(id));
         }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
     }
 
     /// Execute a pending emergency withdrawal. Can only be called after both the
     /// activation ledger has been reached AND the approval threshold is met.
     /// Anyone may call this — the actual authorization was done via approvals.
     pub fn execute_emergency_withdrawal(env: Env, id: u32) {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_not_paused(&env);
 
         let mut withdrawal: EmergencyWithdrawal = env
@@ -1830,14 +1934,18 @@ impl FinchippayContract {
             panic!("insufficient admin approvals");
         }
 
-        let token = get_token_client(&env, &withdrawal.token);
-        contract_transfer_out(&env, &token, &withdrawal.to, &withdrawal.amount);
+        // Checks-effects-interactions: commit the executed state before the
+        // external transfer so a re-entrant call is rejected by the guard and,
+        // even if the guard were bypassed, would see an already-executed record.
         withdrawal.status = EmergencyWithdrawalStatus::Executed;
 
         env.storage()
             .persistent()
             .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
         bump(&env, &DataKey::EmergencyWithdrawal(id));
+
+        let token = get_token_client(&env, &withdrawal.token);
+        contract_transfer_out(&env, &token, &withdrawal.to, &withdrawal.amount);
 
         env.events().publish(
             (Symbol::new(&env, "emergency_withdrawal_executed"), id),
@@ -1933,6 +2041,10 @@ impl FinchippayContract {
         amount: i128,
         memo: Symbol,
     ) {
+        // Non-reentrancy: every token.transfer is a call into an untrusted
+        // contract, so hold the lock for the entire call (checks → effects →
+        // interactions) to prevent a hostile token from re-entering `send_tip`.
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
@@ -2644,6 +2756,7 @@ impl FinchippayContract {
         min_amount_out: i128,
         path: Vec<Address>,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         require_not_paused(&env);
         caller.require_auth();
@@ -2710,6 +2823,7 @@ impl FinchippayContract {
         max_amount_in: i128,
         path: Vec<Address>,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         require_not_paused(&env);
         caller.require_auth();
