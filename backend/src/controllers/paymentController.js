@@ -13,7 +13,7 @@
 "use strict";
 
 const stellarService = require("../services/stellarService");
-const { setPaginationHeaders } = require("../utils/paginate");
+const { setPaginationHeaders, formatPaginatedResponse } = require("../utils/paginate");
 
 /**
  * GET /api/payments/:publicKey
@@ -38,9 +38,9 @@ const { setPaginationHeaders } = require("../utils/paginate");
  */
 async function getPayments(req, res, next) {
   try {
-    // `limit` arrives already coerced to an integer ≥ 1 (capped at 100,
-    // default 20) thanks to the paymentsQuerySchema validate() middleware.
-    const { publicKey, limit, cursor } = req.validated;
+    const publicKey = req.validated?.publicKey || req.params.publicKey;
+    const limit = req.pagination?.limit || req.validated?.limit || 20;
+    const cursor = req.pagination?.rawCursor || req.validated?.cursor || req.query.cursor || null;
 
     const [payments, total] = await Promise.all([
       stellarService.getPayments(publicKey, { limit, cursor }),
@@ -49,11 +49,6 @@ async function getPayments(req, res, next) {
 
     // A full page implies there may be more; the next cursor is Horizon's own
     // paging token on the last record. A short page is treated as the last page.
-    // Caveat: getPayments fetches `limit` ops from Horizon's payments endpoint
-    // (which also includes create_account/account_merge) and filters to true
-    // payments, so a page containing such an op can be short even when more
-    // payments exist — a rare boundary case that may end paging one page early.
-    // This is still strictly better than the prior no-nextCursor behavior.
     const nextCursor =
       payments.length === limit && payments.length > 0
         ? payments[payments.length - 1].pagingToken
@@ -61,11 +56,7 @@ async function getPayments(req, res, next) {
 
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
-    res.json({
-      success: true,
-      data: payments,
-      pagination: { nextCursor, total, limit },
-    });
+    res.json(formatPaginatedResponse(payments, nextCursor, total, { limit }));
   } catch (err) {
     next(err);
   }

@@ -17,7 +17,7 @@
 
 const tipsService = require("../services/tipsService");
 const pushNotifier = require("../services/pushNotifier");
-const { buildPage, setPaginationHeaders } = require("../utils/paginate");
+const { buildPage, setPaginationHeaders, formatPaginatedResponse } = require("../utils/paginate");
 
 // Extract the keyset cursor fields from a mapped tip record. `timestamp` holds
 // the row's `created_at`; `id` is the unique tiebreaker.
@@ -106,11 +106,10 @@ async function getTipsReceived(req, res, next) {
     const { data, nextCursor } = buildPage(tips, limit, tipCursor);
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
+    const formatted = formatPaginatedResponse(data, nextCursor, total, { limit });
     return res.json({
-      success: true,
-      data,
+      ...formatted,
       stats,
-      pagination: { nextCursor, total, limit },
     });
   } catch (err) {
     next(err);
@@ -148,11 +147,7 @@ async function getTipsSent(req, res, next) {
     const { data, nextCursor } = buildPage(tips, limit, tipCursor);
     setPaginationHeaders(req, res, { nextCursor, total, limit });
 
-    return res.json({
-      success: true,
-      data,
-      pagination: { nextCursor, total, limit },
-    });
+    return res.json(formatPaginatedResponse(data, nextCursor, total, { limit }));
   } catch (err) {
     next(err);
   }
