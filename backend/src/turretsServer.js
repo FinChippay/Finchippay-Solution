@@ -20,7 +20,7 @@ const rateLimit = require("express-rate-limit");
 const Sentry = require("@sentry/node");
 const crypto = require("crypto");
 const turretsRoutes = require("./routes/turrets");
-const { startRunner } = require("./services/turretsService");
+const { startRunner, stopRunner } = require("./services/turretsService");
 const priceFeedService = require("./services/priceFeedService");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 const logger = require("./utils/logger");
@@ -151,13 +151,43 @@ function createTurretsApp() {
   return app;
 }
 
+function createTurretsShutdownHandler(server) {
+  return (signal) => {
+    logger.info({ signal }, "Turrets txFunctions server shutting down");
+    stopRunner();
+
+    if (server && typeof server.close === "function") {
+      server.close(() => {
+        process.exit(0);
+      });
+      return;
+    }
+
+    process.exit(0);
+  };
+}
+
+function registerTurretsShutdown(server) {
+  const shutdown = createTurretsShutdownHandler(server);
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  return shutdown;
+}
+
 function startTurretsServer() {
   const app = createTurretsApp();
   startRunner();
 
-  return app.listen(TURRETS_PORT, () => {
+  const server = app.listen(TURRETS_PORT, () => {
     logger.info({ port: TURRETS_PORT }, "Turrets txFunctions server started");
   });
+  registerTurretsShutdown(server);
+  return server;
 }
 
-module.exports = { createTurretsApp, startTurretsServer };
+module.exports = {
+  createTurretsApp,
+  createTurretsShutdownHandler,
+  registerTurretsShutdown,
+  startTurretsServer,
+};
