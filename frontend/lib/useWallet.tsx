@@ -1,11 +1,11 @@
 /**
  * lib/useWallet.tsx
- * Multi-account wallet state for Finchippay (#147).
+ * Multi-account and multi-wallet state for Finchippay (#70, #147).
  *
- * Freighter exposes one address at a time, so Finchippay keeps its own list of
- * the accounts the user has connected. Exactly one of them is "active"; every
- * page reads the active account's public key and therefore renders balances,
- * history, and analytics for that account only.
+ * Supports connecting accounts across multiple Stellar wallet providers
+ * (Freighter, Albedo, xBull, Lobstr, WalletConnect). Exactly one account is active;
+ * every page reads the active account's public key to render balances, history,
+ * and analytics.
  */
 
 import { useRouter } from "next/router";
@@ -25,6 +25,13 @@ import {
   performSEP0010Auth,
   initEncryptionSession,
 } from "@/lib/wallet";
+import {
+  WalletId,
+  StellarWallet,
+  getAllWallets,
+  getActiveWalletId,
+  setActiveWallet as setGlobalActiveWallet,
+} from "@/lib/wallets";
 
 /** A single Stellar account the user has connected to Finchippay. */
 export interface Account {
@@ -33,6 +40,8 @@ export interface Account {
   label?: string;
   /** The first account in the list; used as the default on a fresh load. */
   isPrimary: boolean;
+  /** The wallet provider used to connect this account. */
+  walletId?: WalletId;
 }
 
 interface WalletContextValue {
@@ -45,13 +54,16 @@ interface WalletContextValue {
    */
   publicKey: string | null;
   isWalletReady: boolean;
+  activeWalletId: WalletId;
+  wallets: StellarWallet[];
   setActiveAccount: (index: number) => void;
-  /** Prompt Freighter for an account and append it to the list. */
-  addAccount: () => Promise<{ error: string | null }>;
+  setActiveWalletId: (id: WalletId) => void;
+  /** Prompt the specified (or active) wallet provider for an account and append it to the list. */
+  addAccount: (walletId?: WalletId) => Promise<{ error: string | null }>;
   removeAccount: (publicKey: string) => void;
   setAccountLabel: (publicKey: string, label: string) => void;
   /** Add (or re-activate) an account that has already been authenticated. */
-  connectWallet: (nextPublicKey: string) => void;
+  connectWallet: (nextPublicKey: string, walletId?: WalletId) => void;
   /** Remove every account and clear the app's auth state. */
   disconnectWallet: () => void;
 }
@@ -95,10 +107,12 @@ function normalizeAccounts(input: unknown): Account[] {
     seen.add(publicKey);
 
     const label = (entry as Account).label;
+    const walletId = (entry as Account).walletId;
     accounts.push({
       publicKey,
       label: typeof label === "string" && label.trim() ? label.trim() : undefined,
       isPrimary: false,
+      walletId,
     });
   }
 
@@ -144,15 +158,30 @@ function saveAccounts(accounts: Account[]) {
 }
 
 /** Add a key to the list (or select it if already present) in one transition. */
-function reduceAddAccount(state: AccountsState, publicKey: string): AccountsState {
+function reduceAddAccount(
+  state: AccountsState,
+  publicKey: string,
+  walletId?: WalletId,
+): AccountsState {
   const existingIndex = state.accounts.findIndex((a) => a.publicKey === publicKey);
   if (existingIndex >= 0) {
-    return state.activeIndex === existingIndex
-      ? state
-      : { ...state, activeIndex: existingIndex };
+    const existing = state.accounts[existingIndex];
+    if (walletId && existing.walletId !== walletId) {
+      const updatedAccounts = [...state.accounts];
+      updatedAccounts[existingIndex] = { ...existing, walletId };
+      return { accounts: updatedAccounts, activeIndex: existingIndex };
+    }
+    return state.activeIndex === existingIndex ? state : { ...state, activeIndex: existingIndex };
   }
 
-  const accounts = withPrimaryFlags([...state.accounts, { publicKey, isPrimary: false }]);
+  const accounts = withPrimaryFlags([
+    ...state.accounts,
+    {
+      publicKey,
+      isPrimary: false,
+      ...(walletId && walletId !== "freighter" ? { walletId } : {}),
+    },
+  ]);
   return { accounts, activeIndex: accounts.length - 1 };
 }
 
@@ -169,6 +198,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     accounts: loadAccounts(),
     activeIndex: 0,
   }));
+  const [activeWalletId, setActiveWalletIdState] = useState<WalletId>(() =>
+    typeof getActiveWalletId === "function" ? getActiveWalletId() : "freighter",
+  );
   const [isWalletReady, setIsWalletReady] = useState(false);
 
   const { accounts, activeIndex } = state;
@@ -177,9 +209,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     saveAccounts(accounts);
   }, [accounts]);
 
-  const connectWallet = useCallback((nextPublicKey: string) => {
+  const setActiveWalletId = useCallback((id: WalletId) => {
+    setGlobalActiveWallet(id);
+    setActiveWalletIdState(id);
+  }, []);
+
+  const connectWallet = useCallback((nextPublicKey: string, walletId?: WalletId) => {
     if (!isValidPublicKey(nextPublicKey)) return;
-    setState((current) => reduceAddAccount(current, nextPublicKey));
+    setState((current) => reduceAddAccount(current, nextPublicKey, walletId));
   }, []);
 
   useEffect(() => {
@@ -195,18 +232,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Freighter's currently selected address counts as a connected account,
-        // but it must not steal focus from the account the user picked here.
+        // Selected address counts as a connected account
         setState((current) =>
           current.accounts.some((a) => a.publicKey === connectedPublicKey)
             ? current
             : {
                 accounts: withPrimaryFlags([
                   ...current.accounts,
-                  { publicKey: connectedPublicKey, isPrimary: false },
+                  {
+                    publicKey: connectedPublicKey,
+                    isPrimary: false,
+                    ...(activeWalletId !== "freighter" ? { walletId: activeWalletId } : {}),
+                  },
                 ]),
                 activeIndex: current.accounts.length === 0 ? 0 : current.activeIndex,
-              }
+              },
         );
       })
       .finally(() => {
@@ -218,6 +258,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => {
       isActive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeAccount = accounts[activeIndex] ?? accounts[0] ?? null;
@@ -236,27 +277,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setState((current) =>
       index < 0 || index >= current.accounts.length || index === current.activeIndex
         ? current
-        : { ...current, activeIndex: index }
+        : { ...current, activeIndex: index },
     );
   }, []);
 
-  const addAccount = useCallback(async (): Promise<{ error: string | null }> => {
-    const { publicKey, error: walletError } = await requestWalletConnection();
+  const addAccount = useCallback(
+    async (walletId?: WalletId): Promise<{ error: string | null }> => {
+      const targetWalletId = walletId || activeWalletId;
+      const { publicKey, error: walletError } = await requestWalletConnection(targetWalletId);
 
-    if (walletError || !publicKey) {
-      return { error: walletError || "Could not retrieve public key." };
-    }
+      if (walletError || !publicKey) {
+        return { error: walletError || "Could not retrieve public key." };
+      }
 
-    // Every account proves ownership of its own key via SEP-0010, so the JWT
-    // held by the API client always matches the account being used.
-    const { error: authError } = await performSEP0010Auth(publicKey);
-    if (authError) {
-      return { error: authError };
-    }
+      // Every account proves ownership of its own key via SEP-0010, so the JWT
+      // held by the API client always matches the account being used.
+      const { error: authError } = walletId
+        ? await performSEP0010Auth(publicKey, targetWalletId)
+        : await performSEP0010Auth(publicKey);
+      if (authError) {
+        return { error: authError };
+      }
 
-    connectWallet(publicKey);
-    return { error: null };
-  }, [connectWallet]);
+      connectWallet(publicKey, walletId);
+      return { error: null };
+    },
+    [activeWalletId, connectWallet],
+  );
 
   const disconnectWallet = useCallback(() => {
     clearWalletConnection();
@@ -279,11 +326,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       const nextIndex = Math.min(
         activeIndex > index ? activeIndex - 1 : activeIndex,
-        remaining.length - 1
+        remaining.length - 1,
       );
       setState({ accounts: remaining, activeIndex: nextIndex });
     },
-    [accounts, activeIndex, disconnectWallet]
+    [accounts, activeIndex, disconnectWallet],
   );
 
   const setAccountLabel = useCallback((publicKey: string, label: string) => {
@@ -291,12 +338,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setState((current) => ({
       ...current,
       accounts: current.accounts.map((account) =>
-        account.publicKey === publicKey
-          ? { ...account, label: trimmed || undefined }
-          : account
+        account.publicKey === publicKey ? { ...account, label: trimmed || undefined } : account,
       ),
     }));
   }, []);
+
+  const wallets = useMemo(() => (typeof getAllWallets === "function" ? getAllWallets() : []), []);
 
   const value = useMemo<WalletContextValue>(
     () => ({
@@ -305,7 +352,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       activeAccount,
       publicKey: activeAccount?.publicKey ?? null,
       isWalletReady,
+      activeWalletId,
+      wallets,
       setActiveAccount,
+      setActiveWalletId,
       addAccount,
       removeAccount,
       setAccountLabel,
@@ -317,13 +367,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       activeIndex,
       activeAccount,
       isWalletReady,
+      activeWalletId,
+      wallets,
       setActiveAccount,
+      setActiveWalletId,
       addAccount,
       removeAccount,
       setAccountLabel,
       connectWallet,
       disconnectWallet,
-    ]
+    ],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

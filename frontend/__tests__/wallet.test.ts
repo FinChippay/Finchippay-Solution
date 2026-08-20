@@ -36,6 +36,10 @@ jest.mock("@/lib/sdk-instance", () => ({
 // Mock fetch
 global.fetch = jest.fn();
 
+
+import * as freighterApi from "@stellar/freighter-api";
+import { clearJwtToken as authClearJwtToken, setJwtToken as authSetJwtToken } from "@/lib/auth";
+import { sdk } from "@/lib/sdk-instance";
 import {
   isFreighterInstalled,
   connectWallet,
@@ -49,13 +53,13 @@ import {
   getJwtToken,
 } from "@/lib/wallet";
 
-import * as freighterApi from "@stellar/freighter-api";
-
 const mockIsConnected = freighterApi.isConnected as jest.Mock;
 const mockGetAddress = freighterApi.getAddress as jest.Mock;
 const mockRequestAccess = freighterApi.requestAccess as jest.Mock;
 const mockSignTransaction = freighterApi.signTransaction as jest.Mock;
 const mockIsAllowed = freighterApi.isAllowed as jest.Mock;
+const mockGetChallenge = sdk.getChallenge as jest.Mock;
+const mockVerifyChallenge = sdk.verifyChallenge as jest.Mock;
 
 describe("wallet.ts", () => {
   const mockPublicKey = "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ";
@@ -65,7 +69,11 @@ describe("wallet.ts", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setJwtToken(null);
-    (global.fetch as jest.Mock).mockClear();
+    (global.fetch as jest.Mock).mockReset();
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
   });
 
   describe("isFreighterInstalled", () => {
@@ -270,8 +278,6 @@ describe("wallet.ts", () => {
   });
 
   describe("detectBrowser", () => {
-    const originalUserAgent = navigator.userAgent;
-
     it("detects Chrome browser", () => {
       Object.defineProperty(navigator, "userAgent", {
         value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/91.0",
@@ -326,14 +332,12 @@ describe("wallet.ts", () => {
     });
 
     it("disconnectWallet clears localStorage auth token", () => {
-      const { clearJwtToken } = require("@/lib/auth");
       setJwtToken("test-token");
 
       disconnectWallet();
 
-      expect(clearJwtToken).toHaveBeenCalled();
+      expect(authClearJwtToken).toHaveBeenCalled();
     });
-
   });
 
   describe("performSEP0010Auth", () => {
@@ -360,7 +364,6 @@ describe("wallet.ts", () => {
     it("persists JWT token to localStorage on successful auth", async () => {
       const challengeXDR = "challenge-xdr-123";
       const jwtToken = "jwt-token-456";
-      const { setJwtToken: authSetJwtToken } = require("@/lib/auth");
 
       mockGetChallenge.mockResolvedValue({ transaction: challengeXDR });
       mockSignTransaction.mockResolvedValue({ signedTxXdr: mockSignedXDR });

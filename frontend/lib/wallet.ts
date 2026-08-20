@@ -1,48 +1,63 @@
 /**
  * lib/wallet.ts
- * Freighter wallet integration for Finchippay Solution.
+ * Unified Stellar multi-wallet integration for Finchippay Solution (#70).
  *
- * Freighter is a browser extension wallet for Stellar.
- * Install it at: https://freighter.app
- *
- * This module wraps the @stellar/freighter-api package with
- * friendly error messages and typed return values.
+ * Abstracted wallet connection backing Freighter, Albedo, xBull, Lobstr,
+ * and WalletConnect through the unified StellarWallet interface.
  */
 
+import { setJwtToken as persistAuthToken, clearJwtToken as clearAuthToken } from "./auth";
 import {
-  isConnected,
-  getAddress,
-  signTransaction,
-  requestAccess,
-  isAllowed,
-} from "@stellar/freighter-api";
-import { logger } from "@/lib/logger";
-
-import {
-  setJwtToken as persistAuthToken,
-  clearJwtToken as clearAuthToken,
-} from "./auth";
+  setSessionKey,
+  getSessionKey,
+  getSessionOwner,
+  unlockAddressBook,
+  unlockPaymentTemplates,
+  unlockFederationCache,
+  reEncryptAddressBook,
+  reEncryptPaymentTemplates,
+  reEncryptFederationCache,
+} from "./encryptedStorage";
+import { deriveKey, getOrCreateSalt } from "./encryption";
 import { sdk } from "./sdk-instance";
-import { getNetworkPassphrase } from "./stellar";
+import {
+  WalletId,
+  ConnectResult,
+  SignResult,
+  SignOptions,
+  getWallet,
+  getActiveWallet,
+  setActiveWallet,
+  getActiveWalletId,
+} from "./wallets";
+import { logger } from "@/lib/logger";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
 let jwtToken: string | null = null;
-export function setJwtToken(token: string | null) { jwtToken = token; }
-export function getJwtToken() { return jwtToken; }
+export function setJwtToken(token: string | null) {
+  jwtToken = token;
+}
+export function getJwtToken() {
+  return jwtToken;
+}
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
   const { transaction } = await sdk.getChallenge(publicKey);
   return transaction;
 }
 
-async function verifyAuthChallenge(signedXDR: string): Promise<{ accessToken: string; refreshToken: string }> {
+async function verifyAuthChallenge(
+  signedXDR: string,
+): Promise<{ accessToken: string; refreshToken: string }> {
   const res = await sdk.verifyChallenge(signedXDR);
   const data = res as Record<string, string | undefined>;
   const accessToken = data.accessToken || data.token;
   const refreshToken = data.refreshToken;
-  sdk.setToken(accessToken);
-  return { accessToken, refreshToken };
+  if (accessToken) {
+    sdk.setToken(accessToken);
+  }
+  return { accessToken: accessToken || "", refreshToken: refreshToken || "" };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -74,85 +89,53 @@ export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
 // ─── Wallet detection ─────────────────────────────────────────────────────────
 
 export async function isFreighterInstalled(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  try {
-    const result = await isConnected();
-    return Boolean(result.isConnected);
-  } catch {
-    return false;
-  }
+  return await getWallet("freighter").isAvailable();
 }
 
 export async function hasSiteAccess(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  try {
-    const result = await isAllowed();
-    return Boolean(result.isAllowed);
-  } catch {
-    return false;
-  }
+  return await getWallet("freighter").isConnected();
+}
+
+export async function isWalletInstalled(walletId: WalletId): Promise<boolean> {
+  return await getWallet(walletId).isAvailable();
 }
 
 // ─── Connect / Disconnect ────────────────────────────────────────────────────
 
-export async function connectWallet(): Promise<{
-  publicKey: string | null;
-  error: string | null;
-}> {
-  const installed = await isFreighterInstalled();
-  if (!installed) {
-    return {
-      publicKey: null,
-      error: "Freighter wallet is not installed. Visit https://freighter.app to install it.",
-    };
-  }
+/**
+ * Connect to a Stellar wallet. If walletId is not provided, uses the active
+ * wallet (defaults to Freighter).
+ */
+export async function connectWallet(walletId?: WalletId): Promise<ConnectResult> {
+  const targetId = walletId || getActiveWalletId();
+  const adapter = getWallet(targetId);
+  setActiveWallet(targetId);
 
-  try {
-    const access = await requestAccess();
-    if (access.error) {
-      return {
-        publicKey: null,
-        error: access.error.message || "Connection rejected. Please approve the connection in Freighter.",
-      };
-    }
-
-    const publicKey = access.address || (await getAddress()).address;
-    if (!publicKey) {
-      return { publicKey: null, error: "No public key returned from Freighter." };
-    }
-
-    return { publicKey, error: null };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("User declined")) {
-      return {
-        publicKey: null,
-        error: "Connection rejected. Please approve the connection in Freighter.",
-      };
-    }
-    return { publicKey: null, error: `Wallet connection failed: ${message}` };
-  }
+  return await adapter.connect();
 }
 
-export async function getConnectedPublicKey(): Promise<string | null> {
-  try {
-    const allowed = await hasSiteAccess();
-    if (!allowed) return null;
-    const { address } = await getAddress();
-    return address || null;
-  } catch {
-    return null;
-  }
+export async function getConnectedPublicKey(walletId?: WalletId): Promise<string | null> {
+  const targetId = walletId || getActiveWalletId();
+  const adapter = getWallet(targetId);
+  return await adapter.getPublicKey();
 }
 
 // ─── SEP-0010 auth flow ──────────────────────────────────────────────────────
 
 export async function performSEP0010Auth(
-  publicKey: string
+  publicKey: string,
+  walletId?: WalletId,
 ): Promise<{ token: string | null; error: string | null }> {
   try {
     const challengeXDR = await fetchAuthChallenge(publicKey);
-    const { signedXDR, error: signError } = await signTransactionWithWallet(challengeXDR);
+    const { signedXDR, error: signError } = await signTransactionWithWallet(
+      challengeXDR,
+      {
+        accountToSign: publicKey,
+      },
+      walletId,
+    );
+
     if (signError || !signedXDR) {
       return { token: null, error: signError || "Failed to sign challenge transaction" };
     }
@@ -172,29 +155,13 @@ export async function performSEP0010Auth(
 // ─── Signing ─────────────────────────────────────────────────────────────────
 
 export async function signTransactionWithWallet(
-  transactionXDR: string
-): Promise<{ signedXDR: string | null; error: string | null }> {
-  if (typeof window === "undefined") {
-    return { signedXDR: null, error: "Wallet signing is not available during server-side rendering." };
-  }
-  try {
-    const signed = await signTransaction(transactionXDR, {
-      networkPassphrase: getNetworkPassphrase(),
-    });
-    if (signed.error) {
-      throw new Error(signed.error.message || "Freighter signing failed");
-    }
-    return { signedXDR: signed.signedTxXdr, error: null };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("User declined") || message.includes("rejected")) {
-      return {
-        signedXDR: null,
-        error: "Transaction signing was rejected by the user.",
-      };
-    }
-    return { signedXDR: null, error: `Signing failed: ${message}` };
-  }
+  transactionXDR: string,
+  opts?: SignOptions,
+  walletId?: WalletId,
+): Promise<SignResult> {
+  const targetId = walletId || getActiveWalletId();
+  const adapter = getWallet(targetId);
+  return await adapter.signTransaction(transactionXDR, opts);
 }
 
 // ─── Encrypted local-data session ────────────────────────────────────────────
@@ -202,50 +169,106 @@ export async function signTransactionWithWallet(
 export async function initEncryptionSession(publicKey: string): Promise<void> {
   if (typeof window === "undefined" || !publicKey) return;
   try {
+    if (typeof getOrCreateSalt !== "function" || typeof deriveKey !== "function") return;
     const salt = getOrCreateSalt();
     const key = await deriveKey(publicKey, salt);
-    setSessionKey(key, publicKey);
+    if (typeof setSessionKey === "function") {
+      setSessionKey(key, publicKey);
+    }
     await Promise.all([
-      unlockAddressBook(key, publicKey),
-      unlockPaymentTemplates(key, publicKey),
-      unlockFederationCache(key, publicKey),
+      typeof unlockAddressBook === "function"
+        ? unlockAddressBook(key, publicKey)
+        : Promise.resolve(),
+      typeof unlockPaymentTemplates === "function"
+        ? unlockPaymentTemplates(key, publicKey)
+        : Promise.resolve(),
+      typeof unlockFederationCache === "function"
+        ? unlockFederationCache(key, publicKey)
+        : Promise.resolve(),
     ]);
   } catch (err) {
-    logger.error("Failed to initialise encryption session", {}, err instanceof Error ? err : undefined);
+    logger.error(
+      "Failed to initialise encryption session",
+      {},
+      err instanceof Error ? err : undefined,
+    );
   }
 }
 
 export async function reEncryptLocalData(): Promise<void> {
+  if (typeof getSessionKey !== "function" || typeof getSessionOwner !== "function") return;
   const key = getSessionKey();
   const owner = getSessionOwner();
   if (!key || !owner) return;
   await Promise.all([
-    reEncryptAddressBook(key, owner),
-    reEncryptPaymentTemplates(key, owner),
-    reEncryptFederationCache(key, owner),
+    typeof reEncryptAddressBook === "function"
+      ? reEncryptAddressBook(key, owner)
+      : Promise.resolve(),
+    typeof reEncryptPaymentTemplates === "function"
+      ? reEncryptPaymentTemplates(key, owner)
+      : Promise.resolve(),
+    typeof reEncryptFederationCache === "function"
+      ? reEncryptFederationCache(key, owner)
+      : Promise.resolve(),
   ]);
 }
 
 export function disconnectWallet(): void {
-  const rToken = typeof window !== "undefined" ? localStorage.getItem("finchippay_refresh_token") : null;
+  const rToken =
+    typeof window !== "undefined" ? localStorage.getItem("finchippay_refresh_token") : null;
   const aToken = getJwtToken();
 
   if (rToken || aToken) {
-    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
-    fetch(`${API_URL}/api/auth/logout`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(aToken ? { "Authorization": `Bearer ${aToken}` } : {})
-      },
-      body: JSON.stringify({ refreshToken: rToken }),
-    }).catch((err) => {
-      logger.error("Failed to revoke token family on logout", {}, err instanceof Error ? err : undefined);
-    });
+    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(
+      /\/+$/,
+      "",
+    );
+    try {
+      const res = fetch(`${API_URL}/api/auth/logout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(aToken ? { Authorization: `Bearer ${aToken}` } : {}),
+        },
+        body: JSON.stringify({ refreshToken: rToken }),
+      });
+      if (res && typeof (res as Promise<unknown>).catch === "function") {
+        (res as Promise<unknown>).catch((err) => {
+          logger.error(
+            "Failed to revoke token family on logout",
+            {},
+            err instanceof Error ? err : undefined,
+          );
+        });
+      }
+    } catch (err) {
+      logger.error(
+        "Failed to revoke token family on logout",
+        {},
+        err instanceof Error ? err : undefined,
+      );
+    }
+  }
+
+  try {
+    getActiveWallet()
+      .disconnect()
+      .catch(() => {});
+  } catch {
+    // Ignore wallet disconnect errors
   }
 
   setJwtToken(null);
   clearAuthToken();
 }
 
-export { isLedgerSupported, signTransactionWithLedger, getLedgerPublicKey, connectLedger, disconnectLedger } from "./ledger";
+// ─── Exports ──────────────────────────────────────────────────────────────────
+
+export * from "./wallets";
+export {
+  isLedgerSupported,
+  signTransactionWithLedger,
+  getLedgerPublicKey,
+  connectLedger,
+  disconnectLedger,
+} from "./ledger";
