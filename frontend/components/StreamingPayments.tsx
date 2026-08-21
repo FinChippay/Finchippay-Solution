@@ -11,6 +11,7 @@
  *   including balance changes, resource fees, and contract errors.
  */
 
+import { withErrorBoundary } from "@/components/ErrorBoundary";
 import { useCallback, useEffect, useState } from "react";
 import {
   getActiveStreamsForRecipient,
@@ -39,7 +40,7 @@ interface StreamingPaymentsProps {
   publicKey: string;
 }
 
-export default function StreamingPayments({ publicKey }: StreamingPaymentsProps) {
+function StreamingPayments({ publicKey }: StreamingPaymentsProps) {
   const [streams, setStreams] = useState<StreamRecord[]>([]);
   const [currentLedger, setCurrentLedger] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -259,3 +260,5 @@ function StreamIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export default withErrorBoundary(StreamingPayments, "StreamingPayments");

@@ -1,3 +1,4 @@
+import { withErrorBoundary } from "@/components/ErrorBoundary";
 import { useMemo, useState } from "react";
 import {
   buildPaymentTransaction,
@@ -62,7 +63,7 @@ function createRecipient(): BatchRecipient {
   };
 }
 
-export default function BatchPaymentForm({
+function BatchPaymentForm({
   publicKey,
   xlmBalance,
   usdcBalance,
@@ -478,3 +479,5 @@ export default function BatchPaymentForm({
     </div>
   );
 }
+
+export default withErrorBoundary(BatchPaymentForm, "BatchPaymentForm");

@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { withErrorBoundary } from "@/components/ErrorBoundary";
 import { Asset } from "@stellar/stellar-sdk";
 import {
   buildPathPaymentTransaction,
@@ -85,7 +86,7 @@ interface SwapPreview {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function TradeForm({
+function TradeForm({
   publicKey,
   onTradeComplete,
   onError,
@@ -720,3 +721,5 @@ export default function TradeForm({
     </>
   );
 }
+
+export default withErrorBoundary(TradeForm, "TradeForm");

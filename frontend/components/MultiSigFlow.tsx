@@ -21,6 +21,7 @@
  *  https://developers.stellar.org/docs/learn/encyclopedia/security/signatures-multisig
  */
 
+import { withErrorBoundary } from "@/components/ErrorBoundary";
 import { useState, useCallback } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
 import clsx from "clsx";
@@ -78,7 +79,7 @@ function extractHints(signedXDRs: string[]): string[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function MultiSigFlow({
+function MultiSigFlow({
   publicKey,
   xlmBalance,
   prefill,
@@ -610,6 +611,8 @@ function Spinner() {
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
+
+export default withErrorBoundary(MultiSigFlow, "MultiSigFlow");
 
 function MultiSigIcon({ className }: { className?: string }) {
   return (
