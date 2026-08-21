@@ -22,11 +22,12 @@ const crypto = require("crypto");
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
 const priceFeedService = require("./services/priceFeedService");
-const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 const logger = require("./utils/logger");
 const { correlationMiddleware, getRequestId } = require("./utils/correlationId");
-// Registers the correlation-ID provider for error bodies built in this process.
-const { errorLogFields } = require("./utils/errorResponse");
+// Requiring errorResponse registers the correlation-ID provider for error
+// bodies built in this process.
+const { sendError } = require("./utils/errorResponse");
+const { errorHandler } = require("./middleware/errorHandler");
 const { parseAllowedOrigins } = require("./config/validateEnv");
 
 const TURRETS_PORT = Number(process.env.TURRETS_PORT || 4100);
@@ -100,7 +101,9 @@ function createTurretsApp() {
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    // A handler, not `message`, so the 429 carries the problem+json envelope.
+    handler: (req, res, next, options) =>
+      sendError(res, "RATE_LIMITED_SENSITIVE", { status: options.statusCode }),
   });
 
   // ─── Health (exempt from rate limiting) ─────────────────────────────────────
@@ -125,28 +128,8 @@ function createTurretsApp() {
   // ─── Sentry error handler (must be before generic handler) ──────────────────
   Sentry.setupExpressErrorHandler(app);
 
-  // ─── Error handler ──────────────────────────────────────────────────────────
-  app.use((err, req, res, next) => {
-    void next;
-    if (err.errorCode) {
-      const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
-      logger.error(
-        { ...errorLogFields(err.errorCode, { details: err.details }), status },
-        "Request error",
-      );
-      return res.status(status).json(formatErrorResponse(err.errorCode, err.details));
-    }
-    const status = err.status || 500;
-    logger.error(
-      { ...errorLogFields("SRV_INTERNAL"), status, message: err.message },
-      "Request error",
-    );
-    res.status(status).json(
-      formatErrorResponse("SRV_INTERNAL", {
-        reason: err.message || "Internal Server Error",
-      }),
-    );
-  });
+  // ─── Error handler (shared problem+json envelope) ───────────────────────────
+  app.use(errorHandler);
 
   return app;
 }

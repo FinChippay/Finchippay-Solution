@@ -2,12 +2,13 @@
 
 const express = require("express");
 const { getPoolStats } = require("../../db/connection");
+const { sendError } = require("../../utils/errorResponse");
 
 const router = express.Router();
 
 function requireAdmin(req, res, next) {
   if (req.user && req.user.role && req.user.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" });
+    return sendError(res, "AUTH_FORBIDDEN", { message: "Admin access required" });
   }
   next();
 }
@@ -23,7 +24,7 @@ router.get("/pool-stats", (req, res) => {
     const stats = getPoolStats();
     res.json(stats);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, "SRV_INTERNAL", { details: { reason: err.message } });
   }
 });
 

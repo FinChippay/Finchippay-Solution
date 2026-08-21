@@ -2,8 +2,12 @@
  * shared/errorCodes.js
  * Canonical error code registry for Finchippay Solution.
  *
- * Every API error response follows the shape:
- *   { error: { code: string, message: string, correlationId?: string, details?: any } }
+ * Every API error response is an RFC 7807 `application/problem+json` document:
+ *   { type, title, status, detail, instance?, code, correlationId?, details?,
+ *     error: { code, message, correlationId?, details? } }
+ *
+ * The `error` member is the pre-7807 body, kept verbatim as an extension member
+ * so consumers written against it keep working.
  *
  * `correlationId` is the request's `X-Request-ID`, which lets support trace a
  * single user-reported failure across the contract, API, and frontend logs. It
@@ -15,7 +19,9 @@
  *   - ERROR_CODES: the full catalogue keyed by code string.
  *   - getError(code): lookup helper returning { code, httpStatus, message }.
  *   - getErrorLayer(code): which layer owns the code — contract, api, frontend.
- *   - formatErrorResponse(code, details?): builds the canonical error body.
+ *   - formatErrorResponse(code, details?): builds the legacy `{ error }` body.
+ *   - formatProblemResponse(code, details?, overrides?): builds the problem+json
+ *     body, `error` member included.
  *   - setCorrelationIdProvider(fn): supplies the correlation ID for that body.
  *   - CONTRACT_ERROR_MAP: maps numeric ContractError values → error codes.
  *
@@ -85,8 +91,7 @@ const ERROR_CODES = {
   AUTH_MISSING_HEADER: {
     code: "AUTH_MISSING_HEADER",
     httpStatus: 401,
-    message:
-      "Missing or invalid Authorization header. Expected 'Bearer <token>'.",
+    message: "Missing or invalid Authorization header. Expected 'Bearer <token>'.",
   },
   AUTH_FORBIDDEN: {
     code: "AUTH_FORBIDDEN",
@@ -207,8 +212,7 @@ const ERROR_CODES = {
   RES_ACCOUNT_NOT_FOUND: {
     code: "RES_ACCOUNT_NOT_FOUND",
     httpStatus: 404,
-    message:
-      "Account not found. It may not be funded yet. Use Friendbot on testnet.",
+    message: "Account not found. It may not be funded yet. Use Friendbot on testnet.",
   },
   RES_CONFLICT: {
     code: "RES_CONFLICT",
@@ -434,8 +438,7 @@ const ERROR_CODES = {
   PAY_DESTINATION_NOT_FUNDED: {
     code: "PAY_DESTINATION_NOT_FUNDED",
     httpStatus: 400,
-    message:
-      "Destination account does not exist. Send at least 1 XLM to create it.",
+    message: "Destination account does not exist. Send at least 1 XLM to create it.",
   },
   PAY_INVALID_DESTINATION: {
     code: "PAY_INVALID_DESTINATION",
@@ -510,8 +513,7 @@ const ERROR_CODES = {
   WALLET_ACCOUNT_MISMATCH: {
     code: "WALLET_ACCOUNT_MISMATCH",
     httpStatus: 0,
-    message:
-      "The wallet's selected account differs from the active account in this app.",
+    message: "The wallet's selected account differs from the active account in this app.",
   },
   WALLET_LOCKED: {
     code: "WALLET_LOCKED",
@@ -630,6 +632,18 @@ function getError(code) {
 }
 
 /**
+ * The HTTP status a code maps to. Codes that only ever occur client-side carry
+ * `httpStatus: 0`; treat those as 500 if one ever reaches an HTTP response.
+ *
+ * @param {string} code
+ * @returns {number}
+ */
+function httpStatusForCode(code) {
+  const status = getError(code).httpStatus;
+  return status > 0 ? status : 500;
+}
+
+/**
  * The layer that owns an error code, derived from its category prefix.
  *
  * @param {string} code - Error code key (e.g. "CONTRACT_NOT_FOUND")
@@ -685,6 +699,58 @@ function formatErrorResponse(code, details, overrides = {}) {
   return body;
 }
 
+// ─── RFC 7807 problem+json ─────────────────────────────────────────────────
+
+/** Media type every API error response is served with (RFC 7807 §3). */
+const PROBLEM_CONTENT_TYPE = "application/problem+json";
+
+/** Document the `type` URIs dereference to. */
+const PROBLEM_TYPE_BASE =
+  "https://github.com/FinChippay/Finchippay-Solution/blob/main/docs/error-codes.md";
+
+/**
+ * The `type` URI for a code. docs/error-codes.md carries no per-code headings,
+ * so the anchor is the code lowercased — derivable from the code alone, which
+ * is what lets clients build the link without a lookup table.
+ *
+ * @param {string} code
+ * @returns {string}
+ */
+function problemTypeUri(code) {
+  return `${PROBLEM_TYPE_BASE}#${getError(code).code.toLowerCase()}`;
+}
+
+/**
+ * Build the RFC 7807 problem+json body for a code.
+ *
+ * `title` is the registry message, so it is stable per code; `detail` is the
+ * per-occurrence message, which `overrides.message` supplies. The legacy
+ * `{ code, message, correlationId?, details? }` object is carried unchanged
+ * under `error` for consumers that predate this envelope.
+ *
+ * @param {string} code - Error code key (e.g. "VAL_INVALID_AMOUNT")
+ * @param {*} [details] - Optional extra data (field name, validation issues, etc.)
+ * @param {{ message?: string, correlationId?: string, instance?: string, status?: number }} [overrides]
+ * @returns {{ type: string, title: string, status: number, detail: string, instance?: string, code: string, correlationId?: string, details?: *, error: object }}
+ */
+function formatProblemResponse(code, details, overrides = {}) {
+  const entry = getError(code);
+  const legacy = formatErrorResponse(code, details, overrides).error;
+
+  const problem = {
+    type: problemTypeUri(entry.code),
+    title: entry.message,
+    status: overrides.status || httpStatusForCode(entry.code),
+    detail: legacy.message,
+  };
+  if (overrides.instance) problem.instance = overrides.instance;
+  problem.code = entry.code;
+  if (legacy.correlationId) problem.correlationId = legacy.correlationId;
+  if (legacy.details !== undefined) problem.details = legacy.details;
+  problem.error = legacy;
+  return problem;
+}
+
 /**
  * Map a numeric contract error code to the canonical error code key.
  *
@@ -714,10 +780,15 @@ module.exports = {
   ERROR_CODES,
   CATEGORY_LAYERS,
   CONTRACT_ERROR_MAP,
+  PROBLEM_CONTENT_TYPE,
+  PROBLEM_TYPE_BASE,
   getError,
   getErrorLayer,
+  httpStatusForCode,
   isKnownErrorCode,
   formatErrorResponse,
+  formatProblemResponse,
+  problemTypeUri,
   getContractErrorCode,
   formatContractErrorResponse,
   setCorrelationIdProvider,

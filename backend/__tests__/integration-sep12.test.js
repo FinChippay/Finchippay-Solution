@@ -64,8 +64,9 @@ describe("SEP-12 KYC Integration", () => {
         .send({ fields: { first_name: "John" } });
 
       expect(res.status).toBe(400);
-      // Zod validation returns { error: "...", details: {...} } format.
-      expect(res.body.error).toBe("anchorName is required");
+      // Zod validation returns the problem+json envelope (#635).
+      expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+      expect(res.body.detail).toBe("anchorName is required");
     });
 
     it("returns 400 when fields is missing", async () => {

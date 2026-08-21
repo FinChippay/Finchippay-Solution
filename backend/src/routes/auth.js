@@ -12,7 +12,6 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const { authChallengeQuerySchema, authTokenBodySchema } = require("../validation/schemas");
 const tokenService = require("../services/tokenService");
@@ -59,9 +58,7 @@ router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
     );
     res.json({ transaction: challenge, networkPassphrase: NETWORK_PASSPHRASE });
   } catch (e) {
-    res
-      .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
-      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
+    sendError(res, "AUTH_CHALLENGE_FAILED", { details: { reason: e.message } });
   }
 });
 
@@ -110,9 +107,7 @@ router.post("/", validate(authTokenBodySchema), async (req, res, next) => {
     if (typeof next === "function" && e.status) {
       return next(e);
     }
-    res
-      .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)
-      .json(formatErrorResponse("AUTH_CHALLENGE_FAILED", { reason: e.message }));
+    sendError(res, "AUTH_CHALLENGE_FAILED", { details: { reason: e.message } });
   }
 });
 
@@ -120,9 +115,7 @@ router.post("/", validate(authTokenBodySchema), async (req, res, next) => {
 router.post("/refresh", authRefreshLimiter, async (req, res) => {
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
   if (!refreshToken) {
-    return res
-      .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-      .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["refreshToken"] }));
+    return sendError(res, "VAL_MISSING_FIELD", { details: { fields: ["refreshToken"] } });
   }
 
   const rotated = await tokenService.rotateRefreshToken(
@@ -203,7 +196,10 @@ router.post("/revoke", async (req, res) => {
     return res.json({ success: true, message: "Token revoked successfully." });
   }
 
-  return res.status(400).json({ success: false, message: "Missing sessionId or refreshToken." });
+  return sendError(res, "VAL_MISSING_FIELD", {
+    message: "Missing sessionId or refreshToken.",
+    details: { fields: ["sessionId", "refreshToken"] },
+  });
 });
 
 // GET /api/auth/sessions — list active sessions for authenticated user
@@ -213,7 +209,7 @@ router.get("/sessions", verifyJWT, async (req, res) => {
     const sessions = await tokenService.getActiveSessions(publicKey);
     res.json({ success: true, sessions });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    sendError(res, "SRV_INTERNAL", { details: { reason: err.message } });
   }
 });
 

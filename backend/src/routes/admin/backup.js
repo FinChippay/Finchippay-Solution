@@ -2,13 +2,14 @@
 
 const express = require("express");
 const { performBackup, restoreBackup, listBackups } = require("../../services/backupService");
+const { sendError } = require("../../utils/errorResponse");
 
 const router = express.Router();
 
 // Middleware placeholder for admin auth guard (if req.user role is admin)
 function requireAdmin(req, res, next) {
   if (req.user && req.user.role && req.user.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" });
+    return sendError(res, "AUTH_FORBIDDEN", { message: "Admin access required" });
   }
   next();
 }
@@ -24,7 +25,7 @@ router.get("/backups", (req, res) => {
     const backups = listBackups();
     res.json({ backups });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, "SRV_INTERNAL", { details: { reason: err.message } });
   }
 });
 
@@ -37,7 +38,7 @@ router.post("/backup", async (req, res) => {
     const result = await performBackup();
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, "SRV_INTERNAL", { details: { reason: err.message } });
   }
 });
 
@@ -49,12 +50,15 @@ router.post("/restore", async (req, res) => {
   try {
     const { filename } = req.body || {};
     if (!filename) {
-      return res.status(400).json({ error: "filename is required" });
+      return sendError(res, "VAL_MISSING_FIELD", {
+        message: "filename is required",
+        details: { field: "filename" },
+      });
     }
     const result = await restoreBackup(filename);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, "SRV_INTERNAL", { details: { reason: err.message } });
   }
 });
 

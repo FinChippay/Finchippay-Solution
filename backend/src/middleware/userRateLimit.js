@@ -1,6 +1,7 @@
 "use strict";
 
 const rateLimit = require("express-rate-limit");
+const { sendError } = require("../utils/errorResponse");
 
 // We intentionally do not use `createInstrumentedLimiter` from rateLimit.js
 // because we want precise control over the headers so they don't overwrite
@@ -17,14 +18,9 @@ const baseLimiter = rateLimit({
   // We'll inject our own X-RateLimit-User-* headers in the wrapper.
   standardHeaders: false,
   legacyHeaders: false,
-  handler: (req, res, next) => {
-    // Return 429 Too Many Requests per requirements
-    // "Too many requests from this account"
-    res.status(429).json({
-      error: {
-        code: "RATE_LIMITED_USER",
-        message: "Too many requests from this account",
-      },
+  handler: (req, res) => {
+    sendError(res, "RATE_LIMITED_USER", {
+      message: "Too many requests from this account",
     });
   },
 });

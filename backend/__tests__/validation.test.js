@@ -6,7 +6,9 @@
  *   - src/validation/middleware.js (validate() + zodErrorHandler)
  *
  * Covers the acceptance criteria:
- *   - invalid inputs return 400 with { error, details: { field: [messages] } }
+ *   - invalid inputs return the 400 problem+json envelope (#635): code
+ *     VAL_MISSING_FIELD, the first issue as `detail`, and
+ *     details: { field: [messages] }
  *   - controllers receive parsed data on req.validated
  */
 
@@ -68,7 +70,8 @@ describe("tipSchema (POST /api/tips)", () => {
       .send({ ...validTip, senderPublicKey: "not-a-key" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Invalid Stellar public key format");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("Invalid Stellar public key format");
     expect(Array.isArray(res.body.details.senderPublicKey)).toBe(true);
     expect(res.body.details.senderPublicKey).toContain("Invalid Stellar public key format");
   });
@@ -88,7 +91,8 @@ describe("tipSchema (POST /api/tips)", () => {
       .send({ ...validTip, amount: "0" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("amount must be a positive number");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("amount must be a positive number");
     expect(res.body.details.amount).toContain("amount must be a positive number");
   });
 
@@ -111,7 +115,8 @@ describe("registerWebhookSchema (POST /api/webhooks)", () => {
     const res = await request(app).post("/test").send({ url: "https://x.test/hook" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/required/i);
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toMatch(/required/i);
     expect(res.body.details.publicKey).toBeDefined();
     expect(res.body.details.secret).toBeDefined();
   });
@@ -157,7 +162,8 @@ describe("registerUsernameSchema (POST /api/accounts/register)", () => {
     const res = await request(app).post("/test").send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("username and publicKey are required");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("username and publicKey are required");
     expect(Object.keys(res.body.details).sort()).toEqual(["publicKey", "username"]);
   });
 });
@@ -175,7 +181,8 @@ describe("scheduleTransactionSchema (POST /api/scheduled-txns)", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("valid ISO 8601 date");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toContain("valid ISO 8601 date");
   });
 
   it("accepts the legacy placeholder publicKey (presence-only check)", async () => {
@@ -199,7 +206,8 @@ describe("federationQuerySchema (GET /federation)", () => {
     const res = await request(app).get("/test");
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Missing required parameters: q and type");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("Missing required parameters: q and type");
     expect(res.body.details.q).toBeDefined();
   });
 
@@ -207,7 +215,8 @@ describe("federationQuerySchema (GET /federation)", () => {
     const res = await request(app).get("/test").query({ q: "user*domain.com", type: "banana" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Invalid type parameter. Must be 'name' or 'id'");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("Invalid type parameter. Must be 'name' or 'id'");
     expect(res.body.details.type).toContain("Invalid type parameter. Must be 'name' or 'id'");
   });
 });
@@ -222,7 +231,8 @@ describe("SEP-0024 schemas", () => {
       .send({ asset_code: "USDC", account: "not-a-valid-key" });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("Invalid Stellar public key");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toContain("Invalid Stellar public key");
     expect(res.body.details.account).toBeDefined();
   });
 
@@ -231,7 +241,8 @@ describe("SEP-0024 schemas", () => {
     const res = await request(app).get("/test");
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Missing required query parameter: id");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("Missing required query parameter: id");
     expect(res.body.details.id).toContain("Missing required query parameter: id");
   });
 });
@@ -341,7 +352,8 @@ describe("validate() middleware internals", () => {
 
     const res = await request(app).get("/boom");
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Invalid Stellar public key format");
+    expect(res.body.error.code).toBe("VAL_MISSING_FIELD");
+    expect(res.body.detail).toBe("Invalid Stellar public key format");
     expect(res.body.details).toBeDefined();
   });
 

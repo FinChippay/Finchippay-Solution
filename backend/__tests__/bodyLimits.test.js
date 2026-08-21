@@ -17,7 +17,8 @@ describe("Content-Type enforcement (#81)", () => {
       .send("publicKey=x&url=y&secret=z");
 
     expect(res.status).toBe(415);
-    expect(res.body.error).toMatch(/application\/json/i);
+    expect(res.body.error.code).toBe("VAL_CONTENT_TYPE");
+    expect(res.body.error.message).toMatch(/application\/json/i);
   });
 
   it("accepts application/json with a charset parameter", async () => {
