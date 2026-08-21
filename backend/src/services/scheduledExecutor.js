@@ -9,6 +9,16 @@
  * transaction as failed and triggers failure notification.
  *
  * Execution history is logged to scheduled_txn_executions table for audit.
+ *
+ * Single-execution guarantee (#632):
+ *  - Before any side effect runs, the worker atomically claims the execution
+ *    (a Redis SET NX PX distributed lock plus a durable `execution_status =
+ *    'claimed'` row with a `lease_expires_at` lease). Exactly one worker can
+ *    own a claim at a time.
+ *  - If a worker crashes mid-execution, its lease expires and another worker
+ *    reclaims and completes the execution instead of silently dropping it.
+ *  - Due-but-unclaimed runs from missed ticks are swept up on every cycle
+ *    (and on startup), so a skipped tick is caught up rather than lost.
  */
 
 "use strict";
@@ -25,7 +35,15 @@ const webhookService = require("./webhookService");
 const EXECUTOR_INTERVAL_MS = process.env.SCHEDULED_EXECUTOR_INTERVAL_MS || 60_000; // 60 seconds
 const MAX_RETRIES = process.env.SCHEDULED_TX_MAX_RETRIES || 3;
 const RETRY_INTERVAL_MS = process.env.SCHEDULED_TX_RETRY_INTERVAL_MS || 5 * 60 * 1000; // 5 minutes
-const EXECUTION_WINDOW_MS = 60_000; // Execute transactions within ±60 seconds of scheduled time
+const EXECUTION_LEASE_MS = parseInt(process.env.SCHEDULED_EXECUTION_LEASE_MS || "120000", 10); // 2 minutes
+
+const LOCK_KEY_PREFIX = "scheduled_execution:lock:";
+
+const EXECUTION_STATUS = Object.freeze({
+  CLAIMED: "claimed",
+  EXECUTED: "executed",
+  FAILED: "failed",
+});
 
 let executorTimer = null;
 let isRunning = false;
@@ -87,26 +105,243 @@ function isRetryableError(errorCode) {
 }
 
 /**
- * Get all scheduled transactions due for execution.
- * Returns transactions whose next_run_at is within the execution window.
+ * Determine if a database error is a unique/primary-key constraint violation,
+ * used to detect that another worker already inserted the execution claim.
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isUniqueViolation(err) {
+  if (!err) return false;
+  const code = err.code || (err.cause && err.cause.code);
+  if (
+    code === "23505" ||
+    code === "SQLITE_CONSTRAINT" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    code === "SQLITE_CONSTRAINT_PRIMARYKEY"
+  ) {
+    return true;
+  }
+  return /unique constraint/i.test(err.message || "");
+}
+
+/**
+ * Derive a deterministic execution id for a schedule's current run.
+ *
+ * Using the schedule id + its `next_run_at` (which only advances after a
+ * successful run) means every worker that races to execute the same due run
+ * computes the *same* execution id. The first worker's INSERT wins; everyone
+ * else hits a primary-key collision and backs off.
+ *
+ * @param {object} schedule - Scheduled transaction record from DB
+ * @returns {string}
+ */
+function executionIdForRun(schedule) {
+  const runAt = schedule.next_run_at ? new Date(schedule.next_run_at).getTime() : Date.now();
+  return `${schedule.id}:${runAt}`;
+}
+
+// ─── Redis distributed lock (ioredis, only when REDIS_URL is set) ────────────
+
+let lockRedis = null;
+
+function getLockRedis() {
+  if (lockRedis) return lockRedis;
+  if (!process.env.REDIS_URL) return null;
+  try {
+    const { Redis } = require("ioredis");
+    lockRedis = new Redis(process.env.REDIS_URL, {
+      maxRetriesPerRequest: 2,
+      enableOfflineQueue: false,
+    });
+    lockRedis.on("error", (err) => {
+      logger.warn({ err }, "Scheduled executor lock Redis client error");
+    });
+  } catch (err) {
+    logger.warn({ err }, "Failed to initialise scheduled executor lock Redis client");
+    return null;
+  }
+  return lockRedis;
+}
+
+/**
+ * Acquire a distributed lock using SET NX PX.
+ * @param {string} key - Lock key
+ * @param {number} ttlMs - Lock TTL in milliseconds
+ * @returns {Promise<"acquired"|"held"|"unavailable">} "acquired" when this
+ *   worker owns the lock, "held" when another worker owns it, or "unavailable"
+ *   when Redis is not configured/reachable (caller falls back to the DB claim).
+ */
+async function acquireLock(key, ttlMs) {
+  const redis = getLockRedis();
+  if (!redis) return "unavailable";
+  try {
+    const result = await redis.set(key, "1", "PX", ttlMs, "NX");
+    return result === "OK" ? "acquired" : "held";
+  } catch (err) {
+    logger.warn({ err, key }, "Redis lock acquire failed — falling back to DB claim");
+    return "unavailable";
+  }
+}
+
+/**
+ * Release a distributed lock (best effort).
+ * @param {string} key - Lock key
+ */
+async function releaseLock(key) {
+  const redis = getLockRedis();
+  if (!redis) return;
+  try {
+    await redis.del(key);
+  } catch (err) {
+    logger.warn({ err, key }, "Redis lock release failed");
+  }
+}
+
+// ─── Claim / lease management ────────────────────────────────────────────────
+
+/**
+ * Claim a brand-new execution so only one worker runs its side effect.
+ *
+ * The claim is keyed by the deterministic execution id for the schedule's run;
+ * concurrent workers compute the same id and race on a single INSERT. The
+ * first worker's INSERT wins; everyone else hits a primary-key collision and
+ * backs off. A Redis SET NX PX lock (when available) is used as a fast
+ * distributed gate before touching the database.
+ *
+ * @param {string} executionId - Deterministic execution id for the run
+ * @param {object} schedule - Scheduled transaction record from DB
+ * @returns {Promise<{executionId:string, lockKey:string, leaseExpiresAt:Date}|null>}
+ */
+async function claimExecution(executionId, schedule) {
+  const lockKey = `${LOCK_KEY_PREFIX}${executionId}`;
+  const leaseExpiresAt = new Date(Date.now() + EXECUTION_LEASE_MS);
+
+  const lockResult = await acquireLock(lockKey, EXECUTION_LEASE_MS);
+  if (lockResult === "held") {
+    logger.debug(
+      { executionId, scheduleId: schedule.id },
+      "Execution already locked by another worker",
+    );
+    return null;
+  }
+
+  try {
+    await knex("scheduled_txn_executions").insert({
+      id: executionId,
+      schedule_id: schedule.id,
+      owner_pk: schedule.owner_pk,
+      status: "pending",
+      attempt_number: 1,
+      execution_status: EXECUTION_STATUS.CLAIMED,
+      lease_expires_at: leaseExpiresAt,
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      if (lockResult === "acquired") await releaseLock(lockKey);
+      logger.debug({ executionId, scheduleId: schedule.id }, "Execution already claimed; skipping");
+      return null;
+    }
+    if (lockResult === "acquired") await releaseLock(lockKey);
+    throw err;
+  }
+
+  return { executionId, lockKey, leaseExpiresAt };
+}
+
+/**
+ * Re-claim an existing pending execution for a retry attempt, or recover a
+ * claim left behind by a crashed worker whose lease has expired.
+ *
+ * The UPDATE is guarded so only one concurrent worker flips the row from
+ * "unclaimed"/"expired" back to "claimed" (the others affect 0 rows).
+ *
+ * @param {string} executionId - Execution id of the pending execution
+ * @param {object} schedule - Scheduled transaction record from DB
+ * @returns {Promise<{executionId:string, lockKey:string, leaseExpiresAt:Date}|null>}
+ */
+async function claimRetry(executionId, schedule) {
+  const lockKey = `${LOCK_KEY_PREFIX}${executionId}`;
+  const leaseExpiresAt = new Date(Date.now() + EXECUTION_LEASE_MS);
+
+  const lockResult = await acquireLock(lockKey, EXECUTION_LEASE_MS);
+  if (lockResult === "held") {
+    logger.debug(
+      { executionId, scheduleId: schedule.id },
+      "Retry already locked by another worker",
+    );
+    return null;
+  }
+
+  const updated = await knex("scheduled_txn_executions")
+    .where("id", executionId)
+    .andWhere("status", "pending")
+    .andWhere(function (builder) {
+      builder.whereNull("execution_status").orWhere(function (inner) {
+        inner.where("execution_status", EXECUTION_STATUS.CLAIMED).andWhere(function (lease) {
+          lease.whereNull("lease_expires_at").orWhere("lease_expires_at", "<=", new Date());
+        });
+      });
+    })
+    .update({
+      execution_status: EXECUTION_STATUS.CLAIMED,
+      lease_expires_at: leaseExpiresAt,
+    });
+
+  if (updated !== 1) {
+    if (lockResult === "acquired") await releaseLock(lockKey);
+    logger.debug({ executionId, scheduleId: schedule.id }, "Retry already claimed; skipping");
+    return null;
+  }
+
+  return { executionId, lockKey, leaseExpiresAt };
+}
+
+/**
+ * Mark a claimed execution as resolved and release its lease + lock.
+ * @param {object} claim - Claim returned by claimExecution()
+ * @param {object} updates - Column updates to apply (status, execution_status, …)
+ */
+async function finalizeClaim(claim, updates) {
+  await knex("scheduled_txn_executions")
+    .where("id", claim.executionId)
+    .update({ ...updates, lease_expires_at: null });
+  await releaseLock(claim.lockKey);
+}
+
+// ─── Due / retry discovery ───────────────────────────────────────────────────
+
+/**
+ * Get all scheduled transactions due for execution, including missed runs.
+ *
+ * A schedule is "due" when its next_run_at is now or in the past — the old
+ * ±60s window silently dropped runs whenever a tick was missed, so we sweep
+ * everything overdue instead. Schedules that already have an unresolved
+ * (pending) execution are excluded: those are handled by the retry sweep.
+ *
  * @returns {Promise<Array>} Array of due scheduled transaction records
  */
 async function getDueTransactions() {
   const now = new Date();
-  const windowStart = new Date(now.getTime() - EXECUTION_WINDOW_MS);
-  const windowEnd = new Date(now.getTime() + EXECUTION_WINDOW_MS);
 
-  const dueTransactions = await knex("scheduled_transactions")
-    .where("status", "active")
-    .andWhereBetween("next_run_at", [windowStart, windowEnd])
-    .orderBy("next_run_at", "asc");
+  const dueTransactions = await knex("scheduled_transactions as st")
+    .where("st.status", "active")
+    .andWhere("st.next_run_at", "<=", now)
+    .whereNotExists(function () {
+      this.select(knex.raw("1"))
+        .from("scheduled_txn_executions as ex")
+        .whereRaw("ex.schedule_id = st.id")
+        .andWhere("ex.status", "pending");
+    })
+    .orderBy("st.next_run_at", "asc");
 
   return dueTransactions;
 }
 
 /**
  * Get pending retries (failed executions not yet resolved).
- * Returns executions due for retry based on next_retry_at.
+ * Returns executions due for retry based on next_retry_at, including crashed
+ * claims whose lease has expired.
+ *
  * @returns {Promise<Array>} Array of retry-due execution records
  */
 async function getPendingRetries() {
@@ -117,11 +352,16 @@ async function getPendingRetries() {
     .andWhere((builder) => {
       builder.whereNull("next_retry_at").orWhere("next_retry_at", "<=", now);
     })
+    .andWhere((builder) => {
+      builder.whereNull("execution_status").orWhere("lease_expires_at", "<=", now);
+    })
     .orderBy("next_retry_at", "asc")
     .limit(50); // Process up to 50 retries per cycle
 
   return pendingRetries;
 }
+
+// ─── Submission ──────────────────────────────────────────────────────────────
 
 /**
  * Build and submit a scheduled transaction to Stellar.
@@ -180,7 +420,8 @@ async function submitScheduledTransaction(schedule) {
 }
 
 /**
- * Log execution attempt to execution history table.
+ * Log execution attempt to execution history table (used by the manual
+ * execute-now path, which is not part of the auto-execution claim flow).
  * @param {object} params - { scheduleId, ownerId, status, attemptNumber, hash, error, errorCode }
  * @returns {Promise<object>} Execution record created
  */
@@ -248,34 +489,45 @@ async function notifyFailure(schedule, execution) {
 }
 
 /**
- * Handle a due transaction: submit it or queue for retry.
+ * Advance a schedule's next_run_at after a successful run.
+ * @param {object} schedule - Scheduled transaction record
+ */
+async function advanceSchedule(schedule) {
+  const nextRun = scheduledTransactionService.estimateNextRun(schedule.frequency, new Date());
+  if (nextRun) {
+    await knex("scheduled_transactions").where("id", schedule.id).update({ next_run_at: nextRun });
+  }
+}
+
+/**
+ * Handle a due transaction: claim it, then submit it or queue for retry.
  * @param {object} schedule - Scheduled transaction record
  */
 async function executeDueTransaction(schedule) {
+  const executionId = executionIdForRun(schedule);
+  const claim = await claimExecution(executionId, schedule);
+  if (!claim) {
+    logger.debug({ scheduleId: schedule.id }, "Skipping already-claimed due transaction");
+    return;
+  }
+
   logger.debug(
-    { scheduleId: schedule.id, recipient: schedule.recipient },
+    { scheduleId: schedule.id, recipient: schedule.recipient, executionId },
     "Executing due scheduled transaction",
   );
 
   const result = await submitScheduledTransaction(schedule);
 
   if (result.success) {
-    // Success: log and update schedule
-    await logExecution({
-      scheduleId: schedule.id,
-      ownerId: schedule.owner_pk,
+    // Success: resolve and update schedule
+    await finalizeClaim(claim, {
       status: "submitted",
-      attemptNumber: 1,
-      hash: result.hash,
+      execution_status: EXECUTION_STATUS.EXECUTED,
+      submitted_hash: result.hash,
+      resolved_at: new Date(),
     });
 
-    // Update next run time for recurring schedules
-    const nextRun = scheduledTransactionService.estimateNextRun(schedule.frequency, new Date());
-    if (nextRun) {
-      await knex("scheduled_transactions")
-        .where("id", schedule.id)
-        .update({ next_run_at: nextRun });
-    }
+    await advanceSchedule(schedule);
 
     logger.info(
       { scheduleId: schedule.id, hash: result.hash },
@@ -287,16 +539,15 @@ async function executeDueTransaction(schedule) {
     const isRetryable = isRetryableError(errorCode);
 
     if (isRetryable) {
-      // Queue for retry
+      // Queue for retry (release the claim so the retry sweep can re-claim it)
       const nextRetryAt = new Date(Date.now() + RETRY_INTERVAL_MS);
-      await logExecution({
-        scheduleId: schedule.id,
-        ownerId: schedule.owner_pk,
+      await finalizeClaim(claim, {
         status: "pending",
-        attemptNumber: 1,
-        errorMessage: result.error?.message,
-        errorCode,
-        nextRetryAt,
+        execution_status: null,
+        attempt_number: 1,
+        error_message: result.error?.message,
+        error_code: errorCode,
+        next_retry_at: nextRetryAt,
       });
 
       logger.info(
@@ -305,18 +556,24 @@ async function executeDueTransaction(schedule) {
       );
     } else {
       // Permanent failure: mark as failed and notify
-      const execution = await logExecution({
-        scheduleId: schedule.id,
-        ownerId: schedule.owner_pk,
+      await finalizeClaim(claim, {
         status: "failed",
-        attemptNumber: 1,
-        errorMessage: result.error?.message,
-        errorCode,
+        execution_status: EXECUTION_STATUS.FAILED,
+        attempt_number: 1,
+        error_message: result.error?.message,
+        error_code: errorCode,
+        resolved_at: new Date(),
       });
 
       await knex("scheduled_transactions").where("id", schedule.id).update({ status: "failed" });
 
-      await notifyFailure(schedule, execution);
+      await notifyFailure(schedule, {
+        id: claim.executionId,
+        attempt_number: 1,
+        error_code: errorCode,
+        error_message: result.error?.message,
+        executed_at: new Date(),
+      });
 
       logger.warn(
         { scheduleId: schedule.id, error: errorCode },
@@ -327,7 +584,7 @@ async function executeDueTransaction(schedule) {
 }
 
 /**
- * Handle a pending retry: re-submit failed transaction.
+ * Handle a pending retry: re-claim and re-submit a failed transaction.
  * @param {object} execution - Execution history record
  */
 async function handleRetry(execution) {
@@ -335,6 +592,12 @@ async function handleRetry(execution) {
 
   if (!schedule) {
     logger.warn({ executionId: execution.id }, "Scheduled transaction not found for retry");
+    return;
+  }
+
+  const claim = await claimRetry(execution.id, schedule);
+  if (!claim) {
+    logger.debug({ executionId: execution.id }, "Skipping already-claimed retry");
     return;
   }
 
@@ -347,19 +610,14 @@ async function handleRetry(execution) {
 
   if (result.success) {
     // Success on retry
-    await knex("scheduled_txn_executions").where("id", execution.id).update({
+    await finalizeClaim(claim, {
       status: "submitted",
+      execution_status: EXECUTION_STATUS.EXECUTED,
       submitted_hash: result.hash,
       resolved_at: new Date(),
     });
 
-    // Update schedule next run
-    const nextRun = scheduledTransactionService.estimateNextRun(schedule.frequency, new Date());
-    if (nextRun) {
-      await knex("scheduled_transactions")
-        .where("id", schedule.id)
-        .update({ next_run_at: nextRun });
-    }
+    await advanceSchedule(schedule);
 
     logger.info(
       { scheduleId: schedule.id, hash: result.hash, attempt: execution.attempt_number + 1 },
@@ -374,7 +632,9 @@ async function handleRetry(execution) {
     if (isRetryable && nextAttempt < MAX_RETRIES) {
       // Queue next retry
       const nextRetryAt = new Date(Date.now() + RETRY_INTERVAL_MS);
-      await knex("scheduled_txn_executions").where("id", execution.id).update({
+      await finalizeClaim(claim, {
+        status: "pending",
+        execution_status: null,
         attempt_number: nextAttempt,
         error_message: result.error?.message,
         error_code: errorCode,
@@ -387,8 +647,9 @@ async function handleRetry(execution) {
       );
     } else {
       // Final failure
-      await knex("scheduled_txn_executions").where("id", execution.id).update({
+      await finalizeClaim(claim, {
         status: "failed",
+        execution_status: EXECUTION_STATUS.FAILED,
         attempt_number: nextAttempt,
         error_message: result.error?.message,
         error_code: errorCode,
@@ -399,6 +660,7 @@ async function handleRetry(execution) {
 
       await notifyFailure(schedule, {
         ...execution,
+        id: claim.executionId,
         attempt_number: nextAttempt,
         error_code: errorCode,
         error_message: result.error?.message,
@@ -427,7 +689,7 @@ async function executeCycle() {
   try {
     logger.debug("Starting scheduled executor cycle");
 
-    // Process due transactions
+    // Process due transactions (including missed-run catch-up)
     const dueTransactions = await getDueTransactions();
     if (dueTransactions.length > 0) {
       logger.info({ count: dueTransactions.length }, "Processing due scheduled transactions");
@@ -440,7 +702,7 @@ async function executeCycle() {
       }
     }
 
-    // Process pending retries
+    // Process pending retries (including reclaiming crashed claims)
     const pendingRetries = await getPendingRetries();
     if (pendingRetries.length > 0) {
       logger.info({ count: pendingRetries.length }, "Processing pending retries");
@@ -486,11 +748,12 @@ function start() {
       intervalMs: EXECUTOR_INTERVAL_MS,
       maxRetries: MAX_RETRIES,
       retryIntervalMs: RETRY_INTERVAL_MS,
+      executionLeaseMs: EXECUTION_LEASE_MS,
     },
     "Starting scheduled executor",
   );
 
-  // Run immediately on startup
+  // Run immediately on startup (also catches up missed runs)
   executeCycle().catch((err) => {
     logger.error({ err }, "Initial executor cycle failed");
   });
@@ -587,4 +850,13 @@ module.exports = {
   isStarted,
   executeNow,
   getExecutionHistory,
+  // Exported for testing (#632)
+  claimExecution,
+  claimRetry,
+  finalizeClaim,
+  executeDueTransaction,
+  handleRetry,
+  getDueTransactions,
+  getPendingRetries,
+  executionIdForRun,
 };

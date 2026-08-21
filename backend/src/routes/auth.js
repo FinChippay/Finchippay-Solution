@@ -29,6 +29,11 @@ const NETWORK_PASSPHRASE =
     ? "Public Global Stellar Network ; September 2015"
     : "Test SDF Network ; September 2015";
 
+// Cookie lifetimes derive from the token TTLs so access/refresh cookies always
+// stay in sync with the signed expiry (ACCESS_TOKEN_TTL / REFRESH_TOKEN_TTL).
+const accessTokenMaxAgeMs = () => tokenService.getAccessTokenTTLSeconds() * 1000;
+const refreshTokenMaxAgeMs = () => tokenService.getRefreshTokenTTLSeconds() * 1000;
+
 // Cache the server keypair — regenerated only on cold start.
 let cachedServerKeypair = null;
 function getServerKeypair() {
@@ -85,14 +90,14 @@ router.post("/", validate(authTokenBodySchema), async (req, res, next) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: accessTokenMaxAgeMs(),
     });
 
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: refreshTokenMaxAgeMs(),
     });
 
     res.json({
@@ -139,14 +144,14 @@ router.post("/refresh", authRefreshLimiter, async (req, res) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge: 15 * 60 * 1000,
+    maxAge: accessTokenMaxAgeMs(),
   });
 
   res.cookie("refreshToken", newRefreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: refreshTokenMaxAgeMs(),
   });
 
   res.json({

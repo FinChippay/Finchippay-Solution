@@ -1,0 +1,77 @@
+# Dependabot config. Update PRs are grouped by ecosystem to cut noise;
+# remediation SLAs for any alert this doesn't auto-fix are documented
+# in docs/vulnerability-management.md (Dependabot has no SLA field).
+version: 2
+
+updates:
+  # --- npm: root workspace (sdk + frontend) -------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "npm", "security"]
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # --- npm: frontend --------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "npm", "frontend", "security"]
+    groups:
+      frontend-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # --- npm: sdk ---------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/sdk"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "npm", "sdk", "security"]
+    groups:
+      sdk-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # --- npm/pnpm: backend (package-lock.json + pnpm-lock.yaml) --------
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "npm", "backend", "security"]
+    groups:
+      backend-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # --- Cargo: Stellar contract workspace ------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "cargo", "contract", "security"]
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # --- GitHub Actions: pin/patch the CI supply chain itself -----------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github-actions", "security"]

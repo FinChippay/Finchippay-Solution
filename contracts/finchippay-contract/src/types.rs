@@ -40,6 +40,7 @@ pub enum ContractError {
     SlippageExceeded = 22,
     ExcessiveAmountIn = 23,
     InvalidFeeBps = 24,
+    StalePath = 29,
 }
 
 // ─── Shared data types ────────────────────────────────────────────────────────

@@ -59,8 +59,12 @@ import type {
 /** Default base URL for the Finchippay API. */
 const DEFAULT_BASE_URL = "http://localhost:4000";
 
-/** Storage key for the cached JWT token. */
-const TOKEN_KEY = "finchippay_sdk_token";
+function createCorrelationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /* ─── Client options ─── */
 
@@ -76,6 +80,10 @@ export interface FinchippayClientOptions {
   cacheToken?: boolean;
   /** API version to use (e.g. "1"). Defaults to the latest version. */
   apiVersion?: string;
+  /** Optional factory used to join SDK requests to an application trace. */
+  correlationIdFactory?: () => string;
+  /** Optional browser/session identifier propagated with every request. */
+  sessionId?: string;
 }
 
 /* ─── Client class ─── */
@@ -86,6 +94,8 @@ export class FinchippayClient {
   private fetchFn: typeof fetch;
   private cacheToken: boolean;
   private apiVersion: string;
+  private correlationIdFactory: () => string;
+  private sessionId?: string;
 
   constructor(options: FinchippayClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -93,10 +103,12 @@ export class FinchippayClient {
     this.fetchFn = options.fetch || (globalThis as any).fetch;
     this.cacheToken = options.cacheToken ?? true;
     this.apiVersion = options.apiVersion || "1";
+    this.correlationIdFactory = options.correlationIdFactory || createCorrelationId;
+    this.sessionId = options.sessionId;
 
     if (!this.fetchFn) {
       throw new Error(
-        "Fetch API is not available. Pass a custom fetch implementation via the `fetch` option, or use Node.js 18+."
+        "Fetch API is not available. Pass a custom fetch implementation via the `fetch` option, or use Node.js 18+.",
       );
     }
   }
@@ -148,7 +160,7 @@ export class FinchippayClient {
     options?: {
       body?: unknown;
       params?: Record<string, unknown>;
-    }
+    },
   ): Promise<T> {
     const versionedPath = this.versionPath(path);
     const url = new URL(`${this.baseUrl}${versionedPath}`);
@@ -171,11 +183,9 @@ export class FinchippayClient {
       headers["Authorization"] = `Bearer ${this.authToken}`;
     }
 
-    // Correlation IDs (#172) — unique per request; optional session left to
-    // the caller's fetch wrapper (frontend installs X-Session-ID globally).
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      headers["X-Request-ID"] = crypto.randomUUID();
-    }
+    // Correlation IDs (#172) — unique per request, with optional session scope.
+    headers["X-Request-ID"] = this.correlationIdFactory();
+    if (this.sessionId) headers["X-Session-ID"] = this.sessionId;
 
     const res = await this.fetchFn(url.toString(), {
       method,
@@ -189,7 +199,7 @@ export class FinchippayClient {
     if (process.env.NODE_ENV !== "production" && deprecatedHeader === "true") {
       console.warn(
         `[Finchippay SDK] API version ${apiVersionHeader} is deprecated. ` +
-        `Consider upgrading to the latest version.`
+          `Consider upgrading to the latest version.`,
       );
     }
 
@@ -241,9 +251,10 @@ export class FinchippayClient {
     const res = await this.request<SuccessResponse<TokenResponse> | TokenResponse>(
       "POST",
       "/api/auth",
-      { body }
+      { body },
     );
-    const data = "data" in res ? (res as SuccessResponse<TokenResponse>).data : (res as TokenResponse);
+    const data =
+      "data" in res ? (res as SuccessResponse<TokenResponse>).data : (res as TokenResponse);
     if (this.cacheToken) {
       this.authToken = data.token;
     }
@@ -294,9 +305,11 @@ export class FinchippayClient {
     /** Fetch payment history for an account. Supports pagination. */
     getHistory: (
       publicKey: string,
-      params?: PaymentHistoryParams
+      params?: PaymentHistoryParams,
     ): Promise<SuccessResponse<PaymentRecord[]>> =>
-      this.request("GET", `/api/payments/${publicKey}`, { params: params as Record<string, unknown> }),
+      this.request("GET", `/api/payments/${publicKey}`, {
+        params: params as Record<string, unknown>,
+      }),
 
     /** Get aggregate payment statistics. */
     getStats: (publicKey: string): Promise<SuccessResponse<PaymentStats>> =>
@@ -348,7 +361,7 @@ export class FinchippayClient {
 
     /** Create a txFunction signing challenge. */
     createChallenge: (
-      body: TxFunctionChallengeRequest
+      body: TxFunctionChallengeRequest,
     ): Promise<SuccessResponse<TxFunctionChallengeResponse>> =>
       this.request("POST", "/api/turrets/challenge", { body }),
 
@@ -393,15 +406,11 @@ export class FinchippayClient {
 
   sep24 = {
     /** Initiate an interactive deposit session. */
-    initiateDeposit: (
-      body: Sep24InitiateRequest
-    ): Promise<Sep24InteractiveResponse> =>
+    initiateDeposit: (body: Sep24InitiateRequest): Promise<Sep24InteractiveResponse> =>
       this.request("POST", "/api/sep24/transactions/deposit/interactive", { body }),
 
     /** Initiate an interactive withdrawal session. */
-    initiateWithdrawal: (
-      body: Sep24InitiateRequest
-    ): Promise<Sep24InteractiveResponse> =>
+    initiateWithdrawal: (body: Sep24InitiateRequest): Promise<Sep24InteractiveResponse> =>
       this.request("POST", "/api/sep24/transactions/withdraw/interactive", { body }),
 
     /** Poll transaction status by ID. */
@@ -412,24 +421,18 @@ export class FinchippayClient {
   /* ─── AI Parsing ─── */
 
   /** Parse natural language into a payment intent. */
-  parsePayment = (
-    body: ParsePaymentRequest
-  ): Promise<ParsePaymentResponse> =>
+  parsePayment = (body: ParsePaymentRequest): Promise<ParsePaymentResponse> =>
     this.request("POST", "/api/parse-payment", { body });
 
   /* ─── Federation (SEP-0002) ─── */
 
   federation = {
     /** Resolve a stellar address to an account ID. */
-    resolve: (
-      q: string,
-      type: "name" | "id"
-    ): Promise<FederationRecord> =>
+    resolve: (q: string, type: "name" | "id"): Promise<FederationRecord> =>
       this.request("GET", "/federation", { params: { q, type } }),
 
     /** Get the stellar.toml discovery document. */
-    getStellarToml: (): Promise<string> =>
-      this.request("GET", "/.well-known/stellar.toml"),
+    getStellarToml: (): Promise<string> => this.request("GET", "/.well-known/stellar.toml"),
   };
 }
 
@@ -439,7 +442,7 @@ export class ApiHttpError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly headers?: Headers
+    public readonly headers?: Headers,
   ) {
     super(message);
     this.name = "ApiHttpError";

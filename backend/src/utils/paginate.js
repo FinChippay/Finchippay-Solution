@@ -209,6 +209,52 @@ function setPaginationHeaders(req, res, { nextCursor, total, limit }) {
   exposeHeaders(res, exposed);
 }
 
+/**
+ * Format a standardized cursor-paginated response object (#344).
+ *
+ * Shape:
+ * {
+ *   success: true,
+ *   data: [...],
+ *   pagination: {
+ *     nextCursor: string | null,
+ *     hasMore: boolean,
+ *     total: number | null,
+ *     ...extra
+ *   }
+ * }
+ *
+ * @param {Array<object>} data - Result items for the current page.
+ * @param {string | object | null} cursor - Next cursor or null.
+ * @param {number | null} [total] - Total item count if known.
+ * @param {object} [extra] - Additional pagination fields (e.g. limit, offset).
+ * @returns {{ success: boolean, data: Array<object>, pagination: { nextCursor: string | null, hasMore: boolean, total: number | null } }}
+ */
+function formatPaginatedResponse(data, cursor, total, extra = {}) {
+  const items = Array.isArray(data) ? data : [];
+  let nextCursorStr = null;
+  if (cursor) {
+    if (typeof cursor === "object") {
+      nextCursorStr = encodeCursor(cursor);
+    } else if (typeof cursor === "string" && cursor.trim().length > 0) {
+      nextCursorStr = cursor.trim();
+    }
+  }
+
+  const hasMore = items.length > 0 && Boolean(nextCursorStr);
+
+  return {
+    success: true,
+    data: items,
+    pagination: {
+      nextCursor: items.length > 0 ? nextCursorStr : null,
+      hasMore,
+      total: total !== undefined && total !== null ? total : null,
+      ...extra,
+    },
+  };
+}
+
 module.exports = {
   InvalidCursorError,
   encodeCursor,
@@ -217,4 +263,5 @@ module.exports = {
   applyKnexKeyset,
   paginateInMemory,
   setPaginationHeaders,
+  formatPaginatedResponse,
 };

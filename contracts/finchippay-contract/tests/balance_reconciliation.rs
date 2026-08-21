@@ -554,6 +554,7 @@ fn test_rebasing_token_escrow_reconcile_and_claim() {
             (1_000i128, 2_000i128).into_val(&env),
         ),
     ];
+    assert_eq!(events, expected);
 
     // Claim after reconcile: the recipient receives the full escrow amount and
     // the cache tracks the post-claim balance.

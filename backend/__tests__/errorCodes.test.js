@@ -7,7 +7,7 @@
  *   - Every error code has a non-empty httpStatus, message, and code.
  *   - getError() returns the correct entry and falls back to GEN_UNKNOWN.
  *   - formatErrorResponse() produces the canonical shape.
- *   - CONTRACT_ERROR_MAP maps all 17 contract error codes.
+ *   - CONTRACT_ERROR_MAP maps all 29 contract error codes.
  *   - getContractErrorCode() returns the correct key.
  */
 
@@ -198,19 +198,19 @@ describe("formatErrorResponse()", () => {
 });
 
 describe("CONTRACT_ERROR_MAP", () => {
-  it("maps all 17 contract error codes (1–17)", () => {
-    for (let i = 1; i <= 17; i++) {
+  it("maps all 29 contract error codes (1-29)", () => {
+    for (let i = 1; i <= 29; i++) {
       expect(CONTRACT_ERROR_MAP[i]).toBeDefined();
       expect(typeof CONTRACT_ERROR_MAP[i]).toBe("string");
       expect(CONTRACT_ERROR_MAP[i].startsWith("CONTRACT_")).toBe(true);
     }
   });
 
-  it("has no extra keys beyond 1–17", () => {
+  it("has no extra keys beyond 1-29", () => {
     const keys = Object.keys(CONTRACT_ERROR_MAP).map(Number);
-    expect(Math.max(...keys)).toBe(17);
+    expect(Math.max(...keys)).toBe(29);
     expect(Math.min(...keys)).toBe(1);
-    expect(keys.length).toBe(17);
+    expect(keys.length).toBe(29);
   });
 
   it("maps contract code 2 (Unauthorized) to CONTRACT_UNAUTHORIZED", () => {
@@ -224,6 +224,14 @@ describe("CONTRACT_ERROR_MAP", () => {
   it("maps contract code 17 (TransferFailed) to CONTRACT_TRANSFER_FAILED", () => {
     expect(CONTRACT_ERROR_MAP[17]).toBe("CONTRACT_TRANSFER_FAILED");
   });
+
+  it("maps swap hardening errors to specific contract codes", () => {
+    expect(CONTRACT_ERROR_MAP[21]).toBe("CONTRACT_INVALID_PATH");
+    expect(CONTRACT_ERROR_MAP[22]).toBe("CONTRACT_SLIPPAGE_EXCEEDED");
+    expect(CONTRACT_ERROR_MAP[23]).toBe("CONTRACT_EXCESSIVE_AMOUNT_IN");
+    expect(CONTRACT_ERROR_MAP[24]).toBe("CONTRACT_INVALID_FEE_BPS");
+    expect(CONTRACT_ERROR_MAP[29]).toBe("CONTRACT_STALE_PATH");
+  });
 });
 
 describe("getContractErrorCode()", () => {
@@ -231,11 +239,12 @@ describe("getContractErrorCode()", () => {
     expect(getContractErrorCode(2)).toBe("CONTRACT_UNAUTHORIZED");
     expect(getContractErrorCode(5)).toBe("CONTRACT_NOT_FOUND");
     expect(getContractErrorCode(12)).toBe("CONTRACT_PAUSED");
+    expect(getContractErrorCode(29)).toBe("CONTRACT_STALE_PATH");
   });
 
   it("returns GEN_UNKNOWN for an out-of-range code", () => {
     expect(getContractErrorCode(0)).toBe("GEN_UNKNOWN");
-    expect(getContractErrorCode(18)).toBe("GEN_UNKNOWN");
+    expect(getContractErrorCode(30)).toBe("GEN_UNKNOWN");
     expect(getContractErrorCode(999)).toBe("GEN_UNKNOWN");
   });
 

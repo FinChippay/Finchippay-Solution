@@ -19,6 +19,11 @@
 
 require("dotenv").config();
 
+// Docker secrets (DATABASE_URL_FILE, etc.) — must run before DATABASE_URL is
+// read below. Required here (not just in server.js) because the `knex` CLI
+// (migrate/seed) loads this file directly, bypassing server.js entirely.
+require("./src/config/dockerSecrets");
+
 const path = require("path");
 
 const MIGRATIONS_DIR = path.join(__dirname, "migrations");

@@ -603,6 +603,11 @@ pub fn resolve_dispute(
     amount: i128,
 ) {
     let _guard = ReentrancyGuard::acquire(&env);
+    // Dispute resolution transfers funds out of the contract, so it is a
+    // value-transferring operation and must be blocked while the circuit
+    // breaker is engaged. (`raise_dispute` only flags state and moves no
+    // funds, so it deliberately remains callable while paused.)
+    require_not_paused(&env);
     arbitrator.require_auth();
 
     // `EscrowRecipient(id)` holds the recipient address, not the escrow

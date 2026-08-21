@@ -27,11 +27,11 @@ const MAX_LIMIT = 100;
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-function pagination(req, res, next) {
+function paginationMiddleware(req, res, next) {
   const { limit: rawLimit, cursor: rawCursor } = req.query;
 
   let limit = DEFAULT_LIMIT;
-  if (rawLimit !== undefined) {
+  if (rawLimit !== undefined && rawLimit !== "") {
     const parsed = Number(rawLimit);
     if (!Number.isInteger(parsed) || parsed < 1) {
       return sendError(res, "VAL_INVALID_LIMIT", {
@@ -59,4 +59,9 @@ function pagination(req, res, next) {
   next();
 }
 
-module.exports = { pagination, DEFAULT_LIMIT, MAX_LIMIT };
+paginationMiddleware.pagination = paginationMiddleware;
+paginationMiddleware.paginationMiddleware = paginationMiddleware;
+paginationMiddleware.DEFAULT_LIMIT = DEFAULT_LIMIT;
+paginationMiddleware.MAX_LIMIT = MAX_LIMIT;
+
+module.exports = paginationMiddleware;

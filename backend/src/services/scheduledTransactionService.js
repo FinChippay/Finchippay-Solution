@@ -16,7 +16,7 @@ const { Asset, Memo, Networks, Operation, TransactionBuilder } = require("@stell
 const knex = require("../db/connection");
 const { server } = require("../config/stellar");
 const { validatePublicKey } = require("./stellarService");
-const webhookService = require("./webhookSubscriptionService");
+const webhookService = require("./webhookService");
 const logger = require("../utils/logger");
 
 const NETWORK_PASSPHRASE =

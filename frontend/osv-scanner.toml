@@ -1,0 +1,22 @@
+# image-size is pulled in only by vite-plugin-storybook-nextjs (a
+# Storybook devDependency, not shipped or run in production). Upstream
+# is archived at 2.0.2 with no patched release for either advisory.
+[[IgnoredVulns]]
+id = "GHSA-5p2g-fcmc-qvqq"
+ignoreUntil = 2026-11-15
+reason = """
+DoS via infinite loop parsing crafted JXL/HEIF images. image-size here
+is a transitive devDependency of vite-plugin-storybook-nextjs only -
+it never runs against attacker-controlled input in production. No fix
+exists upstream (project archived). Re-check on the ignoreUntil date
+for a patch or a vetted replacement.
+"""
+
+[[IgnoredVulns]]
+id = "GHSA-w3rx-r6r6-pgpr"
+ignoreUntil = 2026-11-15
+reason = """
+Same root cause as GHSA-5p2g-fcmc-qvqq (infinite loop, this time in the
+ICNS parser). Same justification: Storybook-only devDependency, no
+production input path, no upstream fix available yet.
+"""

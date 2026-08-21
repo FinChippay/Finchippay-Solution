@@ -15,6 +15,7 @@ import {
   signTransaction,
   requestAccess,
   isAllowed,
+  signMessage,
 } from "@stellar/freighter-api";
 import { logger } from "@/lib/logger";
 
@@ -202,8 +203,13 @@ export async function signTransactionWithWallet(
 export async function initEncryptionSession(publicKey: string): Promise<void> {
   if (typeof window === "undefined" || !publicKey) return;
   try {
-    const salt = getOrCreateSalt();
-    const key = await deriveKey(publicKey, salt);
+    const message = "Finchippay Encryption Key Derivation\n\nSign this message to unlock your encrypted local data.";
+    const { signedMessage, error } = await signMessage(message, { address: publicKey });
+    if (error || !signedMessage) {
+      throw new Error(error?.message || "User declined message signature.");
+    }
+
+    const key = await deriveKey(signedMessage);
     setSessionKey(key, publicKey);
     await Promise.all([
       unlockAddressBook(key, publicKey),

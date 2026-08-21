@@ -3,8 +3,10 @@
  * Custom premium error boundary to isolate and catch rendering errors in critical widgets.
  */
 
+import * as Sentry from "@sentry/nextjs";
 import React, { Component, ErrorInfo, ReactNode } from "react";
 import { AlertCircleIcon } from "@/components/icons";
+import { getCorrelationId } from "@/lib/correlation";
 import { logger } from "@/lib/logger";
 
 interface Props {
@@ -29,13 +31,16 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    const correlationId = getCorrelationId();
     logger.error(
-      { component: this.props.name || "unknown", errorInfo },
       `ErrorBoundary caught an error in ${this.props.name || "component"}`,
+      { component: this.props.name || "unknown", errorInfo, correlationId },
+      error,
     );
-    // Also emit to console so Sentry's auto-capture picks it up alongside
-    // the structured logger entry above.
-    console.error(error);
+    Sentry.captureException(error, {
+      tags: { correlationId, component: this.props.name || "unknown" },
+      extra: { correlationId, componentStack: errorInfo.componentStack },
+    });
   }
 
   private handleReset = () => {
@@ -61,11 +66,6 @@ export class ErrorBoundary extends Component<Props, State> {
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
                 An unexpected error occurred while rendering this section.
               </p>
-              {this.state.error && (
-                <div className="mt-3 p-3 rounded-lg bg-black/40 border border-white/5 text-xs font-mono text-slate-500 max-h-32 overflow-auto">
-                  {this.state.error.toString()}
-                </div>
-              )}
               <button
                 onClick={this.handleReset}
                 className="mt-4 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 active:bg-red-500/40 border border-red-500/30 text-red-700 dark:text-red-300 text-sm font-medium rounded-xl transition-all duration-200"
@@ -84,7 +84,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
 export function withErrorBoundary<P extends object>(
   WrappedComponent: React.ComponentType<P>,
-  name: string
+  name: string,
 ) {
   const ComponentWithErrorBoundary = (props: P) => (
     <ErrorBoundary name={name}>

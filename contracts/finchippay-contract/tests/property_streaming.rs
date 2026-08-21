@@ -67,7 +67,10 @@ fn deploy<'a>(env: &'a Env, payer: &Address) -> (Address, FinchippayContractClie
     let token_admin = token::StellarAssetClient::new(env, &token_id);
     // Comfortably covers `CASES_CONTRACT` iterations at MAX_STREAM_DEPOSIT
     // each without approaching i128::MAX.
-    token_admin.mint(payer, &(MAX_STREAM_DEPOSIT.saturating_mul(CASES_CONTRACT as i128 + 10)));
+    token_admin.mint(
+        payer,
+        &(MAX_STREAM_DEPOSIT.saturating_mul(CASES_CONTRACT as i128 + 10)),
+    );
     (id, client, token_id)
 }
 
@@ -178,7 +181,9 @@ fn invariant_claim_stream_transfers_exact_amount() {
             let stream_id = open_stream_with(
                 &env, &client, &token_id, &payer, &recipient, rate, deposit, start,
             );
-            let target = (start as u64).saturating_add(advance as u64).min(u32::MAX as u64) as u32;
+            let target = (start as u64)
+                .saturating_add(advance as u64)
+                .min(u32::MAX as u64) as u32;
             advance_ledger(&env, target);
 
             let balance_before = token_client.balance(&recipient);
@@ -207,7 +212,9 @@ fn invariant_close_stream_refunds_exact_remainder() {
             let stream_id = open_stream_with(
                 &env, &client, &token_id, &payer, &recipient, rate, deposit, start,
             );
-            let target = (start as u64).saturating_add(advance as u64).min(u32::MAX as u64) as u32;
+            let target = (start as u64)
+                .saturating_add(advance as u64)
+                .min(u32::MAX as u64) as u32;
             advance_ledger(&env, target);
 
             let balance_before = token_client.balance(&payer);
@@ -245,7 +252,8 @@ fn invariant_stream_fully_depletes_after_deposit_over_rate_plus_one() {
         0i128..=MAX_STREAM_DEPOSIT,
     )
         .prop_map(|(rate, elapsed_target, start, claimed_raw)| {
-            let deposit = (rate.saturating_mul(elapsed_target as i128)).clamp(1, MAX_STREAM_DEPOSIT);
+            let deposit =
+                (rate.saturating_mul(elapsed_target as i128)).clamp(1, MAX_STREAM_DEPOSIT);
             let claimed = claimed_raw.min(deposit);
             (rate, deposit, start, claimed)
         });
@@ -261,7 +269,9 @@ fn invariant_stream_fully_depletes_after_deposit_over_rate_plus_one() {
                 ..base.clone()
             };
             let elapsed_needed = (deposit / rate + 1) as u64;
-            let target = (start as u64).saturating_add(elapsed_needed).min(u32::MAX as u64) as u32;
+            let target = (start as u64)
+                .saturating_add(elapsed_needed)
+                .min(u32::MAX as u64) as u32;
 
             let claimable = claimable_at(&stream, target);
             prop_assert_eq!(claimable, deposit - claimed);
