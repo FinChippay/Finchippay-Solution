@@ -49,9 +49,12 @@ const EVENT_PARTICIPANT_MAP = {
  * Parse a raw Soroban event into our standard DB row shape.
  *
  * @param {object} raw - Raw Soroban RPC event object
+ * @param {object} options - Optional parsing options
+ * @param {string} options.txnHash - Transaction hash (if available)
+ * @param {number} options.opIndex - Operation index (if available)
  * @returns {object} Parsed event row ready for contract_events table
  */
-function parseEvent(raw) {
+function parseEvent(raw, options = {}) {
   const topics = raw.topic ?? [];
   const data = raw.data;
 
@@ -103,11 +106,50 @@ function parseEvent(raw) {
     amountRaw = String(data.amount || data.i128 || data.u64 || data.u128 || "");
   }
 
+  // Extract transaction hash and operation index from the raw event
+  // Soroban RPC events contain transaction info in the event record
+  let txnHash = null;
+  let opIndex = null;
+  
+  // Try to get from raw.transactionHash or raw.tx_hash
+  if (raw.transactionHash) {
+    txnHash = raw.transactionHash;
+  } else if (raw.tx_hash) {
+    txnHash = raw.tx_hash;
+  } else if (raw.id) {
+    // Some RPCs encode the transaction hash in the event ID
+    // Format might be: "tx_hash-op_index-event_index"
+    const idParts = String(raw.id).split('-');
+    if (idParts.length >= 1) {
+      txnHash = idParts[0];
+    }
+    if (idParts.length >= 2) {
+      opIndex = parseInt(idParts[1], 10);
+    }
+  }
+
+  // Also try to get op_index from raw
+  if (raw.opIndex !== undefined && raw.opIndex !== null) {
+    opIndex = parseInt(raw.opIndex, 10);
+  } else if (raw.operationIndex !== undefined && raw.operationIndex !== null) {
+    opIndex = parseInt(raw.operationIndex, 10);
+  }
+
+  // If options were passed (from getEvents with pagination), use those
+  if (options.txnHash) {
+    txnHash = options.txnHash;
+  }
+  if (options.opIndex !== undefined && options.opIndex !== null) {
+    opIndex = options.opIndex;
+  }
+
   const payload = {
     topics: topics,
     data: data ?? null,
     eventId: raw.id ?? null,
     pagingToken: raw.pagingToken ?? null,
+    transactionHash: txnHash,
+    operationIndex: opIndex,
   };
 
   return {
@@ -120,6 +162,8 @@ function parseEvent(raw) {
     from_addr: fromAddr,
     to_addr: toAddr,
     amount_raw: amountRaw,
+    txn_hash: txnHash,
+    op_index: opIndex,
     payload,
   };
 }
