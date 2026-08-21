@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Generate frontend SBOM (CycloneDX)
         uses: anchore/sbom-action@v0.24.0
@@ -97,7 +97,7 @@ jobs:
       digests: ${{ steps.subjects.outputs.digests }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

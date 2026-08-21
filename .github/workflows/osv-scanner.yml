@@ -23,7 +23,7 @@ jobs:
     name: OSV-Scanner (High/Critical gate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Pinned to a tagged release (not "latest") so a compromised or
       # regressed upstream build can't silently change what CI trusts.
