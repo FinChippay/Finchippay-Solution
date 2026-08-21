@@ -103,6 +103,7 @@ import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
 import { getJwtToken } from "@/lib/auth";
+import { apiClient } from "@/lib/api";
 import DashboardPortfolioWidget from "@/components/DashboardPortfolioWidget";
 import FeatureAnnouncement from "@/components/FeatureAnnouncement";
 
@@ -317,20 +318,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
     if (!publicKey) return;
-    
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+
     try {
-      const response = await fetch(
-        `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
-      );
-      if (response.ok) {
-        const payload = await response.json();
-        if (payload?.success && payload?.data?.username) {
-          setCreatorUsername(payload.data.username);
-        }
+      const payload = await apiClient.accounts.resolveUsername(publicKey);
+      if (payload?.data?.username) {
+        setCreatorUsername(payload.data.username);
       }
     } catch (err) {
-      logger.error("Error fetching username:", err);
+      logger.error("Error fetching username", {}, err instanceof Error ? err : undefined);
     }
   }, [publicKey]);
 
@@ -419,32 +414,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-
     setPaymentStatsLoading(true);
     setPaymentStatsError(null);
 
     try {
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `${apiBase}/api/v1/payments/${encodeURIComponent(publicKey)}/stats`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        throw new Error("Unable to load payment stats right now.");
-      }
-
-      const payload = await response.json();
+      const payload = await apiClient.payments.getStats(publicKey);
       const data = payload?.data;
 
       if (
-        !payload?.success ||
         !data ||
         typeof data.totalSentXLM !== "string" ||
         typeof data.totalReceivedXLM !== "string" ||
@@ -472,25 +449,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const fetchContractEventCount = useCallback(async () => {
     if (!publicKey) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     setContractEventCountLoading(true);
 
     try {
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `${apiBase}/api/events/${encodeURIComponent(publicKey)}/stats`,
-        { headers }
-      );
-
-      if (response.ok) {
-        const payload = await response.json();
-        setContractEventCount(payload?.data?.totalEvents ?? 0);
-      }
+      const payload = await apiClient.events.getStats(publicKey);
+      setContractEventCount(payload?.data?.totalEvents ?? 0);
     } catch {
       // Swallow — contract events are an enhancement; failure is non-blocking.
       setContractEventCount(0);
@@ -603,20 +566,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!publicKey) return;
     setTopRecipientsLoading(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(
-        `${apiBase}/api/v1/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
-        { headers }
-      );
-      if (res.ok) {
-        const payload = await res.json();
-        setTopRecipients(payload?.data?.topRecipients ?? []);
-      }
+      const payload = await apiClient.analytics.getTopRecipients(publicKey);
+      const data = payload?.data as any;
+      const list = data?.topRecipients || (Array.isArray(data) ? data : []);
+      setTopRecipients(list);
     } catch (err) {
-      logger.error("Failed to fetch top recipients:", err);
+      logger.error("Failed to fetch top recipients", {}, err instanceof Error ? err : undefined);
     } finally {
       setTopRecipientsLoading(false);
     }

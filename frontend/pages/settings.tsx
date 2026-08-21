@@ -15,6 +15,8 @@ import NotificationPreferences from "@/components/NotificationPreferences";
 import ThemeSettings from "@/components/ThemeSettings";
 import { useContacts } from "@/hooks/useContacts";
 import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
+import { apiClient } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import { resetTour } from '@/lib/onboardingState';
 import { shortenAddress } from "@/lib/stellar";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
@@ -87,23 +89,17 @@ export default function SettingsPage({
   useEffect(() => {
     const fetchUsername = async () => {
       if (!publicKey) return;
-      
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+
       try {
-        const response = await fetch(
-          `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
-        );
-        if (response.ok) {
-          const payload = await response.json();
-          if (payload?.success && payload?.data?.username) {
-            setRegisteredUsername(payload.data.username);
-          }
+        const payload = await apiClient.accounts.resolveUsername(publicKey);
+        if (payload?.data?.username) {
+          setRegisteredUsername(payload.data.username);
         }
       } catch (err) {
-        logger.error("Error fetching username:", err);
+        logger.error("Error fetching username", {}, err instanceof Error ? err : undefined);
       }
     };
-    
+
     fetchUsername();
   }, [publicKey]);
 
@@ -303,21 +299,10 @@ export default function SettingsPage({
     setUsernameSuccess(null);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/v1/accounts/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim().toLowerCase(),
-          publicKey,
-        }),
+      await apiClient.accounts.register({
+        username: username.trim().toLowerCase(),
+        publicKey,
       });
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to register username");
-      }
 
       setRegisteredUsername(username.trim().toLowerCase());
       setUsernameSuccess(`Username @${username.trim()} registered successfully!`);

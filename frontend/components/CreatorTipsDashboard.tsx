@@ -9,27 +9,10 @@
 
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
+import { apiClient, type Tip as TipRecord, type TipStats as TipsStats } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import { getContractTipTotal, getContractTipCount, CONTRACT_ID } from "@/lib/stellar";
 import { formatXLM, shortenAddress, formatUSD, formatStroopsToXLM } from "@/utils/format";
-
-interface TipRecord {
-  id: number;
-  senderPublicKey: string;
-  creatorPublicKey: string;
-  amount: string;
-  asset: string;
-  memo: string;
-  txHash: string;
-  timestamp: string;
-}
-
-interface TipsStats {
-  totalTips: number;
-  totalByAsset: Record<string, { count: number; amount: string }>;
-  averageTip: string | null;
-  largestTip: string | null;
-  smallestTip: string | null;
-}
 
 interface CreatorTipsDashboardProps {
   publicKey: string;
@@ -63,7 +46,7 @@ export default function CreatorTipsDashboard({
       setOnChainTipCount(count);
       setOnChainTipTotal(total);
     } catch (err) {
-      logger.error("Failed to fetch on-chain tip stats:", err);
+      logger.error("Failed to fetch on-chain tip stats", {}, err instanceof Error ? err : undefined);
     }
   }, [publicKey]);
 
@@ -76,27 +59,31 @@ export default function CreatorTipsDashboard({
     setError(null);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      
-      // Fetch tips received
-      const tipsResponse = await fetch(
-        `${apiBase}/api/v1/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`
-      );
-      
-      if (!tipsResponse.ok) {
-        throw new Error("Failed to load tips");
-      }
-      
-      const tipsPayload = await tipsResponse.json();
-      
-      if (tipsPayload?.success) {
-        setTips(tipsPayload.data.tips || []);
-        setStats(tipsPayload.data.stats || null);
+      const [tipsPayload, statsPayload] = await Promise.allSettled([
+        apiClient.tips.getReceived(publicKey, { limit: pageSize, offset: page * pageSize }),
+        apiClient.tips.getStats(publicKey),
+      ]);
+
+      if (tipsPayload.status === "fulfilled") {
+        const res = tipsPayload.value as any;
+        const tipList = res?.data?.tips || res?.tips || (Array.isArray(res?.data) ? res.data : []);
+        setTips(tipList);
+        if (res?.data?.stats) {
+          setStats(res.data.stats);
+        }
       } else {
         setTips([]);
       }
+
+      if (statsPayload.status === "fulfilled") {
+        const statsRes = statsPayload.value as any;
+        const statsData = statsRes?.data?.stats || statsRes?.stats || statsRes?.data;
+        if (statsData) {
+          setStats((prev) => ({ ...prev, ...statsData }));
+        }
+      }
     } catch (err) {
-      logger.error("Error fetching tips:", err);
+      logger.error("Error fetching tips", {}, err instanceof Error ? err : undefined);
       setError("Unable to load tips. Make sure you have a registered username.");
       setTips([]);
     } finally {
