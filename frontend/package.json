@@ -27,7 +27,7 @@
     "@fortawesome/react-fontawesome": "^3.3.1",
     "@heroicons/react": "^2.2.0",
     "@sentry/nextjs": "^10.69.0",
-    "@stellar/freighter-api": "^3.1.0",
+    "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^16.0.0",
     "@types/papaparse": "^5.5.2",
     "@zxing/browser": "^0.2.0",
