@@ -115,7 +115,7 @@ describe("400 from validate()", () => {
 describe("401 from verifyJWT()", () => {
   it("renders AUTH_MISSING_HEADER when the Authorization header is absent", async () => {
     const app = baseApp();
-    app.get("/api/sep12/customer", verifyJWT, (req, res) => res.json({ ok: true }));
+    app.get("/api/sep12/customer", userLimiter, verifyJWT, (req, res) => res.json({ ok: true }));
 
     const res = await request(app).get("/api/sep12/customer");
 
