@@ -16,6 +16,11 @@ const {
   idParamSchema,
 } = require("../validation/schemas");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const {
+  paginateInMemory,
+  setPaginationHeaders,
+  formatPaginatedResponse,
+} = require("../utils/paginate");
 
 /**
  * POST /api/scheduled-transactions
@@ -61,12 +66,25 @@ router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req
 
 /**
  * GET /api/scheduled-transactions/:publicKey/pending
- * Lists pending executions for a given public key.
+ * Lists pending executions for a given public key with standardized pagination.
  */
 router.get("/:publicKey/pending", async (req, res, next) => {
   try {
-    const pending = await scheduledTransactionService.listPendingExecutions(req.params.publicKey);
-    res.json(pending);
+    const rawPending = await scheduledTransactionService.listPendingExecutions(
+      req.params.publicKey,
+    );
+    const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+    const cursor = req.pagination?.cursor || null;
+
+    const { data, nextCursor, total } = paginateInMemory(
+      rawPending || [],
+      { limit, cursor },
+      (p) => ({ id: p.id }),
+      (a, b) => String(b.id || "").localeCompare(String(a.id || "")),
+    );
+
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+    res.json(formatPaginatedResponse(data, nextCursor, total, { limit }));
   } catch (error) {
     next(error);
   }
@@ -74,13 +92,24 @@ router.get("/:publicKey/pending", async (req, res, next) => {
 
 /**
  * GET /api/scheduled-transactions/:publicKey
- * Lists all schedules for a given public key.
+ * Lists all schedules for a given public key with standardized pagination.
  */
 router.get("/:publicKey", validate(loosePublicKeyParamSchema, "params"), async (req, res, next) => {
   try {
     const { publicKey } = req.validated;
-    const schedules = await scheduledTransactionService.listSchedules(publicKey);
-    res.json(schedules);
+    const rawSchedules = await scheduledTransactionService.listSchedules(publicKey);
+    const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+    const cursor = req.pagination?.cursor || null;
+
+    const { data, nextCursor, total } = paginateInMemory(
+      rawSchedules || [],
+      { limit, cursor },
+      (s) => ({ id: s.id }),
+      (a, b) => String(b.id || "").localeCompare(String(a.id || "")),
+    );
+
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+    res.json(formatPaginatedResponse(data, nextCursor, total, { limit }));
   } catch (error) {
     next(error);
   }

@@ -10,7 +10,7 @@
  * - Switching wallets is detected as needing re-encryption
  */
 
-import { deriveKey, getOrCreateSalt } from "@/lib/encryption";
+import { deriveKey } from "@/lib/encryption";
 import {
   addressBookNeedsReEncryption,
   clearAddressBook,
@@ -35,7 +35,7 @@ const contact: AddressBookContact = {
 };
 
 async function keyFor(publicKey: string) {
-  return deriveKey(publicKey, getOrCreateSalt());
+  return deriveKey(`mock-signature-for-${publicKey}`);
 }
 
 /** Wait for the background write queue to flush an envelope to storage. */

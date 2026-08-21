@@ -9,6 +9,8 @@
  * carries both headers without touching each call site.
  */
 
+import { logger } from "./logger";
+
 const sessionId =
   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -58,11 +60,12 @@ export function getCorrelationHeaders(): Record<string, string> {
  * Existing caller headers win only if they already set these keys — we
  * always set fresh action IDs unless `X-Request-ID` is already present.
  */
-export function withCorrelation(
-  fetchImpl: typeof fetch,
-): typeof fetch {
+export function withCorrelation(fetchImpl: typeof fetch): typeof fetch {
   return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const headers = new Headers(init?.headers);
+    const requestHeaders =
+      typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined;
+    const headers = new Headers(requestHeaders);
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
 
     if (!headers.has("X-Request-ID")) {
       headers.set("X-Request-ID", createActionId());
@@ -108,6 +111,5 @@ export function logRpcCorrelation(
     operation,
     ...extra,
   };
-  // Prefer structured JSON so browser/devtools log drains can parse it.
-  console.info(JSON.stringify(payload));
+  logger.info(`${target} RPC call`, payload);
 }

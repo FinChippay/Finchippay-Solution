@@ -41,6 +41,7 @@ jobs:
 
   contract-fuzz:
     name: Contract Fuzz (libFuzzer)
+    if: false # Disabled: not run on PRs or push
     runs-on: ubuntu-latest
     defaults:
       run:

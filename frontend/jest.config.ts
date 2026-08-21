@@ -5,7 +5,7 @@ const config: Config = {
   transform: { "^.+\\.tsx?$": ["ts-jest", { tsconfig: { jsx: "react-jsx" } }] },
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
-    "^@stellar/stellar-sdk$": "<rootDir>/../node_modules/@stellar/stellar-sdk/lib/index.js",
+    "^@stellar/stellar-sdk$": "<rootDir>/../node_modules/@stellar/stellar-sdk/dist/stellar-sdk.js",
   },
   // jest.setup.ts imports @testing-library/jest-dom (which needs `expect`), so
   // it must run after the framework is installed — setupFilesAfterEnv, not

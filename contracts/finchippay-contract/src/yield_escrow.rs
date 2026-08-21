@@ -26,7 +26,7 @@
 use soroban_sdk::{contracttype, token, Address, Env, Symbol};
 
 use crate::storage;
-use crate::DataKey;
+use crate::{require_not_paused, DataKey};
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
@@ -76,6 +76,7 @@ pub fn create_yield_escrow(
     release_ledger: u32,
     memo: &Symbol,
 ) -> u64 {
+    require_not_paused(env);
     from.require_auth();
 
     if amount <= 0 {
@@ -126,6 +127,7 @@ pub fn create_yield_escrow(
 /// Claim a matured yield escrow. Transfers principal + yield to the
 /// beneficiary. Panics if the escrow is not yet at its release ledger.
 pub fn claim_yield_escrow(env: &Env, id: u64) -> i128 {
+    require_not_paused(env);
     let escrow_key = DataKey::YieldEscrow(id);
     let mut escrow: YieldEscrow = env
         .storage()
@@ -164,6 +166,7 @@ pub fn claim_yield_escrow(env: &Env, id: u64) -> i128 {
 /// Cancel a pending yield escrow. Only the original funder may cancel.
 /// Withdraws LP shares and refunds the funder with principal + yield.
 pub fn cancel_yield_escrow(env: &Env, id: u64) -> i128 {
+    require_not_paused(env);
     let escrow_key = DataKey::YieldEscrow(id);
     let mut escrow: YieldEscrow = env
         .storage()

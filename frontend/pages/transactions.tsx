@@ -6,6 +6,7 @@
 
 import Head from "next/head";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TransactionList, {
   filterPayments,
@@ -13,9 +14,17 @@ import TransactionList, {
   TransactionFilters,
 } from "@/components/TransactionList";
 import WalletConnect from "@/components/WalletConnect";
+import { CursorPageInfo, readCursorFromQuery, updateCursorInUrl } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import { NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
-import { generateCSV, downloadCSV, generatePDF, downloadPDF, type ExportFormat } from "@/utils/export";
+import {
+  generateCSV,
+  downloadCSV,
+  generatePDF,
+  downloadPDF,
+  type ExportFormat,
+} from "@/utils/export";
 import { formatAsset, formatDate } from "@/utils/format";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "finchippay:transaction-filters";
@@ -35,17 +44,44 @@ function isDirectionFilter(value: unknown): value is TransactionDirectionFilter 
 
 export default function Transactions() {
   const { publicKey } = useWallet();
+  const router = useRouter();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat | null>(null);
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const exportDropdownRef = useRef<HTMLDivElement>(null);
-  const [directionFilter, setDirectionFilter] =
-    useState<TransactionDirectionFilter>("all");
+  const [directionFilter, setDirectionFilter] = useState<TransactionDirectionFilter>("all");
   const [minimumAmount, setMinimumAmount] = useState("");
   const [memoSearch, setMemoSearch] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
+
+  // Cursor-based pagination state. The URL (`?cursor=...`) is the single source
+  // of truth for the position anchor, so deep links and browser back/forward
+  // resume at the exact same window without skipping or duplicating rows.
+  const cursorParam = useMemo(() => readCursorFromQuery(router.query), [router.query]);
+  const appliedCursorRef = useRef<string | undefined>(undefined);
+
+  const syncCursorInUrl = useCallback(
+    (next: string | undefined) => {
+      if (next === appliedCursorRef.current) return;
+      appliedCursorRef.current = next;
+      const url = updateCursorInUrl(router.asPath, next);
+      if (url !== router.asPath) {
+        void router.replace(url, undefined, { scroll: false });
+      }
+    },
+    [router],
+  );
+
+  const handleCursorChange = useCallback(
+    (info: CursorPageInfo) => {
+      // The URL anchor is the cursor that produced the currently displayed
+      // page (`cursorUsed`), never the `nextCursor`, so reloads stay put.
+      syncCursorInUrl(info.cursorUsed);
+    },
+    [syncCursorInUrl],
+  );
 
   const transactionFilters = useMemo<TransactionFilters>(
     () => ({
@@ -53,12 +89,12 @@ export default function Transactions() {
       minAmount: minimumAmount,
       memoSearch: memoSearch,
     }),
-    [directionFilter, minimumAmount, memoSearch]
+    [directionFilter, minimumAmount, memoSearch],
   );
 
   const filteredPayments = useMemo(
     () => filterPayments(payments, transactionFilters),
-    [payments, transactionFilters]
+    [payments, transactionFilters],
   );
 
   const activeFilterCount =
@@ -103,10 +139,7 @@ export default function Transactions() {
     if (!filtersReady) return;
 
     try {
-      sessionStorage.setItem(
-        TRANSACTION_FILTERS_STORAGE_KEY,
-        JSON.stringify(transactionFilters)
-      );
+      sessionStorage.setItem(TRANSACTION_FILTERS_STORAGE_KEY, JSON.stringify(transactionFilters));
     } catch {
       // Session persistence is a convenience; filtering should continue without it.
     }
@@ -156,7 +189,7 @@ export default function Transactions() {
           downloadPDF(blob, dateStamp);
         }
       } catch (err) {
-        logger.error(`Failed to export ${format}:`, err);
+        logger.error(`Failed to export ${format}`, {}, err instanceof Error ? err : undefined);
       } finally {
         setExporting(false);
         setExportFormat(null);
@@ -227,8 +260,10 @@ export default function Transactions() {
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
       <Head>
         <title>Transaction History | Finchippay-Solution</title>
-        <meta name="description" content="View your full Stellar transaction history, export data as CSV or JSON, and print payment receipts. Secure and transparent." />
-        
+        <meta
+          name="description"
+          content="View your full Stellar transaction history, export data as CSV or JSON, and print payment receipts. Secure and transparent."
+        />
       </Head>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
@@ -239,7 +274,9 @@ export default function Transactions() {
           <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
             <span>{`Account:`}</span>
             {/* Added select-text and cursor-text so the address pill remains functional */}
-            <span className="address-pill select-text cursor-text">{shortenAddress(publicKey)}</span>
+            <span className="address-pill select-text cursor-text">
+              {shortenAddress(publicKey)}
+            </span>
           </div>
         </div>
 
@@ -292,7 +329,11 @@ export default function Transactions() {
                     strokeWidth={2}
                     aria-hidden="true"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                    />
                   </svg>
                 </>
               )}
@@ -306,12 +347,24 @@ export default function Transactions() {
                   onClick={() => void handleExport("csv")}
                   className="flex items-center gap-3 w-full px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors cursor-pointer"
                 >
-                  <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z" />
+                  <svg
+                    className="w-4 h-4 text-emerald-400 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z"
+                    />
                   </svg>
                   <div className="text-left">
                     <div className="font-medium">Export as CSV</div>
-                    <div className="text-xs text-slate-600 dark:text-slate-400">RFC 4180 · Spreadsheet-ready</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                      RFC 4180 · Spreadsheet-ready
+                    </div>
                   </div>
                 </button>
 
@@ -320,12 +373,24 @@ export default function Transactions() {
                   onClick={() => void handleExport("pdf")}
                   className="flex items-center gap-3 w-full px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors cursor-pointer border-t border-slate-200 dark:border-white/5"
                 >
-                  <svg className="w-4 h-4 text-red-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                  <svg
+                    className="w-4 h-4 text-red-400 flex-shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                    />
                   </svg>
                   <div className="text-left">
                     <div className="font-medium">Export as PDF</div>
-                    <div className="text-xs text-slate-600 dark:text-slate-400">Branded statement · Printer-friendly</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                      Branded statement · Printer-friendly
+                    </div>
                   </div>
                 </button>
               </div>
@@ -461,6 +526,8 @@ export default function Transactions() {
         <TransactionList
           publicKey={publicKey}
           limit={20}
+          cursor={cursorParam}
+          onCursorChange={handleCursorChange}
           filters={transactionFilters}
           onPaymentsChange={handlePaymentsChange}
           onPrintReceipt={handlePrintReceipt}
@@ -475,9 +542,7 @@ export default function Transactions() {
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-400 mb-2">
                   Finchippay Solution
                 </p>
-                <h2 className="text-2xl font-semibold text-slate-900">
-                  Payment Receipt
-                </h2>
+                <h2 className="text-2xl font-semibold text-slate-900">Payment Receipt</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                   {formatDate(receiptPayment.createdAt)}
                 </p>
@@ -563,10 +628,20 @@ export default function Transactions() {
   );
 }
 
-function ReceiptRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function ReceiptRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="grid grid-cols-[1fr_minmax(0,1.8fr)] gap-4 border-b border-slate-200 pb-3">
-      <dt className="text-xs uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400">
+        {label}
+      </dt>
       <dd className={mono ? "font-mono break-all text-slate-900" : "text-slate-900 break-words"}>
         {value}
       </dd>

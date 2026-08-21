@@ -22,7 +22,7 @@
 
 use soroban_sdk::{Address, Env, Symbol};
 
-use crate::{DataKey, Stream, TtlClass};
+use crate::{ContractError, DataKey, Stream, TtlClass};
 
 // ─── Storage lifetime constants ───────────────────────────────────────────────
 
@@ -46,6 +46,67 @@ pub const TTL_CLASS_COUNT: u32 = 8;
 
 /// Number of singleton configuration keys enumerated by the `Config` class.
 pub const TTL_CONFIG_KEYS: u32 = 9;
+
+// ─── Non-reentrancy guard ─────────────────────────────────────────────────────
+
+/// RAII guard that enforces non-reentrancy for every value-transferring entry
+/// point.
+///
+/// # Why this exists
+///
+/// Every `token.transfer` is a cross-contract call into an *untrusted* token
+/// implementation. Without a lock, a hostile token's `transfer` can call back
+/// into this contract (e.g. re-enter `claim_escrow`, `claim_stream`,
+/// `approve_multisig`, `claim_vesting`, or a swap) *before* the outer call has
+/// committed its state, letting an attacker double-claim or double-drain funds.
+/// Soroban's single-threaded ledger does not by itself prevent this: the outer
+/// call is suspended while the token executes, so re-entrancy through an
+/// arbitrary token contract is a real attack surface for a funds-custody
+/// contract.
+///
+/// The lock is a single `bool` kept in *instance* storage (transient,
+/// per-invocation state) under [`DataKey::Reentrant`]. `acquire` panics with
+/// [`ContractError::ReentrantCall`] if the flag is already set; on a clean
+/// return the flag is removed by [`Drop`], and on a panic the entire
+/// transaction is rolled back by the host, which also clears the flag.
+///
+/// # Usage
+///
+/// Acquire the guard as the *first* statement of every value-transferring
+/// entry point and bind it to a local so it lives until the function returns:
+///
+/// ```ignore
+/// let _guard = ReentrancyGuard::acquire(&env);
+/// ```
+pub struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    /// Acquire the non-reentrancy lock.
+    ///
+    /// # Panics
+    ///
+    /// Panics with [`ContractError::ReentrantCall`] if a value-transferring
+    /// entry point is already mid-flight.
+    pub fn acquire(env: &'a Env) -> ReentrancyGuard<'a> {
+        let key = DataKey::Reentrant;
+        if env.storage().instance().has(&key) {
+            soroban_sdk::panic_with_error!(env, ContractError::ReentrantCall);
+        }
+        env.storage().instance().set(&key, &true);
+        ReentrancyGuard { env }
+    }
+}
+
+impl Drop for ReentrancyGuard<'_> {
+    fn drop(&mut self) {
+        // Clearing on a normal return keeps the lock from leaking into the next
+        // call. During a panic this is harmless: the host rolls back the whole
+        // transaction (including this removal) before committing anything.
+        self.env.storage().instance().remove(&DataKey::Reentrant);
+    }
+}
 
 // ─── Core bump primitives ─────────────────────────────────────────────────────
 

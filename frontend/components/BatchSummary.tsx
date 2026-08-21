@@ -22,7 +22,7 @@ interface BatchSummaryProps {
   maxRecipients?: number;
 }
 
-const ESTIMATED_FEE_XLM = 0.001;
+const BASE_FEE_PER_OP_XLM = 0.0001;
 
 export default function BatchSummary({
   recipients,
@@ -35,7 +35,7 @@ export default function BatchSummary({
     recipients.forEach((r) => {
       const amount = parseFloat(r.amount);
       if (Number.isFinite(amount) && amount > 0 && r.address) {
-        const code = r.token.code;
+        const code = r.token?.code || "XLM";
         byToken[code] = (byToken[code] || 0) + amount;
         validCount++;
       }
@@ -49,13 +49,16 @@ export default function BatchSummary({
     USDC: "bg-emerald-500",
   };
 
+  const tokenEntries = Object.entries(totals.byToken);
   const maxAmount = Math.max(...Object.values(totals.byToken), 1);
+  const estimatedFee = (Math.max(1, totals.validCount) * BASE_FEE_PER_OP_XLM).toFixed(4);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
+      aria-label="Batch payment summary"
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-300">Batch Summary</h3>
@@ -65,16 +68,16 @@ export default function BatchSummary({
       </div>
 
       {/* Token totals */}
-      {Object.keys(totals.byToken).length === 0 ? (
+      {tokenEntries.length === 0 ? (
         <p className="text-xs text-slate-500 italic">
           Add recipients with valid addresses and amounts to see the summary.
         </p>
       ) : (
         <div className="space-y-3">
-          {/* Bar chart */}
-          <div className="space-y-2">
-            {Object.entries(totals.byToken).map(([code, amount], index) => {
-              const percentage = (amount / maxAmount) * 100;
+          {/* Bar chart of token distribution */}
+          <div className="space-y-2" aria-label="Token distribution chart">
+            {tokenEntries.map(([code, amount], index) => {
+              const percentage = Math.min(100, Math.max(5, (amount / maxAmount) * 100));
               return (
                 <div key={code} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
@@ -102,17 +105,17 @@ export default function BatchSummary({
           <div className="flex items-center justify-between pt-2 border-t border-white/5">
             <span className="text-xs text-slate-500">Estimated fee</span>
             <span className="text-xs text-slate-400">
-              ~{ESTIMATED_FEE_XLM} XLM
+              ~{estimatedFee} XLM
             </span>
           </div>
 
-          {/* Total */}
+          {/* Grand total */}
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-slate-300">Total</span>
             <span className="text-sm font-semibold text-white">
-              {Object.entries(totals.byToken)
+              {tokenEntries
                 .map(([code, amount]) => `${amount.toFixed(2)} ${code}`)
-                .join(" + ") || "0"}
+                .join(" + ")}
             </span>
           </div>
         </div>

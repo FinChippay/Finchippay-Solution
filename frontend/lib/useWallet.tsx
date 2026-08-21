@@ -25,6 +25,7 @@ import {
   performSEP0010Auth,
   initEncryptionSession,
 } from "@/lib/wallet";
+import { revokeAllSessions } from "@/lib/auth";
 
 /** A single Stellar account the user has connected to Finchippay. */
 export interface Account {
@@ -261,6 +262,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnectWallet = useCallback(() => {
     clearWalletConnection();
     setState(EMPTY_STATE);
+    // Best-effort logout to clear httpOnly cookies and revoke backend tokens
+    void revokeAllSessions();
     router.push("/");
   }, [router]);
 

@@ -145,7 +145,7 @@ export async function parseApiError(
 }
 
 /**
- * Map a numeric Soroban ContractError code (1–17) to a StandardError.
+ * Map a numeric Soroban ContractError code (1–29) to a StandardError.
  *
  * Useful after catching errors from `@stellar/stellar-sdk` contract
  * invocations that surface the numeric code.

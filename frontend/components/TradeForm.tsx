@@ -38,8 +38,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const USDC_ISSUER =
-  process.env.NEXT_PUBLIC_USDC_ISSUER ||
-  "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+  process.env.NEXT_PUBLIC_USDC_ISSUER || "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 
 /** Supported token codes for the swap UI. */
 const SUPPORTED_TOKENS = ["XLM", "USDC"] as const;
@@ -70,6 +69,59 @@ function formatAmount(value: string, decimals = 7): string {
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
+/** Aggregated quote from SEP-38 / DEX order book depth service */
+export interface AggregatedQuote {
+  sellAsset: string;
+  buyAsset: string;
+  sellAmount: string;
+  buyAmount: string;
+  price: string;
+  topOfBookPrice: string;
+  slippagePercent: string;
+  priceImpactPercent: string;
+  levelsConsumed: number;
+  isPartialFill?: boolean;
+  remainingSellAmount?: string;
+}
+
+// ─── 2-Second TTL Order Book Cache ─────────────────────────────────────────────
+const quoteCache = new Map<string, { quote: AggregatedQuote; timestamp: number }>();
+export const QUOTE_CACHE_TTL_MS = 2000;
+
+export function clearAggregatedQuoteCache(): void {
+  quoteCache.clear();
+}
+
+/**
+ * Fetch aggregated quote across Stellar DEX order book depth.
+ */
+export async function fetchAggregatedQuote(
+  sellAsset: string,
+  buyAsset: string,
+  sellAmount: string,
+): Promise<AggregatedQuote | null> {
+  const cacheKey = `${sellAsset}:${buyAsset}:${sellAmount}`;
+  const cached = quoteCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < QUOTE_CACHE_TTL_MS) {
+    return cached.quote;
+  }
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  try {
+    const res = await fetch(
+      `${apiUrl}/api/v1/sep38/quote/aggregated?sell_asset=${encodeURIComponent(
+        sellAsset,
+      )}&buy_asset=${encodeURIComponent(buyAsset)}&sell_amount=${encodeURIComponent(sellAmount)}`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as AggregatedQuote;
+    quoteCache.set(cacheKey, { quote: data, timestamp: Date.now() });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export interface TradeFormProps {
   publicKey?: string | null;
   onTradeComplete: () => void;
@@ -77,6 +129,8 @@ export interface TradeFormProps {
   onSuccess: (message: string) => void;
   /** Injected price impact for testing; overrides internal calculation. */
   priceImpact?: number;
+  /** Injected aggregated quote for testing; overrides API fetch. */
+  aggregatedQuote?: AggregatedQuote | null;
 }
 
 /** Swap preview data derived from a successful path-finder result. */
@@ -98,6 +152,7 @@ export default function TradeForm({
   onError,
   onSuccess,
   priceImpact: externalPriceImpact,
+  aggregatedQuote: externalAggregatedQuote,
 }: TradeFormProps) {
   // ── Token selection ──────────────────────────────────────────────────────
   const [payToken, setPayToken] = useState<TokenCode>("XLM");
@@ -116,11 +171,15 @@ export default function TradeForm({
   const [customSlippage, setCustomSlippage] = useState("");
   const [isCustomSlippage, setIsCustomSlippage] = useState(false);
 
-  // ── Path-finder state ────────────────────────────────────────────────────
+  // ── Path-finder & aggregated quote state ─────────────────────────────────
   const [pathResult, setPathResult] = useState<PathFinderResult | null>(null);
   const [swapPreview, setSwapPreview] = useState<SwapPreview | null>(null);
+  const [aggregatedQuoteState, setAggregatedQuoteState] = useState<AggregatedQuote | null>(null);
   const [isLoadingPath, setIsLoadingPath] = useState(false);
   const [pathError, setPathError] = useState<string | null>(null);
+
+  const aggregatedQuote =
+    externalAggregatedQuote !== undefined ? externalAggregatedQuote : aggregatedQuoteState;
 
   // ── Transaction state ────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -135,17 +194,12 @@ export default function TradeForm({
 
   // ─── Derived values ───────────────────────────────────────────────────────
 
-  const activeSlippage = isCustomSlippage
-    ? parseFloat(customSlippage) || 0
-    : parseFloat(slippage);
+  const activeSlippage = isCustomSlippage ? parseFloat(customSlippage) || 0 : parseFloat(slippage);
 
-  const isSlippageInvalid =
-    isNaN(activeSlippage) || activeSlippage < 0 || activeSlippage > 50;
+  const isSlippageInvalid = isNaN(activeSlippage) || activeSlippage < 0 || activeSlippage > 50;
 
   const displayedPriceImpact =
-    externalPriceImpact !== undefined
-      ? externalPriceImpact
-      : (swapPreview?.priceImpact ?? 0);
+    externalPriceImpact !== undefined ? externalPriceImpact : (swapPreview?.priceImpact ?? 0);
 
   const showPriceImpactWarning = displayedPriceImpact > 3;
 
@@ -181,7 +235,7 @@ export default function TradeForm({
           srcAsset,
           amount,
           dstAsset,
-          publicKey ?? undefined
+          publicKey ?? undefined,
         );
 
         setPathResult(result);
@@ -216,17 +270,24 @@ export default function TradeForm({
         });
 
         setReceiveAmount(parseFloat(destAmt).toFixed(7));
+
+        // Fetch aggregated quote across order book depth (SEP-38 RFQ)
+        try {
+          const aggQuote = await fetchAggregatedQuote(from, to, amount);
+          setAggregatedQuoteState(aggQuote);
+        } catch {
+          setAggregatedQuoteState(null);
+        }
       } catch (err) {
         setPathResult(null);
         setSwapPreview(null);
-        setPathError(
-          err instanceof Error ? err.message : "Path lookup failed"
-        );
+        setAggregatedQuoteState(null);
+        setPathError(err instanceof Error ? err.message : "Path lookup failed");
       } finally {
         setIsLoadingPath(false);
       }
     },
-    [publicKey, activeSlippage, externalPriceImpact]
+    [publicKey, activeSlippage, externalPriceImpact],
   );
 
   /** Debounce path lookups triggered by amount / token changes. */
@@ -237,7 +298,7 @@ export default function TradeForm({
         void runPathFinder(amount, from, to);
       }, PATH_DEBOUNCE_MS);
     },
-    [runPathFinder]
+    [runPathFinder],
   );
 
   // Re-run path-finder when pay amount, tokens, or slippage changes
@@ -267,6 +328,7 @@ export default function TradeForm({
     setReceiveAmount(payAmount);
     setPathResult(null);
     setSwapPreview(null);
+    setAggregatedQuoteState(null);
     setPathError(null);
   };
 
@@ -275,6 +337,7 @@ export default function TradeForm({
     // Clear receive amount and preview until path-finder returns
     setReceiveAmount("");
     setSwapPreview(null);
+    setAggregatedQuoteState(null);
   };
 
   const handleSlippagePreset = (preset: string) => {
@@ -300,18 +363,16 @@ export default function TradeForm({
 
     const srcAsset = tokenToAsset(payToken);
     const dstAsset = tokenToAsset(receiveToken);
-    const intermediateAssets = pathAssetsToStellarAssets(
-      pathResult.bestPath.path
-    );
+    const intermediateAssets = pathAssetsToStellarAssets(pathResult.bestPath.path);
 
     // Build path payment (strict-receive so user gets at least minReceived)
     const tx = await buildPathPaymentTransaction({
       fromPublicKey: publicKey,
       toPublicKey: publicKey,
       sendAsset: srcAsset,
-      sendMax: payAmount,           // maximum we are willing to pay
+      sendMax: payAmount, // maximum we are willing to pay
       destAsset: dstAsset,
-      destAmount: minReceived,      // minimum we must receive (slippage applied)
+      destAmount: minReceived, // minimum we must receive (slippage applied)
       path: intermediateAssets,
     });
 
@@ -345,10 +406,7 @@ export default function TradeForm({
     setIsSubmitting(true);
 
     try {
-      const minReceived = applySlippage(
-        swapPreview.destinationAmount,
-        activeSlippage
-      );
+      const minReceived = applySlippage(swapPreview.destinationAmount, activeSlippage);
 
       if (swapMode === "contract") {
         await submitContractSwap(minReceived);
@@ -382,11 +440,7 @@ export default function TradeForm({
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
             Swap Via
           </label>
-          <div
-            role="group"
-            aria-label="Swap execution mode"
-            className="flex gap-2"
-          >
+          <div role="group" aria-label="Swap execution mode" className="flex gap-2">
             <button
               type="button"
               onClick={() => setSwapMode("horizon")}
@@ -414,8 +468,8 @@ export default function TradeForm({
           </div>
           {swapMode === "contract" && (
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
-              Settles on-chain via FinchippayContract. A protocol fee applies;
-              route pricing above is still sourced from Horizon.
+              Settles on-chain via FinchippayContract. A protocol fee applies; route pricing above
+              is still sourced from Horizon.
             </p>
           )}
         </div>
@@ -510,9 +564,7 @@ export default function TradeForm({
               ) : receiveAmount ? (
                 <span data-testid="receive-amount">{receiveAmount}</span>
               ) : (
-                <span className="text-slate-500 dark:text-slate-400 text-sm">
-                  Estimated amount
-                </span>
+                <span className="text-slate-500 dark:text-slate-400 text-sm">Estimated amount</span>
               )}
             </div>
           </div>
@@ -530,9 +582,7 @@ export default function TradeForm({
                 <span className="px-2 py-0.5 rounded bg-stellar-500/20 font-mono font-semibold">
                   {hop}
                 </span>
-                {idx < arr.length - 1 && (
-                  <span className="text-slate-400">→</span>
-                )}
+                {idx < arr.length - 1 && <span className="text-slate-400">→</span>}
               </span>
             ))}
           </div>
@@ -540,10 +590,7 @@ export default function TradeForm({
 
         {/* ── Path error ────────────────────────────────────────────────────── */}
         {pathError && (
-          <p
-            data-testid="path-error"
-            className="text-sm text-amber-400 flex items-center gap-1"
-          >
+          <p data-testid="path-error" className="text-sm text-amber-400 flex items-center gap-1">
             <AlertCircleIcon className="w-4 h-4 flex-shrink-0" />
             {pathError}
           </p>
@@ -590,9 +637,7 @@ export default function TradeForm({
             </div>
           </div>
           {isSlippageInvalid && (
-            <p className="text-xs text-red-400 mt-1">
-              Slippage must be between 0% and 50%
-            </p>
+            <p className="text-xs text-red-400 mt-1">Slippage must be between 0% and 50%</p>
           )}
         </div>
 
@@ -602,11 +647,24 @@ export default function TradeForm({
             data-testid="swap-preview"
             className="rounded-lg border border-stellar-500/20 bg-slate-50 dark:bg-cosmos-800/50 p-4 space-y-2 text-sm"
           >
-            <div className="flex justify-between text-slate-700 dark:text-slate-300">
+            <div className="flex justify-between items-center text-slate-700 dark:text-slate-300">
               <span>Exchange rate</span>
-              <span className="font-medium text-slate-900 dark:text-white">
-                1 {payToken} ≈ {swapPreview.exchangeRate} {receiveToken}
-              </span>
+              <div className="flex items-center gap-2">
+                {aggregatedQuote &&
+                  (parseFloat(aggregatedQuote.price) >=
+                    parseFloat(aggregatedQuote.topOfBookPrice) ||
+                    parseFloat(aggregatedQuote.slippagePercent) <= 0.5) && (
+                    <span
+                      data-testid="best-price-badge"
+                      className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                    >
+                      Best Price
+                    </span>
+                  )}
+                <span className="font-medium text-slate-900 dark:text-white">
+                  1 {payToken} ≈ {swapPreview.exchangeRate} {receiveToken}
+                </span>
+              </div>
             </div>
             <div className="flex justify-between text-slate-700 dark:text-slate-300">
               <span>Minimum received</span>
@@ -621,13 +679,36 @@ export default function TradeForm({
                   displayedPriceImpact > 3
                     ? "text-red-400"
                     : displayedPriceImpact > 1
-                    ? "text-amber-400"
-                    : "text-emerald-400"
+                      ? "text-amber-400"
+                      : "text-emerald-400"
                 }`}
               >
                 {displayedPriceImpact.toFixed(2)}%
               </span>
             </div>
+            {aggregatedQuote && (
+              <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                <span>Order book depth</span>
+                <span
+                  data-testid="levels-consumed"
+                  className="font-medium text-slate-900 dark:text-white"
+                >
+                  {aggregatedQuote.levelsConsumed}{" "}
+                  {aggregatedQuote.levelsConsumed === 1 ? "level" : "levels"}
+                </span>
+              </div>
+            )}
+            {aggregatedQuote && parseFloat(aggregatedQuote.slippagePercent) > 0 && (
+              <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                <span>Estimated slippage</span>
+                <span
+                  data-testid="estimated-slippage"
+                  className="font-medium text-slate-900 dark:text-white"
+                >
+                  {aggregatedQuote.slippagePercent}%
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-slate-700 dark:text-slate-300">
               <span>Estimated network fee</span>
               <span className="font-medium text-slate-900 dark:text-white">
@@ -646,8 +727,8 @@ export default function TradeForm({
             <AlertCircleIcon className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-red-400">
               <span className="font-semibold">High price impact</span> —{" "}
-              {displayedPriceImpact.toFixed(2)}% price impact detected. You may
-              receive significantly less than expected.
+              {displayedPriceImpact.toFixed(2)}% price impact detected. You may receive
+              significantly less than expected.
             </p>
           </div>
         )}
@@ -663,10 +744,10 @@ export default function TradeForm({
           {isSubmitting
             ? "Processing…"
             : isLoadingPath
-            ? "Finding route…"
-            : !publicKey
-            ? "Connect wallet to swap"
-            : "Review Swap"}
+              ? "Finding route…"
+              : !publicKey
+                ? "Connect wallet to swap"
+                : "Review Swap"}
         </button>
       </div>
 
@@ -678,7 +759,11 @@ export default function TradeForm({
           aria-labelledby="confirm-swap-title"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
         >
-          <div ref={confirmModalRef} tabIndex={-1} className="w-full max-w-md bg-white dark:bg-cosmos-900 rounded-2xl shadow-xl p-6 space-y-5 outline-none">
+          <div
+            ref={confirmModalRef}
+            tabIndex={-1}
+            className="w-full max-w-md bg-white dark:bg-cosmos-900 rounded-2xl shadow-xl p-6 space-y-5 outline-none"
+          >
             <h2
               id="confirm-swap-title"
               className="text-xl font-semibold text-slate-900 dark:text-white"
@@ -692,18 +777,14 @@ export default function TradeForm({
                 <p className="text-2xl font-bold text-slate-900 dark:text-white">
                   {formatAmount(swapPreview.sourceAmount, 4)}
                 </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  {payToken}
-                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{payToken}</p>
               </div>
               <SwapIcon className="w-6 h-6 text-stellar-500" />
               <div className="text-center">
                 <p className="text-2xl font-bold text-stellar-700 dark:text-stellar-400">
                   {formatAmount(swapPreview.destinationAmount, 4)}
                 </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  {receiveToken}
-                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{receiveToken}</p>
               </div>
             </div>
 
@@ -719,47 +800,33 @@ export default function TradeForm({
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-600 dark:text-slate-400">
-                  Exchange rate
-                </dt>
+                <dt className="text-slate-600 dark:text-slate-400">Exchange rate</dt>
                 <dd className="text-slate-900 dark:text-white font-medium">
                   1 {payToken} ≈ {swapPreview.exchangeRate} {receiveToken}
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-600 dark:text-slate-400">
-                  Slippage tolerance
-                </dt>
-                <dd className="text-slate-900 dark:text-white font-medium">
-                  {activeSlippage}%
-                </dd>
+                <dt className="text-slate-600 dark:text-slate-400">Slippage tolerance</dt>
+                <dd className="text-slate-900 dark:text-white font-medium">{activeSlippage}%</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-600 dark:text-slate-400">
-                  Minimum received
-                </dt>
+                <dt className="text-slate-600 dark:text-slate-400">Minimum received</dt>
                 <dd className="text-slate-900 dark:text-white font-medium">
                   {formatAmount(swapPreview.minimumReceived)} {receiveToken}
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-600 dark:text-slate-400">
-                  Price impact
-                </dt>
+                <dt className="text-slate-600 dark:text-slate-400">Price impact</dt>
                 <dd
                   className={`font-medium ${
-                    displayedPriceImpact > 3
-                      ? "text-red-400"
-                      : "text-slate-900 dark:text-white"
+                    displayedPriceImpact > 3 ? "text-red-400" : "text-slate-900 dark:text-white"
                   }`}
                 >
                   {displayedPriceImpact.toFixed(2)}%
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-600 dark:text-slate-400">
-                  Estimated fee
-                </dt>
+                <dt className="text-slate-600 dark:text-slate-400">Estimated fee</dt>
                 <dd className="text-slate-900 dark:text-white font-medium">
                   ~{swapPreview.estimatedFeeXLM} XLM
                 </dd>
@@ -771,8 +838,8 @@ export default function TradeForm({
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 flex items-start gap-2">
                 <AlertCircleIcon className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-red-400">
-                  Price impact is {displayedPriceImpact.toFixed(2)}%. Confirm
-                  only if you understand the risk.
+                  Price impact is {displayedPriceImpact.toFixed(2)}%. Confirm only if you understand
+                  the risk.
                 </p>
               </div>
             )}

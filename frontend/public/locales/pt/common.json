@@ -218,6 +218,7 @@
   "transactions": {
     "title": "Pagamentos Recentes",
     "noTransactions": "Nenhuma transação ainda",
+    "newest": "Mais recente",
     "startMessage": "Envie seu primeiro pagamento para começar",
     "needTestXlm": "Precisa de XLM de teste?",
     "fundWithFriendbot": "Financie esta conta com Friendbot",

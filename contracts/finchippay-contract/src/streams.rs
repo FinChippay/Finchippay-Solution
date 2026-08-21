@@ -27,6 +27,7 @@ pub fn open_stream(
     rate_per_ledger: i128,
     deposit: i128,
 ) -> u32 {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_initialized(&env);
     require_not_paused(&env);
     payer.require_auth();
@@ -104,6 +105,7 @@ pub fn open_stream(
 /// Returns the amount claimed. Can be called multiple times as the stream
 /// progresses; the running `claimed` counter prevents double-claiming.
 pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     recipient.require_auth();
 
@@ -128,9 +130,12 @@ pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
 
+    // Checks-effects-interactions: release the locked balance before the
+    // external token transfer.
+    decrease_locked_balance(&env, &stream.token, claimable);
+
     let token = get_token_client(&env, &stream.token);
     contract_transfer_out(&env, &token, &recipient, &claimable);
-    decrease_locked_balance(&env, &stream.token, claimable);
 
     env.events().publish(
         (Symbol::new(&env, "stream_claim"), stream_id),
@@ -141,6 +146,7 @@ pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
 
 /// Payer adds `amount` more tokens to an existing open stream.
 pub fn top_up_stream(env: Env, stream_id: u32, payer: Address, amount: i128) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     payer.require_auth();
     if amount <= 0 {
@@ -185,6 +191,7 @@ pub fn top_up_stream(env: Env, stream_id: u32, payer: Address, amount: i128) {
 ///
 /// Returns the refund amount sent back to the payer.
 pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     payer.require_auth();
 
@@ -203,29 +210,27 @@ pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
 
     let token = get_token_client(&env, &stream.token);
 
-    // Pay out any accrued-but-unclaimed tokens to the recipient first.
+    // Checks-effects-interactions: compute the settlement and commit all state
+    // changes *before* any external token transfer.
     let claimable = claimable_at(&stream, env.ledger().sequence());
     if claimable > 0 {
-        contract_transfer_out(&env, &token, &stream.recipient, &claimable);
         stream.claimed = stream.claimed.checked_add(claimable).expect("overflow");
-        decrease_locked_balance(&env, &stream.token, claimable);
     }
-
-    // Refund the remaining deposit to the payer.
     let refund = stream
         .deposited
         .checked_sub(stream.claimed)
         .expect("underflow");
-    if refund > 0 {
-        contract_transfer_out(&env, &token, &payer, &refund);
-    }
-    decrease_locked_balance(&env, &stream.token, refund);
-
     stream.closed = true;
+
     env.storage()
         .persistent()
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
+
+    if claimable > 0 {
+        decrease_locked_balance(&env, &stream.token, claimable);
+    }
+    decrease_locked_balance(&env, &stream.token, refund);
 
     let s_key = DataKey::StreamByPayer(payer.clone());
     let p_streams: Vec<u32> = env
@@ -241,6 +246,14 @@ pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
     }
     env.storage().persistent().set(&s_key, &new_streams);
     bump(&env, &s_key);
+
+    // Interactions: transfer out last.
+    if claimable > 0 {
+        contract_transfer_out(&env, &token, &stream.recipient, &claimable);
+    }
+    if refund > 0 {
+        contract_transfer_out(&env, &token, &payer, &refund);
+    }
 
     env.events().publish(
         (Symbol::new(&env, "stream_close"), stream_id),
@@ -262,6 +275,7 @@ pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
 ///
 /// Returns the refund amount sent back to the payer.
 pub fn reject_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     recipient.require_auth();
 
@@ -280,29 +294,35 @@ pub fn reject_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
 
     let token = get_token_client(&env, &stream.token);
 
-    // Pay accrued tokens to recipient.
+    // Checks-effects-interactions: compute the settlement and commit all state
+    // changes *before* any external token transfer.
     let claimable = claimable_at(&stream, env.ledger().sequence());
     if claimable > 0 {
-        contract_transfer_out(&env, &token, &recipient, &claimable);
         stream.claimed = stream.claimed.checked_add(claimable).expect("overflow");
-        decrease_locked_balance(&env, &stream.token, claimable);
     }
-
-    // Refund remaining to payer.
     let refund = stream
         .deposited
         .checked_sub(stream.claimed)
         .expect("underflow");
-    if refund > 0 {
-        contract_transfer_out(&env, &token, &stream.payer, &refund);
-    }
-    decrease_locked_balance(&env, &stream.token, refund);
-
     stream.closed = true;
+
     env.storage()
         .persistent()
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
+
+    if claimable > 0 {
+        decrease_locked_balance(&env, &stream.token, claimable);
+    }
+    decrease_locked_balance(&env, &stream.token, refund);
+
+    // Interactions: transfer out last.
+    if claimable > 0 {
+        contract_transfer_out(&env, &token, &recipient, &claimable);
+    }
+    if refund > 0 {
+        contract_transfer_out(&env, &token, &stream.payer, &refund);
+    }
 
     env.events().publish(
         (Symbol::new(&env, "stream_reject"), stream_id),
@@ -321,6 +341,7 @@ pub fn transfer_stream(
     current_recipient: Address,
     new_recipient: Address,
 ) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     current_recipient.require_auth();
     if current_recipient == new_recipient {
@@ -340,15 +361,10 @@ pub fn transfer_stream(
         panic!("stream is closed");
     }
 
-    // Auto-claim accrued tokens for the old recipient before transfer.
+    // Checks-effects-interactions: record the accrued claim and the new
+    // recipient before the external transfer of the accrued tokens.
     let claimable = claimable_at(&stream, env.ledger().sequence());
     if claimable > 0 {
-        let token = get_token_client(&env, &stream.token);
-        token.transfer(
-            &env.current_contract_address(),
-            &current_recipient,
-            &claimable,
-        );
         stream.claimed = stream.claimed.checked_add(claimable).expect("overflow");
     }
 
@@ -357,6 +373,15 @@ pub fn transfer_stream(
         .persistent()
         .set(&DataKey::Stream(stream_id), &stream);
     bump(&env, &DataKey::Stream(stream_id));
+
+    if claimable > 0 {
+        let token = get_token_client(&env, &stream.token);
+        token.transfer(
+            &env.current_contract_address(),
+            &current_recipient,
+            &claimable,
+        );
+    }
 
     env.events().publish(
         (Symbol::new(&env, "stream_transfer"), stream_id),

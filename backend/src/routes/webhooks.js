@@ -7,7 +7,7 @@
 
 const express = require("express");
 const router = express.Router();
-const webhookService = require("../services/webhookSubscriptionService");
+const webhookService = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const { registerWebhookSchema } = require("../validation/webhookSchemas");
@@ -17,6 +17,11 @@ const {
   getEventsQuerySchema,
   replayEventsBodySchema,
 } = require("../validation/schemas");
+const {
+  paginateInMemory,
+  setPaginationHeaders,
+  formatPaginatedResponse,
+} = require("../utils/paginate");
 
 /**
  * POST /api/webhooks
@@ -47,13 +52,28 @@ router.post("/", validate(registerWebhookSchema), async (req, res) => {
 
 /**
  * GET /api/webhooks/:publicKey
- * Get all webhooks for a Stellar account.
+ * Get all webhooks for a Stellar account with standardized pagination.
  */
 router.get("/:publicKey", validate(publicKeyParamSchema, "params"), async (req, res, next) => {
   try {
     const { publicKey } = req.validated;
     const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
-    return res.json({ webhooks: hooks });
+    const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+    const cursor = req.pagination?.cursor || null;
+
+    const { data, nextCursor, total } = paginateInMemory(
+      hooks || [],
+      { limit, cursor },
+      (h) => ({ id: h.id }),
+      (a, b) => String(b.id || "").localeCompare(String(a.id || "")),
+    );
+
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+    const formatted = formatPaginatedResponse(data, nextCursor, total, { limit });
+    return res.json({
+      ...formatted,
+      webhooks: data, // maintain backward compatibility
+    });
   } catch (err) {
     next(err);
   }
@@ -71,8 +91,23 @@ router.get(
     try {
       const { publicKey } = req.validatedParams || req.params;
       const options = req.validatedQuery || req.query;
-      const events = await webhookService.getEvents(publicKey, options);
-      return res.json({ events });
+      const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+      const cursor = req.pagination?.cursor || null;
+
+      const rawEvents = await webhookService.getEvents(publicKey, { ...options, limit });
+      const { data, nextCursor, total } = paginateInMemory(
+        rawEvents || [],
+        { limit, cursor },
+        (e) => ({ id: e.id || e.timestamp }),
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0),
+      );
+
+      setPaginationHeaders(req, res, { nextCursor, total, limit });
+      const formatted = formatPaginatedResponse(data, nextCursor, total, { limit });
+      return res.json({
+        ...formatted,
+        events: data, // maintain backward compatibility
+      });
     } catch (err) {
       next(err);
     }

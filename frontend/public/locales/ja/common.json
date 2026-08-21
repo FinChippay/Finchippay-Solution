@@ -218,6 +218,7 @@
   "transactions": {
     "title": "最近の支払い",
     "noTransactions": "取引履歴はまだありません",
+    "newest": "最新",
     "startMessage": "最初の支払いを送信して開始",
     "needTestXlm": "テスト XLM が必要ですか？",
     "fundWithFriendbot": "Friendbot でこのアカウントに資金追加",

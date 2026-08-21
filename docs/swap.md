@@ -195,11 +195,13 @@ TradeForm also offers a **"Swap Via" toggle** — *Horizon Swap* (default, descr
 | `set_fee_collector(admin, collector)` / `get_fee_collector()` | Admin-configurable protocol fee recipient (defaults to admin) |
 | `set_swap_fee(admin, new_fee_bps)` / `get_swap_fee()` | Admin-configurable protocol fee, 0–1000 bps (default 30 bps = 0.3%) |
 
-A protocol fee (default 0.3%) is deducted from `amount_in` and sent to the fee collector before the swap executes; the remainder is settled against the contract's token reserves.
+A protocol fee (default 0.3%) is computed from the amount that actually reaches the contract. This matters for fee-on-transfer inputs: if a token burns or withholds part of the requested transfer, the swap output and protocol fee are based on the measured balance delta, not the caller's requested amount. The post-fee remainder is settled against the contract's token reserves.
 
 ### ⚠️ Pricing-model limitation
 
 Soroban contracts have no host function to invoke the classic Stellar DEX's `path_payment_strict_send`/`strict_receive` operations, and building a full on-chain AMM was explicitly **out of scope** for issue #9/#479. As a result, `swap_exact_tokens_for_tokens` / `swap_tokens_for_exact_tokens` settle the post-fee amount **1:1** against the contract's own pre-funded `token_out` reserves — they do not (yet) source live prices from an AMM or DEX order book. `path` is validated for shape (must start with `token_in`, end with `token_out`, length ≥ 2) but intermediate hops are not separately transferred, since the contract holds no inventory of intermediate tokens.
+
+Paths are also hardened before execution: malformed endpoints are rejected, repeated tokens are treated as stale, and every non-input hop must have contract-side reserves so dead routes cannot be used silently.
 
 This makes the contract path a legitimate fee-collecting, slippage-protected settlement primitive today, but **not yet a priced router**. Real price discovery (via an AMM pool or a wrapped external router contract) is tracked as follow-up work; the Horizon path-payment flow remains the source of real market pricing until then, and the "Contract Swap" mode reuses the Horizon-derived preview for its quote while settling on-chain.
 
@@ -209,7 +211,7 @@ This makes the contract path a legitimate fee-collecting, slippage-protected set
 
 | File | Change |
 |---|---|
-| `contracts/finchippay-contract/src/lib.rs` | **Added** — `swap_exact_tokens_for_tokens`, `swap_tokens_for_exact_tokens`, fee-collector/fee-bps admin functions, 15 new tests |
+| `contracts/finchippay-contract/src/lib.rs` | **Hardened**: measured fee-on-transfer inputs, stale-path checks, swap events, and 19 hardening tests |
 | `frontend/hooks/useContractSwap.ts` | **Created** — drives the on-chain swap transaction |
 | `frontend/components/TradeForm.tsx` | **Updated** — Horizon/Contract swap toggle |
 | `frontend/lib/contract-bindings/index.ts` | **Updated** — swap + fee-admin client methods |

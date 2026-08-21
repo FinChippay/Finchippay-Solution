@@ -27,7 +27,17 @@ router.post(
 );
 router.post("/deploy", strictLimiter, validate(turretDeploySchema), controller.deploy);
 router.get("/health", strictLimiter, controller.health);
-router.get("/:id", strictLimiter, validate(idParamSchema, "params"), controller.getOne);
+router.get("/:id", strictLimiter, async (req, res, next) => {
+  if (
+    typeof req.params.id === "string" &&
+    req.params.id.startsWith("G") &&
+    req.params.id.length === 56
+  ) {
+    req.query.ownerPublicKey = req.params.id;
+    return controller.list(req, res, next);
+  }
+  return controller.getOne(req, res, next);
+});
 router.get("/:id/history", strictLimiter, validate(idParamSchema, "params"), controller.getHistory);
 router.post("/:id/pause", strictLimiter, validate(idParamSchema, "params"), controller.pause);
 router.post("/:id/resume", strictLimiter, validate(idParamSchema, "params"), controller.resume);

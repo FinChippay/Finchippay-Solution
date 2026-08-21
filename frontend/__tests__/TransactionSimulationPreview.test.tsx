@@ -1,5 +1,5 @@
-import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
+import React from "react";
 import "@testing-library/jest-dom";
 import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
 import type { SimulationResult } from "@/hooks/useTransactionSimulation";
@@ -18,6 +18,9 @@ const mockSimulation: SimulationResult = {
   resourceFee: {
     stroops: BigInt(100000),
     xlm: 0.01,
+    cpuInstructions: 250000,
+    readBytes: 4096,
+    writeBytes: 1024,
   },
   contractError: null,
   rawSimulation: {} as any,
@@ -44,7 +47,7 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error={null}
         warning={null}
-      />
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
@@ -59,7 +62,7 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error={null}
         warning={null}
-      />
+      />,
     );
     expect(screen.getByText("Balance Changes")).toBeInTheDocument();
     expect(screen.getByText("Before: 100.0000000")).toBeInTheDocument();
@@ -77,11 +80,14 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error={null}
         warning={null}
-      />
+      />,
     );
     expect(screen.getByText("Resource Fees (Soroban)")).toBeInTheDocument();
     expect(screen.getByText("0.0100000 XLM")).toBeInTheDocument();
     expect(screen.getByText("(100,000 stroops)")).toBeInTheDocument();
+    expect(screen.getByText("250,000")).toBeInTheDocument();
+    expect(screen.getByText("4,096")).toBeInTheDocument();
+    expect(screen.getByText("1,024")).toBeInTheDocument();
   });
 
   it("surfaces contract errors before signing", () => {
@@ -94,7 +100,7 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error={null}
         warning="Simulation warning: release_ledger not reached"
-      />
+      />,
     );
     expect(screen.getByText("Contract Feedback")).toBeInTheDocument();
     expect(screen.getByText("release_ledger not reached")).toBeInTheDocument();
@@ -111,7 +117,7 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error={null}
         warning="Simulation warning: release_ledger not reached"
-      />
+      />,
     );
     expect(screen.getByText("Simulation Warning")).toBeInTheDocument();
     // Checkbox must be checked to proceed
@@ -131,7 +137,7 @@ describe("TransactionSimulationPreview", () => {
         loading={true}
         error={null}
         warning={null}
-      />
+      />,
     );
     expect(screen.getByText(/Simulating transaction/)).toBeInTheDocument();
   });
@@ -146,7 +152,7 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error={null}
         warning={null}
-      />
+      />,
     );
     expect(screen.getByText(/Simulation passed/)).toBeInTheDocument();
   });
@@ -161,7 +167,7 @@ describe("TransactionSimulationPreview", () => {
         loading={false}
         error="RPC connection failed"
         warning="Could not simulate."
-      />
+      />,
     );
     expect(screen.getByText("Simulation Error")).toBeInTheDocument();
     expect(screen.getByText("RPC connection failed")).toBeInTheDocument();

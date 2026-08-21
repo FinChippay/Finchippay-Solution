@@ -9,22 +9,14 @@
  *
  * SECURITY NOTE
  * -------------
- * The public key and the salt both live in localStorage, so a local attacker
- * with localStorage read access (XSS, malicious extension) can reproduce the
- * derived key. This is obfuscation-at-rest, not strong confidentiality against
- * a local attacker. "Active session only" is enforced by convention: the key is
- * derived and cached in memory only while a wallet is connected and cleared on
- * disconnect. A stronger design would derive the key from a secret the browser
- * never stores (e.g. a wallet signature), which was intentionally out of scope
- * for this change.
+ * The key is derived from a deterministic wallet signature which is never stored.
+ * This provides strong confidentiality against local attackers. "Active session only"
+ * is enforced by convention: the key is derived and cached in memory only while a
+ * wallet is connected and cleared on disconnect.
  */
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** localStorage key holding the base64 PBKDF2 salt shared across encrypted stores. */
-export const ENCRYPTION_SALT_STORAGE_KEY = "finchippay:enc-salt";
-
-const SALT_BYTES = 16;
 const IV_BYTES = 12; // 96-bit nonce recommended for AES-GCM
 const PBKDF2_ITERATIONS = 150_000;
 const AES_KEY_LENGTH = 256;
@@ -77,61 +69,29 @@ export function base64ToBytes(base64: string): Uint8Array {
   return new Uint8Array(Buffer.from(base64, "base64"));
 }
 
-// ─── Salt management ────────────────────────────────────────────────────────
-
-/**
- * Return the persistent PBKDF2 salt, creating and storing one on first use.
- * The salt is intentionally shared across encrypted stores so a single wallet
- * session derives a single key. Reused across sessions so previously written
- * ciphertext stays decryptable.
- */
-export function getOrCreateSalt(): Uint8Array {
-  if (typeof window === "undefined") {
-    // No persistent storage during SSR — return an ephemeral salt.
-    return getRandomBytes(SALT_BYTES);
-  }
-
-  try {
-    const existing = window.localStorage.getItem(ENCRYPTION_SALT_STORAGE_KEY);
-    if (existing) {
-      const bytes = base64ToBytes(existing);
-      if (bytes.length > 0) return bytes;
-    }
-  } catch {
-    // Fall through and generate a fresh (ephemeral) salt.
-  }
-
-  const salt = getRandomBytes(SALT_BYTES);
-  try {
-    window.localStorage.setItem(ENCRYPTION_SALT_STORAGE_KEY, bytesToBase64(salt));
-  } catch {
-    // Ignore storage failures (private browsing, quota) — key derivation still
-    // works this session, but ciphertext won't survive a reload.
-  }
-  return salt;
-}
-
 // ─── Key derivation ─────────────────────────────────────────────────────────
 
 /**
- * Derive a 256-bit AES-GCM key from the connected Stellar public key and salt.
- * Different public keys produce different keys, which drives key rotation when
+ * Derive a 256-bit AES-GCM key from the connected Stellar public key and a signature secret.
+ * Different public keys and signature secrets produce different keys, which drives key rotation when
  * the user switches wallets.
  */
-export async function deriveKey(publicKey: string, salt: Uint8Array): Promise<CryptoKey> {
+export async function deriveKey(secret: string): Promise<CryptoKey> {
   const subtle = getSubtle();
   const baseKey = await subtle.importKey(
     "raw",
-    new TextEncoder().encode(publicKey),
+    new TextEncoder().encode(secret),
     { name: "PBKDF2" },
     false,
     ["deriveKey"]
   );
 
+  const fixedSalt = new TextEncoder().encode("finchippay-encryption-salt");
+
   return subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: salt as unknown as BufferSource,
+      salt: fixedSalt,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },

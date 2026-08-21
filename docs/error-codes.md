@@ -2,18 +2,18 @@
   GENERATED FILE — do not edit by hand.
   Source: shared/errorCodes.js
   Regenerate: node scripts/generate-error-codes-doc.js
-  Generated: 2026-08-11 13:41:41 UTC
+  Generated: 2026-08-18 04:34:48 UTC
 -->
 
 # Error codes
 
-> **Last generated:** 2026-08-11 13:41:41 UTC
+> **Last generated:** 2026-08-18 04:34:48 UTC
 
 Every error Finchippay returns carries a machine-readable code from a single
 catalogue shared by the contract, the API, and the frontend. This document is
 generated from that catalogue, so it cannot drift from the code.
 
-**76 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
+**88 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
 
 ---
 
@@ -101,7 +101,7 @@ replaced at runtime with context-specific values:
 | Prefix | Layer | Codes | Meaning |
 | --- | --- | --- | --- |
 | `AUTH_*` | api | 6 | Authentication and authorization |
-| `CONTRACT_*` | contract | 17 | Soroban contract |
+| `CONTRACT_*` | contract | 29 | Soroban contract |
 | `GEN_*` | shared | 3 | Generic |
 | `PAY_*` | api | 9 | Payments and transactions |
 | `RATE_*` | api | 3 | Rate limiting |
@@ -260,17 +260,29 @@ Soroban smart contract errors: authorization, state, arithmetic, and transfer fa
 | `CONTRACT_ALREADY_SIGNED` | 409 | 10 | Address has already approved this proposal. |
 | `CONTRACT_BATCH_TOO_LARGE` | 400 | 14 | Batch size exceeds maximum allowed. |
 | `CONTRACT_DUPLICATE_SIGNER` | 400 | 15 | Duplicate signer in signers list. |
+| `CONTRACT_EMERGENCY_WITHDRAWAL_NOT_READY` | 409 | 19 | Emergency withdrawal is not ready yet. |
+| `CONTRACT_EXCESSIVE_AMOUNT_IN` | 400 | 23 | Required swap input exceeds the maximum allowed amount. |
+| `CONTRACT_INDEX_FULL` | 409 | 18 | Recipient index is full. |
 | `CONTRACT_INSUFFICIENT_FUNDS` | 400 | 11 | Insufficient deposited funds. |
+| `CONTRACT_INVALID_FEE_BPS` | 400 | 24 | Swap fee exceeds the maximum allowed basis points. |
+| `CONTRACT_INVALID_PATH` | 400 | 21 | Swap path is invalid. |
 | `CONTRACT_INVALID_STATE` | 409 | 6 | Operation not valid in the current state. |
 | `CONTRACT_INVALID_THRESHOLD` | 400 | 8 | Signer list length does not match threshold. |
 | `CONTRACT_LENGTH_MISMATCH` | 400 | 9 | Array lengths do not match. |
 | `CONTRACT_NON_POSITIVE_AMOUNT` | 400 | 3 | Amount must be strictly positive. |
+| `CONTRACT_NOT_ADMIN_SIGNER` | 403 | 20 | Caller is not an authorized admin signer. |
 | `CONTRACT_NOT_FOUND` | 404 | 5 | The contract resource (escrow, stream, proposal) was not found. |
 | `CONTRACT_OVERFLOW` | 500 | 7 | Arithmetic overflow in contract operation. |
 | `CONTRACT_PAUSED` | 503 | 12 | Contract is temporarily paused. |
+| `CONTRACT_PROPOSAL_ALREADY_EXECUTED` | 409 | 26 | Admin action proposal has already been executed. |
 | `CONTRACT_PROPOSAL_EXPIRED` | 410 | 16 | Proposal has expired and can no longer be approved. |
+| `CONTRACT_PROPOSAL_NOT_FOUND` | 404 | 25 | Admin action proposal was not found. |
+| `CONTRACT_REENTRANT_CALL` | 409 | 28 | Reentrant contract call was blocked. |
 | `CONTRACT_RELEASE_LEDGER_IN_PAST` | 400 | 4 | Release ledger must be in the future. |
+| `CONTRACT_RELEASE_LEDGER_NOT_REACHED` | 409 | 27 | Release ledger has not been reached. |
 | `CONTRACT_SELF_TRANSFER` | 400 | 13 | Cannot transfer to yourself. |
+| `CONTRACT_SLIPPAGE_EXCEEDED` | 400 | 22 | Swap slippage limit was exceeded. |
+| `CONTRACT_STALE_PATH` | 400 | 29 | Swap path is stale or has insufficient liquidity. |
 | `CONTRACT_TRANSFER_FAILED` | 502 | 17 | Token transfer could not be verified on-chain. |
 | `CONTRACT_UNAUTHORIZED` | 403 | 2 | You are not authorized for this action. |
 
@@ -401,4 +413,4 @@ Browser wallet (Freighter) interaction errors: not installed, not connected, rej
 
 ---
 
-*Document auto-generated on 2026-08-11 13:41:41 UTC from [`shared/errorCodes.js`](../shared/errorCodes.js).*
+*Document auto-generated on 2026-08-18 04:34:48 UTC from [`shared/errorCodes.js`](../shared/errorCodes.js).*

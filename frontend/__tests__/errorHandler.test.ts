@@ -143,6 +143,12 @@ describe("getContractErrorMessage()", () => {
     expect(err.details).toEqual({ contractMessage: "Unauthorized caller" });
   });
 
+  it("maps stale swap path contract errors", () => {
+    const err = getContractErrorMessage(29);
+    expect(err.code).toBe("CONTRACT_STALE_PATH");
+    expect(err.message).toBe("Swap path is stale or has insufficient liquidity.");
+  });
+
   it("maps unknown contract code to GEN_UNKNOWN", () => {
     const err = getContractErrorMessage(999);
     expect(err.code).toBe("GEN_UNKNOWN");

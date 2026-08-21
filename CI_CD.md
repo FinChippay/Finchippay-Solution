@@ -111,7 +111,7 @@ Comprehensive reference for every automated workflow in the Finchippay-Solution 
 | 12 | **Renovate** | `renovate-approve.yml` | PR from renovate/dependabot | Auto-approve dependency patches |
 | 13 | **Terraform** | `terraform-deploy.yml` | PR (terraform/**), push main, manual | Plan → PR comment → Apply (staging/production) |
 | 14 | **Kubernetes** | `kubernetes-deploy.yml` | PR (k8s/**), push main, manual | Build 3 images → Scan → Push → Helm deploy |
-| 15 | **Greptile** | `greptile-review.yml` | PR opened/reopened, issue opened, manual | Auto-label PRs, post review context |
+| 15 | **Greptile** | `greptile-review.yml`, `greptile-label.yml` | PR → main/develop, issue opened, manual | Config validation + issue context + manual trigger; auto-labels PRs |
 
 ---
 
@@ -327,13 +327,25 @@ Upload SBOM bundle artifact (retained 365 days)
 - Posts automated review message
 - Only runs for bot-authored PRs (gated on `github.actor`)
 
-#### 15. Greptile AI Review (`greptile-review.yml`)
+#### 15. Greptile AI Review (`greptile-review.yml` + `greptile-label.yml`)
 
-**Triggers:** `pull_request` opened/reopened, `issues` opened, `workflow_dispatch`
+Two workflows handle the Greptile integration:
 
-- **On PR:** Adds `needs-review` label → Greptile App picks it up → posts AI review with inline comments
+**`greptile-label.yml` — PR labeling (auto-review trigger)**
+
+- **Triggers:** `pull_request_target` → main/develop (types: `opened`, `ready_for_review`, `reopened`, `synchronize`)
+- Adds the `needs-review` label (creating it if missing) so the Greptile App picks up the PR for AI review
+- Posts a Greptile review context comment on open/ready/reopen (skipped on `synchronize` to avoid comment spam)
+- Uses `pull_request_target` because fork PRs get a **read-only** `GITHUB_TOKEN` on `pull_request` — the old `label-pr` job failed with `Resource not accessible by integration`. `pull_request_target` runs in the base-repo context with write permissions, so fork PRs get labeled too.
+- **Security:** API-only — never checks out or executes PR code
+- **Note:** only triggers when the workflow file is on the default branch (`main`)
+
+**`greptile-review.yml` — validation, issue context, manual trigger**
+
+- **Triggers:** `pull_request` → main/develop, `issues` opened, `workflow_dispatch`
+- **On PR:** Validates the Greptile configuration (`.greptile/config.json`, `rules.md`, `files.json`) as a status check
 - **On issue:** Posts usage instructions (`@greptileai` commands)
-- **Manual:** Can trigger review on specific PR or full-repo review
+- **Manual (`workflow_dispatch`):** Can trigger review on a specific PR or a full-repo review
 
 **Configuration:** `.greptile/config.json` (16 custom rules across security, code quality, infrastructure), `.greptile/rules.md`, `.greptile/files.json`
 
@@ -512,13 +524,13 @@ git commit -m "chore: regenerate contract bindings"
 **Symptom:** PR is opened but no Greptile review appears within minutes.
 
 **Cause:**
-- The `needs-review` label wasn't added (check `greptile-review` workflow logs)
+- The `needs-review` label wasn't added (check `greptile-label` workflow logs)
 - PR author is in the `excludeAuthors` list
 - PR branch matches `excludeBranches` pattern
 - Greptile GitHub App isn't installed or lost permissions
 
 **Fix:**
-1. Check the `greptile-review.yml` workflow run logs
+1. Check the `greptile-label.yml` workflow run logs
 2. Verify `needs-review` label exists on the PR
 3. Check `.greptile/config.json` filtering rules
 4. Comment `@greptileai` on the PR to manually trigger a re-review

@@ -12,6 +12,9 @@ import PaymentStatusModal, {
   type PaymentStepId,
   type PaymentStepTiming,
 } from "@/components/PaymentStatusModal";
+import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
+import QuickAddPanel from "@/components/QuickAddPanel";
+import BatchSummary from "@/components/BatchSummary";
 import { logger } from "@/lib/logger";
 /**
  * components/SendPaymentForm.tsx
@@ -33,7 +36,6 @@ import {
   resolveFederationAddress,
   server,
   STELLAR_BASE_FEE_XLM,
-  STELLAR_MEMO_TEXT_MAX_BYTES,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
@@ -178,6 +180,62 @@ function SendPaymentForm({
   const [selectedFeeStroops, setSelectedFeeStroops] = useState<number>(100);
   const [selectedFeeTier, setSelectedFeeTier] = useState<"economy" | "standard" | "fast">("standard");
   const [previewTx, setPreviewTx] = useState<Transaction | null>(null);
+  const [isBuilderMode, setIsBuilderMode] = useState(false);
+  const [builderRecipients, setBuilderRecipients] = useState<BuilderRecipient[]>([]);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [batchMessage, setBatchMessage] = useState<string | null>(null);
+
+  const canSubmitBuilderBatch =
+    !isBatchProcessing &&
+    builderRecipients.some(
+      (r) => isValidStellarAddress(r.address) && parseFloat(r.amount) > 0 && r.address !== publicKey
+    );
+
+  const handleSendBuilderBatch = async () => {
+    setBatchMessage(null);
+    setIsBatchProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const r of builderRecipients) {
+      const amt = parseFloat(r.amount);
+      if (!isValidStellarAddress(r.address) || !Number.isFinite(amt) || amt <= 0 || r.address === publicKey) {
+        continue;
+      }
+      try {
+        const tx = await buildPaymentTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: r.address,
+          amount: amt.toFixed(7),
+          memo: r.memo?.trim() || undefined,
+        });
+        const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
+        if (signError || !signedXDR) {
+          failCount++;
+          continue;
+        }
+        const result = await submitTransaction(signedXDR);
+        if (result?.hash) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsBatchProcessing(false);
+    if (failCount === 0 && successCount > 0) {
+      setBatchMessage(`Batch payment complete: ${successCount} payment${successCount > 1 ? "s" : ""} sent successfully.`);
+      onSuccess?.();
+    } else if (successCount > 0) {
+      setBatchMessage(`Batch completed: ${successCount} succeeded, ${failCount} failed.`);
+      onSuccess?.();
+    } else {
+      setBatchMessage("Batch payment failed. Please check recipient addresses and amounts.");
+    }
+  };
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -901,11 +959,63 @@ function SendPaymentForm({
   return (
     <>
       <div className="card animate-fade-in">
-      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-        <SendIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
-        {resolvedTitle}
-      </h2>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <SendIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
+          {isBuilderMode ? "Payment Builder" : resolvedTitle}
+        </h2>
+        <button
+          type="button"
+          onClick={() => setIsBuilderMode(!isBuilderMode)}
+          className="px-3 py-1.5 rounded-full text-xs font-medium border border-stellar-500/30 bg-stellar-500/10 text-stellar-700 dark:text-stellar-300 hover:bg-stellar-500/20 transition-all"
+          aria-label={isBuilderMode ? "Switch to standard form" : "Switch to payment builder"}
+        >
+          {isBuilderMode ? "Switch to standard form" : "Switch to payment builder"}
+        </button>
+      </div>
 
+      {isBuilderMode ? (
+        <div className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+            <div className="space-y-4">
+              <PaymentBuilder
+                publicKey={publicKey}
+                onRecipientsChange={setBuilderRecipients}
+              />
+            </div>
+            <div className="space-y-4">
+              <QuickAddPanel
+                xlmBalance={xlmBalance}
+                usdcBalance={usdcBalance}
+              />
+              <BatchSummary
+                recipients={builderRecipients.map((r) => ({
+                  token: { code: r.token.code, issuer: r.token.issuer },
+                  amount: r.amount,
+                  address: r.address,
+                }))}
+              />
+            </div>
+          </div>
+
+          {batchMessage && (
+            <div className="rounded-2xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">
+              {batchMessage}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-2">
+            <button
+              type="button"
+              onClick={handleSendBuilderBatch}
+              disabled={isBatchProcessing || !canSubmitBuilderBatch}
+              className="btn-primary py-2.5 px-6 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isBatchProcessing ? "Sending batch..." : "Send batch payments"}
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="space-y-5">
         {!hideAssetSelector && (
           <div className="flex flex-wrap gap-2">
@@ -1153,8 +1263,9 @@ function SendPaymentForm({
             </span>
           </div>
         )}
+          </div>
+        )}
       </div>
-    </div>
 
       <SendConfirmationModal
         isOpen={isConfirmOpen}

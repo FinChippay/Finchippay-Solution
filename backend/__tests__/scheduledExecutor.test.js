@@ -13,6 +13,32 @@
 
 "use strict";
 
+// The scheduled transaction modules import @stellar/stellar-sdk, whose CJS
+// build pulls in an ESM-only @noble/hashes dependency that Jest cannot load.
+// Stub the SDK surface these modules reference (the claim/lease logic under
+// test never talks to Horizon).
+jest.mock("@stellar/stellar-sdk", () => {
+  const builder = {
+    addOperation: () => builder,
+    addMemo: () => builder,
+    setTimeout: () => builder,
+    build: () => ({ toXDR: () => "AAAA" }),
+  };
+  return {
+    Horizon: { Server: jest.fn(() => ({})) },
+    Networks: { PUBLIC: "public-network-passphrase", TESTNET: "test-network-passphrase" },
+    TransactionBuilder: Object.assign(
+      function TransactionBuilder() {
+        return builder;
+      },
+      { fromXDR: jest.fn() },
+    ),
+    Asset: { native: jest.fn(() => ({})) },
+    Memo: { text: jest.fn(() => ({})) },
+    Operation: { payment: jest.fn(() => ({})) },
+  };
+});
+
 const crypto = require("crypto");
 const knex = require("../src/db/connection");
 const scheduledExecutor = require("../src/services/scheduledExecutor");
@@ -37,8 +63,9 @@ describe("Scheduled Transaction Executor", () => {
   describe("Execution History Logging", () => {
     test("should log successful execution attempt", async () => {
       // Create a test schedule
-      const schedule = await knex("scheduled_transactions").insert({
-        id: crypto.randomUUID(),
+      const scheduleId = crypto.randomUUID();
+      await knex("scheduled_transactions").insert({
+        id: scheduleId,
         owner_pk: testOwnerPk,
         recipient: testRecipient,
         amount: "100.0",
@@ -54,7 +81,7 @@ describe("Scheduled Transaction Executor", () => {
       const executionId = crypto.randomUUID();
       await knex("scheduled_txn_executions").insert({
         id: executionId,
-        schedule_id: schedule[0],
+        schedule_id: scheduleId,
         owner_pk: testOwnerPk,
         status: "submitted",
         attempt_number: 1,
@@ -63,7 +90,7 @@ describe("Scheduled Transaction Executor", () => {
       });
 
       // Query execution history
-      const history = await scheduledExecutor.getExecutionHistory(schedule[0]);
+      const history = await scheduledExecutor.getExecutionHistory(scheduleId);
       expect(history).toHaveLength(1);
       expect(history[0]).toMatchObject({
         id: executionId,
@@ -135,6 +162,7 @@ describe("Scheduled Transaction Executor", () => {
         attempt_number: 1,
         error_code: "TIMEOUT",
         next_retry_at: new Date(Date.now() + 5 * 60 * 1000),
+        executed_at: new Date(Date.now() - 2 * 60 * 1000),
       });
 
       // Log attempt 2 - failure
@@ -146,6 +174,7 @@ describe("Scheduled Transaction Executor", () => {
         attempt_number: 2,
         error_code: "TIMEOUT",
         next_retry_at: new Date(Date.now() + 5 * 60 * 1000),
+        executed_at: new Date(Date.now() - 1 * 60 * 1000),
       });
 
       // Log attempt 3 - final success
@@ -157,6 +186,7 @@ describe("Scheduled Transaction Executor", () => {
         attempt_number: 3,
         submitted_hash: "final_hash",
         resolved_at: new Date(),
+        executed_at: new Date(),
       });
 
       const history = await scheduledExecutor.getExecutionHistory(scheduleId);
@@ -199,7 +229,7 @@ describe("Scheduled Transaction Executor", () => {
       const execution = await knex("scheduled_txn_executions").where("id", executionId).first();
 
       expect(execution.status).toBe("pending");
-      expect(execution.next_retry_at).toEqual(nextRetry);
+      expect(new Date(execution.next_retry_at).getTime()).toBe(nextRetry.getTime());
     });
 
     test("should retry with correct attempt number increments", async () => {
@@ -282,10 +312,9 @@ describe("Scheduled Transaction Executor", () => {
     });
   });
 
-  describe("Execution Window", () => {
-    test("should recognize transactions due within ±60 second window", async () => {
+  describe("Missed-run catch-up (due sweep)", () => {
+    test("should include overdue transactions from missed ticks", async () => {
       const scheduleId = crypto.randomUUID();
-      const now = new Date();
 
       await knex("scheduled_transactions").insert({
         id: scheduleId,
@@ -295,27 +324,16 @@ describe("Scheduled Transaction Executor", () => {
         asset: "XLM",
         frequency: "daily",
         cron_expression: "0 12 * * *",
-        start_date: now.toISOString().split("T")[0],
-        next_run_at: new Date(now.getTime() - 30_000), // 30s ago — within window
+        start_date: new Date().toISOString().split("T")[0],
+        next_run_at: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes overdue
         status: "active",
       });
 
-      // Query to verify transaction is due
-      const dueTransactions = await knex("scheduled_transactions")
-        .where("status", "active")
-        .andWhereBetween("next_run_at", [
-          new Date(now.getTime() - 60_000),
-          new Date(now.getTime() + 60_000),
-        ]);
-
-      expect(dueTransactions).toHaveLength(1);
-      expect(dueTransactions[0].id).toBe(scheduleId);
+      const due = await scheduledExecutor.getDueTransactions();
+      expect(due.map((s) => s.id)).toContain(scheduleId);
     });
 
-    test("should not select transactions outside execution window", async () => {
-      const now = new Date();
-
-      // Too far in the future
+    test("should exclude transactions scheduled in the future", async () => {
       await knex("scheduled_transactions").insert({
         id: crypto.randomUUID(),
         owner_pk: testOwnerPk,
@@ -324,33 +342,43 @@ describe("Scheduled Transaction Executor", () => {
         asset: "XLM",
         frequency: "daily",
         cron_expression: "0 12 * * *",
-        start_date: now.toISOString().split("T")[0],
-        next_run_at: new Date(now.getTime() + 2 * 60 * 1000), // 2 minutes in future
+        start_date: new Date().toISOString().split("T")[0],
+        next_run_at: new Date(Date.now() + 2 * 60 * 1000), // 2 minutes in future
         status: "active",
       });
 
-      // Too far in the past
+      const due = await scheduledExecutor.getDueTransactions();
+      expect(due).toHaveLength(0);
+    });
+
+    test("should exclude schedules that already have a pending execution", async () => {
+      const scheduleId = crypto.randomUUID();
+
       await knex("scheduled_transactions").insert({
-        id: crypto.randomUUID(),
+        id: scheduleId,
         owner_pk: testOwnerPk,
         recipient: testRecipient,
         amount: "100.0",
         asset: "XLM",
         frequency: "daily",
         cron_expression: "0 12 * * *",
-        start_date: now.toISOString().split("T")[0],
-        next_run_at: new Date(now.getTime() - 2 * 60 * 1000), // 2 minutes ago
+        start_date: new Date().toISOString().split("T")[0],
+        next_run_at: new Date(Date.now() - 60_000),
         status: "active",
       });
 
-      const dueTransactions = await knex("scheduled_transactions")
-        .where("status", "active")
-        .andWhereBetween("next_run_at", [
-          new Date(now.getTime() - 60_000),
-          new Date(now.getTime() + 60_000),
-        ]);
+      await knex("scheduled_txn_executions").insert({
+        id: crypto.randomUUID(),
+        schedule_id: scheduleId,
+        owner_pk: testOwnerPk,
+        status: "pending",
+        attempt_number: 1,
+        error_code: "AWAITING_SIGNATURE",
+        next_retry_at: new Date(Date.now() + 5 * 60 * 1000),
+      });
 
-      expect(dueTransactions).toHaveLength(0);
+      const due = await scheduledExecutor.getDueTransactions();
+      expect(due.map((s) => s.id)).not.toContain(scheduleId);
     });
   });
 
@@ -390,13 +418,10 @@ describe("Scheduled Transaction Executor", () => {
     test("should throw 404 when schedule not found", async () => {
       const nonexistentId = crypto.randomUUID();
 
-      try {
-        await scheduledExecutor.executeNow(nonexistentId);
-        fail("Expected error not thrown");
-      } catch (err) {
-        expect(err.status).toBe(404);
-        expect(err.message).toContain("not found");
-      }
+      await expect(scheduledExecutor.executeNow(nonexistentId)).rejects.toMatchObject({
+        status: 404,
+        message: expect.stringContaining("not found"),
+      });
     });
   });
 
@@ -516,6 +541,158 @@ describe("Scheduled Transaction Executor", () => {
       const next = new Date(nextRun);
       // Just verify it's calculated (exact diff depends on current month)
       expect(next.getTime()).toBeGreaterThan(today.getTime());
+    });
+  });
+
+  describe("Single-execution claim (#632)", () => {
+    const makeSchedule = (overrides = {}) => ({
+      id: crypto.randomUUID(),
+      owner_pk: testOwnerPk,
+      recipient: testRecipient,
+      amount: "100.0",
+      asset: "XLM",
+      frequency: "daily",
+      cron_expression: "0 12 * * *",
+      next_run_at: new Date(Date.now() - 30_000),
+      status: "active",
+      ...overrides,
+    });
+
+    async function insertSchedule(schedule) {
+      await knex("scheduled_transactions").insert({
+        ...schedule,
+        start_date: new Date().toISOString().split("T")[0],
+      });
+      return schedule;
+    }
+
+    test("only one worker claims a given execution under concurrency", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const executionId = scheduledExecutor.executionIdForRun(schedule);
+
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () => scheduledExecutor.claimExecution(executionId, schedule)),
+      );
+
+      const winners = results.filter(Boolean);
+      expect(winners).toHaveLength(1);
+      expect(winners[0].executionId).toBe(executionId);
+
+      const rows = await knex("scheduled_txn_executions").where("id", executionId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].execution_status).toBe("claimed");
+    });
+
+    test("concurrent workers execute a due transaction at most once", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const submitSpy = jest
+        .spyOn(scheduledTransactionService, "buildUnsignedPaymentXDR")
+        .mockResolvedValue("AAAA");
+
+      await Promise.all(
+        Array.from({ length: 5 }, () => scheduledExecutor.executeDueTransaction(schedule)),
+      );
+
+      expect(submitSpy).toHaveBeenCalledTimes(1);
+      const rows = await knex("scheduled_txn_executions").where("schedule_id", schedule.id);
+      expect(rows).toHaveLength(1);
+      submitSpy.mockRestore();
+    });
+
+    test("a claimed execution cannot be claimed again while its lease is valid", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const executionId = scheduledExecutor.executionIdForRun(schedule);
+
+      const first = await scheduledExecutor.claimExecution(executionId, schedule);
+      expect(first).toBeTruthy();
+
+      const second = await scheduledExecutor.claimExecution(executionId, schedule);
+      expect(second).toBeNull();
+    });
+
+    test("a crashed worker's expired lease is reclaimed by another worker", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const executionId = scheduledExecutor.executionIdForRun(schedule);
+
+      const first = await scheduledExecutor.claimExecution(executionId, schedule);
+      expect(first).toBeTruthy();
+
+      // Simulate the owning worker crashing mid-execution and its lease expiring.
+      await knex("scheduled_txn_executions")
+        .where("id", executionId)
+        .update({
+          lease_expires_at: new Date(Date.now() - 60_000),
+        });
+
+      // The retry sweep must pick up the orphaned, expired claim.
+      const pending = await scheduledExecutor.getPendingRetries();
+      expect(pending.map((e) => e.id)).toContain(executionId);
+
+      // Another worker reclaims it.
+      const reclaimed = await scheduledExecutor.claimRetry(executionId, schedule);
+      expect(reclaimed).toBeTruthy();
+      expect(reclaimed.executionId).toBe(executionId);
+
+      const row = await knex("scheduled_txn_executions").where("id", executionId).first();
+      expect(row.execution_status).toBe("claimed");
+      expect(new Date(row.lease_expires_at).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    test("a reclaimed execution is completed and its lease cleared", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const executionId = scheduledExecutor.executionIdForRun(schedule);
+
+      await scheduledExecutor.claimExecution(executionId, schedule);
+      await knex("scheduled_txn_executions")
+        .where("id", executionId)
+        .update({
+          lease_expires_at: new Date(Date.now() - 60_000),
+        });
+
+      const reclaimed = await scheduledExecutor.claimRetry(executionId, schedule);
+      await scheduledExecutor.finalizeClaim(reclaimed, {
+        status: "submitted",
+        execution_status: "executed",
+        submitted_hash: "hash-123",
+        resolved_at: new Date(),
+      });
+
+      const row = await knex("scheduled_txn_executions").where("id", executionId).first();
+      expect(row.execution_status).toBe("executed");
+      expect(row.status).toBe("submitted");
+      expect(row.lease_expires_at).toBeNull();
+    });
+
+    test("an executed run is never claimed again (idempotent side effects)", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const executionId = scheduledExecutor.executionIdForRun(schedule);
+
+      const claim = await scheduledExecutor.claimExecution(executionId, schedule);
+      await scheduledExecutor.finalizeClaim(claim, {
+        status: "submitted",
+        execution_status: "executed",
+        submitted_hash: "hash-123",
+        resolved_at: new Date(),
+      });
+
+      const retry = await scheduledExecutor.claimExecution(executionId, schedule);
+      expect(retry).toBeNull();
+    });
+
+    test("a failed run is never reclaimed", async () => {
+      const schedule = await insertSchedule(makeSchedule());
+      const executionId = scheduledExecutor.executionIdForRun(schedule);
+
+      const claim = await scheduledExecutor.claimExecution(executionId, schedule);
+      await scheduledExecutor.finalizeClaim(claim, {
+        status: "failed",
+        execution_status: "failed",
+        error_code: "OP_UNDERFUNDED",
+        resolved_at: new Date(),
+      });
+
+      const retry = await scheduledExecutor.claimExecution(executionId, schedule);
+      expect(retry).toBeNull();
     });
   });
 });

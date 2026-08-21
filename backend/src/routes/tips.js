@@ -62,4 +62,18 @@ router.get(
   tipsController.getTipsSent,
 );
 
+/**
+ * GET /api/tips/:creatorPublicKey
+ * GET /api/v1/tips/:creatorPublicKey
+ * Get all tips received by a creator.
+ */
+router.get(
+  "/:creatorPublicKey",
+  strictLimiter,
+  sanitizePublicKey,
+  validate(creatorPublicKeyParamSchema, "params"),
+  pagination,
+  tipsController.getTipsReceived,
+);
+
 module.exports = router;
