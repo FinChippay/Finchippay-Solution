@@ -55,6 +55,7 @@ describe("fees", () => {
         ok: true,
         json: () => Promise.resolve(mockFeeStats),
       } as Response);
+      global.fetch = fetchMock;
 
       await getFeeStats();
       await getFeeStats();
