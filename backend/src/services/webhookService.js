@@ -49,6 +49,13 @@ const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 const { encryptSecret, decryptSecret } = require("../utils/encryption");
+const {
+  SUPPORTED_WEBHOOK_TOPICS,
+  normalizeTopics,
+  serializeTopics,
+  parseTopics,
+  matchesWebhookTopic,
+} = require("./webhookTopics");
 const knex = require("../db/connection");
 require("dotenv").config();
 
@@ -139,11 +146,12 @@ function generateId() {
  * @param {string} secret - Shared secret used to compute HMAC-SHA256 signatures
  * @returns {Promise<{ id, publicKey, url, createdAt }>}
  */
-async function registerWebhook(publicKey, url, secret) {
+async function registerWebhook(publicKey, url, secret, topics = ["all"]) {
   const id = generateId();
   const createdAt = new Date().toISOString();
   const encryptedSecret = encryptSecret(secret);
   const secretHash = hashSecret(id, secret);
+  const normalizedTopics = normalizeTopics(topics);
 
   await knex("webhooks").insert({
     id,
@@ -151,11 +159,12 @@ async function registerWebhook(publicKey, url, secret) {
     url,
     secret: encryptedSecret,
     secret_hash: secretHash,
+    topics: serializeTopics(normalizedTopics),
     created_at: createdAt,
   });
 
   // Keep the plaintext secret in-memory for signed delivery this session
-  const webhook = { id, publicKey, url, secret, createdAt };
+  const webhook = { id, publicKey, url, secret, topics: normalizedTopics, createdAt };
   webhooks.set(id, webhook);
   startMonitoring(publicKey);
   logger.info({ type: "webhook_registered", id, publicKey, url });
@@ -175,6 +184,7 @@ async function getWebhooksByPublicKey(publicKey) {
     publicKey: row.public_key,
     url: row.url,
     secret: "[protected]",
+    topics: parseTopics(row.topics),
     createdAt: row.created_at,
   }));
 }
@@ -221,6 +231,7 @@ async function getWebhookById(id) {
     publicKey: row.public_key,
     url: row.url,
     secret: row.secret, // encrypted; decryptSecret() called at delivery time
+    topics: parseTopics(row.topics),
     createdAt: row.created_at,
   };
   webhooks.set(id, webhook);
@@ -248,6 +259,7 @@ async function restoreWebhooks() {
         publicKey: row.public_key,
         url: row.url,
         secret: row.secret, // encrypted; decryptSecret() called at delivery time
+        topics: parseTopics(row.topics),
         createdAt: row.created_at,
       });
     }
@@ -315,31 +327,47 @@ async function attemptDelivery(webhook, payload, idempotencyKey) {
  * Creates a delivery record and manages retry logic with exponential backoff.
  */
 async function deliverWebhook(webhook, payload, eventType = "payment.received") {
-  if (!webhook.secret) {
+  let resolvedWebhook = webhook;
+  if (!resolvedWebhook.secret && resolvedWebhook.id) {
+    const cached = await getWebhookById(resolvedWebhook.id);
+    if (cached) resolvedWebhook = cached;
+  }
+
+  if (!resolvedWebhook || !resolvedWebhook.secret) {
     logger.warn({
       type: "webhook_delivery_skipped",
-      id: webhook.id,
+      id: resolvedWebhook?.id || webhook?.id,
       reason: "secret_not_available",
+    });
+    return;
+  }
+
+  if (resolvedWebhook.topics && !matchesWebhookTopic(resolvedWebhook.topics, eventType)) {
+    logger.debug({
+      type: "webhook_topic_filtered",
+      id: resolvedWebhook.id,
+      eventType,
+      topics: normalizeTopics(resolvedWebhook.topics),
     });
     return;
   }
 
   const span = tracer.startSpan("webhook.delivery");
   span.setAttributes({
-    "webhook.id": webhook.id,
-    "webhook.url": webhook.url,
+    "webhook.id": resolvedWebhook.id,
+    "webhook.url": resolvedWebhook.url,
     "event.type": eventType,
   });
 
   const deliveryId = crypto.randomUUID();
   const payloadStr = JSON.stringify(payload);
   const timestamp = new Date().toISOString();
-  const idempotencyKey = generateIdempotencyKey(webhook.id, eventType, payloadStr, timestamp);
+  const idempotencyKey = generateIdempotencyKey(resolvedWebhook.id, eventType, payloadStr, timestamp);
 
   try {
     await knex("webhook_events").insert({
       id: crypto.randomUUID(),
-      webhook_id: webhook.id,
+      webhook_id: resolvedWebhook.id,
       event_type: eventType,
       payload: payloadStr,
       idempotency_key: idempotencyKey,
@@ -349,7 +377,7 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
     if (err.code !== "23505" && err.code !== "SQLITE_CONSTRAINT") {
       logger.error({
         type: "webhook_event_db_error",
-        webhookId: webhook.id,
+        webhookId: resolvedWebhook.id,
         error: err.message,
       });
     }
@@ -358,7 +386,7 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
   try {
     await knex("webhook_deliveries").insert({
       id: deliveryId,
-      webhook_id: webhook.id,
+      webhook_id: resolvedWebhook.id,
       event_type: eventType,
       payload: payloadStr,
       idempotency_key: idempotencyKey,
@@ -378,7 +406,7 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
   }
 
   try {
-    const result = await attemptDelivery(webhook, payload, idempotencyKey);
+    const result = await attemptDelivery(resolvedWebhook, payload, idempotencyKey);
     if (result.ok) {
       await knex("webhook_deliveries")
         .where("id", deliveryId)
@@ -386,13 +414,13 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
       await knex("webhook_events")
         .where("idempotency_key", idempotencyKey)
         .update({ delivered_at: new Date().toISOString() });
-      logger.info({ type: "webhook_delivered", id: webhook.id, url: webhook.url, deliveryId });
+      logger.info({ type: "webhook_delivered", id: resolvedWebhook.id, url: resolvedWebhook.url, deliveryId });
       span.setStatus({ code: 1 });
     } else {
-      await handleDeliveryFailure(deliveryId, webhook, result.error, payload);
+      await handleDeliveryFailure(deliveryId, resolvedWebhook, result.error, payload);
     }
   } catch (err) {
-    await handleDeliveryFailure(deliveryId, webhook, err.message, payload);
+    await handleDeliveryFailure(deliveryId, resolvedWebhook, err.message, payload);
   } finally {
     span.end();
   }
@@ -403,7 +431,7 @@ async function writeToDeadLetterQueue(deliveryId, webhook, payload, errorMsg, re
     await knex("dead_letter_queue").insert({
       id: crypto.randomUUID(),
       delivery_id: deliveryId,
-      webhook_id: webhook.id,
+      webhook_id: resolvedWebhook.id,
       payload: typeof payload === "string" ? payload : JSON.stringify(payload),
       retry_timestamps: JSON.stringify(retryTimestamps),
       final_error: errorMsg,
@@ -612,7 +640,8 @@ async function retryDeadDeliveries(publicKey) {
  *
  * @param {{ publicKey:string }} webhook
  */
-function startMonitoring(webhook) {
+function startMonitoring(webhookArg) {
+  const webhook = typeof webhookArg === "string" ? { publicKey: webhookArg } : webhookArg;
   metrics.horizonRequestsTotal.inc({ operation: "startSSE", status: "success" });
   if (activeStreams.has(webhook.publicKey)) return;
   const closeStream = server
@@ -783,6 +812,10 @@ async function getDeliveryById(publicKey, id) {
 }
 
 module.exports = {
+  SUPPORTED_WEBHOOK_TOPICS,
+  normalizeTopics,
+  parseTopics,
+  matchesWebhookTopic,
   registerWebhook,
   getWebhooksByPublicKey,
   deleteWebhook,

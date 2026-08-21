@@ -10,6 +10,10 @@
 // set in .env is visible when the OpenTelemetry SDK initialises.
 require("dotenv").config();
 
+// Docker secrets (JWT_SECRET_FILE, DATABASE_URL_FILE, etc.) must be resolved
+// into plain env vars before any other module reads them.
+require("./config/dockerSecrets");
+
 // ─── OpenTelemetry tracing (must load before Express/HTTP imports) ────────────
 // Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
 // so this must be required before express, http, etc. are imported.
@@ -56,7 +60,7 @@ const eventIndexer = require("./services/eventIndexer");
 const {
   startRetryWorker,
   closeAllStreams: closeWebhookStreams,
-} = require("./services/webhookSubscriptionService");
+} = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");

@@ -879,6 +879,14 @@ pub(crate) fn ensure_swap_reserve(
 }
 
 /// Check that the contract is not paused. Panics with `ContractPaused` if it is.
+///
+/// # Circuit-breaker completeness
+/// Every **value-transferring** entry point in the contract must call this
+/// guard before moving any funds. The full audit matrix mapping every
+/// entry point to `{mutating, value-transferring, pause-guarded}` is checked
+/// into `docs/pause-completeness.md`; the `tests/pause_completeness.rs`
+/// integration suite asserts the matrix holds (every fund-moving entry point
+/// is blocked while paused, and every read-only view still works).
 pub(crate) fn require_not_paused(env: &Env) {
     let key = DataKey::Paused;
     let paused: bool = env.storage().persistent().get(&key).unwrap_or(false);
@@ -1452,6 +1460,11 @@ impl FinchippayContract {
                 (current_ver + 1, wasm_hash, layout_version),
             );
         } else if action == &Symbol::new(env, "rescue_tokens") {
+            // The rescue admin action moves funds, so it is blocked while the
+            // circuit breaker is engaged. (Governance actions that must stay
+            // callable while paused — `unpause` in particular — are not gated
+            // here; only the fund-moving branch is.)
+            require_not_paused(env);
             let token_address: Address = proposal
                 .action_data
                 .get(0)
@@ -1856,6 +1869,10 @@ impl FinchippayContract {
         to: Address,
     ) {
         let _guard = ReentrancyGuard::acquire(&env);
+        // The circuit breaker must also freeze this legacy rescue path: even
+        // though it is admin-gated, it is still a value-transferring entry
+        // point, so it must not move funds while the contract is paused.
+        require_not_paused(&env);
         admin.require_auth();
         let stored = get_admin(&env);
         if admin != stored {

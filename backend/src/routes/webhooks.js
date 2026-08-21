@@ -7,7 +7,7 @@
 
 const express = require("express");
 const router = express.Router();
-const webhookService = require("../services/webhookSubscriptionService");
+const webhookService = require("../services/webhookService");
 const { sendError } = require("../utils/errorResponse");
 const { validate } = require("../validation/middleware");
 const { registerWebhookSchema } = require("../validation/webhookSchemas");

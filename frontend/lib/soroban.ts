@@ -17,6 +17,7 @@ import {
   nativeToScVal,
   scValToNative,
   rpc,
+  xdr,
 } from "@stellar/stellar-sdk";
 import {
   CONTRACT_ID,
@@ -71,6 +72,50 @@ export interface ContractStats {
 
 export interface SendTipResult {
   transactionHash: string;
+}
+
+export interface SorobanResourceEstimate {
+  cpuInstructions: number;
+  readBytes: number;
+  writeBytes: number;
+  resourceFeeStroops: number;
+}
+
+/** Simulate an already-built Soroban transaction using the shared RPC client. */
+export async function simulateTransactionResources(
+  transaction: Transaction,
+): Promise<SorobanResourceEstimate> {
+  const simulation = await getSorobanServer().simulateTransaction(transaction);
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(`Simulation failed: ${simulation.error}`);
+  }
+
+  const response = simulation as unknown as Record<string, unknown>;
+  const cost = (response.cost ?? {}) as Record<string, unknown>;
+  let cpuInstructions = Number(cost.cpuInsns ?? cost.cpuInstructions ?? 0);
+  let readBytes = Number(cost.readBytes ?? 0);
+  let writeBytes = Number(cost.writeBytes ?? 0);
+
+  // read/write limits live in transactionData in current RPC responses. Decode
+  // the XDR so this also works with SDK versions that do not expose them on cost.
+  const transactionData = response.transactionData;
+  if (typeof transactionData === "string") {
+    try {
+      const resources = xdr.SorobanTransactionData.fromXDR(transactionData, "base64").resources();
+      cpuInstructions ||= Number(resources.instructions().toString());
+      readBytes ||= Number(resources.diskReadBytes());
+      writeBytes ||= Number(resources.writeBytes());
+    } catch {
+      // Older/custom RPCs may return a non-XDR transactionData shape.
+    }
+  }
+
+  return {
+    cpuInstructions,
+    readBytes,
+    writeBytes,
+    resourceFeeStroops: Number(response.minResourceFee ?? 0),
+  };
 }
 
 // ─── Contract Error Codes ─────────────────────────────────────────────────
@@ -150,11 +195,7 @@ async function withRetry<T>(
       // Don't retry contract panics / business logic errors — only network/timeout
       if (err instanceof Error) {
         const msg = err.message;
-        if (
-          msg.includes("ContractError") ||
-          msg.includes("Contract") ||
-          msg.includes("Error(")
-        ) {
+        if (msg.includes("ContractError") || msg.includes("Contract") || msg.includes("Error(")) {
           throw new Error(parseContractError(err));
         }
       }
@@ -208,15 +249,14 @@ export class FinchippayClient {
    * Simulate a contract invocation and return the result.
    * Internal helper used by all query methods.
    */
-  private async simulateCall(
-    method: string,
-    args: unknown[],
-    source?: string,
-  ): Promise<unknown> {
+  private async simulateCall(method: string, args: unknown[], source?: string): Promise<unknown> {
     return withRetry(async () => {
       const server = this.getServer();
       const contract = this.getContract();
-      const account = new Account(source || "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "0");
+      const account = new Account(
+        source || "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "0",
+      );
 
       const tx = new TransactionBuilder(account, {
         fee: this.baseFee,
@@ -256,9 +296,7 @@ export class FinchippayClient {
       const { getNetworkConfig } = require("./stellar") as typeof import("./stellar");
       const config = getNetworkConfig();
       // Load source account from Horizon for sequence number
-      const response = await fetch(
-        `${config.horizonUrl}/accounts/${sourcePublicKey}`,
-      );
+      const response = await fetch(`${config.horizonUrl}/accounts/${sourcePublicKey}`);
       if (!response.ok) {
         throw new Error(`Failed to load account ${sourcePublicKey}`);
       }
@@ -269,9 +307,7 @@ export class FinchippayClient {
         fee: this.baseFee,
         networkPassphrase: this.networkPassphrase,
       })
-        .addOperation(
-          contract.call(method, ...args.map((a) => this.toScVal(a))),
-        )
+        .addOperation(contract.call(method, ...args.map((a) => this.toScVal(a))))
         .setTimeout(60)
         .build();
 
@@ -371,12 +407,7 @@ export class FinchippayClient {
 
   // ── Query methods (read-only contract calls) ────────────────────────────
 
-  async sendTip(
-    token: string,
-    from: string,
-    to: string,
-    amount: string,
-  ): Promise<SendTipResult> {
+  async sendTip(token: string, from: string, to: string, amount: string): Promise<SendTipResult> {
     const tx = await this.buildSendTipTx(token, from, to, amount);
     return { transactionHash: tx.hash().toString("hex") };
   }
@@ -397,7 +428,7 @@ export class FinchippayClient {
       token: String(decoded.token ?? ""),
       amount: String(decoded.amount ?? "0"),
       releaseLedger: Number(decoded.releaseLedger ?? 0),
-      status: (String(decoded.status ?? "Pending")) as EscrowRecord["status"],
+      status: String(decoded.status ?? "Pending") as EscrowRecord["status"],
     };
   }
 
@@ -415,7 +446,7 @@ export class FinchippayClient {
       ratePerLedger: String(decoded.ratePerLedger ?? "0"),
       startLedger: Number(decoded.startLedger ?? 0),
       lastClaimLedger: Number(decoded.lastClaimLedger ?? 0),
-      status: (String(decoded.status ?? "Active")) as StreamRecord["status"],
+      status: String(decoded.status ?? "Active") as StreamRecord["status"],
     };
   }
 
@@ -445,10 +476,7 @@ export class FinchippayClient {
     return Boolean(result);
   }
 
-  async getMultisig(
-    proposalId: number,
-    caller?: string,
-  ): Promise<MultiSigProposal | null> {
+  async getMultisig(proposalId: number, caller?: string): Promise<MultiSigProposal | null> {
     const result = await this.simulateCall("get_multisig", [proposalId], caller);
     if (!result) return null;
     const decoded = result as Record<string, unknown>;
@@ -478,8 +506,7 @@ let _client: FinchippayClient | null = null;
  */
 export function getClient(): FinchippayClient {
   if (!_client) {
-    const rpcUrl =
-      process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+    const rpcUrl = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
     const contractId = CONTRACT_ID;
     const passphrase = NETWORK_PASSPHRASE;
 
