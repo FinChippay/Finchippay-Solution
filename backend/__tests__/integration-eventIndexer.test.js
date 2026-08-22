@@ -62,12 +62,12 @@ function mockRpcResponse(ledger, events = []) {
         contractId: TEST_CONTRACT_ID,
         id: `event-${ledger}-${idx}`,
         pagingToken: `token-${ledger}-${idx}`,
-        topic: ev.topic || [
-          "tip",
-          TEST_PUBLIC_KEY,
-          "GDESTRECIPIENTADDR000000000000000000000000000000",
-        ],
-        data: ev.data || { amount: "100" },
+        topic: ev.topic || ["tip_sent"],
+        data: ev.data || {
+          from: TEST_PUBLIC_KEY,
+          to: "GDESTRECIPIENTADDR000000000000000000000000000000",
+          amount: "100",
+        },
         ...ev,
       })),
     },
@@ -132,7 +132,7 @@ describe("Event Indexer Integration", () => {
 
       nock(SOROBAN_RPC_URL)
         .post("/")
-        .reply(200, mockRpcResponse(100, [{ topic: ["tip"] }]));
+        .reply(200, mockRpcResponse(100, [{ topic: ["tip_sent"] }]));
 
       // Should not crash
       expect(() => eventIndexer.start()).not.toThrow();

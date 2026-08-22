@@ -1,12 +1,14 @@
-//! # Finchippay Contract — Event Constants
+//! # Finchippay Contract — Typed Events
 //!
-//! Centralized event symbols used for off-chain indexing and monitoring.
-//! All events emitted by the contract are documented here to facilitate
-//! indexer integration and monitoring dashboards.
+//! Structured, schema-enforced events emitted by the contract. Every event is
+//! a `#[contractevent]` struct: the struct's snake-case name becomes the first
+//! topic, and every field becomes a named entry in the event data (a Soroban
+//! `Map`). Indexers and generated SDK clients can deserialize these directly
+//! instead of relying on ad-hoc `(Symbol, ...)` tuple layouts.
 //!
 //! ## Event Catalog
 //!
-//! | Event | Payload | Description |
+//! | Struct (topic) | Fields | Description |
 //! |---|---|---|
 //! | `init` | admin address | Contract initialised |
 //! | `admin_transfer` | new_admin address | Legacy admin pointer transferred |

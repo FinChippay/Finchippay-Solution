@@ -6,7 +6,7 @@ mod test {
     #[test]
     fn test_estimate_send_tip() {
         let env = Env::default();
-        let client = FinchippayContractClient::new(&env, &env.register_contract(None, FinchippayContract));
+        let client = FinchippayContractClient::new(&env, &env.register(FinchippayContract, ()));
 
         let token = Address::generate(&env);
         let from = Address::generate(&env);
@@ -23,7 +23,7 @@ mod test {
     #[test]
     fn test_estimate_create_escrow_and_stream() {
         let env = Env::default();
-        let client = FinchippayContractClient::new(&env, &env.register_contract(None, FinchippayContract));
+        let client = FinchippayContractClient::new(&env, &env.register(FinchippayContract, ()));
 
         let token = Address::generate(&env);
         let user1 = Address::generate(&env);
@@ -39,7 +39,7 @@ mod test {
     #[test]
     fn test_estimate_batch_send_linear_scaling() {
         let env = Env::default();
-        let client = FinchippayContractClient::new(&env, &env.register_contract(None, FinchippayContract));
+        let client = FinchippayContractClient::new(&env, &env.register(FinchippayContract, ()));
 
         let token = Address::generate(&env);
         let from = Address::generate(&env);
@@ -62,7 +62,7 @@ mod test {
     #[test]
     fn test_estimate_create_multisig() {
         let env = Env::default();
-        let client = FinchippayContractClient::new(&env, &env.register_contract(None, FinchippayContract));
+        let client = FinchippayContractClient::new(&env, &env.register(FinchippayContract, ()));
 
         let est_3_signers = client.estimate_create_multisig(&3, &2);
         let est_5_signers = client.estimate_create_multisig(&5, &3);

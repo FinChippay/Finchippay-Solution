@@ -106,6 +106,7 @@ cargo build --release --target wasm32v1-none
 ```
 
 The compiled WASM lands at:
+
 ```
 target/wasm32v1-none/release/finchippay_contract.wasm
 ```
@@ -151,21 +152,19 @@ bash ../../scripts/deploy-contract.sh
 
 MIT
 
-## Contract Event Migration
+## Contract Event Migration (complete)
 
-This contract currently uses the legacy `publish()` API for emitting contract
-events. The Soroban SDK has deprecated `publish()` in favor of the
-`#[contractevent]` attribute macro.
+This contract emits events exclusively via the `#[contractevent]` macro. The
+legacy `env.events().publish()` API is no longer used anywhere in the codebase,
+and the `#[allow(deprecated)]` attribute has been removed from the contract
+implementation block.
 
-### Migration Steps
-
-1. Replace all `env.events().publish(...)` calls with `#[contractevent]`
-   struct definitions and `env.events().publish(&event)` invocations.
-2. Bump `STORAGE_LAYOUT_VERSION` and ensure the new event types are documented.
-3. Update the event indexer (`backend/src/services/eventIndexer.js`) to parse
-   the new topic format (the `#[contractevent]` macro generates a 16-byte topic
-   hash from the struct name).
-4. Re-deploy and verify with `soroban contract invoke --id <C> -- events`.
+- Typed event structs live in [`src/events.rs`](src/events.rs) and are emitted
+  via `env.events().publish_event(&Event { ... })`.
+- The backend indexer (`backend/src/services/eventParser.js`) decodes the typed
+  event format (topic symbol + named data Map).
+- Event field layout is schema-enforced by the SDK, so adding or removing a
+  field is a compile-time change rather than a silent indexer break.
 
 ### Tracking
 

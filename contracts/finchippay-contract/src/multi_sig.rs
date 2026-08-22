@@ -3,7 +3,7 @@
 //! N-of-M threshold approval payment proposals with auto-execution,
 //! expiration, and cancellation. Extracted from the main FinchippayContract impl.
 
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_token_client, increase_locked_balance,
@@ -12,6 +12,7 @@ use crate::{
     MIN_MULTISIG_AMOUNT,
 };
 
+use crate::events::*;
 use crate::storage::*;
 // ─── Multi-sig payments ───────────────────────────────────────────────────
 
@@ -104,10 +105,15 @@ pub fn create_multisig(
         .set(&DataKey::MultiSigCount, &(id + 1));
     bump(&env, &DataKey::MultiSigCount);
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_create"), id),
-        (proposer, recipient, amount, threshold),
-    );
+    env.events().publish_event(&MultisigCreated {
+        proposal_id: id,
+        proposer,
+        recipient,
+        amount,
+        threshold,
+        signers_count: proposal.signers.len(),
+        expiration_ledger,
+    });
     id
 }
 
@@ -148,14 +154,12 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
 
     proposal.approvals.push_back(signer.clone());
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_approve"), proposal_id),
-        (
-            signer.clone(),
-            proposal.approvals.len() + 1,
-            proposal.threshold,
-        ),
-    );
+    env.events().publish_event(&MultisigApproved {
+        proposal_id,
+        approver: signer.clone(),
+        count: proposal.approvals.len(),
+        threshold: proposal.threshold,
+    });
 
     // Auto-execute if threshold is reached.
     if proposal.approvals.len() >= proposal.threshold {

@@ -12,6 +12,7 @@ use crate::{
     MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, Milestone, MIN_ESCROW_AMOUNT,
 };
 
+use crate::events::*;
 use crate::storage::*;
 /// Lock `amount` tokens from `from` until `release_ledger`. Returns the escrow ID.
 ///
@@ -106,10 +107,13 @@ pub fn create_escrow(
     env.storage().persistent().set(&rkey, &r_escrows);
     bump_to_floor(&env, &rkey);
 
-    env.events().publish(
-        (Symbol::new(&env, "escrow_create"), next_id),
-        (from.clone(), to.clone(), amount, release_ledger),
-    );
+    env.events().publish_event(&EscrowCreated {
+        escrow_id: next_id,
+        from: from.clone(),
+        to: to.clone(),
+        amount,
+        release_ledger,
+    });
     Ok(next_id)
 }
 
@@ -755,8 +759,7 @@ pub fn add_arbitrator(env: Env, admin: Address, arbitrator: Address) {
         .set(&DataKey::ArbitratorCount, &count);
     bump_to_floor(&env, &DataKey::ArbitratorCount);
 
-    env.events()
-        .publish((Symbol::new(&env, "arbitrator_added"),), arbitrator);
+    env.events().publish_event(&ArbitratorAdded { arbitrator });
 }
 
 /// Admin: remove an arbitrator from the global arbitrator list.
@@ -796,7 +799,7 @@ pub fn remove_arbitrator(env: Env, admin: Address, arbitrator: Address) {
     bump_to_floor(&env, &DataKey::ArbitratorCount);
 
     env.events()
-        .publish((Symbol::new(&env, "arbitrator_removed"),), arbitrator);
+        .publish_event(&ArbitratorRemoved { arbitrator });
 }
 
 /// Create a disputable escrow with a designated arbitrator.
@@ -890,10 +893,10 @@ pub fn create_disputable_escrow(
     env.storage().persistent().set(&rkey, &r_escrows);
     bump_to_floor(&env, &rkey);
 
-    env.events().publish(
-        (Symbol::new(&env, "disputable_escrow_created"),),
-        (next_id, arbitrator),
-    );
+    env.events().publish_event(&DisputableEscrowCreated {
+        escrow_id: next_id,
+        arbitrator,
+    });
 
     Ok(next_id)
 }
@@ -954,8 +957,10 @@ pub fn raise_dispute(env: Env, escrow_id: u32, by: Address) {
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
 
-    env.events()
-        .publish((Symbol::new(&env, "dispute_raised"),), (escrow_id, by));
+    env.events().publish_event(&DisputeRaised {
+        escrow_id,
+        raised_by: by,
+    });
 }
 
 /// Resolve a dispute. Only the designated arbitrator can call this.

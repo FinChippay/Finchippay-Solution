@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, Vec};
 
 use crate::{require_not_paused, DataKey};
 
@@ -99,10 +99,12 @@ pub fn create_airdrop(
         .persistent()
         .set(&DataKey::AirdropCount, &(count + 1));
 
-    env.events().publish(
-        (Symbol::new(env, "airdrop_created"), id),
-        (funder, token, total_amount),
-    );
+    env.events().publish_event(&AirdropCreated {
+        airdrop_id: id,
+        funder,
+        token,
+        total_amount,
+    });
 
     id
 }
@@ -162,10 +164,11 @@ pub fn claim_airdrop(
         &true,
     );
 
-    env.events().publish(
-        (Symbol::new(env, "airdrop_claimed"), airdrop_id),
-        (recipient, amount),
-    );
+    env.events().publish_event(&AirdropClaimed {
+        airdrop_id,
+        recipient,
+        amount,
+    });
 }
 
 pub fn cancel_airdrop(env: &Env, airdrop_id: u32, funder: Address) {
@@ -201,8 +204,9 @@ pub fn cancel_airdrop(env: &Env, airdrop_id: u32, funder: Address) {
         .persistent()
         .set(&DataKey::Airdrop(airdrop_id), &airdrop);
 
-    env.events().publish(
-        (Symbol::new(env, "airdrop_cancelled"), airdrop_id),
-        (funder, unclaimed),
-    );
+    env.events().publish_event(&AirdropCancelled {
+        airdrop_id,
+        funder,
+        amount: unclaimed,
+    });
 }
