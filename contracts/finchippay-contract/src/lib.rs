@@ -4462,7 +4462,7 @@ mod tests {
         let from = Address::generate(&env);
         let to = Address::generate(&env);
         env.mock_all_auths();
-        let fake_token_id = env.register_contract(None, MaliciousToken);
+        let fake_token_id = env.register(MaliciousToken, ());
         let release = env.ledger().sequence() + 10;
         client.create_escrow(
             &fake_token_id,
@@ -4482,7 +4482,7 @@ mod tests {
         let from = Address::generate(&env);
         let to = Address::generate(&env);
         env.mock_all_auths();
-        let fake_token_id = env.register_contract(None, MaliciousToken);
+        let fake_token_id = env.register(MaliciousToken, ());
         client.send_tip(&fake_token_id, &from, &to, &300, &Symbol::new(&env, "mal"));
     }
 
@@ -4494,7 +4494,7 @@ mod tests {
         let payer = Address::generate(&env);
         let recipient = Address::generate(&env);
         env.mock_all_auths();
-        let fake_token_id = env.register_contract(None, MaliciousToken);
+        let fake_token_id = env.register(MaliciousToken, ());
         client.open_stream(&fake_token_id, &payer, &recipient, &10, &500);
     }
 
@@ -4508,7 +4508,7 @@ mod tests {
         let signer = Address::generate(&env);
         let signers = Vec::from_array(&env, [signer.clone()]);
         env.mock_all_auths();
-        let fake_token_id = env.register_contract(None, MaliciousToken);
+        let fake_token_id = env.register(MaliciousToken, ());
         let expiry = env.ledger().sequence() + 1000;
         client.create_multisig(
             &fake_token_id,
@@ -4540,7 +4540,7 @@ mod tests {
         let payer = Address::generate(&env);
         let recipient = Address::generate(&env);
         env.mock_all_auths();
-        let fake_token_id = env.register_contract(None, MaliciousToken);
+        let fake_token_id = env.register(MaliciousToken, ());
         let fake_sid = client.open_stream(&fake_token_id, &payer, &recipient, &10, &500);
         let _ = fake_sid;
     }
