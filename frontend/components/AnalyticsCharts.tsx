@@ -1,10 +1,20 @@
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
 } from "recharts";
 import Skeleton from "./Skeleton";
+import { useDirection } from "@/lib/useDirection";
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6"];
 
@@ -41,6 +51,8 @@ export default function AnalyticsCharts({
   loading = false,
 }: AnalyticsChartsProps) {
   const shouldReduceMotion = useReducedMotion();
+  const { t, i18n } = useTranslation("common");
+  const isRTL = useDirection(i18n.language) === "rtl";
 
   if (loading) {
     return (
@@ -57,7 +69,7 @@ export default function AnalyticsCharts({
   }
 
   if (!timeseriesData.length && !assetBreakdown.length) {
-    return <p className="text-center text-gray-500 py-8">No analytics data available.</p>;
+    return <p className="text-center text-gray-500 py-8">{t("analytics.noData")}</p>;
   }
 
   const comparisonColor = monthlyComparison.changePercent >= 0 ? "text-green-500" : "text-red-500";
@@ -83,42 +95,75 @@ export default function AnalyticsCharts({
         className="space-y-6"
       >
         <div className="grid gap-4 sm:grid-cols-3">
-          <motion.div variants={itemVariants} className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-all hover:border-white/20">
-            <p className="text-xs text-gray-400 font-medium">This Month</p>
-            <p className="text-2xl font-bold mt-1 text-white">{monthlyComparison.current.toFixed(2)} XLM</p>
+          <motion.div
+            variants={itemVariants}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-all hover:border-white/20"
+          >
+            <p className="text-xs text-gray-400 font-medium">{t("analytics.thisMonth")}</p>
+            <p className="text-2xl font-bold mt-1 text-white">
+              {monthlyComparison.current.toFixed(2)} XLM
+            </p>
           </motion.div>
-          <motion.div variants={itemVariants} className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-all hover:border-white/20">
-            <p className="text-xs text-gray-400 font-medium">Last Month</p>
-            <p className="text-2xl font-bold mt-1 text-white">{monthlyComparison.previous.toFixed(2)} XLM</p>
+          <motion.div
+            variants={itemVariants}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-all hover:border-white/20"
+          >
+            <p className="text-xs text-gray-400 font-medium">{t("analytics.lastMonth")}</p>
+            <p className="text-2xl font-bold mt-1 text-white">
+              {monthlyComparison.previous.toFixed(2)} XLM
+            </p>
           </motion.div>
-          <motion.div variants={itemVariants} className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-all hover:border-white/20">
-            <p className="text-xs text-gray-400 font-medium">Monthly Change</p>
+          <motion.div
+            variants={itemVariants}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-all hover:border-white/20"
+          >
+            <p className="text-xs text-gray-400 font-medium">{t("analytics.monthlyChange")}</p>
             <p className={`text-2xl font-bold mt-1 ${comparisonColor}`}>
               {comparisonArrow} {Math.abs(monthlyComparison.changePercent).toFixed(1)}%
             </p>
           </motion.div>
         </div>
 
-        <motion.div variants={itemVariants} className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-          <h3 className="mb-4 text-base font-semibold text-white">Volume Over Time</h3>
+        <motion.div
+          variants={itemVariants}
+          className="rounded-xl border border-white/10 bg-white/[0.03] p-6"
+        >
+          <h3 className="mb-4 text-base font-semibold text-white">
+            {t("analytics.volumeOverTime")}
+          </h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={timeseriesData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="period" fontSize={12} stroke="#9ca3af" />
-              <YAxis fontSize={12} stroke="#9ca3af" />
+              <XAxis dataKey="period" fontSize={12} stroke="#9ca3af" reversed={isRTL} />
+              <YAxis fontSize={12} stroke="#9ca3af" orientation={isRTL ? "right" : "left"} />
               <Tooltip
-                contentStyle={{ backgroundColor: "#1e293b", borderColor: "#ffffff20", borderRadius: "8px", color: "#fff" }}
+                contentStyle={{
+                  backgroundColor: "#1e293b",
+                  borderColor: "#ffffff20",
+                  borderRadius: "8px",
+                  color: "#fff",
+                }}
               />
               <Legend />
-              <Bar dataKey="sent" fill="#3b82f6" name="Sent" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="received" fill="#22c55e" name="Received" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="sent" fill="#3b82f6" name={t("dashboard.sent")} radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="received"
+                fill="#22c55e"
+                name={t("dashboard.received")}
+                radius={[4, 4, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </motion.div>
 
         {assetBreakdown.length > 0 && (
-          <motion.div variants={itemVariants} className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-            <h3 className="mb-4 text-base font-semibold text-white">Asset Breakdown</h3>
+          <motion.div
+            variants={itemVariants}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-6"
+          >
+            <h3 className="mb-4 text-base font-semibold text-white">
+              {t("analytics.assetBreakdown")}
+            </h3>
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie
@@ -135,7 +180,12 @@ export default function AnalyticsCharts({
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{ backgroundColor: "#1e293b", borderColor: "#ffffff20", borderRadius: "8px", color: "#fff" }}
+                  contentStyle={{
+                    backgroundColor: "#1e293b",
+                    borderColor: "#ffffff20",
+                    borderRadius: "8px",
+                    color: "#fff",
+                  }}
                 />
               </PieChart>
             </ResponsiveContainer>
