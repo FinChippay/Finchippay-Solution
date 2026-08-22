@@ -10,6 +10,23 @@
 
 import { test, expect } from "./fixtures";
 
+const MOCK_RECIPIENT_KEY = "GBPMK2QWQ2JKMSFL6EK44LNK45QWGS7IJBLUZXBT5B2FZXOG77GRQ5J4";
+
+/** Connect a wallet via the mocked Freighter, idempotently. */
+async function connectWallet(page: import("@playwright/test").Page) {
+  await page.goto("/dashboard");
+
+  const walletAddress = page.getByText("Wallet Address");
+  const alreadyConnected = await walletAddress
+    .waitFor({ state: "visible", timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (alreadyConnected) return;
+
+  await page.getByRole("button", { name: /Connect Freighter Wallet/i }).click();
+  await expect(walletAddress).toBeVisible({ timeout: 15000 });
+}
+
 test.describe("Offline / PWA support", () => {
   test("shows offline banner when network is disabled", async ({ page }) => {
     await page.goto("/transactions");
@@ -59,9 +76,7 @@ test.describe("Offline / PWA support", () => {
 
     // The page should still render (showing cached data or skeleton)
     // Either the history heading or a loading/error state is acceptable
-    const headingOrFallback = page.locator(
-      'h1, [role="heading"], .card, [role="list"]'
-    );
+    const headingOrFallback = page.locator('h1, [role="heading"], .card, [role="list"]');
     await expect(headingOrFallback.first()).toBeVisible({ timeout: 10000 });
   });
 
@@ -86,5 +101,35 @@ test.describe("Offline / PWA support", () => {
     // Dashboard heading should still be visible (cached shell)
     const heading = page.getByRole("heading", { name: "Dashboard" });
     await expect(heading).toBeVisible({ timeout: 5000 });
+  });
+
+  test("offline composer queues a payment and auto-submits on reconnect", async ({ page }) => {
+    // A wallet must be connected so the composer has a sender address.
+    await connectWallet(page);
+
+    // Visit the offline page while online so the service worker can precache it.
+    await page.goto("/offline");
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await expect(page.getByRole("heading", { name: "You're offline" })).toBeVisible();
+    await expect(page.getByTestId("offline-composer-destination")).toBeVisible();
+
+    // Go offline and compose a transaction.
+    await page.context().setOffline(true);
+    await page.getByTestId("offline-composer-destination").fill(MOCK_RECIPIENT_KEY);
+    await page.getByTestId("offline-composer-amount").fill("10");
+    await page.getByTestId("offline-composer-submit").click();
+
+    // The transaction should be queued and shown with its pending status.
+    await expect(page.getByTestId("offline-composer-pending-count")).toHaveText(/1 pending/);
+    await expect(page.getByText(MOCK_RECIPIENT_KEY)).toBeVisible();
+
+    // Reload while offline — the queue must persist in IndexedDB.
+    await page.reload();
+    await expect(page.getByTestId("offline-composer-pending-count")).toHaveText(/1 pending/);
+    await expect(page.getByText(MOCK_RECIPIENT_KEY)).toBeVisible();
+
+    // Reconnect — the queued transaction should be auto-submitted.
+    await page.context().setOffline(false);
+    await expect(page.getByText(/Submitted 1 queued transaction/)).toBeVisible({ timeout: 15000 });
   });
 });
