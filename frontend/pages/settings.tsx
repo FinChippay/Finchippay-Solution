@@ -28,6 +28,7 @@ import {
 } from "@/lib/turrets";
 import { useWallet } from "@/lib/useWallet";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
+import { logger } from "@/lib/logger";
 
 interface SettingsPageProps {
   publicKey?: string | null;
@@ -100,7 +101,7 @@ export default function SettingsPage({
           }
         }
       } catch (err) {
-        logger.error("Error fetching username:", err);
+        logger.error("Error fetching username:", {}, err instanceof Error ? err : undefined);
       }
     };
     

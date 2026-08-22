@@ -242,7 +242,7 @@ export interface PaymentRecord {
   /** Unique operation ID assigned by Horizon. */
   id: string;
   /** Whether this payment was sent or received by the queried account. */
-  type: "sent" | "received" | "merge";
+  type: "sent" | "received" | "merge" | "payment";
   /** Whether this payment was sent or received by the queried account. */
   amount: string;
   /** Asset code, e.g. `"XLM"` */
@@ -255,8 +255,12 @@ export interface PaymentRecord {
   memo?: string;
   /** ISO 8601 timestamp of when the operation was created. */
   createdAt: string;
+  /** ISO 8601 alias for createdAt (used in tests and search). */
+  timestamp?: string;
   /** Hash of the parent transaction. */
   transactionHash: string;
+  /** Alias for transactionHash (used in search and UI components). */
+  hash: string;
   /** Horizon paging token used for cursor-based pagination. */
   pagingToken?: string;
   /** Category of the transaction. */
@@ -299,10 +303,10 @@ export async function getFeeEstimate(
   try {
     // Example SDK call or fallback
     return {
-      cpu_instructions: 500000n,
+      cpu_instructions: BigInt(500000),
       ledger_read_bytes: 1500,
       ledger_write_bytes: 500,
-      estimated_stroops: 10000n,
+      estimated_stroops: BigInt(10000),
     };
   } catch (error) {
     logger.error(`Failed to fetch fee estimate for ${estimateMethod}`, {}, error instanceof Error ? error : undefined);
@@ -976,7 +980,9 @@ export async function getPaymentHistory(
         to: payment.to,
         memo,
         createdAt: payment.created_at,
+        timestamp: payment.created_at,
         transactionHash: payment.transaction_hash,
+        hash: payment.transaction_hash,
         pagingToken: payment.paging_token,
         category: TransactionCategory.Payment,
       };
@@ -995,7 +1001,9 @@ export async function getPaymentHistory(
         from: merge.account || merge.source_account, // Handle potential variations in property names
         to: merge.into, // The destination account
         createdAt: merge.created_at,
+        timestamp: merge.created_at,
         transactionHash: merge.transaction_hash,
+        hash: merge.transaction_hash,
         pagingToken: merge.paging_token,
         category: TransactionCategory.Merge,
       };
@@ -1062,7 +1070,9 @@ export async function fetchAllPayments(
         from: payment.from,
         to: payment.to,
         createdAt: payment.created_at,
+        timestamp: payment.created_at,
         transactionHash: payment.transaction_hash,
+        hash: payment.transaction_hash,
         pagingToken: payment.paging_token,
         category: TransactionCategory.Payment,
       });
@@ -1383,7 +1393,9 @@ export function streamPayments(
         to: payment.to,
         memo,
         createdAt: payment.created_at,
+        timestamp: payment.created_at,
         transactionHash: payment.transaction_hash,
+        hash: payment.transaction_hash,
         pagingToken: payment.paging_token,
         category: TransactionCategory.Payment,
       };
@@ -2137,7 +2149,16 @@ export async function buildClaimStreamTransaction(
 }
 
 // --- Stub exports ---
-export interface ReceiptMetadata { payer: string; amount: string; timestamp: string; index: number; }
+export interface ReceiptMetadata {
+  from: string;
+  to: string;
+  amount: string;
+  timestamp: number;
+  memo: string;
+  ledger: number;
+  payer?: string;
+  index?: number;
+}
 export async function getReceipt(_payer: string, _index: number): Promise<ReceiptMetadata> { throw new Error("getReceipt not yet implemented"); }
-export interface StreamRecord { id: number; recipient: string; amount: string; status: string; }
+export interface StreamRecord { id: number; recipient: string; amount: string; status: string; payer?: string; token?: string; ratePerLedger?: string; deposited?: string; claimed?: string; startLedger?: number; closed?: boolean; }
 export async function listStreamsByPayer(_payer: string, _offset?: number, _limit?: number): Promise<StreamRecord[]> { return []; }

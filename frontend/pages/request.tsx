@@ -42,7 +42,7 @@ export default function RequestPage() {
         setPrefill(parsedData);
         setError(null);
       } catch (err) {
-        logger.error("Invalid request link data", err);
+        logger.error("Invalid request link data", {}, err instanceof Error ? err : undefined);
         setError("Invalid request link. Please check the URL.");
       }
     }

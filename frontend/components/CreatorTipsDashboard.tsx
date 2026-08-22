@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { getContractTipTotal, getContractTipCount, CONTRACT_ID } from "@/lib/stellar";
 import { formatXLM, shortenAddress, formatUSD, formatStroopsToXLM } from "@/utils/format";
+import { logger } from "@/lib/logger";
 
 interface TipRecord {
   id: number;
@@ -63,7 +64,7 @@ export default function CreatorTipsDashboard({
       setOnChainTipCount(count);
       setOnChainTipTotal(total);
     } catch (err) {
-      logger.error("Failed to fetch on-chain tip stats:", err);
+      logger.error("Failed to fetch on-chain tip stats:", {}, err instanceof Error ? err : undefined);
     }
   }, [publicKey]);
 
@@ -96,7 +97,7 @@ export default function CreatorTipsDashboard({
         setTips([]);
       }
     } catch (err) {
-      logger.error("Error fetching tips:", err);
+      logger.error("Error fetching tips:", {}, err instanceof Error ? err : undefined);
       setError("Unable to load tips. Make sure you have a registered username.");
       setTips([]);
     } finally {

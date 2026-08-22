@@ -25,6 +25,23 @@ import {
 } from "./auth";
 import { sdk } from "./sdk-instance";
 import { getNetworkPassphrase } from "./stellar";
+import {
+  getOrCreateSalt,
+  deriveKey,
+  setSessionKey,
+  getSessionKey,
+  getSessionOwner,
+} from "@/lib/encryption";
+import {
+  unlockAddressBook,
+  reEncryptAddressBook,
+  unlockFederationCache,
+  reEncryptFederationCache,
+} from "./addressBook";
+import {
+  unlockPaymentTemplates,
+  reEncryptPaymentTemplates,
+} from "./paymentTemplates";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -40,10 +57,10 @@ async function fetchAuthChallenge(publicKey: string): Promise<string> {
 async function verifyAuthChallenge(signedXDR: string): Promise<{ accessToken: string; refreshToken: string }> {
   const res = await sdk.verifyChallenge(signedXDR);
   const data = res as Record<string, string | undefined>;
-  const accessToken = data.accessToken || data.token;
-  const refreshToken = data.refreshToken;
+  const accessToken = data.accessToken || data.token || null;
+  const refreshToken = data.refreshToken ?? null;
   sdk.setToken(accessToken);
-  return { accessToken, refreshToken };
+  return { accessToken: accessToken || '', refreshToken: refreshToken || '' };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

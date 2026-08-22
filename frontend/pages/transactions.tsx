@@ -26,6 +26,7 @@ import {
   type ExportFormat,
 } from "@/utils/export";
 import { formatAsset, formatDate } from "@/utils/format";
+import { logger } from "@/lib/logger";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "finchippay:transaction-filters";
 

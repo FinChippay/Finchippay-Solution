@@ -50,8 +50,8 @@ async function performRefresh(): Promise<string | null> {
   const rToken = getRefreshToken();
   if (!rToken) return null;
 
+  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
   try {
-    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: "POST",
       credentials: "include",

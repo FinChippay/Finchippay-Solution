@@ -32,6 +32,7 @@ import {
   type FiatCurrency,
 } from "@/lib/portfolio";
 import { useWallet } from "@/lib/useWallet";
+import { logger } from "@/lib/logger";
 
 const WalletConnect = dynamic(() => import("@/components/WalletConnect"), { ssr: false });
 
@@ -67,7 +68,7 @@ export default function PortfolioPage() {
       } catch (err) {
         // Most commonly: the connected account hasn't been funded on this
         // network yet (no XLM balance exists to derive holdings from).
-        logger.error("Failed to load wallet holdings:", err);
+        logger.error("Failed to load wallet holdings:", {}, err instanceof Error ? err : undefined);
       }
 
       const customTokens = loadCustomTokens();
@@ -89,7 +90,7 @@ export default function PortfolioPage() {
         const priceSnapshots = await fetchTokenPrices(codes);
         setPrices(priceSnapshots);
       } catch (err) {
-        logger.error("Failed to load token prices:", err);
+        logger.error("Failed to load token prices:", {}, err instanceof Error ? err : undefined);
       }
     } finally {
       setLoading(false);

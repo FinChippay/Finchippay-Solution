@@ -457,6 +457,8 @@ pub struct EmergencyWithdrawal {
 
 /// Maximum ledgers into the future an escrow can be created (≈ 30 days at 5 s).
 const MAX_ESCROW_LEDGERS: u32 = 518_400;
+/// Maximum duration a recipient can pause a stream (≈ 1 year at 5s/ledger).
+const MAX_PAUSE_LEDGERS: u32 = 6_307_200;
 /// Maximum deposit amount for a single stream (1 trillion stroops).
 pub const MAX_STREAM_DEPOSIT: i128 = 1_000_000_000_000_000_000;
 /// Maximum rate per ledger for a stream (avoids overflow in elapsed * rate).

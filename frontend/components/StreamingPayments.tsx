@@ -25,6 +25,7 @@ import {
   getCurrentLedger,
   computeStreamClaimable,
   submitTransaction,
+  buildClaimStreamTransaction,
   STELLAR_STROOPS_PER_XLM,
   shortenAddress,
   type StreamRecord,

@@ -73,7 +73,7 @@ export default function AIPaymentAssistant({
       setParsedIntent(intent);
     } catch (err) {
       setError("Failed to parse your request. Please try again.");
-      logger.error("Payment parsing error:", err);
+      logger.error("Payment parsing error:", {}, err instanceof Error ? err : undefined);
     } finally {
       setIsLoading(false);
     }

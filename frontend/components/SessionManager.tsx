@@ -6,6 +6,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { getSessions, revokeSession, revokeAllSessions, SessionInfo } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 
 export default function SessionManager() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -18,7 +19,7 @@ export default function SessionManager() {
       const data = await getSessions();
       setSessions(data);
     } catch (err) {
-      logger.error("Failed to load sessions:", err);
+      logger.error("Failed to load sessions:", {}, err instanceof Error ? err : undefined);
     } finally {
       setLoading(false);
     }

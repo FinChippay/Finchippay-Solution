@@ -43,7 +43,7 @@ export default function PaymentLinkGenerator() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      logger.error("Failed to copy!", err);
+      logger.error("Failed to copy!", {}, err instanceof Error ? err : undefined);
     }
   };
 

@@ -109,7 +109,7 @@ export async function claimEscrow(
   if (signed.error || !signed.signedXDR) throw new Error(signed.error || "Signing failed");
   const result = await submitTransaction(signed.signedXDR);
   invalidateCacheForUser(fromPublicKey);
-  return result.hash || result.returnValue?.toString() || String(id);
+  return result.hash || String(id);
 }
 
 export async function cancelEscrow(
@@ -122,7 +122,7 @@ export async function cancelEscrow(
   if (signed.error || !signed.signedXDR) throw new Error(signed.error || "Signing failed");
   const result = await submitTransaction(signed.signedXDR);
   invalidateCacheForUser(fromPublicKey);
-  return result.hash || result.returnValue?.toString() || String(id);
+  return result.hash || String(id);
 }
 
 export async function getEscrowDetail(

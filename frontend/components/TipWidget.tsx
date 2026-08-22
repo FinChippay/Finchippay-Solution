@@ -112,7 +112,7 @@ export default function TipWidget({
         }),
       });
     } catch (err) {
-      logger.error("Failed to record tip:", err);
+      logger.error("Failed to record tip:", {}, err instanceof Error ? err : undefined);
     }
   };
 

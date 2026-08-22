@@ -576,7 +576,6 @@ function SendPaymentForm({
               fromPublicKey: publicKey,
               toPublicKey: paymentDestination,
               amount: amountNum.toFixed(7),
-              baseFee: String(selectedFeeStroops),
             })
           : await buildPaymentTransaction({
               fromPublicKey: publicKey,
@@ -584,7 +583,6 @@ function SendPaymentForm({
               amount: amountNum.toFixed(7),
               memo: memo.trim() || undefined,
               asset: assetParam,
-              baseFee: String(selectedFeeStroops),
             });
 
         if (active) {
@@ -777,7 +775,6 @@ function SendPaymentForm({
           fromPublicKey: publicKey,
           toPublicKey: paymentDestination,
           amount: amountNum.toFixed(7),
-          baseFee: String(selectedFeeStroops),
         })
         : await buildPaymentTransaction({
             fromPublicKey: publicKey,
@@ -785,7 +782,6 @@ function SendPaymentForm({
             amount: amountNum.toFixed(7),
             memo: memo.trim() || undefined,
             asset: assetParam,
-            baseFee: String(selectedFeeStroops),
           });
       markStepCompleted("building");
 
@@ -838,7 +834,7 @@ function SendPaymentForm({
       
       if (autoMintReceipt) {
         // Run in background without awaiting, so UI doesn't block
-        mintNftReceipt(true).catch((err) => { logger.error('Receipt mint failed:', err); });
+        mintNftReceipt(true).catch((err) => { logger.error('Receipt mint failed:', {}, err instanceof Error ? err : undefined); });
       }
 
       onSuccess?.(result.hash);
