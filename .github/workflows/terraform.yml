@@ -1,41 +1,40 @@
-# .github/workflows/terraform-deploy.yml
-# Terraform Infrastructure as Code — Plan & Apply for DigitalOcean
+# .github/workflows/terraform.yml
+# Terraform Infrastructure as Code — AWS ECS Fargate
 #
-# Plan:  runs on every pull request targeting main (shows diff in PR comment).
+# Plan:  runs on every pull request targeting main (posts plan as a PR comment).
 # Apply: runs on push to main with a manual approval gate via GitHub Environments.
 #
 # Required GitHub Secrets:
-#   DIGITALOCEAN_TOKEN      — DigitalOcean personal access token
-#   DIGITALOCEAN_SPACES_KEY — Spaces access key (for remote state backend)
-#   DIGITALOCEAN_SPACES_SECRET — Spaces secret key (for remote state backend)
+#   AWS_ROLE_ARN              — IAM role to assume via OIDC (configure-aws-credentials)
+#   TF_STATE_BUCKET           — S3 bucket holding Terraform state
+#   TF_STATE_LOCK_TABLE       — DynamoDB table used for state locking
 #
-# Optional GitHub Secrets:
-#   SSH_PUBLIC_KEY          — SSH public key content for Droplet access
-#   TF_VAR_db_password      — Override auto-generated DB password
-#   TF_VAR_redis_password   — Override auto-generated Redis password
+# Optional GitHub Secrets (overrides):
+#   TF_VAR_allowed_origins    — CORS origins for the deployed app
 
-name: Terraform Deploy
+name: Terraform
 
 on:
   pull_request:
     branches: [main]
     paths:
       - "terraform/**"
-      - ".github/workflows/terraform-deploy.yml"
+      - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
       - "terraform/**"
-      - ".github/workflows/terraform-deploy.yml"
+      - ".github/workflows/terraform.yml"
   workflow_dispatch:
     inputs:
       environment:
-        description: "Deployment environment (staging or production)"
+        description: "Deployment environment (dev, staging, or prod)"
         required: true
         type: choice
         options:
+          - dev
           - staging
-          - production
+          - prod
       action:
         description: "Terraform action to perform"
         required: true
@@ -54,10 +53,11 @@ jobs:
   # ─── Terraform Plan (on PR) ───────────────────────────────────────────────
   plan:
     name: Terraform Plan
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write
 
     defaults:
@@ -72,18 +72,28 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: terraform-plan
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check -recursive
         continue-on-error: true
 
-      - name: Terraform Init
+      - name: Terraform Init (remote state)
         id: init
-        run: terraform init
-        env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DIGITALOCEAN_SPACES_KEY || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_SPACES_SECRET || '' }}
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=finchippay/dev/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
 
       - name: Terraform Validate
         id: validate
@@ -95,21 +105,17 @@ jobs:
           terraform plan \
             -no-color \
             -input=false \
-            -var="environment=staging" \
+            -var="environment=dev" \
+            -var-file="environments/dev/dev.tfvars" \
             -out=tfplan \
             | tee /tmp/plan.txt
         env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DIGITALOCEAN_SPACES_KEY || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_SPACES_SECRET || '' }}
-          TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password || '' }}
-          TF_VAR_redis_password: ${{ secrets.TF_VAR_redis_password || '' }}
+          TF_VAR_allowed_origins: ${{ secrets.TF_VAR_allowed_origins || '' }}
         continue-on-error: true
 
       - name: Post Plan to PR
-        uses: actions/github-script@v7
         if: always()
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
@@ -133,7 +139,9 @@ jobs:
 
             > **Action:** Review the plan above. Merge to \`main\` to trigger \`terraform apply\`.
             > **Format:** ${{ steps.fmt.outcome }}
+            > **Init:** ${{ steps.init.outcome }}
             > **Validate:** ${{ steps.validate.outcome }}
+            > **Plan:** ${{ steps.plan.outcome }}
             `;
 
             const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
@@ -159,9 +167,9 @@ jobs:
           path: ${{ env.TF_WORKING_DIR }}/tfplan
           retention-days: 7
 
-  # ─── Terraform Apply (on push to main) ────────────────────────────────────
+  # ─── Terraform Apply (on push to main, prod requires approval) ───────────
   apply:
-    name: Terraform Apply
+    name: Terraform Apply (prod)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
@@ -182,13 +190,23 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Init
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: terraform-apply
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init (remote state)
         id: init
-        run: terraform init
-        env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DIGITALOCEAN_SPACES_KEY || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_SPACES_SECRET || '' }}
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=finchippay/prod/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
 
       - name: Terraform Plan (for apply)
         id: plan
@@ -196,22 +214,16 @@ jobs:
           terraform plan \
             -no-color \
             -input=false \
-            -var="environment=production" \
+            -var-file="environments/prod/prod.tfvars" \
             -out=tfplan
         env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password || '' }}
-          TF_VAR_redis_password: ${{ secrets.TF_VAR_redis_password || '' }}
+          TF_VAR_allowed_origins: ${{ secrets.TF_VAR_allowed_origins || '' }}
 
       - name: Terraform Apply
         id: apply
         run: terraform apply -input=false -auto-approve tfplan
         env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password || '' }}
-          TF_VAR_redis_password: ${{ secrets.TF_VAR_redis_password || '' }}
+          TF_VAR_allowed_origins: ${{ secrets.TF_VAR_allowed_origins || '' }}
 
       - name: Terraform Output
         id: output
@@ -223,34 +235,6 @@ jobs:
           name: terraform-outputs-${{ github.sha }}
           path: ${{ env.TF_WORKING_DIR }}/terraform-outputs.json
           retention-days: 90
-
-      - name: Post Apply Summary
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const status = '${{ job.status }}' === 'success' ? '✅ Success' : '❌ Failed';
-            const sha = context.sha.substring(0, 7);
-            const workflowUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-
-            const body = [
-              `## 🏗️ Terraform Apply — ${status}`,
-              '',
-              `Infrastructure changes applied on commit [\`${sha}\`](${workflowUrl}).`,
-              '',
-              '| Step | Status |',
-              '|------|--------|',
-              `| Init | ${{ steps.init.outcome }} |`,
-              `| Plan | ${{ steps.plan.outcome }} |`,
-              `| Apply | ${{ steps.apply.outcome }} |`,
-            ].join('\n');
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number || 1,
-              body,
-            }).catch(() => {});
 
   # ─── Workflow Dispatch (manual) ───────────────────────────────────────────
   manual:
@@ -272,12 +256,22 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Init
-        run: terraform init
-        env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DIGITALOCEAN_SPACES_KEY || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_SPACES_SECRET || '' }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: terraform-manual
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init (remote state)
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=finchippay/${{ github.event.inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
 
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan'
@@ -285,12 +279,7 @@ jobs:
           terraform plan \
             -no-color \
             -input=false \
-            -var="environment=${{ github.event.inputs.environment }}"
-        env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password || '' }}
-          TF_VAR_redis_password: ${{ secrets.TF_VAR_redis_password || '' }}
+            -var-file="environments/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars"
 
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
@@ -298,14 +287,9 @@ jobs:
           terraform plan \
             -no-color \
             -input=false \
-            -var="environment=${{ github.event.inputs.environment }}" \
+            -var-file="environments/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars" \
             -out=tfplan
           terraform apply -input=false -auto-approve tfplan
-        env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password || '' }}
-          TF_VAR_redis_password: ${{ secrets.TF_VAR_redis_password || '' }}
 
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
@@ -313,11 +297,6 @@ jobs:
           terraform plan -destroy \
             -no-color \
             -input=false \
-            -var="environment=${{ github.event.inputs.environment }}" \
+            -var-file="environments/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars" \
             -out=tfdestroy
           terraform apply -input=false -auto-approve tfdestroy
-        env:
-          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password || '' }}
-          TF_VAR_redis_password: ${{ secrets.TF_VAR_redis_password || '' }}

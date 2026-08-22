@@ -1,6 +1,6 @@
 # Terraform Infrastructure — Finchippay
 
-This document explains the Terraform modules that provision Finchippay's cloud infrastructure on **DigitalOcean** and walks through the full lifecycle from first-time setup to tear-down.
+This document explains the Terraform modules that provision Finchippay's production infrastructure on **AWS** (ECS Fargate) and walks through the full lifecycle from first-time setup to tear-down. GCP (Cloud Run) is planned for a future iteration.
 
 ## Architecture
 
@@ -8,47 +8,48 @@ This document explains the Terraform modules that provision Finchippay's cloud i
 terraform/
 ├── main.tf                    # Root module — wires all child modules together
 ├── variables.tf               # All input variables with defaults and descriptions
-├── outputs.tf                 # Root outputs (IPs, DB/Redis URLs, etc.)
-├── providers.tf               # DigitalOcean + random providers
+├── outputs.tf                 # Root outputs (backend_url, endpoints, etc.)
+├── providers.tf               # AWS + random providers, S3/DynamoDB state backend
 ├── terraform.tfvars.example   # Copy → terraform.tfvars, fill in values
-└── modules/
-    ├── compute/               # DigitalOcean Droplet(s) + SSH key + project
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── database/              # DigitalOcean Managed PostgreSQL cluster
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    └── redis/                 # DigitalOcean Managed Redis cluster
-        ├── main.tf
-        ├── variables.tf
-        └── outputs.tf
+├── modules/
+│   ├── networking/            # VPC, public/private subnets, NAT, security groups
+│   ├── compute/               # ECS Fargate cluster, tasks, services, ALB, autoscaling
+│   ├── database/              # RDS PostgreSQL (subnet group, parameter group)
+│   ├── cache/                 # ElastiCache Redis (subnet group, parameter group)
+│   └── dns/                   # Route53 hosted zone + ACM certificate
+└── environments/
+    ├── dev/                   # Small instances, single AZ, no Multi-AZ DB
+    ├── staging/               # Medium instances, Multi-AZ DB
+    └── prod/                  # Large instances, Multi-AZ DB + Redis, autoscaling
 ```
-
-All resources live in a **private VPC** and the database/Redis firewall rules permit connections only from the provisioned application Droplets.
 
 ### Resource summary
 
 | Module | Resource | Purpose |
 |---|---|---|
-| root | `digitalocean_vpc` | Isolated private network |
-| compute | `digitalocean_droplet` × N | Application servers running Docker Compose |
-| compute | `digitalocean_ssh_key` | SSH access to Droplets |
-| compute | `digitalocean_project` | Groups all resources in the DO control panel |
-| database | `digitalocean_database_cluster` (pg) | Managed PostgreSQL 16 |
-| database | `digitalocean_database_db` | Application database |
-| database | `digitalocean_database_user` | Dedicated app user |
-| database | `digitalocean_database_firewall` | Allow only app Droplets |
-| redis | `digitalocean_database_cluster` (redis) | Managed Redis 7 |
-| redis | `digitalocean_database_redis_config` | Sets eviction policy |
-| redis | `digitalocean_database_firewall` | Allow only app Droplets |
+| networking | `aws_vpc` | Isolated private network |
+| networking | `aws_subnet` × 2 | Public (ALB) and private (tasks/data) subnets |
+| networking | `aws_nat_gateway` | Outbound internet for private resources |
+| networking | `aws_security_group` × 4 | ALB, app tasks, database, Redis |
+| compute | `aws_ecs_cluster` | Fargate cluster (Container Insights enabled) |
+| compute | `aws_ecs_task_definition` × 2 | Backend + frontend containers |
+| compute | `aws_ecs_service` × 2 | Backend + frontend services behind the ALB |
+| compute | `aws_lb` + listeners | Application load balancer, `/api/*` → backend, else → frontend |
+| compute | `aws_appautoscaling_*` | Target-tracking autoscaling (CPU/memory) |
+| compute | `aws_route53_record` | A record aliased to the ALB |
+| database | `aws_db_instance` | RDS PostgreSQL 16, Multi-AZ optional |
+| database | `aws_db_parameter_group` | `postgres16` parameter group |
+| cache | `aws_elasticache_replication_group` | ElastiCache Redis 7, AUTH + encryption |
+| dns | `aws_route53_zone` | Hosted zone for the app domain |
+| dns | `aws_acm_certificate` | TLS certificate (DNS validation) |
+
+All application and data-plane resources live in **private subnets**. The internet-facing ALB lives in the public subnets; ECS tasks, RDS and ElastiCache are only reachable via the security group chain (ALB → app → database/Redis).
 
 ## Prerequisites
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.6
-- A [DigitalOcean account](https://cloud.digitalocean.com/) with a **personal access token** (read + write scopes)
-- An SSH key pair (`ssh-keygen -t ed25519` if you don't have one)
+- An AWS account with credentials configured (`aws configure`), or an OIDC role for CI
+- The Finchippay container images published to a registry (ECR, Docker Hub, GHCR)
 
 ## Quick start
 
@@ -62,11 +63,12 @@ cp terraform.tfvars.example terraform.tfvars
 Edit `terraform.tfvars` and at minimum set:
 
 ```hcl
-do_token            = "dop_v1_YOUR_TOKEN"
-ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+environment   = "dev"
+backend_image  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/finchippay-backend:latest"
+frontend_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/finchippay-frontend:latest"
 ```
 
-Everything else has sensible defaults for a single-server deployment.
+Everything else has sensible defaults for a single-environment deployment.
 
 ### 2. Initialise
 
@@ -74,7 +76,7 @@ Everything else has sensible defaults for a single-server deployment.
 terraform init
 ```
 
-This downloads the DigitalOcean provider (`~2.39.x`) into `.terraform/`.
+This downloads the AWS provider (`~> 5.40`) into `.terraform/`.
 
 ### 3. Plan
 
@@ -90,125 +92,159 @@ Review the output — it should show resources to be **created** with no errors.
 terraform apply
 ```
 
-Type `yes` when prompted. Provisioning takes roughly 5–10 minutes (managed databases take the longest).
+Type `yes` when prompted. Provisioning takes roughly 10–15 minutes (RDS and ElastiCache take the longest).
 
 ### 5. Retrieve outputs
 
 ```bash
-terraform output droplet_ipv4_addresses
+terraform output frontend_url
+terraform output backend_url
 terraform output -json   # all outputs as JSON
 
 # Sensitive outputs require an explicit -raw or -json flag:
-terraform output -raw database_url
-terraform output -raw redis_url
+terraform output -raw database_connection_url
+terraform output -raw redis_connection_url
 ```
 
-Use the connection URLs in `backend/.env`:
+## Deploying an environment (recommended)
 
-```env
-DATABASE_URL=$(terraform output -raw database_url)
-REDIS_URL=$(terraform output -raw redis_url)
-```
-
-### 6. SSH into the Droplet
+Each environment ships its own var file, so a full deployment is a single command:
 
 ```bash
-IP=$(terraform output -json droplet_ipv4_addresses | jq -r '.[0]')
-ssh root@$IP
+# dev
+terraform init -backend-config="environments/dev/backend.tfvars"
+terraform apply -var-file="environments/dev/dev.tfvars"
+
+# staging
+terraform init -backend-config="environments/staging/backend.tfvars"
+terraform apply -var-file="environments/staging/staging.tfvars"
+
+# prod
+terraform init -backend-config="environments/prod/backend.tfvars"
+terraform apply -var-file="environments/prod/prod.tfvars"
 ```
 
-### 7. Deploy the application
-
-Copy `docker-compose.prod.yml` to the Droplet and start the stack:
-
-```bash
-scp docker-compose.prod.yml backend/.env root@$IP:/opt/finchippay/
-ssh root@$IP "cd /opt/finchippay && docker compose -f docker-compose.prod.yml up -d"
-```
+| Environment | Compute (backend) | Database | Redis | DNS |
+|---|---|---|---|---|
+| dev | 256 CPU / 512 MiB, ×1 | `db.t3.micro`, single AZ | `cache.t3.micro`, 1 node | off |
+| staging | 512 CPU / 1024 MiB, ×1–3 | `db.t3.medium`, Multi-AZ | `cache.t3.medium`, 2 nodes | on |
+| prod | 1024 CPU / 2048 MiB, ×2–6 | `db.r6g.large`, Multi-AZ | `cache.r6g.large`, 2 nodes | on |
 
 ## Module reference
+
+### `modules/networking`
+
+| Variable | Default | Description |
+|---|---|---|
+| `vpc_cidr` | — | VPC CIDR block |
+| `availability_zones` | — | AZs for the subnets |
+| `public_subnet_cidrs` | — | Public subnet CIDRs (ALB) |
+| `private_subnet_cidrs` | — | Private subnet CIDRs (tasks, RDS, Redis) |
+
+**Outputs:** `vpc_id`, `public_subnet_ids`, `private_subnet_ids`, `alb_security_group_id`, `app_security_group_id`, `database_security_group_id`, `redis_security_group_id`
 
 ### `modules/compute`
 
 | Variable | Default | Description |
 |---|---|---|
-| `name_prefix` | — | Resource name prefix |
-| `region` | — | DO region slug |
-| `droplet_size` | `s-2vcpu-4gb` | Droplet size slug |
-| `droplet_image` | `docker-20-04` | Base OS image (Docker pre-installed) |
-| `droplet_count` | `1` | Number of application Droplets |
-| `vpc_id` | — | VPC to place Droplets in |
-| `ssh_public_key` | — | SSH public key content |
-| `tags` | `[]` | Tags applied to resources |
+| `backend_image` / `frontend_image` | — | Container image URIs |
+| `backend_cpu` / `backend_memory` | `512` / `1024` | Backend task size |
+| `frontend_cpu` / `frontend_memory` | `256` / `512` | Frontend task size |
+| `backend_desired_count` | `1` | Desired backend tasks |
+| `enable_autoscaling` | `false` | Target-tracking autoscaling (CPU/memory) |
+| `create_dns` | `false` | Create A record and terminate TLS on the ALB |
+| `domain_name` / `zone_id` / `certificate_arn` | — | DNS + TLS wiring |
 
-**Outputs:** `droplet_ids`, `droplet_ipv4_addresses`, `droplet_private_ipv4_addresses`, `ssh_key_fingerprint`, `project_id`
+**Outputs:** `cluster_id`, `cluster_name`, `alb_dns_name`, `backend_url`, `frontend_url`, `backend_service_name`, `frontend_service_name`, `backend_log_group`, `frontend_log_group`
 
 ### `modules/database`
 
 | Variable | Default | Description |
 |---|---|---|
-| `name_prefix` | — | Resource name prefix |
-| `region` | — | DO region slug |
-| `engine` | `pg` | Database engine |
-| `engine_version` | `16` | PostgreSQL major version |
-| `node_size` | `db-s-1vcpu-1gb` | Node size slug |
-| `node_count` | `1` | Nodes (1 = standalone, 2+ = HA) |
-| `database_name` | `finchippay` | Application database name |
-| `database_user` | `finchippay_app` | Application database user |
-| `vpc_id` | — | VPC for the cluster |
-| `allowed_droplet_ids` | `[]` | Droplet IDs allowed through the firewall |
-| `tags` | `[]` | Tags applied to resources |
+| `engine_version` | `16.3` | PostgreSQL version |
+| `instance_class` | `db.t3.micro` | RDS instance class |
+| `allocated_storage` / `max_allocated_storage` | `20` / `50` | Storage (GiB) + autoscaling cap |
+| `multi_az` | `false` | Multi-AZ standby replica |
+| `deletion_protection` | `false` | Prevent accidental deletion |
 
-**Outputs:** `cluster_id`, `host`, `private_host`, `port`, `database_name`, `user`, `password` *(sensitive)*, `connection_url` *(sensitive)*, `ca_cert` *(sensitive)*
+**Outputs:** `endpoint`, `port`, `db_name`, `username`, `password` *(sensitive)*, `connection_url` *(sensitive)*, `secret_arn`
 
-### `modules/redis`
+### `modules/cache`
 
 | Variable | Default | Description |
 |---|---|---|
-| `name_prefix` | — | Resource name prefix |
-| `region` | — | DO region slug |
-| `engine_version` | `7` | Redis major version |
-| `node_size` | `db-s-1vcpu-1gb` | Node size slug |
-| `node_count` | `1` | Number of nodes |
-| `eviction_policy` | `allkeys-lru` | Maxmemory eviction policy |
-| `vpc_id` | — | VPC for the cluster |
-| `allowed_droplet_ids` | `[]` | Droplet IDs allowed through the firewall |
-| `tags` | `[]` | Tags applied to resources |
+| `engine_version` | `7.1` | Redis version |
+| `node_type` | `cache.t3.micro` | Node class |
+| `num_cache_nodes` | `1` | Node count (2+ enables Multi-AZ failover) |
+| `multi_az` | `false` | Automatic failover |
 
-**Outputs:** `cluster_id`, `host`, `private_host`, `port`, `password` *(sensitive)*, `connection_url` *(sensitive)*
+**Outputs:** `primary_endpoint_address`, `primary_endpoint_port`, `auth_token` *(sensitive)*, `connection_url` *(sensitive)*, `replication_group_id`
 
-## Remote state (optional but recommended for teams)
+### `modules/dns`
 
-Uncomment the `backend "s3"` block in `providers.tf` to store state in a DigitalOcean Space:
+| Variable | Default | Description |
+|---|---|---|
+| `domain_name` | — | Public domain |
+| `create_zone` | `true` | Create a new hosted zone |
+| `zone_id` | `""` | Reuse an existing zone when `create_zone = false` |
+
+**Outputs:** `zone_id`, `zone_name`, `nameservers`, `certificate_arn`
+
+## Remote state (S3 + DynamoDB)
+
+State is stored remotely in S3 with DynamoDB locking via the `backend "s3"` block in `providers.tf`. Bootstrap once per account:
 
 ```bash
-# Create a Space and access key first, then:
-export AWS_ACCESS_KEY_ID="<spaces-key-id>"
-export AWS_SECRET_ACCESS_KEY="<spaces-secret>"
-terraform init -reconfigure
+aws s3api create-bucket --bucket finchippay-tf-state --region us-east-1
+aws dynamodb create-table \
+  --table-name finchippay-tf-state-lock \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST
+
+# Then initialise with the environment backend:
+terraform init -backend-config="environments/prod/backend.tfvars"
 ```
 
-## Environment sizing guide
+Each environment stores state under its own key (`finchippay/<env>/terraform.tfstate`). The CI workflow passes these values via `TF_STATE_BUCKET` and `TF_STATE_LOCK_TABLE` secrets.
 
-| Environment | Droplet | DB node | Redis node |
-|---|---|---|---|
-| Staging | `s-1vcpu-2gb` | `db-s-1vcpu-1gb` | `db-s-1vcpu-1gb` |
-| Production (small) | `s-2vcpu-4gb` | `db-s-2vcpu-4gb` | `db-s-1vcpu-2gb` |
-| Production (HA) | `s-4vcpu-8gb` × 2 | `db-s-4vcpu-8gb`, 2 nodes | `db-s-2vcpu-4gb`, 2 nodes |
+> **Tip:** use `terraform init -backend=false` for local-only `terraform validate` / `terraform fmt` checks that do not require the state bucket. A full `terraform plan` requires the initialized S3 backend (or the state bucket), as CI performs.
+
+## CI/CD
+
+The `.github/workflows/terraform.yml` workflow:
+
+- **Pull request:** runs `terraform fmt -check`, `terraform validate`, and `terraform plan` (dev), then posts the plan as a PR comment and uploads it as an artifact.
+- **Push to `main`:** runs `terraform init` with the S3 backend, `terraform plan`, and `terraform apply` for the **prod** environment behind the `production` GitHub environment (configure required reviewers to gate the apply).
+- **Manual dispatch:** `terraform plan` / `apply` / `destroy` against any environment.
+
+AWS access uses OIDC (`aws-actions/configure-aws-credentials`) with the role in the `AWS_ROLE_ARN` secret — no long-lived keys.
+
+## DNS / TLS
+
+When `create_dns = true`:
+
+1. `modules/dns` creates the hosted zone and an ACM certificate validated through DNS records.
+2. Point the registrar's NS records to the hosted zone nameservers (`terraform output hosted_zone_nameservers`).
+3. `modules/compute` creates a Route53 A record aliased to the ALB and terminates TLS on the HTTPS listener (`443`).
+4. HTTP (`80`) requests are redirected to HTTPS.
+
+The backend is served under `/api` and the frontend on `/` of the same domain.
 
 ## Tear-down
 
 ```bash
-terraform destroy
+terraform destroy -var-file="environments/dev/dev.tfvars"
 ```
 
 This permanently deletes all provisioned resources. Type `yes` when prompted.
 
-> **Warning**: `terraform destroy` drops the managed database clusters and all data in them. Take a snapshot or backup before running this in a live environment.
+> **Warning**: `terraform destroy` drops the RDS database and ElastiCache cluster and all data in them. The RDS module takes a final snapshot (`<prefix>-db-final-snapshot`) before deletion; take an additional snapshot before tearing down a live environment.
 
 ## Security notes
 
-- `do_token`, `database_password`, `redis_password`, `database_url`, and `redis_url` are all marked `sensitive = true`. Terraform will not display their values in plan/apply output.
-- `terraform.tfvars` is excluded from version control via `.gitignore`. Use environment variables (`TF_VAR_*`) in CI/CD.
-- All managed database clusters use TLS by default. The `connection_url` output uses `sslmode=require` for PostgreSQL and the `rediss://` scheme for Redis.
-- Network access is restricted to application Droplets via firewall rules on each managed cluster.
+- `database_password`, `database_connection_url`, `redis_auth_token`, and `redis_connection_url` are marked `sensitive = true`. Terraform will not display their values in plan/apply output.
+- `terraform.tfvars` and `*.auto.tfvars` are excluded from version control via `.gitignore`. Use environment variables (`TF_VAR_*`) or GitHub secrets in CI/CD.
+- Application secrets (JWT secret, `DATABASE_URL`, `REDIS_URL`, CORS origins) are stored in AWS Secrets Manager and injected into the ECS tasks at runtime via the task definition `secrets` block.
+- Database and Redis are only reachable from the application security group inside the VPC; neither has a public endpoint.
+- ElastiCache is encrypted in transit and at rest; RDS storage is encrypted by default.
