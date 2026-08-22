@@ -4,7 +4,23 @@
  */
 "use strict";
 
-jest.mock("../src/services/webhookSubscriptionService", () => {
+// Mock auth middleware to pass through without requiring real JWTs
+jest.mock("../src/middleware/auth", () => {
+  const actual = jest.requireActual("../src/middleware/auth");
+  return {
+    ...actual,
+    verifyJWT: (req, res, next) => {
+      // Simulate an authenticated user with the test public key
+      req.user = {
+        publicKey: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA",
+        sub: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA",
+      };
+      next();
+    },
+  };
+});
+
+jest.mock("../src/services/webhookService", () => {
   const store = new Map();
   let nextId = 1;
   const deadDeliveries = [];
@@ -43,7 +59,7 @@ jest.mock("../src/services/webhookSubscriptionService", () => {
 const express = require("express");
 const request = require("supertest");
 const webhookRoutes = require("../src/routes/webhooks");
-const webhookService = require("../src/services/webhookSubscriptionService");
+const webhookService = require("../src/services/webhookService");
 
 const ME = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
 
