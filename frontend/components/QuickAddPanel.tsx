@@ -41,16 +41,16 @@ export default function QuickAddPanel({
   };
 
   const handleDragStart = (e: React.DragEvent, type: string, value: string) => {
-    e.dataTransfer.setData("application/json", JSON.stringify({ type, value }));
+    const payload = JSON.stringify({ type, value });
+    e.dataTransfer.setData("application/json", payload);
+    e.dataTransfer.setData("text/plain", payload);
     e.dataTransfer.effectAllowed = "copy";
   };
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-300 mb-3">
-          Quick Add
-        </h3>
+        <h3 className="text-sm font-semibold text-slate-300 mb-3">Quick Add</h3>
         <p className="text-xs text-slate-500 mb-3">
           Drag tokens or preset amounts onto recipient rows
         </p>
@@ -66,8 +66,8 @@ export default function QuickAddPanel({
             <motion.div
               key={token.code}
               draggable
-              onDragStart={(e) => handleDragStart(e as unknown as React.DragEvent, "token", token.code)}
-              className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-3 cursor-grab active:cursor-grabbing hover:border-stellar-500/40 transition-colors"
+              onDragStart={(e) => handleDragStart(e, "token", token.code)}
+              className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-3 cursor-grab active:cursor-grabbing hover:border-stellar-500/40 transition-colors focus:outline-none focus:ring-2 focus:ring-stellar-400"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               onClick={() => onTokenSelect?.(token.code)}
@@ -81,12 +81,8 @@ export default function QuickAddPanel({
                 }
               }}
             >
-              <div className="text-sm font-semibold text-stellar-300">
-                {token.code}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">
-                {token.description}
-              </div>
+              <div className="text-sm font-semibold text-stellar-300">{token.code}</div>
+              <div className="text-xs text-slate-500 mt-1">{token.description}</div>
               <div className="text-xs text-slate-400 mt-1">
                 Balance: {getTokenBalance(token.code)}
               </div>
@@ -105,12 +101,13 @@ export default function QuickAddPanel({
             <motion.button
               key={preset.label}
               draggable
-              onDragStart={(e) => handleDragStart(e as unknown as React.DragEvent, "amount", preset.value)}
-              className="px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs text-slate-300 cursor-grab active:cursor-grabbing hover:border-stellar-500/30 hover:bg-stellar-500/5 transition-colors"
+              onDragStart={(e) => handleDragStart(e, "amount", preset.value)}
+              className="px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs text-slate-300 cursor-grab active:cursor-grabbing hover:border-stellar-500/30 hover:bg-stellar-500/5 transition-colors focus:outline-none focus:ring-2 focus:ring-stellar-400"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => onPresetAmount?.(preset.value)}
               type="button"
+              aria-label={`Preset amount ${preset.label}`}
             >
               {preset.label}
             </motion.button>

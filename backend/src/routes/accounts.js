@@ -18,6 +18,7 @@ const {
   registerUsernameSchema,
 } = require("../validation/schemas");
 const accountController = require("../controllers/accountController");
+const paymentController = require("../controllers/paymentController");
 const { sendError } = require("../utils/errorResponse");
 
 /**
@@ -87,6 +88,20 @@ router.get(
   validate(publicKeyParamSchema, "params"),
   requireOwnAccount,
   accountController.getBalance,
+);
+
+/**
+ * GET /api/accounts/:publicKey/payments
+ * GET /api/v1/accounts/:publicKey/payments
+ * Fetch paginated payment history for an account.
+ */
+router.get(
+  "/:publicKey/payments",
+  strictLimiter,
+  userLimiter,
+  sanitizePublicKey,
+  validate(publicKeyParamSchema, "params"),
+  paymentController.getPayments,
 );
 
 /**

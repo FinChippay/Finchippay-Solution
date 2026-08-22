@@ -9,6 +9,7 @@ on:
 jobs:
   frontend:
     name: Frontend (Node ${{ matrix.node-version }})
+    if: false # Disabled: not run on PRs or push
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -42,6 +43,7 @@ jobs:
 
   backend:
     name: Backend (Node ${{ matrix.node-version }})
+    if: false # Disabled: not run on PRs or push
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

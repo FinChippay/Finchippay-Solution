@@ -65,8 +65,8 @@ response does not require exposing the highest-privilege key.
 
 | Role | Set by | Capabilities | Cannot |
 |---|---|---|---|
-| **Admin** | `initialize` (once); rotated via `transfer_admin` | Everything: `transfer_admin`, `set_pauser`, `upgrade`, `rescue_tokens`, `pause`/`unpause` | — |
-| **Pauser** | `set_pauser` (admin only) | `pause` / `unpause` only | `transfer_admin`, `set_pauser`, `upgrade`, `rescue_tokens` |
+| **Admin** | `initialize` (once); rotated via `transfer_admin` | Everything: `transfer_admin`, `set_pauser`, `upgrade`, `pause`/`unpause` | — |
+| **Pauser** | `set_pauser` (admin only) | `pause` / `unpause` only | `transfer_admin`, `set_pauser`, `upgrade` |
 
 The pauser is intended to be a low-exposure "hot key" that can trigger the
 circuit breaker during an incident without the admin key ever coming online.
@@ -90,7 +90,6 @@ carries the remaining fields needed to reconstruct state.
 | `unpaused` | `(unpaused,)` | `()` | `unpause` |
 | `pauser_set` | `(pauser_set,)` | `pauser` | `set_pauser` |
 | `upgraded` | `(upgraded,)` | `(new_version, new_wasm_hash)` | `upgrade` |
-| `rescue_tokens` | `(rescue_tokens,)` | `(token_address, amount, to)` | `rescue_tokens` |
 | `tip` | `(tip, from, to)` | `amount` | `send_tip` |
 | `receipt` | `(receipt, from)` | `index` | `mint_receipt` |
 | `escrow_create` | `(escrow_create, id)` | `(from, to, amount, release_ledger)` | `create_escrow` |

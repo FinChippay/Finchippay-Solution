@@ -132,11 +132,11 @@ export function useBalanceStream(publicKey: string | null): BalanceStream {
 
       const url = `${API_URL}/api/accounts/${encodeURIComponent(
         publicKey
-      )}/stream?token=${encodeURIComponent(token)}`;
+      )}/stream`;
 
       let source: EventSource;
       try {
-        source = new EventSource(url);
+        source = new EventSource(url, { withCredentials: true });
       } catch {
         startPolling(publicKey, generation);
         return;

@@ -1,5 +1,4 @@
 /* eslint-env jest */
-/* global describe, test, expect, beforeEach */
 
 /**
  * backend/__tests__/tokenService.test.js
@@ -13,8 +12,8 @@ describe("tokenService", () => {
   const testPublicKey = "GA2H2V337B66T2O5S5V3Z4P6B6L7M8N9P0Q1R2S3T4U5V6W7X8Y9Z012";
   const testPublicKey2 = "GB3H3V337B66T2O5S5V3Z4P6B6L7M8N9P0Q1R2S3T4U5V6W7X8Y9Z034";
 
-  beforeEach(() => {
-    tokenService.clearAll();
+  beforeEach(async () => {
+    await tokenService.clearAll();
   });
 
   test("issueTokens returns valid accessToken and refreshToken pair", async () => {
@@ -22,7 +21,7 @@ describe("tokenService", () => {
 
     expect(pair).toHaveProperty("accessToken");
     expect(pair).toHaveProperty("refreshToken");
-    expect(pair.expiresIn).toBe(900);
+    expect(pair.expiresIn).toBe(tokenService.getAccessTokenTTLSeconds());
     expect(typeof pair.accessToken).toBe("string");
     expect(typeof pair.refreshToken).toBe("string");
   });

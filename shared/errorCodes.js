@@ -339,6 +339,66 @@ const ERROR_CODES = {
     httpStatus: 502,
     message: "Token transfer could not be verified on-chain.",
   },
+  CONTRACT_INDEX_FULL: {
+    code: "CONTRACT_INDEX_FULL",
+    httpStatus: 409,
+    message: "Recipient index is full.",
+  },
+  CONTRACT_EMERGENCY_WITHDRAWAL_NOT_READY: {
+    code: "CONTRACT_EMERGENCY_WITHDRAWAL_NOT_READY",
+    httpStatus: 409,
+    message: "Emergency withdrawal is not ready yet.",
+  },
+  CONTRACT_NOT_ADMIN_SIGNER: {
+    code: "CONTRACT_NOT_ADMIN_SIGNER",
+    httpStatus: 403,
+    message: "Caller is not an authorized admin signer.",
+  },
+  CONTRACT_INVALID_PATH: {
+    code: "CONTRACT_INVALID_PATH",
+    httpStatus: 400,
+    message: "Swap path is invalid.",
+  },
+  CONTRACT_SLIPPAGE_EXCEEDED: {
+    code: "CONTRACT_SLIPPAGE_EXCEEDED",
+    httpStatus: 400,
+    message: "Swap slippage limit was exceeded.",
+  },
+  CONTRACT_EXCESSIVE_AMOUNT_IN: {
+    code: "CONTRACT_EXCESSIVE_AMOUNT_IN",
+    httpStatus: 400,
+    message: "Required swap input exceeds the maximum allowed amount.",
+  },
+  CONTRACT_INVALID_FEE_BPS: {
+    code: "CONTRACT_INVALID_FEE_BPS",
+    httpStatus: 400,
+    message: "Swap fee exceeds the maximum allowed basis points.",
+  },
+  CONTRACT_PROPOSAL_NOT_FOUND: {
+    code: "CONTRACT_PROPOSAL_NOT_FOUND",
+    httpStatus: 404,
+    message: "Admin action proposal was not found.",
+  },
+  CONTRACT_PROPOSAL_ALREADY_EXECUTED: {
+    code: "CONTRACT_PROPOSAL_ALREADY_EXECUTED",
+    httpStatus: 409,
+    message: "Admin action proposal has already been executed.",
+  },
+  CONTRACT_RELEASE_LEDGER_NOT_REACHED: {
+    code: "CONTRACT_RELEASE_LEDGER_NOT_REACHED",
+    httpStatus: 409,
+    message: "Release ledger has not been reached.",
+  },
+  CONTRACT_REENTRANT_CALL: {
+    code: "CONTRACT_REENTRANT_CALL",
+    httpStatus: 409,
+    message: "Reentrant contract call was blocked.",
+  },
+  CONTRACT_STALE_PATH: {
+    code: "CONTRACT_STALE_PATH",
+    httpStatus: 400,
+    message: "Swap path is stale or has insufficient liquidity.",
+  },
 
   // ── Payment / transaction errors ─────────────────────────────────────────
   PAY_BUILD_FAILED: {
@@ -480,7 +540,7 @@ const ERROR_CODES = {
 // ─── Contract error code → error code mapping ──────────────────────────────
 
 /**
- * Maps the numeric ContractError codes (1–17) from the Soroban contract
+ * Maps the numeric ContractError codes (1–29) from the Soroban contract
  * to their corresponding ERROR_CODES keys.
  *
  * @type {Record<number, string>}
@@ -503,6 +563,18 @@ const CONTRACT_ERROR_MAP = {
   15: "CONTRACT_DUPLICATE_SIGNER",
   16: "CONTRACT_PROPOSAL_EXPIRED",
   17: "CONTRACT_TRANSFER_FAILED",
+  18: "CONTRACT_INDEX_FULL",
+  19: "CONTRACT_EMERGENCY_WITHDRAWAL_NOT_READY",
+  20: "CONTRACT_NOT_ADMIN_SIGNER",
+  21: "CONTRACT_INVALID_PATH",
+  22: "CONTRACT_SLIPPAGE_EXCEEDED",
+  23: "CONTRACT_EXCESSIVE_AMOUNT_IN",
+  24: "CONTRACT_INVALID_FEE_BPS",
+  25: "CONTRACT_PROPOSAL_NOT_FOUND",
+  26: "CONTRACT_PROPOSAL_ALREADY_EXECUTED",
+  27: "CONTRACT_RELEASE_LEDGER_NOT_REACHED",
+  28: "CONTRACT_REENTRANT_CALL",
+  29: "CONTRACT_STALE_PATH",
 };
 
 // ─── Correlation ID ────────────────────────────────────────────────────────
@@ -616,7 +688,7 @@ function formatErrorResponse(code, details, overrides = {}) {
 /**
  * Map a numeric contract error code to the canonical error code key.
  *
- * @param {number} contractErrCode - The numeric ContractError value (1–17)
+ * @param {number} contractErrCode - The numeric ContractError value (1–29)
  * @returns {string} Error code key (e.g. "CONTRACT_UNAUTHORIZED")
  */
 function getContractErrorCode(contractErrCode) {

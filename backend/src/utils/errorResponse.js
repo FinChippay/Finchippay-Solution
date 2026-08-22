@@ -94,7 +94,7 @@ function sendError(res, code, options = {}) {
  * Send a canonical error response built from a numeric Soroban ContractError.
  *
  * @param {import('express').Response} res
- * @param {number} contractErrorCode - The numeric ContractError value (1–17).
+ * @param {number} contractErrorCode - The numeric ContractError value (1–29).
  * @param {{ details?: *, message?: string, status?: number }} [options]
  * @returns {import('express').Response}
  */

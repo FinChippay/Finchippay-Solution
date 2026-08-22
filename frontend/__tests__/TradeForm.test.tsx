@@ -31,7 +31,7 @@ jest.mock("@/lib/pathFinder", () => ({
   applySlippage: jest.fn((amt: string, pct: number) => {
     const v = parseFloat(amt);
     if (!v) return "0.0000000";
-    return ((v * (1 - pct / 100))).toFixed(7);
+    return (v * (1 - pct / 100)).toFixed(7);
   }),
   calculatePriceImpact: jest.fn(() => 0),
   pathAssetsToStellarAssets: jest.fn(() => []),
@@ -93,7 +93,9 @@ const DEFAULT_PROPS = {
 };
 
 /** A Horizon-style strict-send path result with a 2-hop route XLM → yXLM → USDC */
-function makePathResult(overrides: Partial<pathFinderModule.PathFinderResult> = {}): pathFinderModule.PathFinderResult {
+function makePathResult(
+  overrides: Partial<pathFinderModule.PathFinderResult> = {},
+): pathFinderModule.PathFinderResult {
   return {
     paths: [
       {
@@ -185,7 +187,9 @@ describe("Token selection", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
 
     const paySelect = screen.getByRole("combobox", { name: /Pay token/i }) as HTMLSelectElement;
-    const receiveSelect = screen.getByRole("combobox", { name: /Receive token/i }) as HTMLSelectElement;
+    const receiveSelect = screen.getByRole("combobox", {
+      name: /Receive token/i,
+    }) as HTMLSelectElement;
 
     expect(paySelect.value).toBe("XLM");
     expect(receiveSelect.value).toBe("USDC");
@@ -196,7 +200,9 @@ describe("Token selection", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
 
     const paySelect = screen.getByRole("combobox", { name: /Pay token/i }) as HTMLSelectElement;
-    const receiveSelect = screen.getByRole("combobox", { name: /Receive token/i }) as HTMLSelectElement;
+    const receiveSelect = screen.getByRole("combobox", {
+      name: /Receive token/i,
+    }) as HTMLSelectElement;
 
     expect(paySelect.value).toBe("XLM");
     expect(receiveSelect.value).toBe("USDC");
@@ -230,7 +236,9 @@ describe("Path-payment tests", () => {
     await user.type(amountInput, "100");
 
     // Advance debounce timer
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(mockFindStrictSendPaths).toHaveBeenCalled());
 
     const [srcAsset, amount] = mockFindStrictSendPaths.mock.calls[0];
@@ -248,7 +256,9 @@ describe("Path-payment tests", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "50");
 
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(screen.getByTestId("route-display")).toBeInTheDocument());
 
     expect(screen.getByTestId("route-display")).toHaveTextContent("XLM");
@@ -261,7 +271,7 @@ describe("Path-payment tests", () => {
    */
   it("[PP-3] shows path error when Horizon strict-send fails", async () => {
     mockFindStrictSendPaths.mockRejectedValueOnce(
-      new Error("Horizon strict-send path lookup failed: 503 Service Unavailable")
+      new Error("Horizon strict-send path lookup failed: 503 Service Unavailable"),
     );
 
     const user = userEvent.setup({ delay: null });
@@ -269,10 +279,10 @@ describe("Path-payment tests", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "10");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("path-error")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("path-error")).toBeInTheDocument());
     expect(screen.getByTestId("path-error")).toHaveTextContent(/failed/i);
   });
 
@@ -294,10 +304,10 @@ describe("Path-payment tests", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "10");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("path-error")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("path-error")).toBeInTheDocument());
     expect(screen.getByTestId("path-error")).toHaveTextContent(/No path found/i);
   });
 
@@ -322,7 +332,7 @@ describe("Path-payment tests", () => {
           ],
         },
         destinationAmount: "24.6913578",
-      })
+      }),
     );
 
     const user = userEvent.setup({ delay: null });
@@ -330,10 +340,10 @@ describe("Path-payment tests", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "200");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("route-display")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("route-display")).toBeInTheDocument());
 
     const route = screen.getByTestId("route-display");
     expect(route).toHaveTextContent("XLM");
@@ -355,12 +365,12 @@ describe("Path-payment tests", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "50");
 
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
 
     // The receive-amount area shows "Finding best path…"
-    await waitFor(() =>
-      expect(screen.getByText(/Finding best path/i)).toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.getByText(/Finding best path/i)).toBeInTheDocument());
   });
 
   /**
@@ -381,7 +391,7 @@ describe("Path-payment tests", () => {
           path: [],
         },
         destinationAmount: "6.1728395",
-      })
+      }),
     );
 
     const user = userEvent.setup({ delay: null });
@@ -389,10 +399,10 @@ describe("Path-payment tests", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "50");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("route-display")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("route-display")).toBeInTheDocument());
 
     const route = screen.getByTestId("route-display");
     expect(route).toHaveTextContent("XLM");
@@ -468,10 +478,10 @@ describe("Swap preview", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("swap-preview")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     const preview = screen.getByTestId("swap-preview");
     expect(preview).toHaveTextContent(/Exchange rate/i);
@@ -486,10 +496,10 @@ describe("Swap preview", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("swap-preview")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     expect(screen.getByTestId("swap-preview")).toHaveTextContent(/XLM/i);
   });
@@ -534,10 +544,10 @@ describe("Confirmation modal", () => {
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
 
-    act(() => { jest.advanceTimersByTime(700); });
-    await waitFor(() =>
-      expect(screen.getByTestId("swap-preview")).toBeInTheDocument()
-    );
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     const reviewBtn = screen.getByRole("button", { name: /Review Swap/i });
     await user.click(reviewBtn);
@@ -622,15 +632,15 @@ describe("Edge cases", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: /Review Swap/i }));
     await user.click(screen.getByRole("button", { name: /Confirm Swap/i }));
 
-    await waitFor(() =>
-      expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("User rejected")
-    );
+    await waitFor(() => expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("User rejected"));
   });
 
   it("calls onError when submitTransaction throws", async () => {
@@ -640,15 +650,15 @@ describe("Edge cases", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: /Review Swap/i }));
     await user.click(screen.getByRole("button", { name: /Confirm Swap/i }));
 
-    await waitFor(() =>
-      expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("Horizon 400")
-    );
+    await waitFor(() => expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("Horizon 400"));
   });
 
   it("path lookup is not triggered when pay amount is 0", async () => {
@@ -656,7 +666,9 @@ describe("Edge cases", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "0");
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
 
     // Path-finder should not be called for zero amount
     expect(mockFindStrictSendPaths).not.toHaveBeenCalled();
@@ -672,11 +684,11 @@ describe("Swap mode toggle", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
     expect(screen.getByRole("button", { name: "Horizon Swap" })).toHaveAttribute(
       "aria-pressed",
-      "true"
+      "true",
     );
     expect(screen.getByRole("button", { name: "Contract Swap" })).toHaveAttribute(
       "aria-pressed",
-      "false"
+      "false",
     );
   });
 
@@ -688,7 +700,7 @@ describe("Swap mode toggle", () => {
 
     expect(screen.getByRole("button", { name: "Contract Swap" })).toHaveAttribute(
       "aria-pressed",
-      "true"
+      "true",
     );
     expect(screen.getByText(/Settles on-chain via FinchippayContract/i)).toBeInTheDocument();
   });
@@ -699,7 +711,9 @@ describe("Swap mode toggle", () => {
 
     await user.click(screen.getByRole("button", { name: "Contract Swap" }));
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: /Review Swap/i }));
@@ -712,7 +726,7 @@ describe("Swap mode toggle", () => {
           payToken: "XLM",
           receiveToken: "USDC",
           payAmount: "100",
-        })
+        }),
       );
       expect(mockBuildPathPayment).not.toHaveBeenCalled();
       expect(DEFAULT_PROPS.onSuccess).toHaveBeenCalledWith("Swap executed successfully!");
@@ -724,7 +738,9 @@ describe("Swap mode toggle", () => {
     render(<TradeForm {...DEFAULT_PROPS} />);
 
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: /Review Swap/i }));
@@ -744,14 +760,107 @@ describe("Swap mode toggle", () => {
 
     await user.click(screen.getByRole("button", { name: "Contract Swap" }));
     await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
-    act(() => { jest.advanceTimersByTime(700); });
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
     await waitFor(() => expect(screen.getByTestId("swap-preview")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: /Review Swap/i }));
     await user.click(screen.getByRole("button", { name: /Confirm Swap/i }));
 
-    await waitFor(() =>
-      expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("Contract call failed")
-    );
+    await waitFor(() => expect(DEFAULT_PROPS.onError).toHaveBeenCalledWith("Contract call failed"));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. SEP-38 Order Book Depth & Aggregated Quotes
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("SEP-38 Order Book Depth & Aggregated Quotes", () => {
+  it("displays Best Price badge when aggregated quote is optimal", async () => {
+    const user = userEvent.setup({ delay: null });
+    const aggregatedQuote = {
+      sellAsset: "stellar:native",
+      buyAsset: "stellar:USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      sellAmount: "100",
+      buyAmount: "10.0000",
+      price: "0.1000",
+      topOfBookPrice: "0.1000",
+      slippagePercent: "0.00",
+      priceImpactPercent: "0.00",
+      levelsConsumed: 1,
+    };
+
+    render(<TradeForm {...DEFAULT_PROPS} aggregatedQuote={aggregatedQuote} />);
+
+    await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "100");
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("swap-preview")).toBeInTheDocument();
+      expect(screen.getByTestId("best-price-badge")).toBeInTheDocument();
+      expect(screen.getByTestId("best-price-badge")).toHaveTextContent(/Best Price/i);
+      expect(screen.getByTestId("levels-consumed")).toHaveTextContent("1 level");
+    });
+  });
+
+  it("displays multi-level fill details including levels consumed and slippage", async () => {
+    const user = userEvent.setup({ delay: null });
+    const aggregatedQuote = {
+      sellAsset: "stellar:native",
+      buyAsset: "stellar:USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      sellAmount: "1000",
+      buyAmount: "980.0000",
+      price: "0.9800",
+      topOfBookPrice: "0.9900",
+      slippagePercent: "1.01",
+      priceImpactPercent: "2.02",
+      levelsConsumed: 3,
+    };
+
+    render(<TradeForm {...DEFAULT_PROPS} aggregatedQuote={aggregatedQuote} />);
+
+    await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "1000");
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("swap-preview")).toBeInTheDocument();
+      expect(screen.getByTestId("levels-consumed")).toHaveTextContent("3 levels");
+      expect(screen.getByTestId("estimated-slippage")).toHaveTextContent("1.01%");
+    });
+  });
+
+  it("handles insufficient liquidity (partial fill) aggregated quote", async () => {
+    const user = userEvent.setup({ delay: null });
+    const partialQuote = {
+      sellAsset: "stellar:native",
+      buyAsset: "stellar:USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      sellAmount: "5000",
+      buyAmount: "450.0000",
+      price: "0.0900",
+      topOfBookPrice: "0.1000",
+      slippagePercent: "10.00",
+      priceImpactPercent: "15.00",
+      levelsConsumed: 5,
+      isPartialFill: true,
+      remainingSellAmount: "1000.0000",
+    };
+
+    render(<TradeForm {...DEFAULT_PROPS} aggregatedQuote={partialQuote} />);
+
+    await user.type(screen.getByRole("spinbutton", { name: /Pay amount/i }), "5000");
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("swap-preview")).toBeInTheDocument();
+      expect(screen.getByTestId("levels-consumed")).toHaveTextContent("5 levels");
+      expect(screen.getByTestId("estimated-slippage")).toHaveTextContent("10.00%");
+    });
   });
 });

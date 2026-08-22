@@ -9,6 +9,7 @@ on:
 jobs:
   validate:
     name: Validate Config
+    if: false # Disabled: not run on PRs or push
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

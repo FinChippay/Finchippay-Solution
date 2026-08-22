@@ -40,6 +40,7 @@ pub enum ContractError {
     SlippageExceeded = 22,
     ExcessiveAmountIn = 23,
     InvalidFeeBps = 24,
+    StalePath = 29,
 }
 
 // ─── Shared data types ────────────────────────────────────────────────────────
@@ -201,7 +202,6 @@ pub enum AdminAction {
     Unpause,
     SetPauser(Address),
     Upgrade(BytesN<32>, u32),
-    RescueTokens(Address, Address, i128),
 }
 
 #[contracttype]

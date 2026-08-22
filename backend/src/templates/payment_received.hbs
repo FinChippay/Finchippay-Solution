@@ -1,0 +1,11 @@
+{{!-- payment_received.hbs --}}
+<p>You have received a new payment!</p>
+<div class="amount-badge">{{amount}} {{asset}}</div>
+<table class="data-table">
+  <tr><th>From</th><td style="word-break:break-all;">{{sender}}</td></tr>
+  <tr><th>To</th><td style="word-break:break-all;">{{recipient}}</td></tr>
+  {{#if memo}}<tr><th>Memo</th><td>{{memo}}</td></tr>{{/if}}
+  <tr><th>Time</th><td>{{timestamp}}</td></tr>
+  {{#if txHash}}<tr><th>Transaction</th><td style="word-break:break-all;font-size:12px;">{{txHash}}</td></tr>{{/if}}
+</table>
+{{#if viewUrl}}<a href="{{viewUrl}}" class="btn">View Transaction</a>{{/if}}

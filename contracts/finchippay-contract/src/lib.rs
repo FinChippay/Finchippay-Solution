@@ -1,4 +1,15 @@
 #![no_std]
+#![allow(deprecated)]
+#![allow(
+    clippy::len_zero,
+    clippy::manual_is_multiple_of,
+    clippy::manual_saturating_arithmetic,
+    clippy::manual_unwrap_or,
+    clippy::manual_unwrap_or_default,
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments,
+    clippy::unnecessary_cast
+)]
 //! # FinchippayContract — Soroban Smart Contract
 //!
 //! A production-grade Soroban contract for the Finchippay-Solution platform on
@@ -109,12 +120,21 @@ pub enum ContractError {
     ExcessiveAmountIn = 23,
     /// `new_fee_bps` exceeds `MAX_SWAP_FEE_BPS`.
     InvalidFeeBps = 24,
+    /// The supplied swap `path` references stale liquidity, such as a repeated
+    /// token or a hop whose contract-side reserve is empty.
+    StalePath = 29,
     /// The referenced admin action proposal does not exist.
     ProposalNotFound = 25,
     /// The admin action proposal has already been executed.
     ProposalAlreadyExecuted = 26,
     /// The yield escrow has not reached its release ledger.
     ReleaseLedgerNotReached = 27,
+    /// A mutating entry point was re-entered while a previous call to the same
+    /// contract was still mid-flight. Raised by the non-reentrancy guard before
+    /// any state is read or written, so a hostile token contract cannot
+    /// double-claim, double-drain, or double-swap funds by calling back into
+    /// this contract from inside `token.transfer`.
+    ReentrantCall = 28,
 }
 
 // ─── Shared data types ────────────────────────────────────────────────────────
@@ -190,6 +210,51 @@ pub struct Escrow {
     pub dispute_raised_by: Option<Address>,
     /// Ledger at which the dispute was raised.
     pub dispute_raised_at: u32,
+    /// Designated milestone-approval agent (Some → escrow may be milestone-based).
+    pub agent: Option<Address>,
+    /// Milestone schedule for milestone-based escrows; empty for time-locked escrows.
+    pub milestones: Vec<Milestone>,
+    /// True when funds release per approved milestone rather than at a single ledger.
+    pub is_milestone_based: bool,
+}
+
+/// A single conditional release inside a milestone-based escrow. Funds for a
+/// milestone move to the recipient only after the agent or client approves it.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Milestone {
+    /// Index of the milestone within its escrow (assigned by the contract).
+    pub id: u32,
+    /// Short description of the deliverable this milestone pays for.
+    pub description: Symbol,
+    /// Amount released to the recipient when this milestone is claimed.
+    pub amount: i128,
+    /// Whether the agent or client has approved this milestone.
+    pub approved: bool,
+    /// Whether the recipient has claimed (received) this milestone's funds.
+    pub claimed: bool,
+    /// Ledger by which the milestone must be approved; 0 means no deadline.
+    pub approval_deadline_ledger: u32,
+}
+
+/// Aggregated view of an escrow for dashboards and off-chain consumers.
+/// For time-locked escrows `milestone_count`/`approved_milestones`/
+/// `claimed_milestones` are 0 and `released_amount` is the full amount once
+/// the escrow has been released.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct EscrowSummary {
+    pub id: u32,
+    pub total_amount: i128,
+    /// Amount already paid out to the recipient (claimed milestones / released).
+    pub released_amount: i128,
+    /// Amount still held by the contract (`total_amount - released_amount`).
+    pub remaining_amount: i128,
+    pub milestone_count: u32,
+    pub approved_milestones: u32,
+    pub claimed_milestones: u32,
+    pub status: EscrowStatus,
+    pub is_milestone_based: bool,
 }
 
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
@@ -351,7 +416,8 @@ pub enum EmergencyWithdrawalStatus {
 
 /// A time-delayed, multi-sig-gated emergency token rescue.
 ///
-/// Replaces the instant `rescue_tokens` with a safer flow:
+/// This is the sole funds-rescue path; it replaces the removed instant
+/// `rescue_tokens` entrypoint with a safer flow:
 /// 1. Any admin initiates → locks parameters, records activation ledger.
 /// 2. M-of-N admin signers approve.
 /// 3. After BOTH activation ledger is reached AND threshold met → execute.
@@ -381,8 +447,9 @@ pub struct EmergencyWithdrawal {
 }
 
 // ─── Admin governance ──────────────────────────────────────────────────────────
-// Admin-governed operations (pause, unpause, set_pauser, upgrade,
-// rescue_tokens) are gated by the M-of-N admin signer set configured in
+// Admin-governed operations (pause, unpause, set_pauser, set_admin_signers,
+// upgrade, reconcile_balance) are gated by the M-of-N admin signer set
+// configured in
 // `initialize`. Proposals use the Symbol-based `AdminActionProposal` struct
 // defined below, created via `propose_admin_action` and approved via
 // `approve_admin_action`. The legacy single-`Admin` address is retained only
@@ -399,6 +466,8 @@ pub const MAX_STREAM_DEPOSIT: i128 = 1_000_000_000_000_000_000;
 pub const MAX_STREAM_RATE: i128 = 10_000_000_000;
 /// Maximum amount for a single escrow deposit.
 const MAX_ESCROW_AMOUNT: i128 = 1_000_000_000_000_000_000;
+/// Maximum number of milestones allowed in a single milestone-based escrow.
+const MAX_MILESTONES: u32 = 10;
 /// Maximum amount for a single multi-sig proposal.
 const MAX_MULTISIG_AMOUNT: i128 = 1_000_000_000_000_000_000;
 /// Minimum amount for a single escrow deposit (prevents dust attacks).
@@ -418,7 +487,7 @@ const MAX_VESTING_DURATION_LEDGERS: u32 = 31_536_000;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
 /// Contract version identifier (used for off-chain discovery).
-const CONTRACT_VERSION: u32 = 3;
+const CONTRACT_VERSION: u32 = 4;
 /// Mandatory delay in ledgers before an emergency withdrawal can be executed
 /// (≈24 hours at 5 s/ledger).
 const EMERGENCY_WITHDRAWAL_DELAY: u32 = 17_280;
@@ -468,7 +537,7 @@ pub enum TtlClass {
 pub struct AdminActionProposal {
     /// Auto-incrementing proposal ID.
     pub id: u64,
-    /// Which admin action is proposed (e.g. "pause", "upgrade", "rescue").
+    /// Which admin action is proposed (e.g. "pause", "upgrade", "reconcile_balance").
     pub action_type: Symbol,
     /// Additional data needed to execute the action (function-specific).
     pub action_data: Vec<Val>,
@@ -529,8 +598,8 @@ pub enum DataKey {
     EmergencyWithdrawal(u32),
     /// List of addresses authorised to approve emergency withdrawals and
     /// gated admin actions (pause, unpause, set_pauser, set_admin_signers,
-    /// upgrade, rescue_tokens). Configured at `initialize` and updatable via
-    /// the `set_admin_signers` admin action.
+    /// upgrade, reconcile_balance). Configured at `initialize`
+    /// and updatable via the `set_admin_signers` admin action.
     AdminSigners,
     /// Number of approvals required from `AdminSigners` for emergency
     /// withdrawal execution and gated admin actions.
@@ -554,6 +623,11 @@ pub enum DataKey {
     // Swap / DEX configuration
     SwapFee,
     FeeCollector,
+    /// Non-reentrancy lock. Set for the duration of every value-transferring
+    /// entry point and removed on return (or rolled back on panic). Stored in
+    /// *instance* storage since it is transient per-invocation state, not
+    /// durable contract data.
+    Reentrant,
 }
 
 // ─── Helpers (TTL primitives re-exported from storage module) ────────────────
@@ -602,35 +676,71 @@ pub(crate) fn get_token_client<'a>(env: &'a Env, token_address: &'a Address) -> 
     token::Client::new(env, token_address)
 }
 
-/// Perform a token transfer and verify that the recipient's balance actually
-/// increased by at least `amount`. This guards against malicious/fake token
-/// contracts that report a successful `transfer` without moving any funds
-/// (phantom deposit attack).
+/// Read the contract's current token balance for `token`, keeping the cached
+/// [`DataKey::LastContractBalance`] mirror in sync and surfacing any drift.
 ///
-/// # Panics
-/// Panics with `TransferFailed` if the balance check does not hold.
+/// For **standard (non-rebasing, non-fee-on-transfer) assets** the cached value
+/// matches the real on-chain balance, so this is a cheap read. For rebasing or
+/// fee-on-transfer tokens — or any token whose balance can change without a
+/// transfer through this contract (e.g. a direct transfer to the contract
+/// address) — the cache can drift from `token.balance(contract)`. When that
+/// happens this helper:
+///
+/// 1. **surfaces** the drift by emitting a `balance_drift_detected` event with
+///    the `(cached, actual)` values — the stale value is never silently used;
+/// 2. **self-heals** by resyncing the cache to the actual on-chain balance;
+/// 3. **returns the actual balance**, so the phantom-deposit check in
+///    [`require_transfer_succeeded`] is always evaluated against the real
+///    on-chain balance, never a possibly-stale cache.
+#[allow(deprecated)]
 pub(crate) fn get_contract_balance(env: &Env, token: &token::Client) -> i128 {
     let key = DataKey::LastContractBalance(token.address.clone());
-    match env.storage().persistent().get(&key) {
-        Some(bal) => {
+    let actual = token.balance(&env.current_contract_address());
+    let cached: Option<i128> = env.storage().persistent().get(&key);
+    match cached {
+        Some(cached) => {
+            if cached != actual {
+                env.events().publish(
+                    (
+                        Symbol::new(env, "balance_drift_detected"),
+                        token.address.clone(),
+                    ),
+                    (cached, actual),
+                );
+                env.storage().persistent().set(&key, &actual);
+            }
             storage::bump(env, &key);
-            bal
+            actual
         }
         None => {
-            let bal = token.balance(&env.current_contract_address());
-            env.storage().persistent().set(&key, &bal);
+            env.storage().persistent().set(&key, &actual);
             storage::bump(env, &key);
-            bal
+            actual
         }
     }
 }
 
+/// Record the contract's cached balance for `token_address`.
 pub(crate) fn set_contract_balance(env: &Env, token_address: &Address, balance: i128) {
     let key = DataKey::LastContractBalance(token_address.clone());
     env.storage().persistent().set(&key, &balance);
     storage::bump(env, &key);
 }
 
+/// Perform a token transfer and verify that the recipient's balance actually
+/// increased by at least `amount`. This guards against malicious/fake token
+/// contracts that report a successful `transfer` without moving any funds
+/// (phantom deposit attack).
+///
+/// When the recipient is this contract, the "before" balance is read from the
+/// **actual on-chain balance** (via [`get_contract_balance`]), never from the
+/// possibly-stale cache. This keeps the check sound even for fee-on-transfer
+/// tokens whose `transfer` moves less than `amount`, and for rebasing tokens
+/// whose balance can drift between calls — so a drifted cache can never weaken
+/// the phantom-deposit check or let locked-balance accounting over-claim.
+///
+/// # Panics
+/// Panics with `TransferFailed` if the balance check does not hold.
 pub(crate) fn require_transfer_succeeded(
     env: &Env,
     token: &token::Client,
@@ -655,6 +765,25 @@ pub(crate) fn require_transfer_succeeded(
     if is_contract {
         set_contract_balance(env, &token.address, balance_after);
     }
+}
+
+pub(crate) fn transfer_to_contract_measured(
+    env: &Env,
+    token: &token::Client,
+    from: &Address,
+    requested_amount: &i128,
+) -> i128 {
+    let contract_address = env.current_contract_address();
+    let balance_before = get_contract_balance(env, token);
+    token.transfer(from, &contract_address, requested_amount);
+    let balance_after = token.balance(&contract_address);
+    if balance_after <= balance_before {
+        panic!("TransferFailed");
+    }
+    set_contract_balance(env, &token.address, balance_after);
+    balance_after
+        .checked_sub(balance_before)
+        .expect("contract balance decreased during inbound transfer")
 }
 
 pub(crate) fn contract_transfer_out(env: &Env, token: &token::Client, to: &Address, amount: &i128) {
@@ -716,6 +845,39 @@ pub(crate) fn compute_required_amount_in(amount_out: i128, fee_bps: u32) -> i128
         .expect("divide by zero")
 }
 
+pub(crate) fn compute_fee_on_transfer_top_up(
+    required_actual_amount_in: i128,
+    requested_amount_in: i128,
+    actual_amount_in: i128,
+    max_amount_in: i128,
+) -> Result<i128, ContractError> {
+    let actual_deficit = required_actual_amount_in
+        .checked_sub(actual_amount_in)
+        .ok_or(ContractError::ExcessiveAmountIn)?;
+    if actual_deficit <= 0 {
+        return Ok(0);
+    }
+    let remaining_request = max_amount_in
+        .checked_sub(requested_amount_in)
+        .ok_or(ContractError::ExcessiveAmountIn)?;
+    if remaining_request <= 0 || actual_amount_in <= 0 {
+        return Err(ContractError::ExcessiveAmountIn);
+    }
+    let estimated_request = actual_deficit
+        .checked_mul(requested_amount_in)
+        .expect("overflow")
+        .checked_add(actual_amount_in - 1)
+        .expect("overflow")
+        .checked_div(actual_amount_in)
+        .expect("divide by zero")
+        .max(1);
+    Ok(if estimated_request > remaining_request {
+        remaining_request
+    } else {
+        estimated_request
+    })
+}
+
 /// Validate a swap path: at least two hops, first == token_in, last == token_out.
 pub(crate) fn validate_swap_path(
     path: &Vec<Address>,
@@ -730,10 +892,53 @@ pub(crate) fn validate_swap_path(
     {
         return Err(ContractError::InvalidPath);
     }
+    for i in 0..path.len() {
+        let current = path.get(i).unwrap();
+        for j in (i + 1)..path.len() {
+            if current == path.get(j).unwrap() {
+                return Err(ContractError::StalePath);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_swap_path_liquidity(
+    env: &Env,
+    path: &Vec<Address>,
+) -> Result<(), ContractError> {
+    let contract_address = env.current_contract_address();
+    for i in 1..path.len() {
+        let token_address = path.get(i).unwrap();
+        let token_client = get_token_client(env, &token_address);
+        if token_client.balance(&contract_address) <= 0 {
+            return Err(ContractError::StalePath);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_swap_reserve(
+    env: &Env,
+    token_address: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    let token_client = get_token_client(env, token_address);
+    if token_client.balance(&env.current_contract_address()) < amount {
+        return Err(ContractError::StalePath);
+    }
     Ok(())
 }
 
 /// Check that the contract is not paused. Panics with `ContractPaused` if it is.
+///
+/// # Circuit-breaker completeness
+/// Every **value-transferring** entry point in the contract must call this
+/// guard before moving any funds. The full audit matrix mapping every
+/// entry point to `{mutating, value-transferring, pause-guarded}` is checked
+/// into `docs/pause-completeness.md`; the `tests/pause_completeness.rs`
+/// integration suite asserts the matrix holds (every fund-moving entry point
+/// is blocked while paused, and every read-only view still works).
 pub(crate) fn require_not_paused(env: &Env) {
     let key = DataKey::Paused;
     let paused: bool = env.storage().persistent().get(&key).unwrap_or(false);
@@ -914,10 +1119,9 @@ impl FinchippayContract {
     /// `admin_signers` must be non-empty, contain no duplicates, and have at
     /// most `MAX_ADMIN_SIGNERS` entries. `threshold` must be between 1 and
     /// `admin_signers.len()`. `pause`, `unpause`, `set_pauser`,
-    /// `set_admin_signers`, `upgrade`, and `rescue_tokens` all require
-    /// `threshold` approvals from this signer set (via
-    /// `propose_admin_action` / `approve_admin_action`) rather than a single
-    /// admin signature.
+    /// `set_admin_signers`, `upgrade`, and `reconcile_balance` all require
+    /// `threshold` approvals from this signer set (via `propose_admin_action` /
+    /// `approve_admin_action`) rather than a single admin signature.
     ///
     /// The first signer is also stored as the legacy single `Admin` address
     /// for read-only convenience (`get_admin`) and for `transfer_admin`; it
@@ -967,8 +1171,8 @@ impl FinchippayContract {
     /// Transfer the legacy single-admin pointer to `new_admin`. Only the
     /// current legacy admin may call this. This does not change the
     /// `AdminSigners` set used to gate `pause`/`unpause`/`set_pauser`/
-    /// `set_admin_signers`/`upgrade`/`rescue_tokens` — propose a
-    /// `set_admin_signers` admin action for that.
+    /// `set_admin_signers`/`upgrade` — propose a `set_admin_signers` admin
+    /// action for that.
     pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
         current_admin.require_auth();
         let stored = get_admin(&env);
@@ -983,14 +1187,14 @@ impl FinchippayContract {
     /// Return the legacy single-admin address (the first signer passed to
     /// `initialize`, or whoever `transfer_admin` last set). Kept for
     /// backward compatibility; carries no authority over `pause`, `unpause`,
-    /// `set_pauser`, `upgrade`, or `rescue_tokens` — use
-    /// `get_admin_signers` for the set that actually governs those.
+    /// `set_pauser`, or `upgrade` — use `get_admin_signers` for the set that
+    /// actually governs those.
     pub fn get_admin(env: Env) -> Address {
         get_admin(&env)
     }
 
     /// Return the current admin signer set that governs `pause`, `unpause`,
-    /// `set_pauser`, `upgrade`, and `rescue_tokens`.
+    /// `set_pauser`, `upgrade`, and `reconcile_balance`.
     pub fn get_admin_signers(env: Env) -> Vec<Address> {
         get_admin_signers(&env)
     }
@@ -1073,6 +1277,9 @@ impl FinchippayContract {
         action_type: Symbol,
         action_data: Vec<Val>,
     ) -> u64 {
+        // Keep the whole propose (and any threshold-1 auto-execution)
+        // non-reentrant; admin actions mutate contract state.
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         proposer.require_auth();
 
@@ -1154,6 +1361,7 @@ impl FinchippayContract {
     /// When approvals reach the threshold, the action is auto-executed
     /// immediately.
     pub fn approve_admin_action(env: Env, proposal_id: u64, approver: Address) {
+        let _guard = ReentrancyGuard::acquire(&env);
         approver.require_auth();
 
         // Validate signer
@@ -1264,7 +1472,8 @@ impl FinchippayContract {
                 .expect("invalid set_pauser payload");
             env.storage().persistent().set(&DataKey::Pauser, &pauser);
             bump_to_floor(env, &DataKey::Pauser);
-            env.events().publish_event(&PauserSet { pauser });
+            env.events()
+                .publish((Symbol::new(env, "pauser_set"),), pauser);
         } else if action == &Symbol::new(env, "upgrade") {
             let wasm_hash: BytesN<32> = proposal
                 .action_data
@@ -1296,49 +1505,56 @@ impl FinchippayContract {
                 .persistent()
                 .set(&DataKey::StorageLayoutVersion, &layout_version);
             bump(env, &DataKey::StorageLayoutVersion);
-            env.events().publish_event(&Upgraded {
-                new_version: current_ver + 1,
-                wasm_hash,
-                layout_version,
-            });
-        } else if action == &Symbol::new(env, "rescue_tokens") {
+            env.events().publish(
+                (Symbol::new(env, "upgraded"),),
+                (current_ver + 1, wasm_hash, layout_version),
+            );
+        } else if action == &Symbol::new(env, "reconcile_balance") {
             let token_address: Address = proposal
                 .action_data
                 .get(0)
                 .unwrap()
                 .try_into_val(env)
-                .expect("invalid rescue_tokens payload");
-            let to: Address = proposal
-                .action_data
-                .get(1)
-                .unwrap()
-                .try_into_val(env)
-                .expect("invalid rescue_tokens payload");
-            let amount: i128 = proposal
-                .action_data
-                .get(2)
-                .unwrap()
-                .try_into_val(env)
-                .expect("invalid rescue_tokens payload");
-            if amount <= 0 {
-                panic!("amount must be positive");
-            }
-            let token = get_token_client(env, &token_address);
-            let balance = token.balance(&env.current_contract_address());
-            let locked = locked_balance(env, &token_address);
-            let unlocked = balance.checked_sub(locked).expect("overflow");
-            if amount > unlocked {
-                panic!("insufficient unlocked balance");
-            }
-            contract_transfer_out(env, &token, &to, &amount);
-            env.events().publish_event(&RescueTokens {
-                token: token_address,
-                amount,
-                to,
-            });
+                .expect("invalid reconcile_balance payload");
+            Self::do_reconcile_balance(env, &token_address);
         } else {
             panic!("unknown admin action");
         }
+    }
+
+    /// Resync the cached [`DataKey::LastContractBalance`] for `token_address`
+    /// with the actual on-chain balance and emit a `balance_reconciled` event
+    /// carrying the `(old, new)` values.
+    ///
+    /// This is the explicit, admin-gated reconciliation path for when a
+    /// token's balance drifts from the cache — e.g. rebasing assets, direct
+    /// transfers to the contract address, or fee-on-transfer tokens. The
+    /// passive `balance_drift_detected` event from `get_contract_balance`
+    /// surfaces drift on reads; this entrypoint lets governance force a resync
+    /// (action_type `"reconcile_balance"` via `propose_admin_action`) and
+    /// leaves an auditable `balance_reconciled` record.
+    ///
+    /// Only reads balances and writes the cache — it performs no token
+    /// transfers — so it is safe to run inside the already-held reentrancy
+    /// guard of `propose_admin_action` / `approve_admin_action`.
+    fn do_reconcile_balance(env: &Env, token_address: &Address) {
+        let token = get_token_client(env, token_address);
+        let key = DataKey::LastContractBalance(token_address.clone());
+        let old = env.storage().persistent().get(&key).unwrap_or(0);
+        let new = token.balance(&env.current_contract_address());
+        if old != new {
+            env.storage().persistent().set(&key, &new);
+            storage::bump(env, &key);
+        } else {
+            storage::bump_if_present(env, &key);
+        }
+        env.events().publish(
+            (
+                Symbol::new(env, "balance_reconciled"),
+                token_address.clone(),
+            ),
+            (old, new),
+        );
     }
 
     /// Execute pause without auth check (called from execute_admin_action).
@@ -1456,7 +1672,7 @@ impl FinchippayContract {
     ///
     /// A contract with thousands of escrows, streams, and receipts cannot be
     /// swept inside one transaction's resource budget, so each call touches at
-    /// most `min(max_keys, MAX_TTL_BUMP_KEYS)` keys and stores a cursor. Call
+    /// most `min(max_keys, MAX_KEYS_PER_SWEEP)` keys and stores a cursor. Call
     /// repeatedly until the return value is smaller than the requested limit to
     /// finish a full pass; the cursor wraps back to the start after the last
     /// class, so an off-chain job can simply keep calling on a schedule.
@@ -1469,9 +1685,12 @@ impl FinchippayContract {
     /// not swept; they are kept alive by the bumps in the functions that touch
     /// them.
     ///
-    /// Returns the number of keys bumped by this call. Because a single sweep
-    /// item can own up to three keys and the budget is checked per item, the
-    /// return value may exceed `max_keys` by at most two.
+    /// Returns the number of keys bumped by this call. The budget is checked
+    /// per sweep item (an item can own up to three keys, e.g. a receipt), so the
+    /// caller's soft `max_keys` hint may be overshot by at most two keys; the
+    /// hard cap `MAX_KEYS_PER_SWEEP` is never exceeded. That keeps a single
+    /// invocation within Soroban's per-transaction instruction budget while
+    /// still making forward progress for any positive `max_keys`.
     pub fn bump_all_ttls(env: Env, admin: Address, max_keys: u32) -> u32 {
         require_initialized(&env);
         admin.require_auth();
@@ -1482,7 +1701,7 @@ impl FinchippayContract {
         if max_keys == 0 {
             panic!("max_keys must be positive");
         }
-        let limit = max_keys.min(MAX_TTL_BUMP_KEYS);
+        let limit = max_keys.min(MAX_KEYS_PER_SWEEP);
 
         let cursor_key = DataKey::TtlSweepCursor;
         let (mut class_index, mut key_index): (u32, u32) = env
@@ -1501,6 +1720,16 @@ impl FinchippayContract {
             let class_len = ttl_class_len(&env, &class);
 
             while key_index < class_len && bumped < limit {
+                // An item is bumped atomically, so the budget is checked against
+                // its worst-case key count *before* touching it. The soft
+                // `bumped < limit` condition above stops the loop once the
+                // caller's chunk is full; this hard check additionally ensures a
+                // final multi-key item can never push the call past
+                // `MAX_KEYS_PER_SWEEP`, the instruction-budget safety bound.
+                let item_cost = ttl_class_item_key_cost(&class, key_index);
+                if bumped.saturating_add(item_cost) > MAX_KEYS_PER_SWEEP {
+                    break;
+                }
                 bumped = bumped.saturating_add(bump_ttl_class_item(&env, &class, key_index));
                 key_index += 1;
             }
@@ -1648,47 +1877,6 @@ impl FinchippayContract {
         }
     }
 
-    /// Admin: rescue tokens accidentally sent directly to the contract address.
-    /// Since all legitimate funds are tracked via escrow/stream/multisig IDs,
-    /// any unbounded tokens held by the contract can be safely swept by the admin
-    /// to a designated address. Only the admin may call this.
-    ///
-    /// # DEPRECATED
-    /// DEPRECATED: This function performs an instant transfer without time
-    /// delay or multi-sig approval, creating a single-point-of-failure risk.
-    /// Use `initiate_emergency_withdrawal` → `approve_emergency_withdrawal` →
-    /// `execute_emergency_withdrawal` instead. Will be removed in v4.0.
-    pub fn rescue_tokens(
-        env: Env,
-        admin: Address,
-        token_address: Address,
-        amount: i128,
-        to: Address,
-    ) {
-        admin.require_auth();
-        let stored = get_admin(&env);
-        if admin != stored {
-            panic!("Unauthorized");
-        }
-        if amount <= 0 {
-            panic!("amount must be positive");
-        }
-        let token = get_token_client(&env, &token_address);
-        let balance = token.balance(&env.current_contract_address());
-        let locked = locked_balance(&env, &token_address);
-        let unlocked = balance.checked_sub(locked).expect("overflow");
-        if amount > unlocked {
-            panic!("insufficient unlocked balance");
-        }
-        contract_transfer_out(&env, &token, &to, &amount);
-
-        env.events().publish_event(&RescueTokens {
-            token: token_address,
-            amount,
-            to,
-        });
-    }
-
     // ─── Emergency withdrawal (time-delayed, multi-sig) ────────────────────────
 
     /// Initiate an emergency withdrawal. Only an admin may call this.
@@ -1772,6 +1960,7 @@ impl FinchippayContract {
     /// reaches the configured threshold AND the activation ledger has passed,
     /// the withdrawal executes automatically.
     pub fn approve_emergency_withdrawal(env: Env, id: u32, signer: Address) {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_not_paused(&env);
         signer.require_auth();
 
@@ -1812,28 +2001,38 @@ impl FinchippayContract {
         if withdrawal.approvals.len() >= withdrawal.threshold
             && env.ledger().sequence() >= withdrawal.activation_ledger
         {
-            let token = get_token_client(&env, &withdrawal.token);
+            // Checks-effects-interactions: commit the executed state *before*
+            // the external transfer, so a re-entrant call cannot observe a
+            // still-pending withdrawal. (Emergency withdrawals move only
+            // *unlocked* tokens, so `LockedBalance` is untouched.)
             let to = withdrawal.to.clone();
             let amount = withdrawal.amount;
-            contract_transfer_out(&env, &token, &to, &amount);
             withdrawal.status = EmergencyWithdrawalStatus::Executed;
-            env.events().publish_event(&EmergencyWithdrawalExecuted {
-                withdrawal_id: id,
-                to,
-                amount,
-            });
-        }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
+            env.storage()
+                .persistent()
+                .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
+            bump(&env, &DataKey::EmergencyWithdrawal(id));
+
+            let token = get_token_client(&env, &withdrawal.token);
+            contract_transfer_out(&env, &token, &to, &amount);
+            env.events().publish(
+                (Symbol::new(&env, "emergency_withdrawal_executed"), id),
+                (to, amount),
+            );
+        } else {
+            env.storage()
+                .persistent()
+                .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
+            bump(&env, &DataKey::EmergencyWithdrawal(id));
+        }
     }
 
     /// Execute a pending emergency withdrawal. Can only be called after both the
     /// activation ledger has been reached AND the approval threshold is met.
     /// Anyone may call this — the actual authorization was done via approvals.
     pub fn execute_emergency_withdrawal(env: Env, id: u32) {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_not_paused(&env);
 
         let mut withdrawal: EmergencyWithdrawal = env
@@ -1852,8 +2051,9 @@ impl FinchippayContract {
             panic!("insufficient admin approvals");
         }
 
-        let token = get_token_client(&env, &withdrawal.token);
-        contract_transfer_out(&env, &token, &withdrawal.to, &withdrawal.amount);
+        // Checks-effects-interactions: commit the executed state before the
+        // external transfer so a re-entrant call is rejected by the guard and,
+        // even if the guard were bypassed, would see an already-executed record.
         withdrawal.status = EmergencyWithdrawalStatus::Executed;
 
         env.storage()
@@ -1861,11 +2061,13 @@ impl FinchippayContract {
             .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
         bump(&env, &DataKey::EmergencyWithdrawal(id));
 
-        env.events().publish_event(&EmergencyWithdrawalExecuted {
-            withdrawal_id: id,
-            to: withdrawal.to,
-            amount: withdrawal.amount,
-        });
+        let token = get_token_client(&env, &withdrawal.token);
+        contract_transfer_out(&env, &token, &withdrawal.to, &withdrawal.amount);
+
+        env.events().publish(
+            (Symbol::new(&env, "emergency_withdrawal_executed"), id),
+            (withdrawal.to, withdrawal.amount),
+        );
     }
 
     /// Cancel a pending emergency withdrawal. Any admin may call this before
@@ -1957,6 +2159,10 @@ impl FinchippayContract {
         amount: i128,
         memo: Symbol,
     ) {
+        // Non-reentrancy: every token.transfer is a call into an untrusted
+        // contract, so hold the lock for the entire call (checks → effects →
+        // interactions) to prevent a hostile token from re-entering `send_tip`.
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         require_not_paused(&env);
         from.require_auth();
@@ -2260,6 +2466,51 @@ impl FinchippayContract {
     /// binding for dashboard and analytics consumers.
     pub fn escrow_count(env: Env) -> u32 {
         escrow::escrow_count(env)
+    }
+
+    // ─── Milestone-based escrows ─────────────────────────────────────────────
+
+    /// Create an escrow whose funds release per approved milestone.
+    ///
+    /// `milestones` must contain between 1 and `MAX_MILESTONES` entries, every
+    /// milestone amount must be positive, and the sum of milestone amounts must
+    /// equal `deposit`. Milestone ids are assigned sequentially (0..n) by the
+    /// contract. The `agent` is the designated approver; the client (`from`)
+    /// may also approve. The agent may not be the recipient.
+    pub fn create_milestone_escrow(
+        env: Env,
+        token_address: Address,
+        from: Address,
+        to: Address,
+        agent: Address,
+        milestones: Vec<Milestone>,
+        deposit: i128,
+    ) -> Result<u32, ContractError> {
+        escrow::create_milestone_escrow(env, token_address, from, to, agent, milestones, deposit)
+    }
+
+    /// Approve a milestone for release. Only the escrow agent or the client
+    /// (`from`) may approve. Once approved, the milestone can be claimed by
+    /// the recipient.
+    pub fn approve_milestone(env: Env, escrow_id: u32, milestone_id: u32, approver: Address) {
+        escrow::approve_milestone(env, escrow_id, milestone_id, approver)
+    }
+
+    /// Claim an approved milestone. Only the escrow recipient (`to`) may
+    /// claim. When the last milestone is claimed the escrow is marked
+    /// `Released`.
+    pub fn claim_milestone(env: Env, escrow_id: u32, milestone_id: u32, recipient: Address) {
+        escrow::claim_milestone(env, escrow_id, milestone_id, recipient)
+    }
+
+    /// Return the milestone schedule of a milestone-based escrow.
+    pub fn get_milestones(env: Env, escrow_id: u32) -> Vec<Milestone> {
+        escrow::get_milestones(env, escrow_id)
+    }
+
+    /// Return an aggregated summary of an escrow for dashboards/off-chain consumers.
+    pub fn get_escrow_summary(env: Env, escrow_id: u32) -> EscrowSummary {
+        escrow::get_escrow_summary(env, escrow_id)
     }
 
     // ─── Dispute resolution ──────────────────────────────────────────────────
@@ -2676,6 +2927,7 @@ impl FinchippayContract {
         min_amount_out: i128,
         path: Vec<Address>,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         require_not_paused(&env);
         caller.require_auth();
@@ -2690,40 +2942,37 @@ impl FinchippayContract {
             return Err(ContractError::InvalidPath);
         }
         validate_swap_path(&path, &token_in, &token_out)?;
+        validate_swap_path_liquidity(&env, &path)?;
 
         let fee_bps = get_swap_fee_bps(&env);
-        let (fee, amount_to_swap) = compute_swap_fee(amount_in, fee_bps);
+        let token_in_client = get_token_client(&env, &token_in);
+        let actual_amount_in =
+            transfer_to_contract_measured(&env, &token_in_client, &caller, &amount_in);
+        let (fee, amount_to_swap) = compute_swap_fee(actual_amount_in, fee_bps);
         let amount_out = amount_to_swap;
 
         if amount_out < min_amount_out {
             return Err(ContractError::SlippageExceeded);
         }
+        ensure_swap_reserve(&env, &token_out, amount_out)?;
 
-        let token_in_client = get_token_client(&env, &token_in);
         if fee > 0 {
             let collector = get_fee_collector_address(&env);
-            require_transfer_succeeded(&env, &token_in_client, &caller, &collector, &fee);
+            contract_transfer_out(&env, &token_in_client, &collector, &fee);
         }
-        let contract_address = env.current_contract_address();
-        require_transfer_succeeded(
-            &env,
-            &token_in_client,
-            &caller,
-            &contract_address,
-            &amount_to_swap,
-        );
 
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
 
-        env.events().publish_event(&Swap {
-            caller: caller.clone(),
-            token_in: token_in.clone(),
-            token_out: token_out.clone(),
-            amount_in,
-            amount_out,
-            fee,
-        });
+        env.events().publish(
+            (
+                Symbol::new(&env, "swap"),
+                caller.clone(),
+                token_in.clone(),
+                token_out.clone(),
+            ),
+            (amount_in, actual_amount_in, amount_out, fee, path.len()),
+        );
 
         Ok(amount_out)
     }
@@ -2741,6 +2990,7 @@ impl FinchippayContract {
         max_amount_in: i128,
         path: Vec<Address>,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::acquire(&env);
         require_initialized(&env);
         require_not_paused(&env);
         caller.require_auth();
@@ -2755,47 +3005,71 @@ impl FinchippayContract {
             return Err(ContractError::InvalidPath);
         }
         validate_swap_path(&path, &token_in, &token_out)?;
+        validate_swap_path_liquidity(&env, &path)?;
 
         let fee_bps = get_swap_fee_bps(&env);
         let amount_in = compute_required_amount_in(amount_out, fee_bps);
+        let required_actual_amount_in = amount_in;
 
         if amount_in > max_amount_in {
             return Err(ContractError::ExcessiveAmountIn);
         }
 
-        let (fee, amount_to_swap) = compute_swap_fee(amount_in, fee_bps);
-        // Ceiling division in compute_required_amount_in can leave a few
-        // extra units in amount_to_swap versus amount_out; that dust stays
-        // in the contract's reserves rather than shorting the caller.
-        debug_assert!(amount_to_swap >= amount_out);
+        ensure_swap_reserve(&env, &token_out, amount_out)?;
 
         let token_in_client = get_token_client(&env, &token_in);
-        if fee > 0 {
-            let collector = get_fee_collector_address(&env);
-            require_transfer_succeeded(&env, &token_in_client, &caller, &collector, &fee);
+        let mut requested_amount_in = amount_in;
+        let mut actual_amount_in =
+            transfer_to_contract_measured(&env, &token_in_client, &caller, &amount_in);
+        let (mut actual_fee, mut actual_amount_to_swap) =
+            compute_swap_fee(actual_amount_in, fee_bps);
+        if actual_amount_to_swap < amount_out {
+            let additional_request = compute_fee_on_transfer_top_up(
+                required_actual_amount_in,
+                requested_amount_in,
+                actual_amount_in,
+                max_amount_in,
+            )?;
+            let additional_received =
+                transfer_to_contract_measured(&env, &token_in_client, &caller, &additional_request);
+            requested_amount_in = requested_amount_in
+                .checked_add(additional_request)
+                .expect("overflow");
+            actual_amount_in = actual_amount_in
+                .checked_add(additional_received)
+                .expect("overflow");
+            let recomputed = compute_swap_fee(actual_amount_in, fee_bps);
+            actual_fee = recomputed.0;
+            actual_amount_to_swap = recomputed.1;
+            if actual_amount_to_swap < amount_out {
+                return Err(ContractError::ExcessiveAmountIn);
+            }
         }
-        let contract_address = env.current_contract_address();
-        require_transfer_succeeded(
-            &env,
-            &token_in_client,
-            &caller,
-            &contract_address,
-            &amount_to_swap,
-        );
+        if actual_fee > 0 {
+            let collector = get_fee_collector_address(&env);
+            contract_transfer_out(&env, &token_in_client, &collector, &actual_fee);
+        }
 
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
 
-        env.events().publish_event(&Swap {
-            caller: caller.clone(),
-            token_in: token_in.clone(),
-            token_out: token_out.clone(),
-            amount_in,
-            amount_out,
-            fee,
-        });
+        env.events().publish(
+            (
+                Symbol::new(&env, "swap"),
+                caller.clone(),
+                token_in.clone(),
+                token_out.clone(),
+            ),
+            (
+                requested_amount_in,
+                actual_amount_in,
+                amount_out,
+                actual_fee,
+                path.len(),
+            ),
+        );
 
-        Ok(amount_in)
+        Ok(requested_amount_in)
     }
 }
 
@@ -4452,7 +4726,8 @@ mod tests {
     }
 
     #[test]
-    fn test_rescue_tokens_emits_rescue_tokens_event() {
+    #[should_panic(expected = "unknown admin action")]
+    fn test_rescue_tokens_admin_action_rejected() {
         let env = Env::default();
         let (contract_id, client) = deploy(&env);
         let admin = client.get_admin();
@@ -4467,40 +4742,12 @@ mod tests {
                 400i128.into_val(&env),
             ],
         );
+
+        // `rescue_tokens` is no longer a supported admin action. Proposing it
+        // must be rejected, steering callers to the time-delayed
+        // `initiate_emergency_withdrawal` → `approve_emergency_withdrawal` →
+        // `execute_emergency_withdrawal` flow instead.
         client.propose_admin_action(&admin, &Symbol::new(&env, "rescue_tokens"), &data);
-
-        // Threshold-1 deploy auto-executes the rescue on propose. The test host
-        // clears the event buffer at the start of every top-level invocation, so
-        // inspect the proposal's events before any further contract call.
-        let events = env.events().all().filter_by_contract(&contract_id);
-        assert_eq!(
-            events,
-            [
-                AdminActionProposed {
-                    proposal_id: 1u64,
-                    action_type: Symbol::new(&env, "rescue_tokens"),
-                    proposer: admin.clone(),
-                }
-                .to_xdr(&env, &contract_id),
-                AdminActionApproved {
-                    proposal_id: 1u64,
-                    approver: admin,
-                    count: 1u32,
-                    threshold: 1u32,
-                }
-                .to_xdr(&env, &contract_id),
-                RescueTokens {
-                    token: token_id.clone(),
-                    amount: 400i128,
-                    to: to.clone(),
-                }
-                .to_xdr(&env, &contract_id),
-            ]
-        );
-
-        // Funds must have moved to the recipient.
-        let sac = token::StellarAssetClient::new(&env, &token_id);
-        assert_eq!(sac.balance(&to), 400);
     }
     #[test]
     fn test_pagination_bounds() {
@@ -4742,6 +4989,141 @@ mod tests {
 
         // Call revoke with non_admin - should panic with "Unauthorized"
         client.revoke_vesting(&id, &non_admin);
+    }
+
+    // ── Vesting locked-balance accounting (#692) ──────────────────────────
+
+    /// The emergency-withdrawal path reads the same locked balance, so it must
+    /// also refuse to initiate a withdrawal of vesting funds.
+    #[test]
+    #[should_panic(expected = "insufficient unlocked balance")]
+    fn test_vesting_funds_are_locked_against_emergency_withdrawal() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        client.initiate_emergency_withdrawal(&admin, &token_id, &amount, &to);
+    }
+
+    /// While a vesting is active only genuinely unlocked funds (e.g. a direct
+    /// donation to the contract address) are withdrawable via the emergency
+    /// withdrawal flow; the vesting deposit itself stays protected.
+    #[test]
+    fn test_vesting_emergency_withdrawal_can_sweep_only_unlocked_funds() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // 300 untracked tokens land directly on the contract (stray transfer).
+        // Only these are unlocked and therefore withdrawable via the emergency
+        // withdrawal flow.
+        let sac = token::StellarAssetClient::new(&env, &token_id);
+        sac.mint(&contract_id, &300);
+
+        let wid = client.initiate_emergency_withdrawal(&admin, &token_id, &300, &to);
+        let w = client.get_emergency_withdrawal(&wid);
+        advance(&env, w.activation_ledger);
+        client.approve_emergency_withdrawal(&wid, &admin);
+        assert_eq!(sac.balance(&to), 300);
+    }
+
+    /// After a full claim the locked balance must drop to zero so the claimed
+    /// amount is no longer protected from (and no longer blocks) emergency
+    /// withdrawals.
+    #[test]
+    fn test_vesting_claim_releases_locked_balance() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Fully claim the vesting.
+        advance(&env, end + 5);
+        let claimed = client.claim_vesting(&id, &beneficiary);
+        assert_eq!(claimed, amount);
+
+        // Donate 300 untracked tokens; with the locked balance now zero these
+        // are the only funds on the contract and must be withdrawable via the
+        // emergency withdrawal flow.
+        let sac = token::StellarAssetClient::new(&env, &token_id);
+        sac.mint(&contract_id, &300);
+
+        let wid = client.initiate_emergency_withdrawal(&admin, &token_id, &300, &to);
+        let w = client.get_emergency_withdrawal(&wid);
+        advance(&env, w.activation_ledger);
+        client.approve_emergency_withdrawal(&wid, &admin);
+        assert_eq!(sac.balance(&to), 300);
+    }
+
+    /// After a revoke the unclaimed remainder is returned to the funder and
+    /// must leave the locked pool, so post-revoke donations stay withdrawable
+    /// via the emergency withdrawal flow.
+    #[test]
+    fn test_vesting_revoke_releases_locked_balance() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let amount = 1_000i128;
+        let start = env.ledger().sequence();
+        let cliff = start + 10;
+        let end = start + 30;
+
+        let id = client.create_vesting(&token_id, &from, &beneficiary, &amount, &cliff, &end);
+
+        // Revoke before the cliff: the whole deposit goes back to the funder.
+        client.revoke_vesting(&id, &admin);
+
+        // Donate 300 untracked tokens; with the locked balance now zero these
+        // must be withdrawable via the emergency withdrawal flow.
+        let sac = token::StellarAssetClient::new(&env, &token_id);
+        sac.mint(&contract_id, &300);
+
+        let wid = client.initiate_emergency_withdrawal(&admin, &token_id, &300, &to);
+        let w = client.get_emergency_withdrawal(&wid);
+        advance(&env, w.activation_ledger);
+        client.approve_emergency_withdrawal(&wid, &admin);
+        assert_eq!(sac.balance(&to), 300);
     }
 
     // ── Emergency withdrawal ──────────────────────────────────────────────
@@ -5059,6 +5441,416 @@ mod tests {
         let (_, client) = deploy(&env);
         let result = client.try_get_escrow(&999);
         assert_eq!(result.unwrap_err().unwrap(), ContractError::NotFound);
+    }
+
+    // ==================== Milestone-based escrows (#476) ====================
+
+    /// Create a 2-milestone escrow (600 + 400 = 1000) from `from` to `to` with
+    /// `agent` as the designated milestone approver.
+    fn create_milestone_fixture(
+        env: &Env,
+        client: &FinchippayContractClient<'_>,
+        token_id: &Address,
+        from: &Address,
+        to: &Address,
+        agent: &Address,
+    ) -> u32 {
+        let m0 = Milestone {
+            id: 99,
+            description: Symbol::new(env, "milestone_a"),
+            amount: 600,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: 0,
+        };
+        let m1 = Milestone {
+            id: 42,
+            description: Symbol::new(env, "milestone_b"),
+            amount: 400,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: 0,
+        };
+        client.create_milestone_escrow(token_id, from, to, agent, &vec![env, m0, m1], &1000)
+    }
+
+    #[test]
+    fn test_milestone_escrow_create_holds_deposit_and_assigns_ids() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+
+        // Deposit moved to the contract and is counted as locked.
+        assert_eq!(token.balance(&from), 9_000);
+        assert_eq!(token.balance(&contract_id), 1_000);
+
+        let escrow = client.get_escrow(&id);
+        assert!(escrow.is_milestone_based);
+        assert_eq!(escrow.agent, Some(agent.clone()));
+        assert_eq!(escrow.status, EscrowStatus::Pending);
+        assert_eq!(escrow.amount, 1_000);
+
+        // Contract-assigned sequential ids, ignoring caller-supplied ones.
+        let milestones = client.get_milestones(&id);
+        assert_eq!(milestones.len(), 2);
+        assert_eq!(milestones.get(0).unwrap().id, 0);
+        assert_eq!(milestones.get(1).unwrap().id, 1);
+        assert_eq!(milestones.get(0).unwrap().amount, 600);
+        assert_eq!(milestones.get(1).unwrap().amount, 400);
+
+        // Summary reflects the untouched deposit.
+        let summary = client.get_escrow_summary(&id);
+        assert_eq!(summary.total_amount, 1_000);
+        assert_eq!(summary.released_amount, 0);
+        assert_eq!(summary.remaining_amount, 1_000);
+        assert_eq!(summary.milestone_count, 2);
+        assert_eq!(summary.approved_milestones, 0);
+        assert_eq!(summary.claimed_milestones, 0);
+        assert_eq!(summary.status, EscrowStatus::Pending);
+        assert!(summary.is_milestone_based);
+    }
+
+    #[test]
+    fn test_milestone_escrow_approve_and_claim_partial_release() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+
+        // Agent approves milestone 0; recipient claims it → partial release.
+        client.approve_milestone(&id, &0, &agent);
+        client.claim_milestone(&id, &0, &to);
+        assert_eq!(token.balance(&to), 600);
+        assert_eq!(token.balance(&contract_id), 400);
+
+        let milestones = client.get_milestones(&id);
+        assert!(milestones.get(0).unwrap().approved);
+        assert!(milestones.get(0).unwrap().claimed);
+        assert!(!milestones.get(1).unwrap().approved);
+        let summary = client.get_escrow_summary(&id);
+        assert_eq!(summary.released_amount, 600);
+        assert_eq!(summary.remaining_amount, 400);
+        assert_eq!(summary.approved_milestones, 1);
+        assert_eq!(summary.claimed_milestones, 1);
+        assert_eq!(summary.status, EscrowStatus::Pending);
+
+        // Client approves milestone 1; claiming it fully releases the escrow.
+        client.approve_milestone(&id, &1, &from);
+        client.claim_milestone(&id, &1, &to);
+        assert_eq!(token.balance(&to), 1_000);
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(client.get_escrow(&id).status, EscrowStatus::Released);
+        assert_eq!(client.get_escrow_summary(&id).released_amount, 1_000);
+        assert_eq!(client.get_escrow_summary(&id).remaining_amount, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_milestone_escrow_approve_unauthorized_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        let stranger = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+        client.approve_milestone(&id, &0, &stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_milestone_escrow_claim_unauthorized_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        let stranger = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+        client.approve_milestone(&id, &0, &agent);
+        client.claim_milestone(&id, &0, &stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "milestone not approved")]
+    fn test_milestone_escrow_claim_before_approval_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+        client.claim_milestone(&id, &0, &to);
+    }
+
+    #[test]
+    #[should_panic(expected = "milestone already claimed")]
+    fn test_milestone_escrow_claim_twice_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+        client.approve_milestone(&id, &0, &agent);
+        client.claim_milestone(&id, &0, &to);
+        client.claim_milestone(&id, &0, &to);
+    }
+
+    #[test]
+    fn test_milestone_escrow_cancel_refunds_unclaimed_only() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+
+        // Milestone 0 is approved and claimed (600 paid out); cancelling the
+        // escrow must refund only the unclaimed 400 back to the payer.
+        client.approve_milestone(&id, &0, &agent);
+        client.claim_milestone(&id, &0, &to);
+        client.cancel_escrow(&id);
+
+        assert_eq!(token.balance(&to), 600);
+        assert_eq!(token.balance(&from), 9_400);
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(client.get_escrow(&id).status, EscrowStatus::Cancelled);
+        let summary = client.get_escrow_summary(&id);
+        assert_eq!(summary.released_amount, 600);
+        assert_eq!(summary.remaining_amount, 0);
+        assert_eq!(summary.status, EscrowStatus::Cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "milestone escrow must be claimed via claim_milestone")]
+    fn test_milestone_escrow_claim_escrow_blocked() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+        // The generic claim path must not drain a milestone escrow.
+        client.claim_escrow(&id);
+    }
+
+    #[test]
+    #[should_panic(expected = "milestone amounts must sum to the deposit")]
+    fn test_milestone_escrow_amounts_must_sum_to_deposit() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let m0 = Milestone {
+            id: 0,
+            description: Symbol::new(&env, "a"),
+            amount: 600,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: 0,
+        };
+        let m1 = Milestone {
+            id: 1,
+            description: Symbol::new(&env, "b"),
+            amount: 400,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: 0,
+        };
+        // Milestones sum to 1000 but the deposit is 1500.
+        client.create_milestone_escrow(&token_id, &from, &to, &agent, &vec![&env, m0, m1], &1500);
+    }
+
+    #[test]
+    #[should_panic(expected = "too many milestones")]
+    fn test_milestone_escrow_rejects_more_than_10_milestones() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let mut milestones = Vec::new(&env);
+        for i in 0..11u32 {
+            milestones.push_back(Milestone {
+                id: i,
+                description: Symbol::new(&env, "m"),
+                amount: 100,
+                approved: false,
+                claimed: false,
+                approval_deadline_ledger: 0,
+            });
+        }
+        client.create_milestone_escrow(&token_id, &from, &to, &agent, &milestones, &1100);
+    }
+
+    #[test]
+    #[should_panic(expected = "milestone amount must be positive")]
+    fn test_milestone_escrow_zero_amount_milestone_panics() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let m0 = Milestone {
+            id: 0,
+            description: Symbol::new(&env, "a"),
+            amount: 0,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: 0,
+        };
+        client.create_milestone_escrow(&token_id, &from, &to, &agent, &vec![&env, m0], &1000);
+    }
+
+    #[test]
+    #[should_panic(expected = "agent cannot be the recipient")]
+    fn test_milestone_escrow_agent_cannot_be_recipient() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let m0 = Milestone {
+            id: 0,
+            description: Symbol::new(&env, "a"),
+            amount: 1000,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: 0,
+        };
+        // Agent == recipient would let the recipient self-approve.
+        client.create_milestone_escrow(&token_id, &from, &to, &to, &vec![&env, m0], &1000);
+    }
+
+    #[test]
+    #[should_panic(expected = "approval deadline passed")]
+    fn test_milestone_escrow_approval_deadline_enforced() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let deadline = env.ledger().sequence() + 10;
+        let m0 = Milestone {
+            id: 0,
+            description: Symbol::new(&env, "a"),
+            amount: 1000,
+            approved: false,
+            claimed: false,
+            approval_deadline_ledger: deadline,
+        };
+        let id =
+            client.create_milestone_escrow(&token_id, &from, &to, &agent, &vec![&env, m0], &1000);
+        advance(&env, deadline + 1);
+        client.approve_milestone(&id, &0, &agent);
+    }
+
+    #[test]
+    fn test_milestone_escrow_emits_events() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let agent = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+
+        let id = create_milestone_fixture(&env, &client, &token_id, &from, &to, &agent);
+        // The event recorder only surfaces events from the most recent
+        // invocation, so each event is asserted right after its call.
+        let events = env.events().all().filter_by_contract(&contract_id);
+        assert_eq!(
+            events,
+            vec![&env, (
+                contract_id.clone(),
+                (Symbol::new(&env, "milestone_escrow_created"), id).into_val(&env),
+                (2u32).into_val(&env),
+            )]
+        );
+
+        client.approve_milestone(&id, &0, &agent);
+        let events = env.events().all().filter_by_contract(&contract_id);
+        assert_eq!(
+            events,
+            vec![&env, (
+                contract_id.clone(),
+                (Symbol::new(&env, "milestone_approved"), id).into_val(&env),
+                (0u32).into_val(&env),
+            )]
+        );
+
+        client.claim_milestone(&id, &0, &to);
+        let events = env.events().all().filter_by_contract(&contract_id);
+        assert_eq!(
+            events,
+            vec![&env, (
+                contract_id.clone(),
+                (Symbol::new(&env, "milestone_claimed"), id, 0u32).into_val(&env),
+                (600i128).into_val(&env),
+            )]
+        );
     }
 
     #[test]

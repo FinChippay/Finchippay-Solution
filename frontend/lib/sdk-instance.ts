@@ -37,6 +37,7 @@ class FinchippaySdk {
   async getChallenge(publicKey: string): Promise<{ transaction: string }> {
     const res = await apiFetch(`${this.baseUrl}/api/auth/challenge`, {
       method: "POST",
+      credentials: "include",
       headers: this.headers(),
       body: JSON.stringify({ publicKey }),
     });
@@ -50,6 +51,7 @@ class FinchippaySdk {
   }> {
     const res = await apiFetch(`${this.baseUrl}/api/auth/verify`, {
       method: "POST",
+      credentials: "include",
       headers: this.headers(),
       body: JSON.stringify({ signedXDR }),
     });

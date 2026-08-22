@@ -31,6 +31,7 @@ pub fn create_multisig(
     signers: Vec<Address>,
     expiration_ledger: u32,
 ) -> u32 {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_initialized(&env);
     require_not_paused(&env);
     proposer.require_auth();
@@ -119,6 +120,7 @@ pub fn create_multisig(
 /// A signer approves proposal `id`. If the approval count reaches `threshold`
 /// the payment is executed immediately within this call.
 pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     signer.require_auth();
 
@@ -161,27 +163,35 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
 
     // Auto-execute if threshold is reached.
     if proposal.approvals.len() >= proposal.threshold {
+        // Checks-effects-interactions: commit the executed state and release
+        // the locked balance *before* the external token transfer.
+        proposal.status = MultiSigStatus::Executed;
+        decrease_locked_balance(&env, &proposal.token, proposal.amount);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MultiSig(proposal_id), &proposal);
+        bump(&env, &DataKey::MultiSig(proposal_id));
+
         let token = get_token_client(&env, &proposal.token);
         contract_transfer_out(&env, &token, &proposal.recipient, &proposal.amount);
-        decrease_locked_balance(&env, &proposal.token, proposal.amount);
-        proposal.status = MultiSigStatus::Executed;
-        env.events().publish_event(&MultisigExecuted {
-            proposal_id,
-            recipient: proposal.recipient.clone(),
-            amount: proposal.amount,
-        });
+        env.events().publish(
+            (Symbol::new(&env, "multisig_executed"), proposal_id),
+            (proposal.recipient.clone(), proposal.amount),
+        );
+    } else {
+        env.storage()
+            .persistent()
+            .set(&DataKey::MultiSig(proposal_id), &proposal);
+        bump(&env, &DataKey::MultiSig(proposal_id));
     }
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::MultiSig(proposal_id), &proposal);
-    bump(&env, &DataKey::MultiSig(proposal_id));
 }
 
 /// Anyone can call this to close an expired multi-sig proposal and refund
 /// the proposer. This prevents funds from being locked forever if signers
 /// abandon a proposal.
 pub fn timeout_multisig(env: Env, proposal_id: u32) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     let mut proposal: MultiSigProposal = env
         .storage()
@@ -199,9 +209,8 @@ pub fn timeout_multisig(env: Env, proposal_id: u32) {
         panic!("proposal has not yet expired");
     }
 
-    let token = get_token_client(&env, &proposal.token);
-    contract_transfer_out(&env, &token, &proposal.proposer, &proposal.amount);
-
+    // Checks-effects-interactions: commit the cancelled state and release the
+    // locked balance *before* the external token transfer.
     proposal.status = MultiSigStatus::Cancelled;
     decrease_locked_balance(&env, &proposal.token, proposal.amount);
     env.storage()
@@ -209,15 +218,18 @@ pub fn timeout_multisig(env: Env, proposal_id: u32) {
         .set(&DataKey::MultiSig(proposal_id), &proposal);
     bump(&env, &DataKey::MultiSig(proposal_id));
 
-    env.events().publish_event(&MultisigTimeout {
-        proposal_id,
-        proposer: proposal.proposer.clone(),
-        amount: proposal.amount,
-    });
+    let token = get_token_client(&env, &proposal.token);
+    contract_transfer_out(&env, &token, &proposal.proposer, &proposal.amount);
+
+    env.events().publish(
+        (Symbol::new(&env, "multisig_timeout"), proposal_id),
+        (proposal.proposer.clone(), proposal.amount),
+    );
 }
 
 /// The proposer cancels the proposal before execution; funds are refunded.
 pub fn cancel_multisig(env: Env, proposal_id: u32, proposer: Address) {
+    let _guard = ReentrancyGuard::acquire(&env);
     require_not_paused(&env);
     proposer.require_auth();
 
@@ -234,21 +246,22 @@ pub fn cancel_multisig(env: Env, proposal_id: u32, proposer: Address) {
         panic!("proposal is not pending");
     }
 
-    let token = get_token_client(&env, &proposal.token);
-    contract_transfer_out(&env, &token, &proposer, &proposal.amount);
-    decrease_locked_balance(&env, &proposal.token, proposal.amount);
-
+    // Checks-effects-interactions: commit the cancelled state and release the
+    // locked balance *before* the external token transfer.
     proposal.status = MultiSigStatus::Cancelled;
+    decrease_locked_balance(&env, &proposal.token, proposal.amount);
     env.storage()
         .persistent()
         .set(&DataKey::MultiSig(proposal_id), &proposal);
     bump(&env, &DataKey::MultiSig(proposal_id));
 
-    env.events().publish_event(&MultisigCancelled {
-        proposal_id,
-        proposer,
-        amount: proposal.amount,
-    });
+    let token = get_token_client(&env, &proposal.token);
+    contract_transfer_out(&env, &token, &proposer, &proposal.amount);
+
+    env.events().publish(
+        (Symbol::new(&env, "multisig_cancelled"),),
+        (proposal_id, proposer, proposal.amount),
+    );
 }
 
 /// Return the multi-sig proposal for `proposal_id`.

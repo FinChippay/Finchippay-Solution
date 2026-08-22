@@ -8,16 +8,16 @@ Soroban smart contract for the **Finchippay-Solution** platform on Stellar.
 
 ### Features
 
-| Feature         | Functions                                                                                                                                           |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tips**        | `send_tip`, `get_tip_total`, `get_tip_count`, `get_tip_record`                                                                                      |
-| **Receipts**    | `mint_receipt`, `get_receipt`, `get_receipt_count`                                                                                                  |
-| **Escrow**      | `create_escrow`, `claim_escrow`, `claim_escrow_partial`, `cancel_escrow`, `get_escrow`, `get_user_escrows`                                          |
-| **Streaming**   | `open_stream`, `claim_stream`, `top_up_stream`, `close_stream`, `reject_stream`, `transfer_stream`, `get_stream`, `get_claimable`                   |
-| **Multi-sig**   | `create_multisig`, `approve_multisig`, `cancel_multisig`, `timeout_multisig`, `get_multisig`                                                        |
-| **Batch**       | `batch_send`                                                                                                                                        |
-| **Admin**       | `initialize`, `transfer_admin`, `get_admin`, `pause`, `unpause`, `is_paused`, `set_pauser`, `get_pauser`, `upgrade`, `get_version`, `rescue_tokens` |
-| **Diagnostics** | `get_contract_stats`, `get_escrow_count`, `get_stream_count`, `get_multisig_count`                                                                  |
+| Feature | Functions |
+|---|---|
+| **Tips** | `send_tip`, `get_tip_total`, `get_tip_count`, `get_tip_record` |
+| **Receipts** | `mint_receipt`, `get_receipt`, `get_receipt_count` |
+| **Escrow** | `create_escrow`, `claim_escrow`, `claim_escrow_partial`, `cancel_escrow`, `get_escrow`, `get_user_escrows` |
+| **Streaming** | `open_stream`, `claim_stream`, `top_up_stream`, `close_stream`, `reject_stream`, `transfer_stream`, `get_stream`, `get_claimable` |
+| **Multi-sig** | `create_multisig`, `approve_multisig`, `cancel_multisig`, `timeout_multisig`, `get_multisig` |
+| **Batch** | `batch_send` |
+| **Admin** | `initialize`, `transfer_admin`, `get_admin`, `pause`, `unpause`, `is_paused`, `set_pauser`, `get_pauser`, `upgrade`, `get_version` |
+| **Diagnostics** | `get_contract_stats`, `get_escrow_count`, `get_stream_count`, `get_multisig_count` |
 
 ## Streaming Payments
 
@@ -41,6 +41,7 @@ Recipients can call `claim_stream` at any time to drain accrued tokens. Payers c
 - All arithmetic uses `checked_add` / `checked_sub` / `checked_mul`; overflows panic rather than silently wrap.
 - Storage TTLs are bumped on every read and write to prevent ledger expiry.
 - `EscrowStatus`, `MultiSigStatus`, and `closed` fields prevent double-claim and double-cancel attacks.
+- **Reentrancy guard**: every value-transferring entry point acquires a non-reentrancy lock (a transient flag in instance storage) and follows checks-effects-interactions ordering, so a hostile token contract cannot double-claim, double-drain, or double-swap funds by calling back into the contract from inside `token.transfer`. Nested calls abort with `ContractError::ReentrantCall`.
 - **RBAC**: A separate `pauser` role can freeze/unfreeze operations without admin upgrade rights via `set_pauser`.
 - **Upgradability**: admin can call `upgrade(new_wasm_hash)` to deploy security patches without migrating state. Version is tracked and incremented on each upgrade.
 - **Bounded inputs**:
@@ -54,6 +55,45 @@ Recipients can call `claim_stream` at any time to drain accrued tokens. Payers c
 - Self-transfers (from == to) are rejected for tips, escrows, streams, and multi-sig.
 - Batch sends are limited to `MAX_BATCH_SIZE` (50) recipients and amounts are pre-validated for atomicity.
 - All operational entry points require the contract to be initialized via `initialize()`.
+- **Balance reconciliation**: the contract keeps a cached `LastContractBalance`
+  per token to avoid re-reading `token.balance(contract)` on every deposit.
+  For standard assets the cache matches reality; if it ever drifts (rebasing
+  or fee-on-transfer tokens, or direct transfers to the contract address) the
+  drift is surfaced on read via a `balance_drift_detected` event and the cache
+  self-heals, and an admin-gated `reconcile_balance` action resyncs it
+  explicitly (see "Supported Token Model").
+
+## Supported Token Model
+
+**Standard, non-rebasing Stellar assets** (SAC-issued fungible tokens whose
+`transfer` moves the full `amount` and whose balances only change through
+transfers) are fully supported: the cached `LastContractBalance` matches the
+real on-chain balance, and every deposit/claim settles exactly.
+
+**Fee-on-transfer / taxed / deflationary tokens** (where `transfer` moves
+*less* than `amount` into the recipient) are supported by the measured contract
+swap entry points and remain rejected by other deposit-style flows:
+the phantom-deposit check in `require_transfer_succeeded` compares the actual
+balance deltas and rejects the operation (`TransferFailed`) rather than locking
+a balance that never fully arrived. This is deliberate — it guarantees **no
+funds can be over-claimed** when such a token is used.
+
+**Rebasing tokens** (whose balance changes without a transfer) are **not**
+supported without explicit reconciliation. A rebase drifts the cached balance
+from `token.balance(contract)`; the drift is detected and surfaced on the next
+read (`balance_drift_detected` event) and the cache self-heals, or an admin can
+force a resync via the `reconcile_balance` admin action (`balance_reconciled`
+event).
+
+### Reconcile flow
+
+`reconcile_balance` is an admin-gated action executed through the admin signer
+multi-sig (`propose_admin_action` with `action_type = "reconcile_balance"` and
+`action_data = [token_address]`). It reads the actual `token.balance(contract)`,
+resyncs `LastContractBalance`, and emits `balance_reconciled` with the
+`(old, new)` values. It performs **no token transfers** — it only reads a
+balance and updates a cached value — so a drifted cache can never be used to
+extract funds.
 
 ## Build
 
@@ -79,65 +119,34 @@ bash ../../scripts/deploy-contract.sh
 
 ## Events emitted
 
-Events are defined as typed `#[contractevent]` structs in
-[`src/events.rs`](src/events.rs). Each event's first topic is the struct's
-snake-case name, and every field is emitted as a named entry in the event data
-Map, so indexers and SDK clients can deserialize a schema-stable event.
-
-| Struct (topic)                                                    | Fields                                                                                              | Emitted by                      |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `Init` (`init`)                                                   | `admin`                                                                                             | `initialize`                    |
-| `AdminTransfer` (`admin_transfer`)                                | `new_admin`                                                                                         | `transfer_admin`                |
-| `Paused` (`paused`)                                               | —                                                                                                   | `pause` / admin action          |
-| `Unpaused` (`unpaused`)                                           | —                                                                                                   | `unpause` / admin action        |
-| `PauserSet` (`pauser_set`)                                        | `pauser`                                                                                            | `set_pauser`                    |
-| `AdminSignersSet` (`admin_signers_set`)                           | `threshold`, `signer_count`                                                                         | `set_admin_signers`             |
-| `Upgraded` (`upgraded`)                                           | `new_version`, `wasm_hash`, `layout_version`                                                        | `upgrade`                       |
-| `TtlBumped` (`ttl_bumped`)                                        | `keys_bumped`, `class_index`, `key_index`                                                           | `bump_all_ttls`                 |
-| `TipSent` (`tip_sent`)                                            | `from`, `to`, `amount`, `ledger`, `memo`                                                            | `send_tip`, `batch_send`        |
-| `ReceiptMinted` (`receipt_minted`)                                | `payer`, `receipt_index`                                                                            | `mint_receipt`                  |
-| `EscrowCreated` (`escrow_created`)                                | `escrow_id`, `from`, `to`, `amount`, `release_ledger`                                               | `create_escrow`                 |
-| `EscrowClaimPartial` (`escrow_claim_partial`)                     | `escrow_id`, `to`, `claim_amount`, `remaining`                                                      | `claim_escrow_partial`          |
-| `EscrowClaimed` (`escrow_claimed`)                                | `escrow_id`, `recipient`, `amount`                                                                  | `claim_escrow`                  |
-| `EscrowCancelled` (`escrow_cancelled`)                            | `escrow_id`, `from`, `amount`                                                                       | `cancel_escrow`                 |
-| `DisputableEscrowCreated` (`disputable_escrow_created`)           | `escrow_id`, `arbitrator`                                                                           | `create_disputable_escrow`      |
-| `DisputeRaised` (`dispute_raised`)                                | `escrow_id`, `raised_by`                                                                            | `raise_dispute`                 |
-| `DisputeResolved` (`dispute_resolved`)                            | `escrow_id`, `resolution`, `to`, `amount`                                                           | `resolve_dispute`               |
-| `ArbitratorAdded` (`arbitrator_added`)                            | `arbitrator`                                                                                        | `add_arbitrator`                |
-| `ArbitratorRemoved` (`arbitrator_removed`)                        | `arbitrator`                                                                                        | `remove_arbitrator`             |
-| `StreamOpened` (`stream_opened`)                                  | `stream_id`, `payer`, `recipient`, `rate`, `deposit`                                                | `open_stream`                   |
-| `StreamClaimed` (`stream_claimed`)                                | `stream_id`, `recipient`, `amount`                                                                  | `claim_stream`                  |
-| `StreamToppedUp` (`stream_topped_up`)                             | `stream_id`, `payer`, `amount`, `deposited`                                                         | `top_up_stream`                 |
-| `StreamClose` (`stream_close`)                                    | `stream_id`, `payer`, `refund`                                                                      | `close_stream`                  |
-| `StreamClosed` (`stream_closed`)                                  | `stream_id`, `refund`, `claimable`                                                                  | `close_stream`                  |
-| `StreamReject` (`stream_reject`)                                  | `stream_id`, `recipient`, `refund`                                                                  | `reject_stream`                 |
-| `StreamTransfer` (`stream_transfer`)                              | `stream_id`, `from`, `to`                                                                           | `transfer_stream`               |
-| `MultisigCreated` (`multisig_created`)                            | `proposal_id`, `proposer`, `recipient`, `amount`, `threshold`, `signers_count`, `expiration_ledger` | `create_multisig`               |
-| `MultisigApproved` (`multisig_approved`)                          | `proposal_id`, `approver`, `count`, `threshold`                                                     | `approve_multisig`              |
-| `MultisigExecuted` (`multisig_executed`)                          | `proposal_id`, `recipient`, `amount`                                                                | `approve_multisig` (auto)       |
-| `MultisigTimeout` (`multisig_timeout`)                            | `proposal_id`, `proposer`, `amount`                                                                 | `timeout_multisig`              |
-| `MultisigCancelled` (`multisig_cancelled`)                        | `proposal_id`, `proposer`, `amount`                                                                 | `cancel_multisig`               |
-| `BatchSent` (`batch_sent`)                                        | `sender`, `recipient_count`, `total_amount`                                                         | `batch_send`                    |
-| `BatchSentMulti` (`batch_sent_multi`)                             | `sender`, `recipient_count`, `total_amount`                                                         | `batch_send_multi`              |
-| `VestingCreate` (`vesting_create`)                                | `vesting_id`, `from`, `beneficiary`, `amount`, `cliff_ledger`, `end_ledger`                         | `create_vesting`                |
-| `VestingClaim` (`vesting_claim`)                                  | `vesting_id`, `beneficiary`, `amount`                                                               | `claim_vesting`                 |
-| `VestingRevoke` (`vesting_revoke`)                                | `vesting_id`, `funder`, `amount`                                                                    | `revoke_vesting`                |
-| `AirdropCreated` (`airdrop_created`)                              | `airdrop_id`, `funder`, `token`, `total_amount`                                                     | `create_airdrop`                |
-| `AirdropClaimed` (`airdrop_claimed`)                              | `airdrop_id`, `recipient`, `amount`                                                                 | `claim_airdrop`                 |
-| `AirdropCancelled` (`airdrop_cancelled`)                          | `airdrop_id`, `funder`, `amount`                                                                    | `cancel_airdrop`                |
-| `YieldEscrowCreate` (`yield_escrow_create`)                       | `escrow_id`, `from`, `to`, `token`, `amount`, `shares`                                              | `create_yield_escrow`           |
-| `YieldEscrowClaim` (`yield_escrow_claim`)                         | `escrow_id`, `to`, `amount`                                                                         | `claim_yield_escrow`            |
-| `YieldEscrowCancelled` (`yield_escrow_cancelled`)                 | `escrow_id`, `from`, `amount`                                                                       | `cancel_yield_escrow`           |
-| `EmergencyWithdrawalInitiated` (`emergency_withdrawal_initiated`) | `withdrawal_id`, `initiator`, `token`, `amount`, `activation_ledger`                                | `initiate_emergency_withdrawal` |
-| `EmergencyWithdrawalApproved` (`emergency_withdrawal_approved`)   | `withdrawal_id`, `signer`, `count`, `threshold`                                                     | `approve_emergency_withdrawal`  |
-| `EmergencyWithdrawalExecuted` (`emergency_withdrawal_executed`)   | `withdrawal_id`, `to`, `amount`                                                                     | `execute_emergency_withdrawal`  |
-| `EmergencyWithdrawalCancelled` (`emergency_withdrawal_cancelled`) | `withdrawal_id`, `admin`, `amount`                                                                  | `cancel_emergency_withdrawal`   |
-| `AdminActionProposed` (`admin_action_proposed`)                   | `proposal_id`, `action_type`, `proposer`                                                            | `propose_admin_action`          |
-| `AdminActionApproved` (`admin_action_approved`)                   | `proposal_id`, `approver`, `count`, `threshold`                                                     | `approve_admin_action`          |
-| `RescueTokens` (`rescue_tokens`)                                  | `token`, `amount`, `to`                                                                             | `rescue_tokens`                 |
-| `FeeCollectorSet` (`fee_collector_set`)                           | `collector`                                                                                         | `set_fee_collector`             |
-| `SwapFeeSet` (`swap_fee_set`)                                     | `fee_bps`                                                                                           | `set_swap_fee`                  |
-| `Swap` (`swap`)                                                   | `caller`, `token_in`, `token_out`, `amount_in`, `amount_out`, `fee`                                 | swap entry points               |
+| Topic | Data | Emitted by |
+|---|---|---|
+| `(init,)` | `admin: Address` | `initialize` |
+| `(admin_transfer,)` | `new_admin: Address` | `transfer_admin` |
+| `(tip, from, to)` | `amount: i128` | `send_tip` |
+| `(receipt, from)` | `index: u32` | `mint_receipt` |
+| `(escrow_create, id)` | `(from, to, amount, release_ledger)` | `create_escrow` |
+| `(escrow_claim, id)` | `(to, amount)` | `claim_escrow` |
+| `(escrow_cancel, id)` | `(from, amount)` | `cancel_escrow` |
+| `(stream_open, id)` | `(payer, recipient, rate, deposit)` | `open_stream` |
+| `(stream_claim, id)` | `(recipient, amount)` | `claim_stream` |
+| `(stream_topup, id)` | `(payer, amount)` | `top_up_stream` |
+| `(stream_close, id)` | `(payer, refund)` | `close_stream` |
+| `(multisig_create, id)` | `(proposer, recipient, amount, threshold)` | `create_multisig` |
+| `(multisig_approve, id)` | `(signer, current_approvals, threshold)` | `approve_multisig` |
+| `(multisig_executed, id)` | `(recipient, amount)` | `approve_multisig` (auto) |
+| `(multisig_cancel, id)` | `(proposer, amount)` | `cancel_multisig` |
+| `(multisig_timeout, id)` | `(proposer, amount)` | `timeout_multisig` |
+| `(stream_reject, id)` | `(recipient, refund)` | `reject_stream` |
+| `(stream_transfer, id)` | `(old_recipient, new_recipient)` | `transfer_stream` |
+| `(escrow_claim_partial, id)` | `(to, claim_amount, remaining)` | `claim_escrow_partial` |
+| `(pauser_set,)` | `pauser: Address` | `set_pauser` |
+| `(batch_send, from)` | `count: u32` | `batch_send` |
+| `(paused,)` | `()` | `pause` |
+| `(unpaused,)` | `()` | `unpause` |
+| `(upgraded,)` | `(version: u32, wasm_hash: BytesN<32>)` | `upgrade` |
+| `(balance_reconciled, token)` | `(old: i128, new: i128)` | `reconcile_balance` admin action |
+| `(balance_drift_detected, token)` | `(cached: i128, actual: i128)` | `get_contract_balance` (read) |
 
 ## License
 

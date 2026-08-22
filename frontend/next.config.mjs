@@ -2,6 +2,16 @@ import { withSentryConfig } from "@sentry/nextjs";
 import { validateEnv } from "./scripts/validateEnv.mjs";
 import bundleAnalyzer from "@next/bundle-analyzer";
 
+const sentryRelease =
+  process.env.SENTRY_RELEASE ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GITHUB_SHA;
+
+if (sentryRelease) {
+  process.env.SENTRY_RELEASE = sentryRelease;
+  process.env.NEXT_PUBLIC_SENTRY_RELEASE = sentryRelease;
+}
+
 const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === "true",
 });
@@ -45,8 +55,14 @@ export default withBundleAnalyzer(
   withSentryConfig(nextConfig, {
     // Suppress Sentry CLI output during builds
     silent: true,
-    // Disable source map upload unless SENTRY_AUTH_TOKEN is set
-    disableServerWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
-    disableClientWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    authToken: process.env.SENTRY_AUTH_TOKEN,
+    release: sentryRelease ? { name: sentryRelease } : undefined,
+    sourcemaps: {
+      disable: !process.env.SENTRY_AUTH_TOKEN,
+      deleteSourcemapsAfterUpload: true,
+    },
+    widenClientFileUpload: true,
   })
 );
