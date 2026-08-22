@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import { ensureAccessToken } from "@/lib/auth";
 import { getXLMBalance } from "@/lib/stellar";
 
@@ -130,9 +131,33 @@ export function useBalanceStream(publicKey: string | null): BalanceStream {
         return;
       }
 
-      const url = `${API_URL}/api/accounts/${encodeURIComponent(
-        publicKey
-      )}/stream`;
+      const basePath = `${API_URL}/api/accounts/${encodeURIComponent(publicKey)}/stream`;
+      let ticket: string;
+
+      try {
+        // Fetch a short-lived single-use ticket for the SSE connection
+        const ticketRes = await apiFetch(`${basePath}/ticket`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        
+        if (!ticketRes.ok) {
+          throw new Error("Failed to get stream ticket");
+        }
+        
+        const data = await ticketRes.json();
+        ticket = data.ticket;
+      } catch {
+        // Fallback to polling if ticket generation fails
+        startPolling(publicKey, generation);
+        return;
+      }
+
+      if (generationRef.current !== generation) return;
+
+      const url = `${basePath}?ticket=${encodeURIComponent(ticket)}`;
 
       let source: EventSource;
       try {
