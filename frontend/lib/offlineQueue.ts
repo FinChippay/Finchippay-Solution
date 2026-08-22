@@ -232,6 +232,7 @@ export async function processQueue(): Promise<void> {
     (t) => t.status === "queued" || t.status === "failed"
   );
 
+  const results: Array<QueueTransactionMetadata & { success: boolean; error?: string }> = [];
   for (const record of pending) {
     // Mark as submitting so the UI can reflect in-flight state.
     await updateTransaction({ ...record, status: "submitting" });
@@ -240,6 +241,7 @@ export async function processQueue(): Promise<void> {
       await submitXDRToHorizon(record.signedXDR);
       // Success — clean up from the queue.
       await removeTransaction(record.id);
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       await updateTransaction({
@@ -248,8 +250,10 @@ export async function processQueue(): Promise<void> {
         error: message,
         attempts: record.attempts + 1,
       });
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: false, error: message });
     }
   }
+  if (results.length && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("finchippay:queue-results", { detail: results }));
 }
 
 // ─── Horizon submission ───────────────────────────────────────────────────────

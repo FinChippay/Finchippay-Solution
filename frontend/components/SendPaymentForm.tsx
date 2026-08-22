@@ -54,6 +54,7 @@ import {
 } from "@/components/icons";
 import { useToastContext } from "@/lib/ToastContext";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { queueTransaction } from "@/lib/offlineQueue";
 
 interface SendPaymentFormProps {
   publicKey: string;
@@ -817,6 +818,19 @@ function SendPaymentForm({
       activeStep = "submitting";
       markStepStarted("submitting");
       setStatus("submitting");
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await queueTransaction(signedXDR, { destination: paymentDestination, amount: amountNum.toFixed(7), asset: typeof assetParam === "string" ? assetParam : assetParam.code });
+        const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: PendingTransaction) => t.id !== pendingId);
+        sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+        window.dispatchEvent(new CustomEvent("finchippay:failed-tx", { detail: { pendingId } }));
+        markStepCompleted("submitting");
+        setIsStatusModalOpen(false);
+        setStatus("idle");
+        saveRecipient(trimmedDestination);
+        addToast("You're offline. Your signed payment has been queued and will send when you're back online.", "info");
+        onSuccess?.();
+        return;
+      }
       const result = await submitTransaction(signedXDR);
       setTxHash(result.hash);
 

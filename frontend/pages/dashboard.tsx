@@ -102,6 +102,7 @@ import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
 import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
+import { cacheApiResponse, getCachedData } from "@/lib/cacheData";
 import { getJwtToken } from "@/lib/auth";
 import DashboardPortfolioWidget from "@/components/DashboardPortfolioWidget";
 import FeatureAnnouncement from "@/components/FeatureAnnouncement";
@@ -377,8 +378,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         usdcBalance: usdcBal,
         reserveInfo: reserve,
       });
+      void cacheApiResponse("dashboard-data", { publicKey, xlmBalance: bal, usdcBalance: usdcBal, reserveInfo: reserve });
     } catch (err: unknown) {
-      const cached = loadBalanceSnapshot(publicKey);
+      const indexedCache = await getCachedData("dashboard-data").catch(() => null);
+      const cachedData = indexedCache?.data as (CachedBalanceSnapshot & { publicKey?: string }) | undefined;
+      const cached = cachedData?.publicKey === publicKey ? { ...cachedData, savedAt: indexedCache!.cachedAt } : loadBalanceSnapshot(publicKey);
       const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
       if (cached && isOffline) {
         setXlmBalance(cached.xlmBalance);

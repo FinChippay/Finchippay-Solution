@@ -5,10 +5,12 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import { I18nextProvider } from "react-i18next";
+import InstallPrompt from "@/components/InstallPrompt";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import Navbar from "@/components/Navbar";
 import OfflineBanner from "@/components/OfflineBanner";
 import OnboardingTour from "@/components/OnboardingTour";
+import QueueSyncNotifier from "@/components/QueueSyncNotifier";
 import QuickSendModal from "@/components/QuickSendModal";
 import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
 import SkipToContentLink from "@/components/SkipToContentLink";
@@ -40,6 +42,7 @@ export default function App({ Component, pageProps }: AppProps) {
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
   useEffect(() => { initSdkAuth(); }, []);
+  useEffect(() => { if ("serviceWorker" in navigator) { void navigator.serviceWorker.register("/sw.js").catch(() => {}); } }, []);
   useEffect(() => { try { const raw = localStorage.getItem("finchippay:theme"); if (raw) { const parsed = JSON.parse(raw); if (parsed.mode === "dark" || (parsed.mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)) { document.documentElement.classList.add("dark"); } else if (parsed.mode === "light") { document.documentElement.classList.remove("dark"); } if (parsed.accent) document.documentElement.dataset.accent = parsed.accent; if (parsed.fontSize) document.documentElement.dataset.fontSize = parsed.fontSize; } } catch {} }, []);
   useEffect(() => { const uriResult = getStellarURIFromURL(); if (uriResult) setStellarURI(uriResult); }, []);
   useEffect(() => { registerProtocolHandler(); }, []);
@@ -49,6 +52,8 @@ export default function App({ Component, pageProps }: AppProps) {
       <ThemeProvider><ToastProvider><WalletProvider>
         <Head><title>Finchippay-Solution | Instant Stellar Payments</title></Head>
         <AppShell Component={Component} pageProps={pageProps} stellarURI={stellarURI} isQuickSendOpen={isQuickSendOpen} setIsQuickSendOpen={setIsQuickSendOpen} />
+        <InstallPrompt />
+        <QueueSyncNotifier />
         <ToastContainer />
       </WalletProvider></ToastProvider></ThemeProvider>
     </I18nextProvider>

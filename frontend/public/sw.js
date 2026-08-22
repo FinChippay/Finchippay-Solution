@@ -475,6 +475,7 @@ async function submitQueuedPayments() {
 
   const pending = await getPendingTransactions(db);
   const horizonUrl = getHorizonUrl();
+  const results = [];
 
   for (const record of pending) {
     // Mark in-flight so the UI can show a spinner.
@@ -500,6 +501,7 @@ async function submitQueuedPayments() {
 
       // ✓ Success — remove from queue.
       await deleteTransaction(db, record.id);
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: true });
     } catch (err) {
       // ✗ Failure — persist error for the next retry.
       await putTransaction(db, {
@@ -508,6 +510,7 @@ async function submitQueuedPayments() {
         error: err instanceof Error ? err.message : String(err),
         attempts: (record.attempts || 0) + 1,
       });
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: false, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -516,7 +519,7 @@ async function submitQueuedPayments() {
   // Notify all open tabs so they can refresh the queue badge / banner.
   const clientList = await self.clients.matchAll({ type: "window" });
   for (const client of clientList) {
-    client.postMessage({ type: "QUEUE_PROCESSED" });
+    client.postMessage({ type: "QUEUE_PROCESSED", results });
   }
 }
 
