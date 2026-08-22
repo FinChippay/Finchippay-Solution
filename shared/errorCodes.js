@@ -98,6 +98,11 @@ const ERROR_CODES = {
     httpStatus: 401,
     message: "SEP-0010 challenge verification failed.",
   },
+  AUTH_INVALID_WEBHOOK_SIGNATURE: {
+    code: "AUTH_INVALID_WEBHOOK_SIGNATURE",
+    httpStatus: 401,
+    message: "Webhook signature verification failed.",
+  },
   /**
    * Deprecated alias for AUTH_EXPIRED_TOKEN. Shipped before this catalogue
    * existed and is asserted by existing consumers, so the API still emits it

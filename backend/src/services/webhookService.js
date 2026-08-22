@@ -49,6 +49,7 @@ const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 const { encryptSecret, decryptSecret } = require("../utils/encryption");
+const { hashSecret, WEBHOOK_SECRET_KEY } = require("../utils/webhookSecretHash");
 const {
   SUPPORTED_WEBHOOK_TOPICS,
   normalizeTopics,
@@ -76,21 +77,6 @@ const MAX_RETRIES = parseInt(process.env.WEBHOOK_MAX_RETRIES, 10) || 6;
 const RETRY_INTERVALS_SECONDS = [60, 300, 900, 3600, 21600, 86400];
 const RETRY_WORKER_INTERVAL = 30000;
 
-/**
- * Server-side secret used to produce the stored HMAC-SHA256 hash.
- * Must be set in the environment; defaults to a generated value that won't
- * survive restarts — force explicit configuration in production.
- */
-const WEBHOOK_SECRET_KEY = process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
-
-if (!process.env.WEBHOOK_SECRET_KEY && process.env.NODE_ENV !== "test") {
-  logger.warn(
-    "WEBHOOK_SECRET_KEY is not set — a random key will be used. " +
-      "Stored secret hashes will not be reproducible across restarts. " +
-      "Set WEBHOOK_SECRET_KEY in your environment for production use.",
-  );
-}
-
 /** In-process cache of the most recently registered webhooks (by id). The DB
  *  is the source of truth — this Map just gives the SSE delivery path a
  *  cheap way to resolve `id → secret + url` without a SELECT per payment. */
@@ -104,21 +90,6 @@ const activeStreams = new Map();
 const pendingDeliveries = new Set();
 
 let retryWorkerTimer = null;
-
-// ─── Secret hashing ───────────────────────────────────────────────────────────
-
-/**
- * Produce a deterministic HMAC-SHA256 hash of `secret` keyed by `id`.
- * This is stored alongside the encrypted secret so the hash can be
- * verified without decryption.
- *
- * @param {string} id
- * @param {string} secret
- * @returns {string} hex digest
- */
-function hashSecret(id, secret) {
-  return crypto.createHmac("sha256", WEBHOOK_SECRET_KEY).update(`${id}:${secret}`).digest("hex");
-}
 
 // ─── ID generation ────────────────────────────────────────────────────────────
 
@@ -431,7 +402,7 @@ async function writeToDeadLetterQueue(deliveryId, webhook, payload, errorMsg, re
     await knex("dead_letter_queue").insert({
       id: crypto.randomUUID(),
       delivery_id: deliveryId,
-      webhook_id: resolvedWebhook.id,
+      webhook_id: webhook.id,
       payload: typeof payload === "string" ? payload : JSON.stringify(payload),
       retry_timestamps: JSON.stringify(retryTimestamps),
       final_error: errorMsg,
@@ -835,4 +806,10 @@ module.exports = {
   restoreWebhooks,
   MAX_RETRIES,
   RETRY_INTERVALS_SECONDS,
+  // Re-exported for backward compatibility — these now live in
+  // utils/webhookSecretHash.js (shared with inboundWebhookSecretService.js)
+  // so that dependency-free module can be required without pulling in this
+  // file's @stellar/stellar-sdk dependency.
+  hashSecret,
+  WEBHOOK_SECRET_KEY,
 };

@@ -391,6 +391,61 @@ function clearLRU() {
   lruCache.clear();
 }
 
+/**
+ * Atomically record that `key` has been seen, for once-only semantics
+ * (e.g. webhook replay-nonce detection).
+ *
+ * Returns `true` the first time a given key is set (i.e. this call "won"
+ * the race and the caller should proceed), `false` if the key was already
+ * present (a duplicate/replay). Unlike get()+set(), this is a single atomic
+ * operation — safe under concurrent calls with the same key.
+ *
+ * Redis path uses `SET key 1 EX ttl NX`, which is atomic server-side. The
+ * LRU fallback is a single synchronous check-then-insert, which is
+ * inherently atomic within one Node.js process (no other JS can run between
+ * the check and the insert).
+ *
+ * @param {string} key
+ * @param {number} ttlSeconds
+ * @returns {Promise<boolean>} true if newly set, false if it already existed
+ */
+async function setIfNotExists(key, ttlSeconds) {
+  const span = tracer.startSpan("db.query.setIfNotExists");
+  span.setAttributes({
+    "db.system": "redis",
+    "db.operation": "setIfNotExists",
+    "db.statement": `SET ${key} EX ${ttlSeconds} NX`,
+  });
+
+  try {
+    if (redis && redisReady) {
+      try {
+        const result = await redis.set(key, "1", "EX", ttlSeconds, "NX");
+        span.setAttribute("db.cache.newly_set", result === "OK");
+        return result === "OK";
+      } catch (err) {
+        logger.warn({ err, key }, "Redis setIfNotExists failed — falling back to LRU");
+      }
+    }
+
+    // LRU fallback: lruGet() already evicts expired entries, so a null
+    // result here means either never-seen or expired — both count as "new".
+    if (lruGet(key) !== null) {
+      span.setAttribute("db.cache.newly_set", false);
+      return false;
+    }
+    lruSet(key, "1", ttlSeconds);
+    span.setAttribute("db.cache.newly_set", true);
+    return true;
+  } catch (err) {
+    span.recordException(err);
+    span.setStatus({ code: 2, message: err.message });
+    throw err;
+  } finally {
+    span.end();
+  }
+}
+
 module.exports = {
   initRedis,
   closeRedis,
@@ -401,4 +456,5 @@ module.exports = {
   del,
   delPattern,
   clearLRU,
+  setIfNotExists,
 };
