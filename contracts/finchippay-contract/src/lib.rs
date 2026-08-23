@@ -5816,33 +5816,34 @@ mod tests {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![&env, (
-                contract_id.clone(),
-                (Symbol::new(&env, "milestone_escrow_created"), id).into_val(&env),
-                (2u32).into_val(&env),
-            )]
+            [MilestoneEscrowCreated {
+                escrow_id: id,
+                milestone_count: 2u32,
+            }
+            .to_xdr(&env, &contract_id)]
         );
 
         client.approve_milestone(&id, &0, &agent);
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![&env, (
-                contract_id.clone(),
-                (Symbol::new(&env, "milestone_approved"), id).into_val(&env),
-                (0u32).into_val(&env),
-            )]
+            [MilestoneApproved {
+                escrow_id: id,
+                milestone_id: 0u32,
+            }
+            .to_xdr(&env, &contract_id)]
         );
 
         client.claim_milestone(&id, &0, &to);
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![&env, (
-                contract_id.clone(),
-                (Symbol::new(&env, "milestone_claimed"), id, 0u32).into_val(&env),
-                (600i128).into_val(&env),
-            )]
+            [MilestoneClaimed {
+                escrow_id: id,
+                milestone_id: 0u32,
+                amount: 600i128,
+            }
+            .to_xdr(&env, &contract_id)]
         );
     }
 
