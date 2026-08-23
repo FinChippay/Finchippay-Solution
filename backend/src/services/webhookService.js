@@ -49,6 +49,7 @@ const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 const { encryptSecret, decryptSecret } = require("../utils/encryption");
+const { validatePublicUrl } = require("../utils/ssrfGuard");
 const {
   SUPPORTED_WEBHOOK_TOPICS,
   normalizeTopics,
@@ -147,6 +148,9 @@ function generateId() {
  * @returns {Promise<{ id, publicKey, url, createdAt }>}
  */
 async function registerWebhook(publicKey, url, secret, topics = ["all"]) {
+  // ── SSRF guard: reject internal/private/loopback URLs ────────────────────
+  await validatePublicUrl(url);
+
   const id = generateId();
   const createdAt = new Date().toISOString();
   const encryptedSecret = encryptSecret(secret);
@@ -301,6 +305,9 @@ function generateIdempotencyKey(webhookId, eventType, payloadStr, timestamp) {
  * Attempt to deliver a signed webhook payload to a single endpoint.
  */
 async function attemptDelivery(webhook, payload, idempotencyKey) {
+  // ── SSRF guard (defence-in-depth): reject internal URLs before fetch ─────
+  await validatePublicUrl(webhook.url);
+
   const plainSecret = decryptSecret(webhook.secret);
   const signature = signPayload(plainSecret, payload);
   const headers = {
@@ -362,7 +369,12 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
   const deliveryId = crypto.randomUUID();
   const payloadStr = JSON.stringify(payload);
   const timestamp = new Date().toISOString();
-  const idempotencyKey = generateIdempotencyKey(resolvedWebhook.id, eventType, payloadStr, timestamp);
+  const idempotencyKey = generateIdempotencyKey(
+    resolvedWebhook.id,
+    eventType,
+    payloadStr,
+    timestamp,
+  );
 
   try {
     await knex("webhook_events").insert({
@@ -414,7 +426,12 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
       await knex("webhook_events")
         .where("idempotency_key", idempotencyKey)
         .update({ delivered_at: new Date().toISOString() });
-      logger.info({ type: "webhook_delivered", id: resolvedWebhook.id, url: resolvedWebhook.url, deliveryId });
+      logger.info({
+        type: "webhook_delivered",
+        id: resolvedWebhook.id,
+        url: resolvedWebhook.url,
+        deliveryId,
+      });
       span.setStatus({ code: 1 });
     } else {
       await handleDeliveryFailure(deliveryId, resolvedWebhook, result.error, payload);
@@ -431,7 +448,7 @@ async function writeToDeadLetterQueue(deliveryId, webhook, payload, errorMsg, re
     await knex("dead_letter_queue").insert({
       id: crypto.randomUUID(),
       delivery_id: deliveryId,
-      webhook_id: resolvedWebhook.id,
+      webhook_id: webhook.id,
       payload: typeof payload === "string" ? payload : JSON.stringify(payload),
       retry_timestamps: JSON.stringify(retryTimestamps),
       final_error: errorMsg,

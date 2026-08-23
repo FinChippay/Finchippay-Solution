@@ -8,6 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const webhookService = require("../services/webhookService");
+const { verifyJWT } = require("../middleware/auth");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const { registerWebhookSchema } = require("../validation/webhookSchemas");
@@ -38,12 +39,30 @@ const {
  * is also persisted for verification. The server restores all webhooks on
  * startup — re-registration is not required after a restart.
  */
-router.post("/", validate(registerWebhookSchema), async (req, res) => {
+// All webhook endpoints require a valid Stellar SEP-10 JWT.
+// The authenticated public key (`req.user.publicKey`) must match the
+// `publicKey` in the request body/params to prevent cross-account access.
+router.post("/", verifyJWT, validate(registerWebhookSchema), async (req, res) => {
   try {
     const { publicKey, url, secret, topics } = req.validated;
+
+    // Ensure the authenticated user can only register webhooks for their own account
+    if (publicKey !== req.user.publicKey) {
+      return res.status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus).json(
+        formatErrorResponse("AUTH_FORBIDDEN", {
+          reason: "You can only register webhooks for your own Stellar account.",
+        }),
+      );
+    }
+
     const webhook = await webhookService.registerWebhook(publicKey, url, secret, topics);
     return res.status(201).json({ success: true, webhook });
   } catch (err) {
+    if (err.message && err.message.startsWith("SSRF blocked:")) {
+      return res
+        .status(ERROR_CODES.VAL_INVALID_URL.httpStatus)
+        .json(formatErrorResponse("VAL_INVALID_URL", { reason: err.message }));
+    }
     return res
       .status(ERROR_CODES.SRV_INTERNAL.httpStatus)
       .json(formatErrorResponse("SRV_INTERNAL", { reason: err.message }));
@@ -54,30 +73,35 @@ router.post("/", validate(registerWebhookSchema), async (req, res) => {
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account with standardized pagination.
  */
-router.get("/:publicKey", validate(publicKeyParamSchema, "params"), async (req, res, next) => {
-  try {
-    const { publicKey } = req.validated;
-    const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
-    const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
-    const cursor = req.pagination?.cursor || null;
+router.get(
+  "/:publicKey",
+  verifyJWT,
+  validate(publicKeyParamSchema, "params"),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
+      const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
+      const cursor = req.pagination?.cursor || null;
 
-    const { data, nextCursor, total } = paginateInMemory(
-      hooks || [],
-      { limit, cursor },
-      (h) => ({ id: h.id }),
-      (a, b) => String(b.id || "").localeCompare(String(a.id || "")),
-    );
+      const { data, nextCursor, total } = paginateInMemory(
+        hooks || [],
+        { limit, cursor },
+        (h) => ({ id: h.id }),
+        (a, b) => String(b.id || "").localeCompare(String(a.id || "")),
+      );
 
-    setPaginationHeaders(req, res, { nextCursor, total, limit });
-    const formatted = formatPaginatedResponse(data, nextCursor, total, { limit });
-    return res.json({
-      ...formatted,
-      webhooks: data, // maintain backward compatibility
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+      setPaginationHeaders(req, res, { nextCursor, total, limit });
+      const formatted = formatPaginatedResponse(data, nextCursor, total, { limit });
+      return res.json({
+        ...formatted,
+        webhooks: data, // maintain backward compatibility
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /**
  * GET /api/webhooks/:publicKey/events
@@ -85,6 +109,7 @@ router.get("/:publicKey", validate(publicKeyParamSchema, "params"), async (req, 
  */
 router.get(
   "/:publicKey/events",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   validate(getEventsQuerySchema, "query"),
   async (req, res, next) => {
@@ -120,6 +145,7 @@ router.get(
  */
 router.post(
   "/:publicKey/replay",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   validate(replayEventsBodySchema),
   async (req, res, next) => {
@@ -140,6 +166,7 @@ router.post(
  */
 router.get(
   "/:publicKey/events/stats",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -158,6 +185,7 @@ router.get(
  */
 router.get(
   "/:publicKey/failures",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -176,6 +204,7 @@ router.get(
  */
 router.post(
   "/:publicKey/retry",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -194,6 +223,7 @@ router.post(
  */
 router.get(
   "/:publicKey/deliveries",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -217,6 +247,7 @@ router.get(
  */
 router.get(
   "/:publicKey/deliveries/:id",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -239,7 +270,7 @@ router.get(
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */
-router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
+router.delete("/:id", verifyJWT, validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
     const deleted = await webhookService.deleteWebhook(id);
