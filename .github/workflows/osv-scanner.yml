@@ -71,8 +71,13 @@ jobs:
             # Reusing that count avoids re-parsing raw CVSS vectors
             # ourselves, which the JSON output does not pre-compute.
             SUMMARY=$(echo "$TABLE_OUT" | grep -oE '\([0-9]+ Critical, [0-9]+ High,' || true)
-            CRIT=$(echo "$SUMMARY" | grep -oE '^[(][0-9]+' | tr -d '(')
-            HIGH=$(echo "$SUMMARY" | grep -oE '[0-9]+ High' | grep -oE '^[0-9]+')
+            # The summary line is absent when a lockfile has no findings at
+            # all, so these greps exit non-zero on the common path. Guard them
+            # like SUMMARY above: the step runs under `set -e` (GitHub Actions'
+            # default shell flags), and an unguarded failing pipeline would
+            # abort the whole job even though there is nothing to fail on.
+            CRIT=$(echo "$SUMMARY" | grep -oE '^[(][0-9]+' | tr -d '(' || true)
+            HIGH=$(echo "$SUMMARY" | grep -oE '[0-9]+ High' | grep -oE '^[0-9]+' || true)
             CRIT="${CRIT:-0}"
             HIGH="${HIGH:-0}"
             echo "$lock: $CRIT Critical, $HIGH High"
