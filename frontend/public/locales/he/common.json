@@ -91,5 +91,21 @@
     "title": "הגדרות",
     "languageTitle": "שָׂפָה",
     "rtlSupportNote": "תמיכת RTL: פריסות ערבית ועברית מוצגות במראה."
+  },
+  "receipt": {
+    "transactionReceipt": "קבלת עסקה",
+    "transactionDetails": "פרטי העסקה",
+    "confirmed": "מאושר",
+    "failed": "נכשל",
+    "amount": "סכום",
+    "transactionHash": "חתימת העסקה",
+    "timestamp": "חותמת זמן",
+    "ledger": "פנקס",
+    "feeCharged": "עמלה שנגבתה",
+    "from": "מאת",
+    "to": "אל",
+    "memo": "הערה",
+    "generatedBy": "נוצר על ידי Finchippay",
+    "officialNotice": "זוהי קבלת עסקה רשמית מבלוקצ'יין Stellar."
   }
 }

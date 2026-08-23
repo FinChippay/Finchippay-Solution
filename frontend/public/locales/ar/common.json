@@ -91,5 +91,21 @@
     "title": "إعدادات",
     "languageTitle": "لغة",
     "rtlSupportNote": "دعم الكتابة من اليمين إلى اليسار: يتم عكس تخطيطات العربية والعبرية."
+  },
+  "receipt": {
+    "transactionReceipt": "إيصال المعاملة",
+    "transactionDetails": "تفاصيل المعاملة",
+    "confirmed": "مؤكد",
+    "failed": "فشل",
+    "amount": "المبلغ",
+    "transactionHash": "رمز المعاملة",
+    "timestamp": "الختم الزمني",
+    "ledger": "دفتر الأستاذ",
+    "feeCharged": "الرسوم المفروضة",
+    "from": "من",
+    "to": "إلى",
+    "memo": "مذكرة",
+    "generatedBy": "تم الإنشاء بواسطة Finchippay",
+    "officialNotice": "هذا إيصال معاملة رسمي من سلسلة كتل Stellar."
   }
 }

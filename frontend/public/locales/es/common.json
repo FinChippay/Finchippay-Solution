@@ -304,5 +304,21 @@
     "languageTitle": "Idioma",
     "languageDescription": "Selecciona tu idioma preferido para la interfaz de la aplicación.",
     "rtlSupportNote": "Compatibilidad RTL: los diseños en árabe y hebreo se muestran en espejo."
+  },
+  "receipt": {
+    "transactionReceipt": "Recibo de Transacción",
+    "transactionDetails": "Detalles de la Transacción",
+    "confirmed": "CONFIRMADO",
+    "failed": "FALLIDO",
+    "amount": "Monto",
+    "transactionHash": "Hash de Transacción",
+    "timestamp": "Fecha y Hora",
+    "ledger": "Ledger",
+    "feeCharged": "Comisión Cobrada",
+    "from": "De",
+    "to": "Para",
+    "memo": "Memo",
+    "generatedBy": "Generado por Finchippay",
+    "officialNotice": "Este es un recibo oficial de transacción de la blockchain de Stellar."
   }
 }
