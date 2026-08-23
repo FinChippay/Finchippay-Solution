@@ -18,129 +18,361 @@
 //! | `pauser_set` | pauser address | Pauser role assigned |
 //! | `upgraded` | (new_version, wasm_hash, layout_version) | Contract upgraded |
 //! | `ttl_bumped` | (keys_bumped, class_index, key_index) | TTL sweep progress |
-//! | `tip_sent` | (from, to, amount_ledger) | Tip recorded |
+//! | `tip_sent` | (from, to, amount, ledger, memo) | Tip recorded |
 //! | `receipt_minted` | (payer, receipt_index) | Payment receipt minted |
-//! | `escrow_created` | (id, from, to, amount, release_ledger) | Escrow opened |
-//! | `escrow_released` | (id, recipient) | Escrow claimed |
-//! | `escrow_cancelled` | (id, from) | Escrow cancelled by sender |
-//! | `escrow_disputed` | (id, raised_by) | Dispute flag set |
-//! | `stream_opened` | (id, payer, recipient, rate) | Stream started |
-//! | `stream_claimed` | (id, amount) | Stream funds withdrawn |
-//! | `stream_topped_up` | (id, amount) | Stream balance increased |
-//! | `stream_closed` | (id) | Stream closed by payer |
-//! | `multisig_created` | (id, proposer, threshold) | Multi-sig proposal created |
-//! | `multisig_approved` | (id, approver, count, threshold) | Proposal approved |
-//! | `multisig_executed` | (id, recipient, amount) | Payment executed |
-//! | `batch_sent` | (sender, recipient_count) | Batch payment completed |
-//! | `emergency_withdrawal_initiated` | (id, initiator) | Emergency withdrawal requested |
-//! | `emergency_withdrawal_executed` | (id, to, amount) | Funds rescued |
-//! | `admin_action_proposed` | (id, action_type, proposer) | Gov proposal created |
-//! | `admin_action_approved` | (id, approver, count, threshold) | Gov action approved |
-//! | `balance_reconciled` | (token, old, new) | Admin resynced cached contract balance |
+//! | `escrow_created` | (escrow_id, from, to, amount, release_ledger) | Escrow opened |
+//! | `escrow_cancelled` | (escrow_id, from, amount) | Escrow cancelled |
+//! | `disputable_escrow_created` | (escrow_id, arbitrator) | Disputable escrow created |
+//! | `dispute_raised` | (escrow_id, raised_by) | Dispute flag set |
+//! | `arbitrator_added` | arbitrator address | Arbitrator registered |
+//! | `arbitrator_removed` | arbitrator address | Arbitrator removed |
+//! | `stream_opened` | (stream_id, payer, recipient, rate, deposit) | Stream started |
+//! | `stream_claimed` | (stream_id, recipient, amount) | Stream funds withdrawn |
+//! | `stream_topped_up` | (stream_id, payer, amount, deposited) | Stream balance increased |
+//! | `stream_closed` | (stream_id, refund, claimable) | Stream closed by payer |
+//! | `multisig_created` | (proposal_id, proposer, recipient, amount, threshold, signers_count, expiration_ledger) | Multi-sig proposal created |
+//! | `multisig_approved` | (proposal_id, approver, count, threshold) | Proposal approved |
+//! | `multisig_cancelled` | (proposal_id, proposer, amount) | Multi-sig cancelled |
+//! | `batch_sent` | (sender, recipient_count, total_amount) | Batch payment completed |
+//! | `batch_sent_multi` | (sender, recipient_count, total_amount) | Multi-token batch completed |
+//! | `vesting_create` | (vesting_id, from, beneficiary, amount, cliff_ledger, end_ledger) | Vesting schedule created |
+//! | `vesting_claim` | (vesting_id, beneficiary, amount) | Vesting claimed |
+//! | `vesting_revoke` | (vesting_id, funder, amount) | Vesting revoked |
+//! | `emergency_withdrawal_initiated` | (withdrawal_id, initiator, token, amount, activation_ledger) | Emergency withdrawal requested |
+//! | `emergency_withdrawal_approved` | (withdrawal_id, signer, count, threshold) | Emergency withdrawal approved |
+//! | `emergency_withdrawal_executed` | (withdrawal_id, to, amount) | Funds rescued |
+//! | `emergency_withdrawal_cancelled` | (withdrawal_id, admin, amount) | Emergency withdrawal cancelled |
+//! | `admin_action_proposed` | (proposal_id, action_type, proposer) | Gov proposal created |
+//! | `admin_action_approved` | (proposal_id, approver, count, threshold) | Gov action approved |
+//! | `airdrop_created` | (airdrop_id, funder, token, total_amount) | Airdrop created |
+//! | `airdrop_claimed` | (airdrop_id, recipient, amount) | Airdrop claimed |
+//! | `airdrop_cancelled` | (airdrop_id, funder, amount) | Airdrop cancelled |
+//! | `yield_escrow_create` | (escrow_id, from, to, token, amount, shares) | Yield escrow created |
+//! | `yield_escrow_claim` | (escrow_id, to, amount) | Yield escrow claimed |
+//! | `yield_escrow_cancelled` | (escrow_id, from, amount) | Yield escrow cancelled |
+//! | `fee_collector_set` | collector address | Fee collector updated |
+//! | `swap_fee_set` | fee_bps | Swap fee rate updated |
+//! | `rescue_tokens` | (token, amount, to) | Emergency token rescue |
 //! | `balance_drift_detected` | (token, cached, actual) | Cached vs actual balance drift surfaced |
-//! | `swap` | (requested_in, actual_in, amount_out, fee, path_len) | Contract-reserve swap settled |
 
-use soroban_sdk::Symbol;
+use soroban_sdk::{contractevent, Address, BytesN, Symbol};
 
-/// Event symbols generated lazily per-environment for gas efficiency.
-/// Callers should use the functions below rather than constructing Symbols
-/// inline.
-pub struct Events;
+// ─── Admin & governance events ────────────────────────────────────────────
 
-impl Events {
-    pub fn init(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "init")
-    }
+#[contractevent]
+pub struct Init {
+    pub admin: Address,
+}
 
-    pub fn admin_transfer(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_transfer")
-    }
+#[contractevent]
+pub struct AdminTransfer {
+    pub new_admin: Address,
+}
 
-    pub fn admin_signers_set(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_signers_set")
-    }
+#[contractevent]
+pub struct AdminSignersSet {
+    pub threshold: u32,
+    pub signer_count: u32,
+}
 
-    pub fn paused(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "paused")
-    }
+#[contractevent]
+pub struct Paused {}
 
-    pub fn unpaused(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "unpaused")
-    }
+#[contractevent]
+pub struct Unpaused {}
 
-    pub fn pauser_set(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "pauser_set")
-    }
+#[contractevent]
+pub struct PauserSet {
+    pub pauser: Address,
+}
 
-    pub fn upgraded(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "upgraded")
-    }
+#[contractevent]
+pub struct Upgraded {
+    pub new_version: u32,
+    pub wasm_hash: BytesN<32>,
+    pub layout_version: u32,
+}
 
-    pub fn ttl_bumped(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "ttl_bumped")
-    }
+#[contractevent]
+pub struct AdminActionProposed {
+    pub proposal_id: u64,
+    pub action_type: Symbol,
+    pub proposer: Address,
+}
 
-    pub fn tip_sent(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "tip_sent")
-    }
+#[contractevent]
+pub struct AdminActionApproved {
+    pub proposal_id: u64,
+    pub approver: Address,
+    pub count: u32,
+    pub threshold: u32,
+}
 
-    pub fn receipt_minted(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "receipt_minted")
-    }
+#[contractevent]
+pub struct RescueTokens {
+    pub token: Address,
+    pub amount: i128,
+    pub to: Address,
+}
 
-    pub fn escrow_created(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_created")
-    }
+#[contractevent]
+pub struct FeeCollectorSet {
+    pub collector: Address,
+}
 
-    pub fn escrow_released(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_released")
-    }
+#[contractevent]
+pub struct SwapFeeSet {
+    pub fee_bps: u32,
+}
 
-    pub fn escrow_cancelled(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_cancelled")
-    }
+// ─── TTL sweep event ──────────────────────────────────────────────────────
 
-    pub fn escrow_disputed(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_disputed")
-    }
+#[contractevent]
+pub struct TtlBumped {
+    pub keys_bumped: u32,
+    pub class_index: u32,
+    pub key_index: u32,
+}
 
-    pub fn stream_opened(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "stream_opened")
-    }
+// ─── Tip & receipt events ─────────────────────────────────────────────────
 
-    pub fn stream_claimed(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "stream_claimed")
-    }
+#[contractevent]
+pub struct TipSent {
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub ledger: u32,
+    pub memo: Symbol,
+}
 
-    pub fn multisig_created(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "multisig_created")
-    }
+#[contractevent]
+pub struct ReceiptMinted {
+    pub payer: Address,
+    pub receipt_index: u32,
+}
 
-    pub fn multisig_approved(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "multisig_approved")
-    }
+// ─── Escrow events ────────────────────────────────────────────────────────
 
-    pub fn batch_sent(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "batch_sent")
-    }
+#[contractevent]
+pub struct EscrowCreated {
+    pub escrow_id: u32,
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub release_ledger: u32,
+}
 
-    pub fn emergency_withdrawal_initiated(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "emergency_withdrawal_initiated")
-    }
+#[contractevent]
+pub struct EscrowCancelled {
+    pub escrow_id: u32,
+    pub from: Address,
+    pub amount: i128,
+}
 
-    pub fn admin_action_proposed(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_action_proposed")
-    }
+#[contractevent]
+pub struct DisputableEscrowCreated {
+    pub escrow_id: u32,
+    pub arbitrator: Address,
+}
 
-    pub fn admin_action_approved(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_action_approved")
-    }
+#[contractevent]
+pub struct DisputeRaised {
+    pub escrow_id: u32,
+    pub raised_by: Address,
+}
 
-    pub fn balance_reconciled(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "balance_reconciled")
-    }
+#[contractevent]
+pub struct ArbitratorAdded {
+    pub arbitrator: Address,
+}
 
-    pub fn balance_drift_detected(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "balance_drift_detected")
-    }
+#[contractevent]
+pub struct ArbitratorRemoved {
+    pub arbitrator: Address,
+}
+
+// ─── Streaming payment events ─────────────────────────────────────────────
+
+#[contractevent]
+pub struct StreamOpened {
+    pub stream_id: u32,
+    pub payer: Address,
+    pub recipient: Address,
+    pub rate: i128,
+    pub deposit: i128,
+}
+
+#[contractevent]
+pub struct StreamClaimed {
+    pub stream_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct StreamToppedUp {
+    pub stream_id: u32,
+    pub payer: Address,
+    pub amount: i128,
+    pub deposited: i128,
+}
+
+#[contractevent]
+pub struct StreamClosed {
+    pub stream_id: u32,
+    pub refund: i128,
+    pub claimable: i128,
+}
+
+// ─── Multi-sig events ─────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct MultisigCreated {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub threshold: u32,
+    pub signers_count: u32,
+    pub expiration_ledger: u32,
+}
+
+#[contractevent]
+pub struct MultisigApproved {
+    pub proposal_id: u32,
+    pub approver: Address,
+    pub count: u32,
+    pub threshold: u32,
+}
+
+#[contractevent]
+pub struct MultisigCancelled {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub amount: i128,
+}
+
+// ─── Batch send events ────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct BatchSent {
+    pub sender: Address,
+    pub recipient_count: u32,
+    pub total_amount: i128,
+}
+
+#[contractevent]
+pub struct BatchSentMulti {
+    pub sender: Address,
+    pub recipient_count: u32,
+    pub total_amount: i128,
+}
+
+// ─── Vesting events ───────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct VestingCreate {
+    pub vesting_id: u32,
+    pub from: Address,
+    pub beneficiary: Address,
+    pub amount: i128,
+    pub cliff_ledger: u32,
+    pub end_ledger: u32,
+}
+
+#[contractevent]
+pub struct VestingClaim {
+    pub vesting_id: u32,
+    pub beneficiary: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct VestingRevoke {
+    pub vesting_id: u32,
+    pub funder: Address,
+    pub amount: i128,
+}
+
+// ─── Emergency withdrawal events ──────────────────────────────────────────
+
+#[contractevent]
+pub struct EmergencyWithdrawalInitiated {
+    pub withdrawal_id: u32,
+    pub initiator: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub activation_ledger: u32,
+}
+
+#[contractevent]
+pub struct EmergencyWithdrawalApproved {
+    pub withdrawal_id: u32,
+    pub signer: Address,
+    pub count: u32,
+    pub threshold: u32,
+}
+
+#[contractevent]
+pub struct EmergencyWithdrawalExecuted {
+    pub withdrawal_id: u32,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct EmergencyWithdrawalCancelled {
+    pub withdrawal_id: u32,
+    pub admin: Address,
+    pub amount: i128,
+}
+
+// ─── Airdrop events ───────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct AirdropCreated {
+    pub airdrop_id: u32,
+    pub funder: Address,
+    pub token: Address,
+    pub total_amount: i128,
+}
+
+#[contractevent]
+pub struct AirdropClaimed {
+    pub airdrop_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct AirdropCancelled {
+    pub airdrop_id: u32,
+    pub funder: Address,
+    pub amount: i128,
+}
+
+// ─── Yield escrow events ──────────────────────────────────────────────────
+
+#[contractevent]
+pub struct YieldEscrowCreate {
+    pub escrow_id: u64,
+    pub from: Address,
+    pub to: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub shares: i128,
+}
+
+#[contractevent]
+pub struct YieldEscrowClaim {
+    pub escrow_id: u64,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct YieldEscrowCancelled {
+    pub escrow_id: u64,
+    pub from: Address,
+    pub amount: i128,
 }
