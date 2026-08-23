@@ -175,10 +175,11 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
 
         let token = get_token_client(&env, &proposal.token);
         contract_transfer_out(&env, &token, &proposal.recipient, &proposal.amount);
-        env.events().publish(
-            (Symbol::new(&env, "multisig_executed"), proposal_id),
-            (proposal.recipient.clone(), proposal.amount),
-        );
+        env.events().publish_event(&MultisigExecuted {
+            proposal_id,
+            recipient: proposal.recipient.clone(),
+            amount: proposal.amount,
+        });
     } else {
         env.storage()
             .persistent()
@@ -221,10 +222,11 @@ pub fn timeout_multisig(env: Env, proposal_id: u32) {
     let token = get_token_client(&env, &proposal.token);
     contract_transfer_out(&env, &token, &proposal.proposer, &proposal.amount);
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_timeout"), proposal_id),
-        (proposal.proposer.clone(), proposal.amount),
-    );
+    env.events().publish_event(&MultisigTimeout {
+        proposal_id,
+        proposer: proposal.proposer.clone(),
+        amount: proposal.amount,
+    });
 }
 
 /// The proposer cancels the proposal before execution; funds are refunded.
@@ -258,10 +260,11 @@ pub fn cancel_multisig(env: Env, proposal_id: u32, proposer: Address) {
     let token = get_token_client(&env, &proposal.token);
     contract_transfer_out(&env, &token, &proposer, &proposal.amount);
 
-    env.events().publish(
-        (Symbol::new(&env, "multisig_cancelled"),),
-        (proposal_id, proposer, proposal.amount),
-    );
+    env.events().publish_event(&MultisigCancelled {
+        proposal_id,
+        proposer,
+        amount: proposal.amount,
+    });
 }
 
 /// Return the multi-sig proposal for `proposal_id`.

@@ -692,7 +692,6 @@ pub(crate) fn get_token_client<'a>(env: &'a Env, token_address: &'a Address) -> 
 /// 3. **returns the actual balance**, so the phantom-deposit check in
 ///    [`require_transfer_succeeded`] is always evaluated against the real
 ///    on-chain balance, never a possibly-stale cache.
-#[allow(deprecated)]
 pub(crate) fn get_contract_balance(env: &Env, token: &token::Client) -> i128 {
     let key = DataKey::LastContractBalance(token.address.clone());
     let actual = token.balance(&env.current_contract_address());
@@ -700,13 +699,11 @@ pub(crate) fn get_contract_balance(env: &Env, token: &token::Client) -> i128 {
     match cached {
         Some(cached) => {
             if cached != actual {
-                env.events().publish(
-                    (
-                        Symbol::new(env, "balance_drift_detected"),
-                        token.address.clone(),
-                    ),
-                    (cached, actual),
-                );
+                env.events().publish_event(&BalanceDriftDetected {
+                    token: token.address.clone(),
+                    cached,
+                    actual,
+                });
                 env.storage().persistent().set(&key, &actual);
             }
             storage::bump(env, &key);
@@ -1472,8 +1469,7 @@ impl FinchippayContract {
                 .expect("invalid set_pauser payload");
             env.storage().persistent().set(&DataKey::Pauser, &pauser);
             bump_to_floor(env, &DataKey::Pauser);
-            env.events()
-                .publish((Symbol::new(env, "pauser_set"),), pauser);
+            env.events().publish_event(&PauserSet { pauser });
         } else if action == &Symbol::new(env, "upgrade") {
             let wasm_hash: BytesN<32> = proposal
                 .action_data
@@ -1505,10 +1501,11 @@ impl FinchippayContract {
                 .persistent()
                 .set(&DataKey::StorageLayoutVersion, &layout_version);
             bump(env, &DataKey::StorageLayoutVersion);
-            env.events().publish(
-                (Symbol::new(env, "upgraded"),),
-                (current_ver + 1, wasm_hash, layout_version),
-            );
+            env.events().publish_event(&Upgraded {
+                new_version: current_ver + 1,
+                wasm_hash,
+                layout_version,
+            });
         } else if action == &Symbol::new(env, "reconcile_balance") {
             let token_address: Address = proposal
                 .action_data
@@ -1548,13 +1545,11 @@ impl FinchippayContract {
         } else {
             storage::bump_if_present(env, &key);
         }
-        env.events().publish(
-            (
-                Symbol::new(env, "balance_reconciled"),
-                token_address.clone(),
-            ),
-            (old, new),
-        );
+        env.events().publish_event(&BalanceReconciled {
+            token: token_address.clone(),
+            old,
+            new,
+        });
     }
 
     /// Execute pause without auth check (called from execute_admin_action).
@@ -2016,10 +2011,11 @@ impl FinchippayContract {
 
             let token = get_token_client(&env, &withdrawal.token);
             contract_transfer_out(&env, &token, &to, &amount);
-            env.events().publish(
-                (Symbol::new(&env, "emergency_withdrawal_executed"), id),
-                (to, amount),
-            );
+            env.events().publish_event(&EmergencyWithdrawalExecuted {
+                withdrawal_id: id,
+                to,
+                amount,
+            });
         } else {
             env.storage()
                 .persistent()
@@ -2064,10 +2060,11 @@ impl FinchippayContract {
         let token = get_token_client(&env, &withdrawal.token);
         contract_transfer_out(&env, &token, &withdrawal.to, &withdrawal.amount);
 
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_executed"), id),
-            (withdrawal.to, withdrawal.amount),
-        );
+        env.events().publish_event(&EmergencyWithdrawalExecuted {
+            withdrawal_id: id,
+            to: withdrawal.to,
+            amount: withdrawal.amount,
+        });
     }
 
     /// Cancel a pending emergency withdrawal. Any admin may call this before
@@ -2964,15 +2961,16 @@ impl FinchippayContract {
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
 
-        env.events().publish(
-            (
-                Symbol::new(&env, "swap"),
-                caller.clone(),
-                token_in.clone(),
-                token_out.clone(),
-            ),
-            (amount_in, actual_amount_in, amount_out, fee, path.len()),
-        );
+        env.events().publish_event(&Swap {
+            caller: caller.clone(),
+            token_in: token_in.clone(),
+            token_out: token_out.clone(),
+            amount_in,
+            actual_amount_in,
+            amount_out,
+            fee,
+            path_len: path.len(),
+        });
 
         Ok(amount_out)
     }
@@ -3053,21 +3051,16 @@ impl FinchippayContract {
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
 
-        env.events().publish(
-            (
-                Symbol::new(&env, "swap"),
-                caller.clone(),
-                token_in.clone(),
-                token_out.clone(),
-            ),
-            (
-                requested_amount_in,
-                actual_amount_in,
-                amount_out,
-                actual_fee,
-                path.len(),
-            ),
-        );
+        env.events().publish_event(&Swap {
+            caller: caller.clone(),
+            token_in: token_in.clone(),
+            token_out: token_out.clone(),
+            amount_in: requested_amount_in,
+            actual_amount_in,
+            amount_out,
+            fee: actual_fee,
+            path_len: path.len(),
+        });
 
         Ok(requested_amount_in)
     }

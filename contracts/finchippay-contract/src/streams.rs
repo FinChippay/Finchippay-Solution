@@ -262,10 +262,11 @@ pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
         contract_transfer_out(&env, &token, &payer, &refund);
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_close"), stream_id),
-        (payer, refund),
-    );
+    env.events().publish_event(&StreamClose {
+        stream_id,
+        payer,
+        refund,
+    });
 
     // Emit final close event for indexing/UI.
     env.events().publish_event(&StreamClosed {
@@ -332,10 +333,11 @@ pub fn reject_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
         contract_transfer_out(&env, &token, &stream.payer, &refund);
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_reject"), stream_id),
-        (recipient, refund),
-    );
+    env.events().publish_event(&StreamReject {
+        stream_id,
+        recipient,
+        refund,
+    });
     refund
 }
 
@@ -391,10 +393,11 @@ pub fn transfer_stream(
         );
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "stream_transfer"), stream_id),
-        (current_recipient, new_recipient),
-    );
+    env.events().publish_event(&StreamTransfer {
+        stream_id,
+        from: current_recipient,
+        to: new_recipient,
+    });
 }
 
 /// Return the stream record for `stream_id`.

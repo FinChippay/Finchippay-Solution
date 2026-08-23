@@ -52,7 +52,19 @@
 //! | `yield_escrow_cancelled` | (escrow_id, from, amount) | Yield escrow cancelled |
 //! | `fee_collector_set` | collector address | Fee collector updated |
 //! | `swap_fee_set` | fee_bps | Swap fee rate updated |
-//! | `rescue_tokens` | (token, amount, to) | Emergency token rescue |
+//! | `escrow_claimed` | (escrow_id, recipient, amount) | Escrow claimed |
+//! | `escrow_claim_partial` | (escrow_id, to, claim_amount, remaining) | Partial escrow claim |
+//! | `milestone_escrow_created` | (escrow_id, milestone_count) | Milestone escrow created |
+//! | `milestone_approved` | (escrow_id, milestone_id) | Milestone approved |
+//! | `milestone_claimed` | (escrow_id, milestone_id, amount) | Milestone claimed |
+//! | `dispute_resolved` | (escrow_id, resolution, to, amount) | Dispute resolved |
+//! | `stream_close` | (stream_id, payer, refund) | Stream close (old API) |
+//! | `stream_reject` | (stream_id, recipient, refund) | Stream rejected |
+//! | `stream_transfer` | (stream_id, from, to) | Stream transferred |
+//! | `multisig_executed` | (proposal_id, recipient, amount) | Multi-sig executed |
+//! | `multisig_timeout` | (proposal_id, proposer, amount) | Multi-sig timed out |
+//! | `swap` | (caller, token_in, token_out, amount_in, actual_amount_in, amount_out, fee, path_len) | Swap executed |
+//! | `balance_reconciled` | (token, old, new) | Admin resynced cached contract balance |
 //! | `balance_drift_detected` | (token, cached, actual) | Cached vs actual balance drift surfaced |
 
 use soroban_sdk::{contractevent, Address, BytesN, Symbol};
@@ -106,13 +118,6 @@ pub struct AdminActionApproved {
     pub approver: Address,
     pub count: u32,
     pub threshold: u32,
-}
-
-#[contractevent]
-pub struct RescueTokens {
-    pub token: Address,
-    pub amount: i128,
-    pub to: Address,
 }
 
 #[contractevent]
@@ -349,6 +354,119 @@ pub struct AirdropCancelled {
     pub airdrop_id: u32,
     pub funder: Address,
     pub amount: i128,
+}
+
+// ─── Remaining escrow events (claim, milestones, disputes) ───────────────
+
+#[contractevent]
+pub struct EscrowClaimed {
+    pub escrow_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct EscrowClaimPartial {
+    pub escrow_id: u32,
+    pub to: Address,
+    pub claim_amount: i128,
+    pub remaining: i128,
+}
+
+#[contractevent]
+pub struct MilestoneEscrowCreated {
+    pub escrow_id: u32,
+    pub milestone_count: u32,
+}
+
+#[contractevent]
+pub struct MilestoneApproved {
+    pub escrow_id: u32,
+    pub milestone_id: u32,
+}
+
+#[contractevent]
+pub struct MilestoneClaimed {
+    pub escrow_id: u32,
+    pub milestone_id: u32,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct DisputeResolved {
+    pub escrow_id: u32,
+    pub resolution: Symbol,
+    pub to: Address,
+    pub amount: i128,
+}
+
+// ─── Remaining stream events (close, reject, transfer) ────────────────────
+
+#[contractevent]
+pub struct StreamClose {
+    pub stream_id: u32,
+    pub payer: Address,
+    pub refund: i128,
+}
+
+#[contractevent]
+pub struct StreamReject {
+    pub stream_id: u32,
+    pub recipient: Address,
+    pub refund: i128,
+}
+
+#[contractevent]
+pub struct StreamTransfer {
+    pub stream_id: u32,
+    pub from: Address,
+    pub to: Address,
+}
+
+// ─── Remaining multi-sig events (executed, timeout) ───────────────────────
+
+#[contractevent]
+pub struct MultisigExecuted {
+    pub proposal_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct MultisigTimeout {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub amount: i128,
+}
+
+// ─── Swap event ───────────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct Swap {
+    pub caller: Address,
+    pub token_in: Address,
+    pub token_out: Address,
+    pub amount_in: i128,
+    pub actual_amount_in: i128,
+    pub amount_out: i128,
+    pub fee: i128,
+    pub path_len: u32,
+}
+
+// ─── Balance reconciliation events ────────────────────────────────────────
+
+#[contractevent]
+pub struct BalanceReconciled {
+    pub token: Address,
+    pub old: i128,
+    pub new: i128,
+}
+
+#[contractevent]
+pub struct BalanceDriftDetected {
+    pub token: Address,
+    pub cached: i128,
+    pub actual: i128,
 }
 
 // ─── Yield escrow events ──────────────────────────────────────────────────
