@@ -90,6 +90,13 @@
   "settings": {
     "title": "הגדרות",
     "languageTitle": "שָׂפָה",
-    "rtlSupportNote": "תמיכת RTL: פריסות ערבית ועברית מוצגות במראה."
+    "rtlSupportNote": "תמיכת RTL: פריסות ערבית ועברית מוצגות במראה.",
+    "accentTitle": "צבע הדגשה",
+    "accentDescription": "בחר צבע הדגשה מותאם אישית שיחול על כל האפליקציה לכפתורים, קישורים והדגשות.",
+    "accentStellar": "שמיים",
+    "accentTeal": "ירוק-כחלחל",
+    "accentAmber": "ענבר",
+    "accentRose": "ורוד",
+    "accentViolet": "סגול"
   }
 }

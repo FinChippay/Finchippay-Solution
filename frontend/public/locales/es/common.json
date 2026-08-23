@@ -303,6 +303,13 @@
     "registerStellarName": "Registra tu nombre en StellarNames →",
     "languageTitle": "Idioma",
     "languageDescription": "Selecciona tu idioma preferido para la interfaz de la aplicación.",
-    "rtlSupportNote": "Compatibilidad RTL: los diseños en árabe y hebreo se muestran en espejo."
+    "rtlSupportNote": "Compatibilidad RTL: los diseños en árabe y hebreo se muestran en espejo.",
+    "accentTitle": "Color de Acento",
+    "accentDescription": "Elija un color de acento que se aplica en toda la aplicación a botones, enlaces y resaltados.",
+    "accentStellar": "Celeste",
+    "accentTeal": "Verde azulado",
+    "accentAmber": "Ámbar",
+    "accentRose": "Rosa",
+    "accentViolet": "Violeta"
   }
 }

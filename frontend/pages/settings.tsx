@@ -24,6 +24,7 @@ import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLan
 import KyCForm from "@/components/KyCForm";
 import AccountSettings from "@/components/AccountSettings";
 import { useWallet } from "@/lib/useWallet";
+import AccentPicker from "@/components/AccentPicker";
 
 interface SettingsPageProps {
   publicKey?: string | null;
@@ -386,6 +387,9 @@ export default function SettingsPage({
                 ))}
               </div>
             </div>
+
+            {/* Accent color selector (#46) */}
+            <AccentPicker />
 
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">

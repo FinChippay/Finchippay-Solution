@@ -32,6 +32,80 @@
     color-scheme: light;
   }
 
+  /* Issue #46 — Accent presets (Stellar purple, teal, amber, rose, violet).
+     The stellar Tailwind palette aliases these variables, so selecting an
+     accent recolors buttons, links and highlights app-wide while the
+     variable defaults keep the original sky-blue look for "stellar". */
+  :root {
+    --stellar-50:  #f0f9ff;
+    --stellar-100: #e0f2fe;
+    --stellar-200: #bae6fd;
+    --stellar-300: #7dd3fc;
+    --stellar-400: #38bdf8;
+    --stellar-500: #0ea5e9;
+    --stellar-600: #0284c7;
+    --stellar-700: #0369a1;
+    --stellar-800: #075985;
+    --stellar-900: #0c4a6e;
+    --stellar-950: #082f49;
+  }
+
+  html[data-accent="teal"] {
+    --stellar-50:  #f0fdfa;
+    --stellar-100: #ccfbf1;
+    --stellar-200: #99f6e4;
+    --stellar-300: #5eead4;
+    --stellar-400: #2dd4bf;
+    --stellar-500: #14b8a6;
+    --stellar-600: #0d9488;
+    --stellar-700: #0f766e;
+    --stellar-800: #115e59;
+    --stellar-900: #134e4a;
+    --stellar-950: #042f2e;
+  }
+
+  html[data-accent="amber"] {
+    --stellar-50:  #fffbeb;
+    --stellar-100: #fef3c7;
+    --stellar-200: #fde68a;
+    --stellar-300: #fcd34d;
+    --stellar-400: #fbbf24;
+    --stellar-500: #f59e0b;
+    --stellar-600: #d97706;
+    --stellar-700: #b45309;
+    --stellar-800: #92400e;
+    --stellar-900: #78350f;
+    --stellar-950: #451a03;
+  }
+
+  html[data-accent="rose"] {
+    --stellar-50:  #fff1f2;
+    --stellar-100: #ffe4e6;
+    --stellar-200: #fecdd3;
+    --stellar-300: #fda4af;
+    --stellar-400: #fb7185;
+    --stellar-500: #f43f5e;
+    --stellar-600: #e11d48;
+    --stellar-700: #be123c;
+    --stellar-800: #9f1239;
+    --stellar-900: #881337;
+    --stellar-950: #4c0519;
+  }
+
+  html[data-accent="violet"] {
+    --stellar-50:  #f5f3ff;
+    --stellar-100: #ede9fe;
+    --stellar-200: #ddd6fe;
+    --stellar-300: #c4b5fd;
+    --stellar-400: #a78bfa;
+    --stellar-500: #8b5cf6;
+    --stellar-600: #7c3aed;
+    --stellar-700: #6d28d9;
+    --stellar-800: #5b21b6;
+    --stellar-900: #4c1d95;
+    --stellar-950: #2e1065;
+  }
+
   * {
     box-sizing: border-box;
   }

@@ -303,6 +303,13 @@
     "registerStellarName": "Enregistrez votre nom sur StellarNames →",
     "languageTitle": "Langue",
     "languageDescription": "Sélectionnez votre langue préférée pour l'interface de l'application.",
-    "rtlSupportNote": "Prise en charge RTL : les mises en page arabe et hébreu sont inversées."
+    "rtlSupportNote": "Prise en charge RTL : les mises en page arabe et hébreu sont inversées.",
+    "accentTitle": "Couleur d'Accent",
+    "accentDescription": "Choisissez une couleur d'accent qui s'applique à toute l'application pour les boutons, liens et surlignages.",
+    "accentStellar": "Ciel",
+    "accentTeal": "Sarcelle",
+    "accentAmber": "Ambre",
+    "accentRose": "Rose",
+    "accentViolet": "Violet"
   }
 }

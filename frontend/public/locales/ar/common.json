@@ -90,6 +90,13 @@
   "settings": {
     "title": "إعدادات",
     "languageTitle": "لغة",
-    "rtlSupportNote": "دعم الكتابة من اليمين إلى اليسار: يتم عكس تخطيطات العربية والعبرية."
+    "rtlSupportNote": "دعم الكتابة من اليمين إلى اليسار: يتم عكس تخطيطات العربية والعبرية.",
+    "accentTitle": "لون التمييز",
+    "accentDescription": "اختر لون تمييز مخصص يتم تطبيقه على كامل التطبيق للأزرار والروابط والإبرازات.",
+    "accentStellar": "سماوي",
+    "accentTeal": "بطي",
+    "accentAmber": "عنبر",
+    "accentRose": "وردي",
+    "accentViolet": "بنفسجي"
   }
 }

@@ -303,6 +303,13 @@
     "registerStellarName": "Register your name on StellarNames →",
     "languageTitle": "Language",
     "languageDescription": "Select your preferred language for the application interface.",
-    "rtlSupportNote": "RTL support: Arabic and Hebrew layouts are mirrored."
+    "rtlSupportNote": "RTL support: Arabic and Hebrew layouts are mirrored.",
+    "accentTitle": "Accent Color",
+    "accentDescription": "Choose a custom accent color that applies app-wide to buttons, links, and highlights.",
+    "accentStellar": "Sky",
+    "accentTeal": "Teal",
+    "accentAmber": "Amber",
+    "accentRose": "Rose",
+    "accentViolet": "Violet"
   }
 }

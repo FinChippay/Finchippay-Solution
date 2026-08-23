@@ -1,6 +1,6 @@
 /**
  * lib/ThemeContext.tsx
- * Application-wide light, dark, and system theme management.
+ * Application-wide light, dark, system theme, and accent color management.
  */
 
 import {
@@ -16,10 +16,14 @@ import {
 export type Theme = "light" | "dark" | "system" | "highContrast" | "high-contrast";
 export type ResolvedTheme = "light" | "dark" | "high-contrast";
 
+export type Accent = "stellar" | "teal" | "amber" | "rose" | "violet";
+
 interface ThemeContextValue {
   theme: Theme;
   resolved: ResolvedTheme;
   setTheme: (theme: Theme) => void;
+  accent: Accent;
+  setAccent: (accent: Accent) => void;
 }
 
 interface ThemeProviderProps {
@@ -27,6 +31,7 @@ interface ThemeProviderProps {
 }
 
 const THEME_STORAGE_KEY = "finchippay:theme";
+const ACCENT_STORAGE_KEY = "finchippay:accent";
 const DARK_MODE_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 const LIGHT_THEME_COLOR = "#f0f6ff";
 const DARK_THEME_COLOR = "#050a1a";
@@ -43,6 +48,16 @@ function isTheme(value: string | null): value is Theme {
   );
 }
 
+function isAccent(value: string | null): value is Accent {
+  return (
+    value === "stellar" ||
+    value === "teal" ||
+    value === "amber" ||
+    value === "rose" ||
+    value === "violet"
+  );
+}
+
 function getStoredTheme(): Theme {
   if (typeof window === "undefined") {
     return "system";
@@ -53,6 +68,19 @@ function getStoredTheme(): Theme {
     return isTheme(storedTheme) ? storedTheme : "system";
   } catch {
     return "system";
+  }
+}
+
+function getStoredAccent(): Accent {
+  if (typeof window === "undefined") {
+    return "stellar";
+  }
+
+  try {
+    const storedAccent = window.localStorage.getItem(ACCENT_STORAGE_KEY);
+    return isAccent(storedAccent) ? storedAccent : "stellar";
+  } catch {
+    return "stellar";
   }
 }
 
@@ -77,6 +105,7 @@ function resolveTheme(theme: Theme, systemPrefersDark: boolean): ResolvedTheme {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(getStoredTheme);
+  const [accent, setAccentState] = useState<Accent>(getStoredAccent);
   const [resolved, setResolved] = useState<ResolvedTheme>(
     getInitialResolvedTheme,
   );
@@ -88,6 +117,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
     } catch {
       // The selected theme still works for the current session when
+      // localStorage is unavailable.
+    }
+  }, []);
+
+  const setAccent = useCallback((nextAccent: Accent) => {
+    setAccentState(nextAccent);
+
+    try {
+      window.localStorage.setItem(ACCENT_STORAGE_KEY, nextAccent);
+    } catch {
+      // The selected accent still works for the current session when
       // localStorage is unavailable.
     }
   }, []);
@@ -110,6 +150,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         theme === "highContrast" || theme === "high-contrast",
       );
       root.dataset.theme = theme;
+      root.dataset.accent = accent;
       root.style.colorScheme =
         nextResolvedTheme === "high-contrast" ? "dark" : nextResolvedTheme;
 
@@ -138,15 +179,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     return () => {
       mediaQuery.removeEventListener("change", handleSystemThemeChange);
     };
-  }, [theme]);
+  }, [theme, accent]);
 
   const contextValue = useMemo(
     () => ({
       theme,
       resolved,
       setTheme,
+      accent,
+      setAccent,
     }),
-    [resolved, setTheme, theme],
+    [resolved, setTheme, theme, accent, setAccent],
   );
 
   return (
