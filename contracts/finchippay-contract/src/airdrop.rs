@@ -1,6 +1,7 @@
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, Vec};
 
 use crate::{require_not_paused, DataKey};
+use crate::events::*;
 
 #[contracttype]
 #[derive(Clone)]
