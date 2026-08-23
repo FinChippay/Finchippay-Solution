@@ -27,7 +27,7 @@ use finchippay_contract::{
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Events as _, Ledger},
-    token, Address, Env, IntoVal, Map, Symbol, Val, Vec,
+    token, Address, Env, Event, IntoVal, Map, Symbol, Val, Vec,
 };
 
 // ─── Fee-on-transfer token (99% fee) ────────────────────────────────────────
