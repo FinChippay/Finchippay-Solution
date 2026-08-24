@@ -8,7 +8,6 @@ import { motion } from "framer-motion";
 import { useState } from "react";
 import InvoiceModal from "@/components/InvoiceModal";
 import { ExternalLinkIcon, CopyIcon, CheckIcon, PrinterIcon } from "@/components/icons";
-import { generatePDFReceipt } from "@/lib/generatePDF";
 import type { TransactionReceipt } from "@/lib/generatePDF";
 import { logger } from "@/lib/logger";
 import { explorerUrl } from "@/lib/stellar";
@@ -60,6 +59,7 @@ export default function TransactionActions({
   const handleDownloadPDF = async () => {
     setGeneratingPDF(true);
     try {
+      const { generatePDFReceipt } = await import("@/lib/generatePDF");
       await generatePDFReceipt(transaction);
     } catch (err) {
       logger.error("Failed to generate PDF:", err);

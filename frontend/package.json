@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx --ignore-pattern '**/__tests__/**'",
-    "analyze": "set ANALYZE=true && next build",
+    "analyze": "cross-env ANALYZE=true next build --webpack",
     "i18n:scan": "i18next-scanner --config i18next-scanner.config.js",
     "i18n:check": "i18next-scanner --config i18next-scanner.config.js 'pages/**/*.{ts,tsx}' 'components/**/*.{ts,tsx}' 'lib/**/*.{ts,tsx}' 'hooks/**/*.{ts,tsx}' 'utils/**/*.{ts,tsx}' 'stories/**/*.{ts,tsx}'",
     "type-check": "tsc --noEmit",
