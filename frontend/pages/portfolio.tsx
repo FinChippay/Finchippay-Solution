@@ -14,9 +14,8 @@ import Head from "next/head";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import PortfolioAllocation from "@/components/PortfolioAllocation";
 import PortfolioOverview from "@/components/PortfolioOverview";
-import TokenPriceChart from "@/components/TokenPriceChart";
+import Skeleton from "@/components/Skeleton";
 import { FeatureGate } from "@/lib/FeatureFlags";
 import {
   getPortfolioHoldings,
@@ -34,6 +33,16 @@ import {
 import { useWallet } from "@/lib/useWallet";
 
 const WalletConnect = dynamic(() => import("@/components/WalletConnect"), { ssr: false });
+// Recharts is only needed after a wallet is connected, so keep it out of the
+// route's initial JavaScript payload.
+const PortfolioAllocation = dynamic(() => import("@/components/PortfolioAllocation"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-72" />,
+});
+const TokenPriceChart = dynamic(() => import("@/components/TokenPriceChart"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-72" />,
+});
 
 export default function PortfolioPage() {
   const { t } = useTranslation("common");
