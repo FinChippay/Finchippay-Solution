@@ -99,6 +99,7 @@ import { useToastContext } from "@/lib/ToastContext";
 import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
+import { useNetwork } from "@/lib/NetworkContext";
 import { useBalanceStream } from "@/lib/useBalanceStream";
 
 interface DashboardProps {
@@ -181,6 +182,7 @@ function formatSnapshotTime(savedAt: number) {
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
   const { t } = useTranslation("common");
+  const { config } = useNetwork();
   // Balance arrives over SSE, falling back to polling automatically (#157).
   const {
     xlmBalance: streamedXlmBalance,
@@ -213,7 +215,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [showQRModal, setShowQRModal] = useState(false);
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
-  const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
+  const isTestnet = config.network !== "mainnet";
   const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const [accountNotFound, setAccountNotFound] = useState(false);
 
@@ -1207,7 +1209,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </div>
         </div>
 
-        {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
+        {config.network !== "mainnet" && (
           <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
             {t("dashboard.testnetWarning")}{" "}

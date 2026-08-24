@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef, useReducer } from "react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
+import { useNetwork } from "@/lib/NetworkContext";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -140,6 +141,7 @@ function TransactionList({
   onSendAgain,
 }: TransactionListProps) {
   const { t } = useTranslation("common");
+  const { config } = useNetwork();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -460,7 +462,7 @@ function TransactionList({
           <p className="text-slate-600 text-xs mt-1">
             {t("transactions.startMessage")}
           </p>
-          {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
+          {config.network !== "mainnet" && (
             <p className="text-xs mt-3">
               {t("transactions.needTestXlm")}{" "}
               <a

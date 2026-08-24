@@ -11,6 +11,7 @@ import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import { FeatureFlagProvider } from "@/lib/FeatureFlags";
 import { ThemeProvider } from "@/lib/ThemeContext";
+import { NetworkProvider } from "@/lib/NetworkContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import OnboardingTour from "@/components/OnboardingTour";
@@ -44,11 +45,11 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <I18nextProvider i18n={i18n}>
       <DirectionSync />
-      <ThemeProvider><ToastProvider><WalletProvider>
+      <ThemeProvider><ToastProvider><WalletProvider><NetworkProvider>
         <Head><title>Finchippay-Solution | Instant Stellar Payments</title></Head>
         <AppShell Component={Component} pageProps={pageProps} stellarURI={stellarURI} isQuickSendOpen={isQuickSendOpen} setIsQuickSendOpen={setIsQuickSendOpen} />
         <ToastContainer />
-      </WalletProvider></ToastProvider></ThemeProvider>
+      </WalletProvider></ToastProvider></ThemeProvider></NetworkProvider>
     </I18nextProvider>
   );
 }

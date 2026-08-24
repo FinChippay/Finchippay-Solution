@@ -9,7 +9,6 @@ import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 import {
-  getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
 } from "@/lib/stellar";
@@ -18,6 +17,7 @@ import {
   performSEP0010Auth,
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
+import { useNetwork } from "@/lib/NetworkContext";
 import ThemeToggle from "@/components/ThemeToggle";
 import AccountSwitcher from "@/components/AccountSwitcher";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -32,11 +32,15 @@ export interface NavbarProps {
 export default function Navbar({ onTakeTour }: NavbarProps) {
   const router = useRouter();
   const { publicKey, connectWallet } = useWallet();
+  const { network, config, isMainnet, setNetwork } = useNetwork();
   const { t } = useTranslation("common");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
+  const [isNetworkMenuOpen, setIsNetworkMenuOpen] = useState(false);
+  const [showMainnetConfirm, setShowMainnetConfirm] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const helpMenuRef = useRef<HTMLDivElement>(null);
+  const networkMenuRef = useRef<HTMLDivElement>(null);
 
   // ── Price alert badge ────────────────────────────────────────────────────
   /** Number of recently triggered (≤ 24 h) price alerts shown as a badge. */
@@ -72,10 +76,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
     };
   }, []);
 
-  const config = getNetworkConfig();
-  const isMainnet = config.network === "mainnet";
-  const networkLabel =
-    config.network === "custom" ? "Custom" : isMainnet ? "Mainnet" : "Testnet";
+  const networkLabel = config.label;
 
   const navLinks = [
     { href: "/", label: t("nav.home") },
@@ -136,6 +137,40 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
     };
   }, [isHelpMenuOpen]);
 
+  // Close network menu when clicking outside.
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        networkMenuRef.current &&
+        !networkMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsNetworkMenuOpen(false);
+      }
+    };
+
+    if (isNetworkMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isNetworkMenuOpen]);
+
+  const handleNetworkSwitch = (target: "testnet" | "mainnet") => {
+    setIsNetworkMenuOpen(false);
+    if (target === "mainnet" && !isMainnet) {
+      setShowMainnetConfirm(true);
+    } else {
+      setNetwork(target);
+    }
+  };
+
+  const confirmMainnetSwitch = () => {
+    setShowMainnetConfirm(false);
+    setNetwork("mainnet");
+  };
+
   const handleConnectClick = async () => {
     const { publicKey: nextPublicKey, error: walletError } =
       await requestWalletConnection();
@@ -175,14 +210,107 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
             </span>
           </Link>
 
-          <span
-            className={clsx(
-              "hidden items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide md:inline-flex",
-              networkBadgeClassName
+          {/* Network switcher dropdown */}
+          <div className="relative hidden md:inline-block" ref={networkMenuRef}>
+            <button
+              onClick={() => setIsNetworkMenuOpen(!isNetworkMenuOpen)}
+              className={clsx(
+                "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:opacity-80",
+                networkBadgeClassName
+              )}
+              aria-haspopup="true"
+              aria-expanded={isNetworkMenuOpen}
+              aria-label={`Current network: ${networkLabel}. Click to switch.`}
+              data-testid="network-switcher-button"
+            >
+              {networkLabel}
+              <svg
+                className={clsx("h-3 w-3 transition-transform", isNetworkMenuOpen && "rotate-180")}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {isNetworkMenuOpen && (
+              <div
+                role="menu"
+                aria-label="Select network"
+                className="absolute left-0 top-full mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-cosmos-700 dark:bg-cosmos-800 z-50"
+                data-testid="network-menu"
+              >
+                <button
+                  role="menuitem"
+                  onClick={() => handleNetworkSwitch("testnet")}
+                  className={clsx(
+                    "flex w-full items-center gap-2 px-4 py-2 text-sm transition-colors",
+                    network === "testnet"
+                      ? "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-400/10"
+                      : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-cosmos-700"
+                  )}
+                  data-testid="network-testnet-btn"
+                >
+                  <span className="h-2 w-2 rounded-full bg-amber-400" aria-hidden="true" />
+                  Testnet
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => handleNetworkSwitch("mainnet")}
+                  className={clsx(
+                    "flex w-full items-center gap-2 px-4 py-2 text-sm transition-colors",
+                    network === "mainnet"
+                      ? "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-400/10"
+                      : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-cosmos-700"
+                  )}
+                  data-testid="network-mainnet-btn"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
+                  Mainnet
+                </button>
+              </div>
             )}
-          >
-            {networkLabel}
-          </span>
+
+            {/* Mainnet confirmation dialog */}
+            {showMainnetConfirm && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                <div className="mx-4 max-w-sm rounded-2xl border border-red-200 bg-white p-6 shadow-xl dark:border-red-800 dark:bg-cosmos-800">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+                      <svg className="h-5 w-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Switch to Mainnet?</h3>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        You are about to switch to the Stellar mainnet. Transactions on mainnet use real funds.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      onClick={() => setShowMainnetConfirm(false)}
+                      className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-cosmos-600 dark:text-slate-300 dark:hover:bg-cosmos-700"
+                      data-testid="mainnet-cancel-btn"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmMainnetSwitch}
+                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                      data-testid="mainnet-confirm-btn"
+                    >
+                      Switch to Mainnet
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {feeLevel && (
             <span

@@ -178,6 +178,15 @@ export const sorobanServer = new Proxy({} as rpc.Server, {
 /** The deployed Soroban contract ID for recording tips. */
 export const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 
+/**
+ * Get the contract ID at runtime. This is the same as CONTRACT_ID but
+ * can be called after module scope to avoid the build-time env var trap
+ * in tests. Prefer this over the module-scope CONTRACT_ID in new code.
+ */
+export function getContractId(): string {
+  return process.env.NEXT_PUBLIC_CONTRACT_ID || "";
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /**

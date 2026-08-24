@@ -15,6 +15,7 @@ import {
   isLedgerSupported
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
+import { useNetwork } from "@/lib/NetworkContext";
 import { LedgerIcon, WalletIcon, PuzzleIcon, ExternalLinkIcon, Spinner } from "@/components/icons";
 
 interface WalletConnectProps {
@@ -28,6 +29,7 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
   // Once one account is connected, this panel is an "add another" flow (#147).
   const hasAccounts = accounts.length > 0;
   const [loading, setLoading] = useState(false);
+  const { config } = useNetwork();
   const [step, setStep]       = useState<"idle" | "connecting" | "authenticating">("idle");
   const [error, setError]     = useState<string | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
@@ -269,7 +271,7 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
         Connected to{" "}
         <span className="font-mono text-slate-600 dark:text-slate-400">
-          {process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet"}
+          {config.network}
         </span>
       </div>
     </div>

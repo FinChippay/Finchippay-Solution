@@ -19,27 +19,13 @@ import {
   Transaction,
   xdr,
 } from "@stellar/stellar-sdk";
+import { getStoredConfig } from "./NetworkContext";
 
 // ─── Config helpers (mirrors lib/stellarConfig.ts) ──────────────────────────
 
 function getNetworkConfig(): { network: string; horizonUrl: string } {
-  if (typeof window === "undefined") {
-    const network = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as
-      | "testnet"
-      | "mainnet";
-    return network === "mainnet"
-      ? { network: "mainnet", horizonUrl: "https://horizon.stellar.org" }
-      : { network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" };
-  }
-  const stored = localStorage.getItem("finchippay:network");
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch {
-      // ignore
-    }
-  }
-  return { network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" };
+  const stored = getStoredConfig();
+  return { network: stored.network, horizonUrl: stored.horizonUrl };
 }
 
 function getNetworkPassphrase(): string {
