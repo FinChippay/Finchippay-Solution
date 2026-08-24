@@ -40,7 +40,9 @@ describe("isValidContractId", () => {
   });
 
   it("rejects a Stellar public key (G...) or malformed string", () => {
-    expect(isValidContractId("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(false);
+    expect(isValidContractId("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(
+      false,
+    );
     expect(isValidContractId("not-a-contract-id")).toBe(false);
     expect(isValidContractId("")).toBe(false);
   });
@@ -112,6 +114,13 @@ describe("fiat currency preference (localStorage)", () => {
   it("persists a supported currency", () => {
     setPreferredFiatCurrency("EUR");
     expect(getPreferredFiatCurrency()).toBe("EUR");
+  });
+
+  it("accepts NGN and JPY portfolio display preferences", () => {
+    setPreferredFiatCurrency("NGN");
+    expect(getPreferredFiatCurrency()).toBe("NGN");
+    setPreferredFiatCurrency("JPY");
+    expect(getPreferredFiatCurrency()).toBe("JPY");
   });
 });
 
@@ -207,18 +216,29 @@ describe("fetchTokenPricesCached", () => {
 
 describe("portfolio value history and P&L", () => {
   it("records and loads a daily snapshot", () => {
-    recordPortfolioValueSnapshot(100);
+    recordPortfolioValueSnapshot(100, "USD");
     const history = loadPortfolioHistory();
     expect(history).toHaveLength(1);
     expect(history[0].totalValue).toBe(100);
   });
 
   it("replaces, rather than duplicates, today's snapshot on a second call", () => {
-    recordPortfolioValueSnapshot(100);
-    recordPortfolioValueSnapshot(150);
+    recordPortfolioValueSnapshot(100, "USD");
+    recordPortfolioValueSnapshot(150, "USD");
     const history = loadPortfolioHistory();
     expect(history).toHaveLength(1);
     expect(history[0].totalValue).toBe(150);
+  });
+
+  it("keeps separate same-day values for each fiat currency", () => {
+    recordPortfolioValueSnapshot(100, "USD");
+    recordPortfolioValueSnapshot(15000, "JPY");
+    expect(loadPortfolioHistory()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ totalValue: 100, fiatCurrency: "USD" }),
+        expect.objectContaining({ totalValue: 15000, fiatCurrency: "JPY" }),
+      ]),
+    );
   });
 
   it("returns a null percent and zero absolute P&L with no history", () => {
@@ -231,7 +251,9 @@ describe("portfolio value history and P&L", () => {
     eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
     localStorage.setItem(
       "finchippay:portfolio-value-history",
-      JSON.stringify([{ date: eightDaysAgo.toISOString().slice(0, 10), totalValue: 100 }])
+      JSON.stringify([
+        { date: eightDaysAgo.toISOString().slice(0, 10), totalValue: 100, fiatCurrency: "USD" },
+      ]),
     );
     const pnl = calculatePnL(150, 7);
     expect(pnl.absolute).toBe(50);
@@ -239,7 +261,7 @@ describe("portfolio value history and P&L", () => {
   });
 
   it("returns null percent when no snapshot is old enough for the requested window", () => {
-    recordPortfolioValueSnapshot(100);
+    recordPortfolioValueSnapshot(100, "USD");
     const pnl = calculatePnL(150, 30);
     expect(pnl).toEqual({ absolute: 0, percent: null });
   });
