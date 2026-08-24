@@ -1,3 +1,4 @@
+import dynamic from "next/dynamic";
 import { Asset } from "@stellar/stellar-sdk";
 import { format } from "date-fns";
 import Head from "next/head";
@@ -8,8 +9,7 @@ import Head from "next/head";
 
 import { useState, useEffect, useCallback } from "react";
 import Toast from "@/components/Toast";
-import TradeForm from "@/components/TradeForm";
-import WalletConnect from "@/components/WalletConnect";
+import Skeleton from "@/components/Skeleton";
 import { FeatureGate } from "@/lib/FeatureFlags";
 import { logger } from "@/lib/logger";
 import {
@@ -25,6 +25,14 @@ import {
   OpenOffer,
 } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+
+// The trading form brings in Stellar transaction helpers and is not useful
+// until a connected user opens the Trade tab.
+const TradeForm = dynamic(() => import("@/components/TradeForm"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-96" />,
+});
+const WalletConnect = dynamic(() => import("@/components/WalletConnect"), { ssr: false });
 
 export default function Trade() {
   const { publicKey } = useWallet();
