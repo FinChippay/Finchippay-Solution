@@ -819,6 +819,40 @@ fn test_approve_multisig_emits_events() {
 }
 
 #[test]
+fn test_approve_multisig_event_reports_actual_count() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let proposer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &proposer, 5_000);
+    let mut signers = Vec::new(&env);
+    signers.push_back(s1.clone());
+    signers.push_back(s2.clone());
+    let expiry = env.ledger().sequence() + 1000;
+
+    let pid = client.create_multisig(
+        &token_id, &proposer, &recipient, &2_000, &2, &signers, &expiry,
+    );
+    client.approve_multisig(&pid, &s1);
+
+    let events = env.events().all().filter_by_contract(&contract_id);
+    let expected: Vec<(Address, Vec<Val>, Val)> = Vec::from_array(
+        &env,
+        [(
+            contract_id.clone(),
+            (Symbol::new(&env, "multisig_approve"), pid).into_val(&env),
+            (s1, 1u32, 2u32).into_val(&env),
+        )],
+    );
+    assert_eq!(events, expected);
+}
+
+#[test]
 fn test_create_multisig_emits_event() {
     let env = Env::default();
     let (contract_id, client) = deploy(&env);
@@ -1214,6 +1248,43 @@ fn test_create_vesting() {
     assert_eq!(schedule.funder, funder);
     assert_eq!(schedule.beneficiary, beneficiary);
     assert_eq!(schedule.total_amount, 5_000);
+}
+
+#[test]
+fn test_create_vesting_rejects_current_or_past_end_ledger() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let funder = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &funder, 10_000);
+    advance_ledger(&env, 100);
+    let cliff = 50u32;
+    let current_end = env.ledger().sequence();
+    let past_end = current_end - 1;
+
+    assert!(client
+        .try_create_vesting(
+            &token_id,
+            &funder,
+            &beneficiary,
+            &5_000,
+            &cliff,
+            &current_end,
+        )
+        .is_err());
+    assert!(client
+        .try_create_vesting(
+            &token_id,
+            &funder,
+            &beneficiary,
+            &5_000,
+            &cliff,
+            &past_end,
+        )
+        .is_err());
 }
 
 #[test]

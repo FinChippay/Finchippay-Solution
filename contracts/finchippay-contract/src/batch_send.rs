@@ -293,6 +293,9 @@ pub fn create_vesting(
         panic!("amount exceeds maximum vesting size");
     }
     let current_ledger = env.ledger().sequence();
+    if end_ledger <= current_ledger {
+        panic!("end_ledger must be greater than current_ledger");
+    }
     let duration = end_ledger.checked_sub(current_ledger).unwrap_or(0);
     if duration > MAX_VESTING_DURATION_LEDGERS {
         panic!("duration exceeds maximum vesting duration");
