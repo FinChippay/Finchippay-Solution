@@ -11,6 +11,7 @@ import { server, explorerUrl, shortenAddress } from "@/lib/stellar";
 import { formatAsset, formatDate, timeAgo } from "@/utils/format";
 import TransactionTimeline from "@/components/TransactionTimeline";
 import TransactionActions from "@/components/TransactionActions";
+import TransactionAnnotations from "@/components/TransactionAnnotations";
 import { ArrowUpIcon, ArrowDownIcon, LedgerIcon } from "@/components/icons";
 import clsx from "clsx";
 
@@ -215,6 +216,12 @@ function TransactionDetailPage() {
               </div>
             </div>
           </div>
+        </div>
+        <div className="card mt-6">
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-4">
+            Notes, Tags & Bookmarks
+          </h2>
+          <TransactionAnnotations txId={transaction.hash} compact={false} />
         </div>
         <div className="card mt-6">
           <TransactionActions transactionHash={transaction.hash} transaction={transaction} />

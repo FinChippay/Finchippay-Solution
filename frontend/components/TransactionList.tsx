@@ -26,6 +26,8 @@ import {
 } from "@/components/icons";
 import TransactionSearchBar from "./TransactionSearchBar";
 import HighlightedTransactionRow from "./HighlightedTransactionRow";
+import TransactionAnnotations from "./TransactionAnnotations";
+import { getAnnotation } from "@/lib/transactionAnnotations";
 import { SearchResult } from "@/lib/transactionSearch";
 import clsx from "clsx";
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,6 +38,7 @@ export interface TransactionFilters {
   direction: TransactionDirectionFilter;
   minAmount: string;
   memoSearch: string;
+  tagSearch: string;
 }
 
 interface TransactionListProps {
@@ -115,6 +118,7 @@ export function filterPayments(
   const hasMinimumAmount =
     minimumAmount !== null && Number.isFinite(minimumAmount) && minimumAmount >= 0;
   const memoQuery = filters.memoSearch.trim().toLowerCase();
+  const tagQuery = filters.tagSearch.trim().toLowerCase();
 
   return payments.filter((payment) => {
     const matchesDirection =
@@ -124,8 +128,15 @@ export function filterPayments(
     const matchesMemo =
       !memoQuery ||
       (payment.memo && payment.memo.toLowerCase().includes(memoQuery));
+    // Tag filter based on client-side annotations
+    let matchesTag = true;
+    if (tagQuery) {
+      const annotation = getAnnotation(payment.id);
+      const tags = annotation?.tags ?? [];
+      matchesTag = tags.some((tag) => tag.includes(tagQuery));
+    }
 
-    return matchesDirection && matchesAmount && matchesMemo;
+    return matchesDirection && matchesAmount && matchesMemo && matchesTag;
   });
 }
 
@@ -133,7 +144,7 @@ function TransactionList({
   publicKey,
   limit = 20,
   compact = false,
-  filters = { direction: "all", minAmount: "", memoSearch: "" },
+  filters = { direction: "all", minAmount: "", memoSearch: "", tagSearch: "" },
   onPaymentsChange,
   onPrintReceipt,
   incomingPayment,
@@ -399,7 +410,10 @@ function TransactionList({
 
   const visiblePayments = filterPayments([...pendingPayments, ...payments], filters);
   const hasActiveFilters =
-    filters.direction !== "all" || filters.minAmount.trim() !== "" || filters.memoSearch.trim() !== "";
+    filters.direction !== "all" ||
+    filters.minAmount.trim() !== "" ||
+    filters.memoSearch.trim() !== "" ||
+    filters.tagSearch.trim() !== "";
 
   if (loading) {
     return (
@@ -675,6 +689,10 @@ function TransactionList({
                     · &ldquo;{tx.memo}&rdquo;
                   </span>
                 )}
+              </div>
+              {/* Annotations: bookmark, note indicator, tag chips */}
+              <div className="mt-0.5">
+                <TransactionAnnotations txId={tx.id} compact />
               </div>
             </div>
 

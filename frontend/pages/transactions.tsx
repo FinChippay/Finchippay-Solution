@@ -15,6 +15,7 @@ import { NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
 import { formatAsset, formatDate } from "@/utils/format";
 import { generateCSV, downloadCSV, generatePDF, downloadPDF, type ExportFormat } from "@/utils/export";
 import { useWallet } from "@/lib/useWallet";
+import { getAllTags } from "@/lib/transactionAnnotations";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "finchippay:transaction-filters";
@@ -43,6 +44,7 @@ export default function Transactions() {
     useState<TransactionDirectionFilter>("all");
   const [minimumAmount, setMinimumAmount] = useState("");
   const [memoSearch, setMemoSearch] = useState("");
+  const [tagSearch, setTagSearch] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
 
@@ -51,8 +53,9 @@ export default function Transactions() {
       direction: directionFilter,
       minAmount: minimumAmount,
       memoSearch: memoSearch,
+      tagSearch: tagSearch,
     }),
-    [directionFilter, minimumAmount, memoSearch]
+    [directionFilter, minimumAmount, memoSearch, tagSearch]
   );
 
   const filteredPayments = useMemo(
@@ -60,10 +63,13 @@ export default function Transactions() {
     [payments, transactionFilters]
   );
 
+  const availableTags = useMemo(() => getAllTags(), []);
+
   const activeFilterCount =
     (directionFilter !== "all" ? 1 : 0) +
     (minimumAmount.trim() !== "" ? 1 : 0) +
-    (memoSearch.trim() !== "" ? 1 : 0);
+    (memoSearch.trim() !== "" ? 1 : 0) +
+    (tagSearch.trim() !== "" ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
   const networkLabel = NETWORK === "mainnet" ? "Mainnet" : "Testnet";
 
@@ -86,6 +92,9 @@ export default function Transactions() {
       }
       if (typeof parsed.memoSearch === "string") {
         setMemoSearch(parsed.memoSearch);
+      }
+      if (typeof parsed.tagSearch === "string") {
+        setTagSearch(parsed.tagSearch);
       }
     } catch {
       try {
@@ -115,6 +124,7 @@ export default function Transactions() {
     setDirectionFilter("all");
     setMinimumAmount("");
     setMemoSearch("");
+    setTagSearch("");
   };
 
   // Close export dropdown when clicking outside
@@ -434,6 +444,27 @@ export default function Transactions() {
               placeholder="Filter by memo text…"
               className="input-field py-2.5"
             />
+          </div>
+
+          <div className="w-full sm:w-56">
+            <label htmlFor="tag-search" className="label mb-2">
+              Filter by Tag
+            </label>
+            <input
+              id="tag-search"
+              type="text"
+              list="transaction-tags"
+              value={tagSearch}
+              onChange={(event) => setTagSearch(event.target.value)}
+              placeholder="rent, payroll, refund…"
+              className="input-field py-2.5"
+              aria-label="Filter transactions by tag"
+            />
+            <datalist id="transaction-tags">
+              {availableTags.map((tag) => (
+                <option key={tag} value={tag} />
+              ))}
+            </datalist>
           </div>
         </div>
 
