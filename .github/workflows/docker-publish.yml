@@ -30,7 +30,7 @@ jobs:
       id-token: write # keyless cosign signing/attestation against GHCR
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Log in to GitHub Container Registry
         id: login

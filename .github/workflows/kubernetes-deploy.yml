@@ -88,7 +88,7 @@ jobs:
             image: ghcr.io/finchippay/finchippay-nginx
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Log in to GitHub Container Registry
         id: login
@@ -174,7 +174,7 @@ jobs:
     needs: []
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up kubeconform
         run: |
@@ -200,7 +200,7 @@ jobs:
     needs: []
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -238,7 +238,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
