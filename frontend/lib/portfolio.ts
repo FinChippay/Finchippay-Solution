@@ -19,7 +19,7 @@ export interface PortfolioToken {
   isCustom?: boolean;
 }
 
-export type FiatCurrency = "USD" | "EUR" | "GBP";
+export type FiatCurrency = "USD" | "EUR" | "GBP" | "NGN" | "JPY";
 
 export interface TokenPriceSnapshot {
   prices: Partial<Record<FiatCurrency, number>>;
@@ -33,7 +33,7 @@ export interface CustomToken {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const SUPPORTED_FIAT_CURRENCIES: FiatCurrency[] = ["USD", "EUR", "GBP"];
+export const SUPPORTED_FIAT_CURRENCIES: FiatCurrency[] = ["USD", "EUR", "GBP", "NGN", "JPY"];
 
 const CUSTOM_TOKENS_STORAGE_KEY = "finchippay:custom-tokens";
 const FIAT_CURRENCY_STORAGE_KEY = "finchippay:fiat-currency";
@@ -83,7 +83,7 @@ export function loadCustomTokens(): CustomToken[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (t): t is CustomToken => typeof t?.contractId === "string" && isValidContractId(t.contractId)
+      (t): t is CustomToken => typeof t?.contractId === "string" && isValidContractId(t.contractId),
     );
   } catch {
     return [];
@@ -146,6 +146,8 @@ const VS_CURRENCY: Record<FiatCurrency, string> = {
   USD: "usd",
   EUR: "eur",
   GBP: "gbp",
+  NGN: "ngn",
+  JPY: "jpy",
 };
 
 /**
@@ -154,14 +156,14 @@ const VS_CURRENCY: Record<FiatCurrency, string> = {
  * silently omitted from the result.
  */
 export async function fetchTokenPrices(
-  codes: string[]
+  codes: string[],
 ): Promise<Record<string, TokenPriceSnapshot>> {
   const ids = [...new Set(codes.map((c) => COINGECKO_ID_MAP[c]).filter(Boolean))];
   if (ids.length === 0) return {};
 
   const vsCurrencies = SUPPORTED_FIAT_CURRENCIES.map((c) => VS_CURRENCY[c]).join(",");
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(
-    ","
+    ",",
   )}&vs_currencies=${vsCurrencies}&include_24hr_change=true`;
 
   const res = await fetch(url);
@@ -186,7 +188,6 @@ export async function fetchTokenPrices(
   }
   return result;
 }
-
 
 // --- Price cache (localStorage, 5-minute TTL) ---
 
@@ -217,7 +218,7 @@ function savePriceCache(prices: Record<string, TokenPriceSnapshot>): void {
 }
 
 export async function fetchTokenPricesCached(
-  codes: string[]
+  codes: string[],
 ): Promise<{ prices: Record<string, TokenPriceSnapshot>; stale: boolean }> {
   const cached = loadPriceCache();
   const isFresh = cached !== null && Date.now() - cached.cachedAt < PRICE_CACHE_TTL_MS;
@@ -238,12 +239,12 @@ export async function fetchTokenPricesCached(
   }
 }
 
-
 // --- P&L tracking (daily portfolio value snapshots, localStorage) ---
 
 export interface PortfolioValueSnapshot {
   date: string;
   totalValue: number;
+  fiatCurrency?: FiatCurrency;
 }
 
 const PORTFOLIO_HISTORY_KEY = "finchippay:portfolio-value-history";
@@ -262,7 +263,10 @@ export function loadPortfolioHistory(): PortfolioValueSnapshot[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (s): s is PortfolioValueSnapshot =>
-        typeof s?.date === "string" && typeof s?.totalValue === "number"
+        typeof s?.date === "string" &&
+        typeof s?.totalValue === "number" &&
+        (s?.fiatCurrency === undefined ||
+          (SUPPORTED_FIAT_CURRENCIES as string[]).includes(s.fiatCurrency)),
     );
   } catch {
     return [];
@@ -273,12 +277,12 @@ export function loadPortfolioHistory(): PortfolioValueSnapshot[] {
  * Records today's total portfolio value, replacing any existing snapshot
  * for today (idempotent per calendar day) and trimming to the last 90 days.
  */
-export function recordPortfolioValueSnapshot(totalValue: number): void {
+export function recordPortfolioValueSnapshot(totalValue: number, fiatCurrency: FiatCurrency): void {
   if (typeof window === "undefined") return;
   const history = loadPortfolioHistory();
   const today = todayDateKey();
-  const withoutToday = history.filter((s) => s.date !== today);
-  const updated = [...withoutToday, { date: today, totalValue }]
+  const withoutToday = history.filter((s) => s.date !== today || s.fiatCurrency !== fiatCurrency);
+  const updated = [...withoutToday, { date: today, totalValue, fiatCurrency }]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-MAX_HISTORY_DAYS);
   localStorage.setItem(PORTFOLIO_HISTORY_KEY, JSON.stringify(updated));
@@ -295,8 +299,14 @@ export interface PnLResult {
  * Returns null percent (only absolute, treated as 0) when there's no
  * baseline snapshot old enough to compare against yet.
  */
-export function calculatePnL(currentValue: number, days: number): PnLResult {
-  const history = loadPortfolioHistory();
+export function calculatePnL(
+  currentValue: number,
+  days: number,
+  fiatCurrency?: FiatCurrency,
+): PnLResult {
+  const history = loadPortfolioHistory().filter(
+    (snapshot) => fiatCurrency === undefined || (snapshot.fiatCurrency ?? "USD") === fiatCurrency,
+  );
   if (history.length === 0) return { absolute: 0, percent: null };
 
   const cutoff = new Date();

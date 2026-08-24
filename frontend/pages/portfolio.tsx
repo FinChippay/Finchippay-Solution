@@ -15,20 +15,24 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
+import PortfolioHistoryChart from "@/components/PortfolioHistoryChart";
 import PortfolioOverview from "@/components/PortfolioOverview";
 import TokenPriceChart from "@/components/TokenPriceChart";
+import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { FeatureGate } from "@/lib/FeatureFlags";
+import { logger } from "@/lib/logger";
 import {
   getPortfolioHoldings,
   loadCustomTokens,
   addCustomToken,
-  fetchTokenPrices,
   getPreferredFiatCurrency,
   setPreferredFiatCurrency,
   isValidContractId,
   SUPPORTED_FIAT_CURRENCIES,
+  loadPortfolioHistory,
+  recordPortfolioValueSnapshot,
   type PortfolioToken,
-  type TokenPriceSnapshot,
+  type PortfolioValueSnapshot,
   type FiatCurrency,
 } from "@/lib/portfolio";
 import { useWallet } from "@/lib/useWallet";
@@ -40,10 +44,10 @@ export default function PortfolioPage() {
   const { publicKey } = useWallet();
 
   const [holdings, setHoldings] = useState<PortfolioToken[]>([]);
-  const [prices, setPrices] = useState<Record<string, TokenPriceSnapshot>>({});
   const [loading, setLoading] = useState(true);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>("USD");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [history, setHistory] = useState<PortfolioValueSnapshot[]>([]);
 
   const [addTokenInput, setAddTokenInput] = useState("");
   const [addTokenError, setAddTokenError] = useState<string | null>(null);
@@ -67,7 +71,7 @@ export default function PortfolioPage() {
       } catch (err) {
         // Most commonly: the connected account hasn't been funded on this
         // network yet (no XLM balance exists to derive holdings from).
-        logger.error("Failed to load wallet holdings:", err);
+        logger.error("Failed to load wallet holdings:", { error: String(err) });
       }
 
       const customTokens = loadCustomTokens();
@@ -83,18 +87,16 @@ export default function PortfolioPage() {
       const allHoldings = [...walletHoldings, ...customHoldings];
       setHoldings(allHoldings);
       setSelectedCode((current) => current ?? allHoldings[0]?.code ?? null);
-
-      const codes = [...new Set(allHoldings.map((h) => h.code))];
-      try {
-        const priceSnapshots = await fetchTokenPrices(codes);
-        setPrices(priceSnapshots);
-      } catch (err) {
-        logger.error("Failed to load token prices:", err);
-      }
     } finally {
       setLoading(false);
     }
   }, [publicKey]);
+
+  const {
+    prices,
+    stale: pricesStale,
+    unavailable: pricesUnavailable,
+  } = useExchangeRates(holdings.map((holding) => holding.code));
 
   useEffect(() => {
     void loadPortfolio();
@@ -120,6 +122,19 @@ export default function PortfolioPage() {
 
   const selectedHolding = holdings.find((h) => h.code === selectedCode) ?? holdings[0] ?? null;
 
+  useEffect(() => {
+    const totalValue = holdings.reduce((sum, holding) => {
+      const price = prices[holding.code]?.prices[fiatCurrency];
+      return price === undefined ? sum : sum + parseFloat(holding.balance) * price;
+    }, 0);
+    if (totalValue > 0) recordPortfolioValueSnapshot(totalValue, fiatCurrency);
+    setHistory(
+      loadPortfolioHistory().filter(
+        (snapshot) => (snapshot.fiatCurrency ?? "USD") === fiatCurrency,
+      ),
+    );
+  }, [holdings, prices, fiatCurrency]);
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
       <Head>
@@ -141,8 +156,8 @@ export default function PortfolioPage() {
               Portfolio — Coming Soon
             </h1>
             <p className="text-slate-600 dark:text-slate-400 max-w-md mb-6">
-              The portfolio overview page is currently in limited preview. Check
-              back soon or head to the dashboard for your current balances.
+              The portfolio overview page is currently in limited preview. Check back soon or head
+              to the dashboard for your current balances.
             </p>
             <Link
               href="/dashboard"
@@ -159,66 +174,87 @@ export default function PortfolioPage() {
             <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">
               {t("portfolio.title")}
             </h1>
-            <p className="text-slate-600 dark:text-slate-400 mb-8">{t("dashboard.connectPrompt")}</p>
+            <p className="text-slate-600 dark:text-slate-400 mb-8">
+              {t("dashboard.connectPrompt")}
+            </p>
             <WalletConnect />
           </div>
         ) : (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white">
-              {t("portfolio.title")}
-            </h1>
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white">
+                {t("portfolio.title")}
+              </h1>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                {t("portfolio.currency")}
-                <select
-                  value={fiatCurrency}
-                  onChange={(e) => handleFiatChange(e.target.value as FiatCurrency)}
-                  className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-cosmos-800 px-2 py-1.5 text-sm text-slate-900 dark:text-white"
-                >
-                  {SUPPORTED_FIAT_CURRENCIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                  {t("portfolio.currency")}
+                  <select
+                    value={fiatCurrency}
+                    onChange={(e) => handleFiatChange(e.target.value as FiatCurrency)}
+                    className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-cosmos-800 px-2 py-1.5 text-sm text-slate-900 dark:text-white"
+                  >
+                    {SUPPORTED_FIAT_CURRENCIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              <form onSubmit={handleAddToken} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={addTokenInput}
-                  onChange={(e) => setAddTokenInput(e.target.value)}
-                  placeholder={t("portfolio.addTokenPlaceholder")}
-                  className="input-field w-64 text-xs font-mono"
-                />
-                <button type="submit" className="btn-primary px-4 py-1.5 text-sm min-h-0">
-                  {t("portfolio.addTokenButton")}
-                </button>
-              </form>
+                <form onSubmit={handleAddToken} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={addTokenInput}
+                    onChange={(e) => setAddTokenInput(e.target.value)}
+                    placeholder={t("portfolio.addTokenPlaceholder")}
+                    className="input-field w-64 text-xs font-mono"
+                  />
+                  <button type="submit" className="btn-primary px-4 py-1.5 text-sm min-h-0">
+                    {t("portfolio.addTokenButton")}
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
 
-          {addTokenError && <p className="text-sm text-red-500">{addTokenError}</p>}
+            {addTokenError && <p className="text-sm text-red-500">{addTokenError}</p>}
+            {pricesUnavailable && (
+              <p className="card border-amber-500/30 bg-amber-500/5 text-sm text-amber-800 dark:text-amber-200">
+                {t("portfolio.pricesUnavailableBanner")}
+              </p>
+            )}
+            {!pricesUnavailable && pricesStale && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {t("portfolio.pricesStale")}
+              </p>
+            )}
 
-          <PortfolioOverview holdings={holdings} prices={prices} fiatCurrency={fiatCurrency} loading={loading} />
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <PortfolioAllocation
+            <PortfolioOverview
               holdings={holdings}
               prices={prices}
               fiatCurrency={fiatCurrency}
-              selectedCode={selectedCode}
-              onSelectToken={setSelectedCode}
               loading={loading}
             />
 
-            {selectedHolding && (
-              <TokenPriceChart contractId={selectedHolding.contractId} code={selectedHolding.code} />
-            )}
+            <div className="grid gap-6 md:grid-cols-2">
+              <PortfolioAllocation
+                holdings={holdings}
+                prices={prices}
+                fiatCurrency={fiatCurrency}
+                selectedCode={selectedCode}
+                onSelectToken={setSelectedCode}
+                loading={loading}
+              />
+
+              {selectedHolding && (
+                <TokenPriceChart
+                  contractId={selectedHolding.contractId}
+                  code={selectedHolding.code}
+                />
+              )}
+            </div>
+            <PortfolioHistoryChart history={history} fiatCurrency={fiatCurrency} />
           </div>
-        </div>
         )}
       </FeatureGate>
     </div>
@@ -234,11 +270,7 @@ function ChartPieIcon({ className }: { className?: string }) {
       stroke="currentColor"
       strokeWidth={1.6}
     >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
       <path
         strokeLinecap="round"
         strokeLinejoin="round"

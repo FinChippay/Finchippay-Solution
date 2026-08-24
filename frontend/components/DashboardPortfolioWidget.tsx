@@ -12,16 +12,17 @@ import { useTranslation } from "react-i18next";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
 import PortfolioHistoryChart from "@/components/PortfolioHistoryChart";
 import PortfolioOverview from "@/components/PortfolioOverview";
+import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { logger } from "@/lib/logger";
 import {
   getPortfolioHoldings,
-  fetchTokenPricesCached,
   getPreferredFiatCurrency,
+  setPreferredFiatCurrency,
+  SUPPORTED_FIAT_CURRENCIES,
   recordPortfolioValueSnapshot,
   loadPortfolioHistory,
   calculatePnL,
   type PortfolioToken,
-  type TokenPriceSnapshot,
   type FiatCurrency,
   type PortfolioValueSnapshot,
 } from "@/lib/portfolio";
@@ -37,11 +38,8 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
   const { t, i18n } = useTranslation("common");
 
   const [holdings, setHoldings] = useState<PortfolioToken[]>([]);
-  const [prices, setPrices] = useState<Record<string, TokenPriceSnapshot>>({});
-  const [pricesUnavailable, setPricesUnavailable] = useState(false);
-  const [pricesStale, setPricesStale] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [fiatCurrency] = useState<FiatCurrency>(getPreferredFiatCurrency());
+  const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>(getPreferredFiatCurrency());
   const [history, setHistory] = useState<PortfolioValueSnapshot[]>([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
 
@@ -52,38 +50,26 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
       try {
         walletHoldings = await getPortfolioHoldings(publicKey);
       } catch (err) {
-        logger.error("DashboardPortfolioWidget: failed to load holdings:", err);
+        logger.error("DashboardPortfolioWidget: failed to load holdings:", { error: String(err) });
       }
       setHoldings(walletHoldings);
 
-      const codes = [...new Set(walletHoldings.map((h) => h.code))];
-      try {
-        const { prices: priceSnapshots, stale } = await fetchTokenPricesCached(codes);
-        setPrices(priceSnapshots);
-        setPricesStale(stale);
-        setPricesUnavailable(Object.keys(priceSnapshots).length === 0 && codes.length > 0);
-
-        const totalValue = walletHoldings.reduce((sum, h) => {
-          const price = priceSnapshots[h.code]?.prices[fiatCurrency];
-          return price === undefined ? sum : sum + parseFloat(h.balance) * price;
-        }, 0);
-        if (totalValue > 0) {
-          recordPortfolioValueSnapshot(totalValue);
-        }
-        setHistory(loadPortfolioHistory());
-      } catch (err) {
-        logger.error("DashboardPortfolioWidget: failed to load prices:", err);
-        setPricesUnavailable(true);
-      }
       setLastRefreshedAt(Date.now());
     } finally {
       setLoading(false);
     }
-  }, [publicKey, fiatCurrency]);
+  }, [publicKey]);
 
   useEffect(() => {
     void loadPortfolio();
   }, [loadPortfolio]);
+
+  const {
+    prices,
+    stale: pricesStale,
+    unavailable: pricesUnavailable,
+    refresh,
+  } = useExchangeRates(holdings.map((holding) => holding.code));
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -97,8 +83,22 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
     return price === undefined ? sum : sum + parseFloat(h.balance) * price;
   }, 0);
 
-  const pnl7d = calculatePnL(totalValue, 7);
-  const pnl30d = calculatePnL(totalValue, 30);
+  useEffect(() => {
+    if (totalValue > 0) recordPortfolioValueSnapshot(totalValue, fiatCurrency);
+    setHistory(
+      loadPortfolioHistory().filter(
+        (snapshot) => (snapshot.fiatCurrency ?? "USD") === fiatCurrency,
+      ),
+    );
+  }, [totalValue, fiatCurrency]);
+
+  const handleFiatChange = (currency: FiatCurrency) => {
+    setFiatCurrency(currency);
+    setPreferredFiatCurrency(currency);
+  };
+
+  const pnl7d = calculatePnL(totalValue, 7, fiatCurrency);
+  const pnl30d = calculatePnL(totalValue, 30, fiatCurrency);
   const assetCount = holdings.filter((h) => {
     const price = prices[h.code]?.prices[fiatCurrency];
     return price !== undefined && parseFloat(h.balance) * price > 0;
@@ -113,6 +113,20 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
 
   return (
     <div className="space-y-6 mb-8">
+      <label className="flex w-fit items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+        {t("portfolio.currency")}
+        <select
+          value={fiatCurrency}
+          onChange={(event) => handleFiatChange(event.target.value as FiatCurrency)}
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-white/10 dark:bg-cosmos-800 dark:text-white"
+        >
+          {SUPPORTED_FIAT_CURRENCIES.map((currency) => (
+            <option key={currency} value={currency}>
+              {currency}
+            </option>
+          ))}
+        </select>
+      </label>
       {pricesUnavailable && (
         <div className="card border-amber-500/30 bg-amber-500/5 text-sm text-amber-800 dark:text-amber-200">
           {t("portfolio.pricesUnavailableBanner")}
@@ -135,25 +149,42 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
         <div className="card">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{t("portfolio.assetCount")}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {t("portfolio.assetCount")}
+              </p>
               <p className="text-xl font-bold text-slate-900 dark:text-white">{assetCount}</p>
             </div>
             <div>
               <p className="text-sm text-slate-500 dark:text-slate-400">{t("portfolio.pnl7d")}</p>
-              <p className={pnl7d.absolute >= 0 ? "text-green-600 dark:text-green-400 font-semibold" : "text-red-600 dark:text-red-400 font-semibold"}>
+              <p
+                className={
+                  pnl7d.absolute >= 0
+                    ? "text-green-600 dark:text-green-400 font-semibold"
+                    : "text-red-600 dark:text-red-400 font-semibold"
+                }
+              >
                 {pnlLabel(pnl7d)}
               </p>
             </div>
             <div>
               <p className="text-sm text-slate-500 dark:text-slate-400">{t("portfolio.pnl30d")}</p>
-              <p className={pnl30d.absolute >= 0 ? "text-green-600 dark:text-green-400 font-semibold" : "text-red-600 dark:text-red-400 font-semibold"}>
+              <p
+                className={
+                  pnl30d.absolute >= 0
+                    ? "text-green-600 dark:text-green-400 font-semibold"
+                    : "text-red-600 dark:text-red-400 font-semibold"
+                }
+              >
                 {pnlLabel(pnl30d)}
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={() => void loadPortfolio()}
+            onClick={() => {
+              void loadPortfolio();
+              void refresh();
+            }}
             className="mt-4 text-xs text-stellar-700 dark:text-stellar-400 hover:underline"
           >
             {t("portfolio.refreshPrices")}
@@ -167,11 +198,7 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
       )}
 
       {!loading && holdings.length > 0 && (
-        <PortfolioAllocation
-          holdings={holdings}
-          prices={prices}
-          fiatCurrency={fiatCurrency}
-        />
+        <PortfolioAllocation holdings={holdings} prices={prices} fiatCurrency={fiatCurrency} />
       )}
 
       {!loading && history.length > 0 && (
