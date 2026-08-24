@@ -22,6 +22,52 @@ const {
   setPaginationHeaders,
   formatPaginatedResponse,
 } = require("../utils/paginate");
+const { verifyJWT } = require("../middleware/auth");
+const { sendError } = require("../utils/errorResponse");
+
+/**
+ * Verify the authenticated user owns the webhook account identified by
+ * the :publicKey route parameter (or the body publicKey for POST /).
+ * Must run after verifyJWT (which sets req.user.publicKey).
+ */
+function requireOwnWebhookAccount(req, res, next) {
+  const targetPublicKey =
+    req.validatedParams?.publicKey ||
+    req.validated?.publicKey ||
+    req.params.publicKey ||
+    null;
+
+  if (!targetPublicKey || req.user?.publicKey !== targetPublicKey) {
+    return sendError(res, "AUTH_FORBIDDEN", {
+      message: "Forbidden: you may only access your own webhook data.",
+    });
+  }
+  next();
+}
+
+/**
+ * Verify the authenticated user owns the webhook identified by the :id
+ * route parameter. Looks up the webhook first, then checks ownership.
+ * Must run after verifyJWT.
+ */
+async function requireOwnWebhookById(req, res, next) {
+  try {
+    const webhook = await webhookService.getWebhookById(req.validated?.id || req.params.id);
+    if (!webhook) {
+      return sendError(res, "RES_NOT_FOUND", {
+        details: { resourceType: "webhook", id: req.validated?.id || req.params.id },
+      });
+    }
+    if (req.user?.publicKey !== webhook.publicKey) {
+      return sendError(res, "AUTH_FORBIDDEN", {
+        message: "Forbidden: you may only access your own webhook data.",
+      });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
 
 /**
  * POST /api/webhooks
@@ -38,7 +84,7 @@ const {
  * is also persisted for verification. The server restores all webhooks on
  * startup — re-registration is not required after a restart.
  */
-router.post("/", validate(registerWebhookSchema), async (req, res) => {
+router.post("/", verifyJWT, validate(registerWebhookSchema), requireOwnWebhookAccount, async (req, res) => {
   try {
     const { publicKey, url, secret, topics } = req.validated;
     const webhook = await webhookService.registerWebhook(publicKey, url, secret, topics);
@@ -54,7 +100,7 @@ router.post("/", validate(registerWebhookSchema), async (req, res) => {
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account with standardized pagination.
  */
-router.get("/:publicKey", validate(publicKeyParamSchema, "params"), async (req, res, next) => {
+router.get("/:publicKey", verifyJWT, validate(publicKeyParamSchema, "params"), requireOwnWebhookAccount, async (req, res, next) => {
   try {
     const { publicKey } = req.validated;
     const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
@@ -85,8 +131,10 @@ router.get("/:publicKey", validate(publicKeyParamSchema, "params"), async (req, 
  */
 router.get(
   "/:publicKey/events",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   validate(getEventsQuerySchema, "query"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validatedParams || req.params;
@@ -120,8 +168,10 @@ router.get(
  */
 router.post(
   "/:publicKey/replay",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
   validate(replayEventsBodySchema),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validatedParams || req.params;
@@ -140,7 +190,9 @@ router.post(
  */
 router.get(
   "/:publicKey/events/stats",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validatedParams || req.params;
@@ -158,7 +210,9 @@ router.get(
  */
 router.get(
   "/:publicKey/failures",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
@@ -176,7 +230,9 @@ router.get(
  */
 router.post(
   "/:publicKey/retry",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
@@ -194,7 +250,9 @@ router.post(
  */
 router.get(
   "/:publicKey/deliveries",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
@@ -217,7 +275,9 @@ router.get(
  */
 router.get(
   "/:publicKey/deliveries/:id",
+  verifyJWT,
   validate(publicKeyParamSchema, "params"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
@@ -239,7 +299,7 @@ router.get(
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */
-router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
+router.delete("/:id", verifyJWT, validate(idParamSchema, "params"), requireOwnWebhookById, async (req, res, next) => {
   try {
     const { id } = req.validated;
     const deleted = await webhookService.deleteWebhook(id);
