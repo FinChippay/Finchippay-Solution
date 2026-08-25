@@ -12,6 +12,7 @@ const { verifyJWT, requireAdmin } = require("../middleware/auth");
 const rateLimitConfigService = require("../services/rateLimitConfigService");
 const { getRateLimitStats } = require("../middleware/rateLimitMetrics");
 const logger = require("../utils/logger");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * GET /api/admin/rate-limits/stats
@@ -65,7 +66,12 @@ router.get("/", verifyJWT, requireAdmin, async (req, res, next) => {
 router.put("/", verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const { id, limit, window_ms, enabled } = req.body;
-    if (!id) return res.status(400).json({ error: "id is required" });
+    if (!id) {
+      return sendError(res, "VAL_MISSING_FIELD", {
+        message: "id is required",
+        details: { field: "id" },
+      });
+    }
 
     const updated = await rateLimitConfigService.updateRule(id, {
       limit,

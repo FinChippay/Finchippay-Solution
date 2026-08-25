@@ -5,7 +5,7 @@ const router = express.Router();
 const metrics = require("../services/metricsService");
 const { requireMetricsToken } = require("../middleware/metrics");
 const logger = require("../utils/logger");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 
 router.get("/", requireMetricsToken, async (req, res) => {
   try {
@@ -14,9 +14,7 @@ router.get("/", requireMetricsToken, async (req, res) => {
     res.send(body);
   } catch (err) {
     logger.error({ err }, "Failed to collect Prometheus metrics");
-    res
-      .status(ERROR_CODES.SRV_METRICS_FAILED.httpStatus)
-      .json(formatErrorResponse("SRV_METRICS_FAILED"));
+    sendError(res, "SRV_METRICS_FAILED");
   }
 });
 
@@ -84,9 +82,7 @@ router.get("/business", async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, "Failed to collect business metrics");
-    res
-      .status(ERROR_CODES.SRV_METRICS_FAILED.httpStatus)
-      .json(formatErrorResponse("SRV_METRICS_FAILED"));
+    sendError(res, "SRV_METRICS_FAILED");
   }
 });
 

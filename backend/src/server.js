@@ -29,7 +29,6 @@ const cors = require("cors");
 const pinoHttp = require("pino-http");
 const { strictLimiter, createInstrumentedLimiter } = require("./middleware/rateLimit");
 const Sentry = require("@sentry/node");
-const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
@@ -68,14 +67,19 @@ const { requireJsonContentType } = require("./middleware/bodyParsing");
 const { trackHttpMetrics } = require("./middleware/metrics");
 const metricsRoutes = require("./routes/metrics");
 const { getRequestId } = require("./utils/correlationId");
-const { errorLogFields } = require("./utils/errorResponse");
+const {
+  bodyParserErrorHandler,
+  notFoundHandler,
+  errorHandler,
+  sanitizeMessage,
+} = require("./middleware/errorHandler");
 const { initRedis, closeRedis } = require("./services/cacheService");
 const shutdownState = require("./services/shutdownState");
 const { closeAll: closeBalanceStreams } = require("./services/balanceStreamService");
 const { zodErrorHandler } = require("./validation/middleware");
 // Requiring errorResponse registers getRequestId as the shared registry's
 // correlation-ID provider (#270).
-require("./utils/errorResponse");
+const { sendError } = require("./utils/errorResponse");
 const { requestIdMiddleware } = require("./middleware/requestId");
 const traceContextMiddleware = require("./middleware/tracing");
 const crypto = require("crypto");
@@ -84,15 +88,6 @@ const { mountGraphQL } = require("./graphql");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-
-// ─── Error message sanitization (#206) ───────────────────────────────────────
-// Stellar secret keys: 'S' + 55 base32 chars [A-Z2-7]. Strip before logging or
-// sending to Sentry/clients so a mis-routed key never appears in outputs.
-
-const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
-function sanitizeMessage(msg) {
-  return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
-}
 
 // ─── Sentry ───────────────────────────────────────────────────────────────────
 
@@ -191,19 +186,7 @@ bodyParsing(app);
 app.use("/api/turrets", express.json({ limit: "512kb" }));
 
 // JSON body parsing error handler — uses standardized error codes
-app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res
-      .status(ERROR_CODES.VAL_INVALID_JSON.httpStatus)
-      .json(formatErrorResponse("VAL_INVALID_JSON"));
-  }
-  if (err.type === "entity.too.large" || err.status === 413) {
-    return res
-      .status(ERROR_CODES.VAL_BODY_TOO_LARGE.httpStatus)
-      .json(formatErrorResponse("VAL_BODY_TOO_LARGE"));
-  }
-  next();
-});
+app.use(bodyParserErrorHandler);
 
 // CORS
 const { origins: allowedOrigins } = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
@@ -262,7 +245,12 @@ const limiter = createInstrumentedLimiter(
     limit: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    message: formatErrorResponse("RATE_LIMITED_GLOBAL"),
+    // A handler, not `message`: only a handler can set the problem+json media
+    // type. express-rate-limit has already written its RateLimit-* and
+    // Retry-After headers, and createInstrumentedLimiter records the breach
+    // before it calls this.
+    handler: (req, res, next, options) =>
+      sendError(res, "RATE_LIMITED_GLOBAL", { status: options.statusCode }),
   },
   "global",
 );
@@ -345,14 +333,7 @@ app.get("/api/docs.json", (req, res) => {
 
 // ─── 404 Handler ───────────────────────────────────────────────────────────────
 
-app.use((req, res) => {
-  const sanitizedPath = req.path.replace(/[\r\n]/g, "");
-  const log = req.log || logger;
-  log.warn({ method: req.method, path: sanitizedPath }, "Route not found");
-  res
-    .status(ERROR_CODES.RES_ROUTE_NOT_FOUND.httpStatus)
-    .json(formatErrorResponse("RES_ROUTE_NOT_FOUND"));
-});
+app.use(notFoundHandler);
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
 
@@ -362,27 +343,7 @@ Sentry.setupExpressErrorHandler(app);
 // the standard 400 payload.
 app.use(zodErrorHandler);
 
-app.use((err, req, res, next) => {
-  void next;
-  const log = req.log || logger;
-  if (err.errorCode) {
-    const entry = formatErrorResponse(err.errorCode, err.details);
-    const status = err.status || ERROR_CODES[err.errorCode]?.httpStatus || 500;
-    log.error(
-      { ...errorLogFields(err.errorCode, { details: err.details }), status },
-      "Request error",
-    );
-    return res.status(status).json(entry);
-  }
-
-  const status = err.status || 500;
-  const message = sanitizeMessage(err.message) || ERROR_CODES.SRV_INTERNAL.message;
-  log.error({ ...errorLogFields("SRV_INTERNAL"), status, message }, "Request error");
-  const fallback = formatErrorResponse("SRV_INTERNAL", {
-    originalMessage: sanitizeMessage(err.message),
-  });
-  res.status(status).json(fallback);
-});
+app.use(errorHandler);
 
 // ─── Graceful shutdown ────────────────────────────────────────────────
 

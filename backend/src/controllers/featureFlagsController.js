@@ -11,6 +11,7 @@
 "use strict";
 
 const featureFlagsService = require("../services/featureFlagsService");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * GET /api/features
@@ -71,21 +72,18 @@ async function adminToggleFlag(req, res, next) {
     const { enabled } = req.validated;
 
     if (!key || typeof key !== "string") {
-      return res.status(400).json({
-        success: false,
-        error: { code: "VAL_INVALID_INPUT", message: "Flag key is required." },
+      return sendError(res, "VAL_MISSING_FIELD", {
+        message: "Flag key is required.",
+        details: { field: "key" },
       });
     }
 
     const updated = featureFlagsService.toggleFlag(key, enabled);
 
     if (!updated) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "NOT_FOUND",
-          message: `Feature flag "${key}" not found.`,
-        },
+      return sendError(res, "RES_NOT_FOUND", {
+        message: `Feature flag "${key}" not found.`,
+        details: { key },
       });
     }
 

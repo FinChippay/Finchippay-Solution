@@ -15,7 +15,7 @@ const {
   loosePublicKeyParamSchema,
   idParamSchema,
 } = require("../validation/schemas");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 const {
   paginateInMemory,
   setPaginationHeaders,
@@ -53,9 +53,7 @@ router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req
     const { id } = req.validated;
     const { signedXDR } = req.body;
     if (!signedXDR) {
-      return res
-        .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
-        .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["signedXDR"] }));
+      return sendError(res, "VAL_MISSING_FIELD", { details: { fields: ["signedXDR"] } });
     }
     const result = await scheduledTransactionService.submitPendingExecution(id, signedXDR);
     res.json(result);
@@ -143,12 +141,9 @@ router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) 
     if (deleted) {
       res.json({ message: `Scheduled transaction ${id} deleted.` });
     } else {
-      res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-        formatErrorResponse("RES_NOT_FOUND", {
-          resourceType: "scheduledTransaction",
-          id,
-        }),
-      );
+      sendError(res, "RES_NOT_FOUND", {
+        details: { resourceType: "scheduledTransaction", id },
+      });
     }
   } catch (error) {
     next(error);

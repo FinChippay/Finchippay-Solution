@@ -11,7 +11,7 @@
 
 "use strict";
 
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 
 /**
  * Sanitize and validate a Stellar public key path parameter.
@@ -37,20 +37,16 @@ function sanitizePublicKey(req, res, next) {
 
   // 2. Return 400 if obviously invalid — length or prefix mismatch
   if (sanitized.length !== 56 || !sanitized.startsWith("G")) {
-    return res.status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus).json(
-      formatErrorResponse("VAL_INVALID_PUBLIC_KEY", {
-        reason: "Must be 56 characters starting with 'G'.",
-      }),
-    );
+    return sendError(res, "VAL_INVALID_PUBLIC_KEY", {
+      details: { reason: "Must be 56 characters starting with 'G'." },
+    });
   }
 
   // 3. Reject base-32–invalid characters (Stellar keys use A-Z, 2-7 only)
   if (!/^G[A-Z2-7]{55}$/.test(sanitized)) {
-    return res.status(ERROR_CODES.VAL_INVALID_PUBLIC_KEY.httpStatus).json(
-      formatErrorResponse("VAL_INVALID_PUBLIC_KEY", {
-        reason: "Contains characters outside the base-32 alphabet (A-Z, 2-7).",
-      }),
-    );
+    return sendError(res, "VAL_INVALID_PUBLIC_KEY", {
+      details: { reason: "Contains characters outside the base-32 alphabet (A-Z, 2-7)." },
+    });
   }
 
   // Update params with sanitized version
@@ -81,9 +77,7 @@ function sanitizeUsername(req, res, next) {
     .replace(/[^a-z0-9]/g, "");
 
   if (!sanitized || sanitized.length < 3 || sanitized.length > 20) {
-    return res
-      .status(ERROR_CODES.VAL_INVALID_USERNAME.httpStatus)
-      .json(formatErrorResponse("VAL_INVALID_USERNAME"));
+    return sendError(res, "VAL_INVALID_USERNAME");
   }
 
   req.params.username = sanitized;

@@ -9,7 +9,7 @@ const express = require("express");
 const router = express.Router();
 const knex = require("../db/connection");
 const notificationService = require("../services/notificationService");
-const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { sendError } = require("../utils/errorResponse");
 const { validate } = require("../validation/middleware");
 const {
   registerEmailSchema,
@@ -54,12 +54,9 @@ router.put(
       // Fetch existing preference
       const existing = await notificationService.getEmailPreference(publicKey);
       if (!existing) {
-        return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-          formatErrorResponse("RES_NOT_FOUND", {
-            resourceType: "notification_preference",
-            publicKey,
-          }),
-        );
+        return sendError(res, "RES_NOT_FOUND", {
+          details: { resourceType: "notification_preference", publicKey },
+        });
       }
 
       const preference = await notificationService.registerEmail(
@@ -86,12 +83,9 @@ router.get(
       const { publicKey } = req.validated;
       const preference = await notificationService.getEmailPreference(publicKey);
       if (!preference) {
-        return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-          formatErrorResponse("RES_NOT_FOUND", {
-            resourceType: "notification_preference",
-            publicKey,
-          }),
-        );
+        return sendError(res, "RES_NOT_FOUND", {
+          details: { resourceType: "notification_preference", publicKey },
+        });
       }
       return res.json({ success: true, preference });
     } catch (err) {
@@ -112,12 +106,9 @@ router.delete(
       const { publicKey } = req.validated;
       const deleted = await notificationService.deleteEmailPreference(publicKey);
       if (!deleted) {
-        return res.status(ERROR_CODES.RES_NOT_FOUND.httpStatus).json(
-          formatErrorResponse("RES_NOT_FOUND", {
-            resourceType: "notification_preference",
-            publicKey,
-          }),
-        );
+        return sendError(res, "RES_NOT_FOUND", {
+          details: { resourceType: "notification_preference", publicKey },
+        });
       }
       return res.json({
         success: true,
