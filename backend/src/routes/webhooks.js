@@ -7,6 +7,7 @@
 
 const express = require("express");
 const router = express.Router();
+const { strictLimiter } = require("../middleware/rateLimit");
 const webhookService = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
@@ -84,7 +85,7 @@ async function requireOwnWebhookById(req, res, next) {
  * is also persisted for verification. The server restores all webhooks on
  * startup — re-registration is not required after a restart.
  */
-router.post("/", verifyJWT, validate(registerWebhookSchema), requireOwnWebhookAccount, async (req, res) => {
+router.post("/", strictLimiter, verifyJWT, validate(registerWebhookSchema), requireOwnWebhookAccount, async (req, res) => {
   try {
     const { publicKey, url, secret, topics } = req.validated;
     const webhook = await webhookService.registerWebhook(publicKey, url, secret, topics);
@@ -100,7 +101,7 @@ router.post("/", verifyJWT, validate(registerWebhookSchema), requireOwnWebhookAc
  * GET /api/webhooks/:publicKey
  * Get all webhooks for a Stellar account with standardized pagination.
  */
-router.get("/:publicKey", verifyJWT, validate(publicKeyParamSchema, "params"), requireOwnWebhookAccount, async (req, res, next) => {
+router.get("/:publicKey", strictLimiter, verifyJWT, validate(publicKeyParamSchema, "params"), requireOwnWebhookAccount, async (req, res, next) => {
   try {
     const { publicKey } = req.validated;
     const hooks = await webhookService.getWebhooksByPublicKey(publicKey);
@@ -131,6 +132,7 @@ router.get("/:publicKey", verifyJWT, validate(publicKeyParamSchema, "params"), r
  */
 router.get(
   "/:publicKey/events",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   validate(getEventsQuerySchema, "query"),
@@ -168,6 +170,7 @@ router.get(
  */
 router.post(
   "/:publicKey/replay",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   validate(replayEventsBodySchema),
@@ -190,6 +193,7 @@ router.post(
  */
 router.get(
   "/:publicKey/events/stats",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   requireOwnWebhookAccount,
@@ -210,6 +214,7 @@ router.get(
  */
 router.get(
   "/:publicKey/failures",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   requireOwnWebhookAccount,
@@ -230,6 +235,7 @@ router.get(
  */
 router.post(
   "/:publicKey/retry",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   requireOwnWebhookAccount,
@@ -250,6 +256,7 @@ router.post(
  */
 router.get(
   "/:publicKey/deliveries",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   requireOwnWebhookAccount,
@@ -275,6 +282,7 @@ router.get(
  */
 router.get(
   "/:publicKey/deliveries/:id",
+  strictLimiter,
   verifyJWT,
   validate(publicKeyParamSchema, "params"),
   requireOwnWebhookAccount,
@@ -299,7 +307,7 @@ router.get(
  * DELETE /api/webhooks/:id
  * Delete a webhook by ID.
  */
-router.delete("/:id", verifyJWT, validate(idParamSchema, "params"), requireOwnWebhookById, async (req, res, next) => {
+router.delete("/:id", strictLimiter, verifyJWT, validate(idParamSchema, "params"), requireOwnWebhookById, async (req, res, next) => {
   try {
     const { id } = req.validated;
     const deleted = await webhookService.deleteWebhook(id);
