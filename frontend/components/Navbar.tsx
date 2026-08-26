@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AccountSwitcher from "@/components/AccountSwitcher";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import NotificationCenter from "@/components/NotificationCenter";
 import ThemeToggle from "@/components/ThemeToggle";
 import { NavStarIcon } from "@/components/icons";
 import { logger } from "@/lib/logger";
@@ -289,6 +290,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
         <div className="flex items-center gap-3">
           <LanguageSwitcher />
           <ThemeToggle />
+          <NotificationCenter publicKey={publicKey} />
 
           {/* ── Price alert bell badge ── */}
           <Link
