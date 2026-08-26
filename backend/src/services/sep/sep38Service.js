@@ -159,6 +159,107 @@ function getPrices(sellAsset, sellAmount) {
   };
 }
 
+const orderBookService = require("./orderBookService");
+
+/**
+ * Get aggregated quote across Stellar DEX order book depth for best execution.
+ *
+ * @param {string} sellAsset - The asset being sold.
+ * @param {string} buyAsset - The asset being bought.
+ * @param {string|number} sellAmount - The amount being sold.
+ * @returns {Promise<object>} Aggregated quote with depth, slippage, and price impact metrics.
+ */
+async function getAggregatedQuote(sellAsset, buyAsset, sellAmount) {
+  if (!sellAsset || !buyAsset) {
+    const err = new Error("sell_asset and buy_asset are required");
+    err.status = 400;
+    throw err;
+  }
+
+  if (!sellAmount) {
+    const err = new Error("sell_amount is required");
+    err.status = 400;
+    throw err;
+  }
+
+  const sellAmt = parseFloat(sellAmount);
+  if (isNaN(sellAmt) || sellAmt <= 0) {
+    const err = new Error("sell_amount must be a positive number");
+    err.status = 400;
+    throw err;
+  }
+
+  let orderBook;
+  try {
+    orderBook = await orderBookService.getOrderBook(sellAsset, buyAsset);
+  } catch (fetchErr) {
+    // If order book fetch fails or is non-stellar pair, fallback to fixed exchange rates if available
+    if (exchangeRates[sellAsset] && exchangeRates[sellAsset][buyAsset]) {
+      const singleQuote = getPrice(sellAsset, buyAsset, String(sellAmount));
+      return {
+        sellAsset,
+        buyAsset,
+        sellAmount: String(sellAmount),
+        buyAmount: singleQuote.buy_amount,
+        price: singleQuote.price,
+        topOfBookPrice: singleQuote.price,
+        slippagePercent: "0.00",
+        priceImpactPercent: "0.00",
+        levelsConsumed: 1,
+        isPartialFill: false,
+        remainingSellAmount: "0.0000",
+      };
+    }
+    throw fetchErr;
+  }
+
+  if (!orderBook || !orderBook.bids || orderBook.bids.length === 0) {
+    // If order book is empty, fallback to fixed exchange rate if defined
+    if (exchangeRates[sellAsset] && exchangeRates[sellAsset][buyAsset]) {
+      const singleQuote = getPrice(sellAsset, buyAsset, String(sellAmount));
+      return {
+        sellAsset,
+        buyAsset,
+        sellAmount: String(sellAmount),
+        buyAmount: singleQuote.buy_amount,
+        price: singleQuote.price,
+        topOfBookPrice: singleQuote.price,
+        slippagePercent: "0.00",
+        priceImpactPercent: "0.00",
+        levelsConsumed: 1,
+        isPartialFill: false,
+        remainingSellAmount: "0.0000",
+      };
+    }
+
+    const err = new Error(`Insufficient liquidity in order book for ${sellAsset} to ${buyAsset}`);
+    err.status = 400;
+    throw err;
+  }
+
+  const slippageInfo = orderBookService.estimateSlippage(orderBook.bids, sellAmt);
+
+  if (slippageInfo.sellAmountFilled <= 0) {
+    const err = new Error(`Insufficient liquidity in order book for ${sellAsset} to ${buyAsset}`);
+    err.status = 400;
+    throw err;
+  }
+
+  return {
+    sellAsset,
+    buyAsset,
+    sellAmount: String(sellAmount),
+    buyAmount: slippageInfo.buyAmountFilled.toFixed(4),
+    price: slippageInfo.weightedPrice,
+    topOfBookPrice: slippageInfo.topOfBookPrice,
+    slippagePercent: slippageInfo.slippagePercent,
+    priceImpactPercent: slippageInfo.priceImpactPercent,
+    levelsConsumed: slippageInfo.levelsConsumed,
+    isPartialFill: !slippageInfo.isFullyFilled,
+    remainingSellAmount: slippageInfo.remainingSellAmount.toFixed(4),
+  };
+}
+
 module.exports = {
   USDC_ASSET,
   XLM_ASSET,
@@ -166,4 +267,5 @@ module.exports = {
   getInfo,
   getPrice,
   getPrices,
+  getAggregatedQuote,
 };

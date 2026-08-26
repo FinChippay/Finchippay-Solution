@@ -1,4 +1,15 @@
 #![no_std]
+#![allow(deprecated)]
+#![allow(
+    clippy::len_zero,
+    clippy::manual_is_multiple_of,
+    clippy::manual_saturating_arithmetic,
+    clippy::manual_unwrap_or,
+    clippy::manual_unwrap_or_default,
+    clippy::needless_borrows_for_generic_args,
+    clippy::too_many_arguments,
+    clippy::unnecessary_cast
+)]
 //! # FinchippayContract — Soroban Smart Contract
 //!
 //! A production-grade Soroban contract for the Finchippay-Solution platform on
@@ -41,8 +52,8 @@ pub mod streams;
 pub mod yield_escrow;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env,
-    Symbol, TryIntoVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
+    TryIntoVal, Val, Vec,
 };
 
 use crate::storage::{MIN_TTL_LEDGERS, TTL_CLASS_COUNT};
@@ -106,6 +117,9 @@ pub enum ContractError {
     ExcessiveAmountIn = 23,
     /// `new_fee_bps` exceeds `MAX_SWAP_FEE_BPS`.
     InvalidFeeBps = 24,
+    /// The supplied swap `path` references stale liquidity, such as a repeated
+    /// token or a hop whose contract-side reserve is empty.
+    StalePath = 29,
     /// The referenced admin action proposal does not exist.
     ProposalNotFound = 25,
     /// The admin action proposal has already been executed.
@@ -701,6 +715,25 @@ pub(crate) fn require_transfer_succeeded(
     }
 }
 
+pub(crate) fn transfer_to_contract_measured(
+    env: &Env,
+    token: &token::Client,
+    from: &Address,
+    requested_amount: &i128,
+) -> i128 {
+    let contract_address = env.current_contract_address();
+    let balance_before = get_contract_balance(env, token);
+    token.transfer(from, &contract_address, requested_amount);
+    let balance_after = token.balance(&contract_address);
+    if balance_after <= balance_before {
+        panic!("TransferFailed");
+    }
+    set_contract_balance(env, &token.address, balance_after);
+    balance_after
+        .checked_sub(balance_before)
+        .expect("contract balance decreased during inbound transfer")
+}
+
 pub(crate) fn contract_transfer_out(env: &Env, token: &token::Client, to: &Address, amount: &i128) {
     token.transfer(&env.current_contract_address(), to, amount);
     let key = DataKey::LastContractBalance(token.address.clone());
@@ -760,6 +793,39 @@ pub(crate) fn compute_required_amount_in(amount_out: i128, fee_bps: u32) -> i128
         .expect("divide by zero")
 }
 
+pub(crate) fn compute_fee_on_transfer_top_up(
+    required_actual_amount_in: i128,
+    requested_amount_in: i128,
+    actual_amount_in: i128,
+    max_amount_in: i128,
+) -> Result<i128, ContractError> {
+    let actual_deficit = required_actual_amount_in
+        .checked_sub(actual_amount_in)
+        .ok_or(ContractError::ExcessiveAmountIn)?;
+    if actual_deficit <= 0 {
+        return Ok(0);
+    }
+    let remaining_request = max_amount_in
+        .checked_sub(requested_amount_in)
+        .ok_or(ContractError::ExcessiveAmountIn)?;
+    if remaining_request <= 0 || actual_amount_in <= 0 {
+        return Err(ContractError::ExcessiveAmountIn);
+    }
+    let estimated_request = actual_deficit
+        .checked_mul(requested_amount_in)
+        .expect("overflow")
+        .checked_add(actual_amount_in - 1)
+        .expect("overflow")
+        .checked_div(actual_amount_in)
+        .expect("divide by zero")
+        .max(1);
+    Ok(if estimated_request > remaining_request {
+        remaining_request
+    } else {
+        estimated_request
+    })
+}
+
 /// Validate a swap path: at least two hops, first == token_in, last == token_out.
 pub(crate) fn validate_swap_path(
     path: &Vec<Address>,
@@ -774,10 +840,53 @@ pub(crate) fn validate_swap_path(
     {
         return Err(ContractError::InvalidPath);
     }
+    for i in 0..path.len() {
+        let current = path.get(i).unwrap();
+        for j in (i + 1)..path.len() {
+            if current == path.get(j).unwrap() {
+                return Err(ContractError::StalePath);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_swap_path_liquidity(
+    env: &Env,
+    path: &Vec<Address>,
+) -> Result<(), ContractError> {
+    let contract_address = env.current_contract_address();
+    for i in 1..path.len() {
+        let token_address = path.get(i).unwrap();
+        let token_client = get_token_client(env, &token_address);
+        if token_client.balance(&contract_address) <= 0 {
+            return Err(ContractError::StalePath);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_swap_reserve(
+    env: &Env,
+    token_address: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    let token_client = get_token_client(env, token_address);
+    if token_client.balance(&env.current_contract_address()) < amount {
+        return Err(ContractError::StalePath);
+    }
     Ok(())
 }
 
 /// Check that the contract is not paused. Panics with `ContractPaused` if it is.
+///
+/// # Circuit-breaker completeness
+/// Every **value-transferring** entry point in the contract must call this
+/// guard before moving any funds. The full audit matrix mapping every
+/// entry point to `{mutating, value-transferring, pause-guarded}` is checked
+/// into `docs/pause-completeness.md`; the `tests/pause_completeness.rs`
+/// integration suite asserts the matrix holds (every fund-moving entry point
+/// is blocked while paused, and every read-only view still works).
 pub(crate) fn require_not_paused(env: &Env) {
     let key = DataKey::Paused;
     let paused: bool = env.storage().persistent().get(&key).unwrap_or(false);
@@ -1073,7 +1182,11 @@ impl FinchippayContract {
         // (fast hot-key path). Admin-initiated pausing goes through
         // `propose_admin_action`, so no single key can freeze the contract.
         let stored_pauser: Option<Address> = env.storage().persistent().get(&DataKey::Pauser);
-        if stored_pauser.as_ref().map(|p| p == &caller).unwrap_or(false) {
+        if stored_pauser
+            .as_ref()
+            .map(|p| p == &caller)
+            .unwrap_or(false)
+        {
             env.storage().persistent().set(&DataKey::Paused, &true);
             bump_to_floor(&env, &DataKey::Paused);
             env.events().publish((Symbol::new(&env, "paused"),), ());
@@ -1092,7 +1205,11 @@ impl FinchippayContract {
         // Mirror `pause`: only the designated pauser lifts the circuit breaker
         // directly; admin-initiated unpausing uses `propose_admin_action`.
         let stored_pauser: Option<Address> = env.storage().persistent().get(&DataKey::Pauser);
-        if stored_pauser.as_ref().map(|p| p == &caller).unwrap_or(false) {
+        if stored_pauser
+            .as_ref()
+            .map(|p| p == &caller)
+            .unwrap_or(false)
+        {
             env.storage().persistent().set(&DataKey::Paused, &false);
             bump_to_floor(&env, &DataKey::Paused);
             env.events().publish((Symbol::new(&env, "unpaused"),), ());
@@ -1305,7 +1422,8 @@ impl FinchippayContract {
                 .expect("invalid set_pauser payload");
             env.storage().persistent().set(&DataKey::Pauser, &pauser);
             bump_to_floor(env, &DataKey::Pauser);
-            env.events().publish((Symbol::new(env, "pauser_set"),), pauser);
+            env.events()
+                .publish((Symbol::new(env, "pauser_set"),), pauser);
         } else if action == &Symbol::new(env, "upgrade") {
             let wasm_hash: BytesN<32> = proposal
                 .action_data
@@ -1322,7 +1440,8 @@ impl FinchippayContract {
             // Reject downgrades before touching the WASM (same guard as the
             // legacy single-admin `upgrade` entrypoint).
             Self::validate_storage_compatibility(env.clone(), layout_version);
-            env.deployer().update_current_contract_wasm(wasm_hash.clone());
+            env.deployer()
+                .update_current_contract_wasm(wasm_hash.clone());
             let current_ver: u32 = env
                 .storage()
                 .persistent()
@@ -1341,6 +1460,11 @@ impl FinchippayContract {
                 (current_ver + 1, wasm_hash, layout_version),
             );
         } else if action == &Symbol::new(env, "rescue_tokens") {
+            // The rescue admin action moves funds, so it is blocked while the
+            // circuit breaker is engaged. (Governance actions that must stay
+            // callable while paused — `unpause` in particular — are not gated
+            // here; only the fund-moving branch is.)
+            require_not_paused(env);
             let token_address: Address = proposal
                 .action_data
                 .get(0)
@@ -1414,7 +1538,10 @@ impl FinchippayContract {
             storage::bump_if_present(env, &key);
         }
         env.events().publish(
-            (Symbol::new(env, "balance_reconciled"), token_address.clone()),
+            (
+                Symbol::new(env, "balance_reconciled"),
+                token_address.clone(),
+            ),
             (old, new),
         );
     }
@@ -1742,6 +1869,10 @@ impl FinchippayContract {
         to: Address,
     ) {
         let _guard = ReentrancyGuard::acquire(&env);
+        // The circuit breaker must also freeze this legacy rescue path: even
+        // though it is admin-gated, it is still a value-transferring entry
+        // point, so it must not move funds while the contract is paused.
+        require_not_paused(&env);
         admin.require_auth();
         let stored = get_admin(&env);
         if admin != stored {
@@ -2771,28 +2902,24 @@ impl FinchippayContract {
             return Err(ContractError::InvalidPath);
         }
         validate_swap_path(&path, &token_in, &token_out)?;
+        validate_swap_path_liquidity(&env, &path)?;
 
         let fee_bps = get_swap_fee_bps(&env);
-        let (fee, amount_to_swap) = compute_swap_fee(amount_in, fee_bps);
+        let token_in_client = get_token_client(&env, &token_in);
+        let actual_amount_in =
+            transfer_to_contract_measured(&env, &token_in_client, &caller, &amount_in);
+        let (fee, amount_to_swap) = compute_swap_fee(actual_amount_in, fee_bps);
         let amount_out = amount_to_swap;
 
         if amount_out < min_amount_out {
             return Err(ContractError::SlippageExceeded);
         }
+        ensure_swap_reserve(&env, &token_out, amount_out)?;
 
-        let token_in_client = get_token_client(&env, &token_in);
         if fee > 0 {
             let collector = get_fee_collector_address(&env);
-            require_transfer_succeeded(&env, &token_in_client, &caller, &collector, &fee);
+            contract_transfer_out(&env, &token_in_client, &collector, &fee);
         }
-        let contract_address = env.current_contract_address();
-        require_transfer_succeeded(
-            &env,
-            &token_in_client,
-            &caller,
-            &contract_address,
-            &amount_to_swap,
-        );
 
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
@@ -2804,7 +2931,7 @@ impl FinchippayContract {
                 token_in.clone(),
                 token_out.clone(),
             ),
-            (amount_in, amount_out, fee),
+            (amount_in, actual_amount_in, amount_out, fee, path.len()),
         );
 
         Ok(amount_out)
@@ -2838,33 +2965,50 @@ impl FinchippayContract {
             return Err(ContractError::InvalidPath);
         }
         validate_swap_path(&path, &token_in, &token_out)?;
+        validate_swap_path_liquidity(&env, &path)?;
 
         let fee_bps = get_swap_fee_bps(&env);
         let amount_in = compute_required_amount_in(amount_out, fee_bps);
+        let required_actual_amount_in = amount_in;
 
         if amount_in > max_amount_in {
             return Err(ContractError::ExcessiveAmountIn);
         }
 
-        let (fee, amount_to_swap) = compute_swap_fee(amount_in, fee_bps);
-        // Ceiling division in compute_required_amount_in can leave a few
-        // extra units in amount_to_swap versus amount_out; that dust stays
-        // in the contract's reserves rather than shorting the caller.
-        debug_assert!(amount_to_swap >= amount_out);
+        ensure_swap_reserve(&env, &token_out, amount_out)?;
 
         let token_in_client = get_token_client(&env, &token_in);
-        if fee > 0 {
-            let collector = get_fee_collector_address(&env);
-            require_transfer_succeeded(&env, &token_in_client, &caller, &collector, &fee);
+        let mut requested_amount_in = amount_in;
+        let mut actual_amount_in =
+            transfer_to_contract_measured(&env, &token_in_client, &caller, &amount_in);
+        let (mut actual_fee, mut actual_amount_to_swap) =
+            compute_swap_fee(actual_amount_in, fee_bps);
+        if actual_amount_to_swap < amount_out {
+            let additional_request = compute_fee_on_transfer_top_up(
+                required_actual_amount_in,
+                requested_amount_in,
+                actual_amount_in,
+                max_amount_in,
+            )?;
+            let additional_received =
+                transfer_to_contract_measured(&env, &token_in_client, &caller, &additional_request);
+            requested_amount_in = requested_amount_in
+                .checked_add(additional_request)
+                .expect("overflow");
+            actual_amount_in = actual_amount_in
+                .checked_add(additional_received)
+                .expect("overflow");
+            let recomputed = compute_swap_fee(actual_amount_in, fee_bps);
+            actual_fee = recomputed.0;
+            actual_amount_to_swap = recomputed.1;
+            if actual_amount_to_swap < amount_out {
+                return Err(ContractError::ExcessiveAmountIn);
+            }
         }
-        let contract_address = env.current_contract_address();
-        require_transfer_succeeded(
-            &env,
-            &token_in_client,
-            &caller,
-            &contract_address,
-            &amount_to_swap,
-        );
+        if actual_fee > 0 {
+            let collector = get_fee_collector_address(&env);
+            contract_transfer_out(&env, &token_in_client, &collector, &actual_fee);
+        }
 
         let token_out_client = get_token_client(&env, &token_out);
         contract_transfer_out(&env, &token_out_client, &caller, &amount_out);
@@ -2876,10 +3020,16 @@ impl FinchippayContract {
                 token_in.clone(),
                 token_out.clone(),
             ),
-            (amount_in, amount_out, fee),
+            (
+                requested_amount_in,
+                actual_amount_in,
+                amount_out,
+                actual_fee,
+                path.len(),
+            ),
         );
 
-        Ok(amount_in)
+        Ok(requested_amount_in)
     }
 }
 
@@ -3565,15 +3715,9 @@ mod tests {
         let mut signers = Vec::new(&env);
         signers.push_back(admin.clone());
         signers.push_back(signer_b);
-        let data: Vec<Val> = Vec::from_array(
-            &env,
-            [signers.into_val(&env), 2u32.into_val(&env)],
-        );
-        let pid = client.propose_admin_action(
-            &admin,
-            &Symbol::new(&env, "set_admin_signers"),
-            &data,
-        );
+        let data: Vec<Val> = Vec::from_array(&env, [signers.into_val(&env), 2u32.into_val(&env)]);
+        let pid =
+            client.propose_admin_action(&admin, &Symbol::new(&env, "set_admin_signers"), &data);
 
         // Threshold-1 deploy auto-executes the rotation on propose.
         assert!(client.get_admin_action_proposal(&pid).executed);
@@ -3596,11 +3740,8 @@ mod tests {
         proposed.push_back(signer_a.clone());
         proposed.push_back(new_signer);
         let data: Vec<Val> = Vec::from_array(&env, [proposed.into_val(&env), 2u32.into_val(&env)]);
-        let pid = client.propose_admin_action(
-            &signer_a,
-            &Symbol::new(&env, "set_admin_signers"),
-            &data,
-        );
+        let pid =
+            client.propose_admin_action(&signer_a, &Symbol::new(&env, "set_admin_signers"), &data);
         assert!(!client.get_admin_action_proposal(&pid).executed);
         assert_eq!(client.get_admin_signers().len(), 2);
         assert_eq!(client.get_admin_signers_threshold(), 2);

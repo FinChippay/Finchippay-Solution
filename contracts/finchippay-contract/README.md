@@ -71,7 +71,8 @@ transfers) are fully supported: the cached `LastContractBalance` matches the
 real on-chain balance, and every deposit/claim settles exactly.
 
 **Fee-on-transfer / taxed / deflationary tokens** (where `transfer` moves
-*less* than `amount` into the recipient) are **not** supported for deposits:
+*less* than `amount` into the recipient) are supported by the measured contract
+swap entry points and remain rejected by other deposit-style flows:
 the phantom-deposit check in `require_transfer_succeeded` compares the actual
 balance deltas and rejects the operation (`TransferFailed`) rather than locking
 a balance that never fully arrived. This is deliberate — it guarantees **no

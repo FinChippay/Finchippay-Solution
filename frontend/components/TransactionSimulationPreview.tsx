@@ -24,12 +24,10 @@
  */
 
 import clsx from "clsx";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
-import type {
-  SimulationResult,
-  BalanceChange,
-} from "@/hooks/useTransactionSimulation";
+import type { SimulationResult, BalanceChange } from "@/hooks/useTransactionSimulation";
+import { getFeeStats, type FeeStats } from "@/lib/fees";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -71,12 +69,24 @@ export default function TransactionSimulationPreview({
   description = "Review the estimated effects of this transaction before signing.",
 }: TransactionSimulationPreviewProps) {
   const [confirmed, setConfirmed] = useState(false);
+  const [feeStats, setFeeStats] = useState<FeeStats | null>(null);
   const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
 
   // Reset confirmation state when modal opens
   useMemo(() => {
     if (isOpen) setConfirmed(false);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    getFeeStats()
+      .then((stats) => active && setFeeStats(stats))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isOpen, simulation]);
 
   if (!isOpen) return null;
 
@@ -122,9 +132,7 @@ export default function TransactionSimulationPreview({
           {loading && (
             <div className="mt-5 flex items-center gap-3 rounded-xl border border-stellar-400/20 bg-stellar-400/5 px-4 py-3">
               <Spinner className="h-5 w-5 text-stellar-300" />
-              <p className="text-sm text-slate-300">
-                Simulating transaction on Soroban RPC...
-              </p>
+              <p className="text-sm text-slate-300">Simulating transaction on Soroban RPC...</p>
             </div>
           )}
 
@@ -134,9 +142,7 @@ export default function TransactionSimulationPreview({
               <div className="flex items-start gap-2">
                 <WarnIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-400" />
                 <div>
-                  <p className="text-sm font-medium text-red-300">
-                    Simulation Error
-                  </p>
+                  <p className="text-sm font-medium text-red-300">Simulation Error</p>
                   <p className="mt-1 text-sm text-red-200/80">{error}</p>
                 </div>
               </div>
@@ -149,9 +155,7 @@ export default function TransactionSimulationPreview({
               <div className="flex items-start gap-2">
                 <WarnIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400" />
                 <div>
-                  <p className="text-sm font-medium text-amber-300">
-                    Simulation Warning
-                  </p>
+                  <p className="text-sm font-medium text-amber-300">Simulation Warning</p>
                   <p className="mt-1 text-sm text-amber-200/80">{warning}</p>
                 </div>
               </div>
@@ -196,9 +200,7 @@ export default function TransactionSimulationPreview({
                 </h4>
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-400">
-                      Minimum Resource Fee
-                    </span>
+                    <span className="text-sm text-slate-400">Minimum Resource Fee</span>
                     <span className="font-mono text-sm font-semibold text-stellar-200">
                       {simulation.resourceFee.xlm.toFixed(7)} XLM
                     </span>
@@ -206,6 +208,20 @@ export default function TransactionSimulationPreview({
                   <p className="mt-1 text-xs text-slate-500">
                     ({simulation.resourceFee.stroops.toLocaleString()} stroops)
                   </p>
+                  <dl className="mt-3 grid grid-cols-2 gap-1 border-t border-white/10 pt-3 text-xs">
+                    <dt className="text-slate-500">CPU instructions</dt>
+                    <dd className="text-right font-mono text-slate-300">
+                      {(simulation.resourceFee.cpuInstructions ?? 0).toLocaleString()}
+                    </dd>
+                    <dt className="text-slate-500">Read bytes</dt>
+                    <dd className="text-right font-mono text-slate-300">
+                      {(simulation.resourceFee.readBytes ?? 0).toLocaleString()}
+                    </dd>
+                    <dt className="text-slate-500">Write bytes</dt>
+                    <dd className="text-right font-mono text-slate-300">
+                      {(simulation.resourceFee.writeBytes ?? 0).toLocaleString()}
+                    </dd>
+                  </dl>
                 </div>
               </section>
             )}
@@ -218,9 +234,11 @@ export default function TransactionSimulationPreview({
                 </h4>
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-400">Base Fee</span>
+                    <span className="text-sm text-slate-400">Base Fee Range</span>
                     <span className="font-mono text-sm text-slate-300">
-                      ~0.00001 XLM (100 stroops)
+                      {feeStats
+                        ? `${feeStats.min.toLocaleString()}–${Math.max(feeStats.max, feeStats.p99).toLocaleString()} stroops`
+                        : "Loading Horizon fee stats…"}
                     </span>
                   </div>
                 </div>
@@ -273,8 +291,7 @@ export default function TransactionSimulationPreview({
                   className="mt-0.5 h-4 w-4 rounded border-amber-400 bg-amber-400/10 text-amber-500 focus:ring-amber-400/30"
                 />
                 <span className="text-sm text-slate-300">
-                  I understand there was a simulation issue and want to proceed
-                  anyway.
+                  I understand there was a simulation issue and want to proceed anyway.
                 </span>
               </label>
             )}
@@ -297,7 +314,7 @@ export default function TransactionSimulationPreview({
               disabled={!canProceed || loading}
               className={clsx(
                 "btn-primary w-full py-2.5 text-sm flex items-center justify-center gap-2",
-                (!canProceed || loading) && "opacity-50 cursor-not-allowed"
+                (!canProceed || loading) && "opacity-50 cursor-not-allowed",
               )}
             >
               {loading ? (
@@ -329,9 +346,7 @@ function BalanceChangeRow({ change }: { change: BalanceChange }) {
         <span className="text-sm font-medium text-slate-200">
           {change.assetCode}
           {change.asset !== "native" && (
-            <span className="ml-1 text-xs text-slate-500">
-              ({change.asset.slice(0, 12)}...)
-            </span>
+            <span className="ml-1 text-xs text-slate-500">({change.asset.slice(0, 12)}...)</span>
           )}
         </span>
         <span
@@ -339,7 +354,7 @@ function BalanceChangeRow({ change }: { change: BalanceChange }) {
             "font-mono text-sm font-semibold",
             isNegative && "text-red-400",
             isPositive && "text-emerald-400",
-            !isNegative && !isPositive && "text-slate-400"
+            !isNegative && !isPositive && "text-slate-400",
           )}
         >
           {isPositive ? "+" : ""}
@@ -359,19 +374,8 @@ function BalanceChangeRow({ change }: { change: BalanceChange }) {
 
 function Spinner({ className }: { className?: string }) {
   return (
-    <svg
-      className={`${className ?? ""} animate-spin`}
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
+    <svg className={`${className ?? ""} animate-spin`} viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path
         className="opacity-80"
         fill="currentColor"
@@ -383,31 +387,67 @@ function Spinner({ className }: { className?: string }) {
 
 function WarnIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+      />
     </svg>
   );
 }
 
 function CheckCircleIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
     </svg>
   );
 }
 
 function XCircleIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l6 6m0-6l-6 6M12 3a9 9 0 110 18 9 9 0 010-18z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9 9l6 6m0-6l-6 6M12 3a9 9 0 110 18 9 9 0 010-18z"
+      />
     </svg>
   );
 }
 
 function ArrowRightIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
     </svg>
   );

@@ -1,14 +1,28 @@
-import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 import PaymentBuilder, { type BuilderRecipient } from "../components/PaymentBuilder";
 
 // Mock framer-motion Reorder and motion components for clean Jest testing
 jest.mock("framer-motion", () => {
   return {
     Reorder: {
-      Group: ({ children, axis: _axis, values: _values, onReorder: _onReorder, ...props }: any) => <div data-testid="reorder-group" {...props}>{children}</div>,
-      Item: ({ children, value, onDragOver, onDragLeave, onDrop, whileDrag: _whileDrag, onDragStart: _onDragStart, onDragEnd: _onDragEnd, ...props }: any) => (
+      Group: ({ children, axis: _axis, values: _values, onReorder: _onReorder, ...props }: any) => (
+        <div data-testid="reorder-group" {...props}>
+          {children}
+        </div>
+      ),
+      Item: ({
+        children,
+        value,
+        onDragOver,
+        onDragLeave,
+        onDrop,
+        whileDrag: _whileDrag,
+        onDragStart: _onDragStart,
+        onDragEnd: _onDragEnd,
+        ...props
+      }: any) => (
         <div
           data-testid={`reorder-item-${value.id}`}
           onDragOver={onDragOver}
@@ -21,18 +35,30 @@ jest.mock("framer-motion", () => {
       ),
     },
     motion: {
-      button: ({ children, whileHover: _whileHover, whileTap: _whileTap, initial: _initial, animate: _animate, transition: _transition, ...props }: any) => (
-        <button {...props}>{children}</button>
-      ),
-      div: ({ children, whileHover: _whileHover, whileTap: _whileTap, initial: _initial, animate: _animate, transition: _transition, ...props }: any) => <div {...props}>{children}</div>,
+      button: ({
+        children,
+        whileHover: _whileHover,
+        whileTap: _whileTap,
+        initial: _initial,
+        animate: _animate,
+        transition: _transition,
+        ...props
+      }: any) => <button {...props}>{children}</button>,
+      div: ({
+        children,
+        whileHover: _whileHover,
+        whileTap: _whileTap,
+        initial: _initial,
+        animate: _animate,
+        transition: _transition,
+        ...props
+      }: any) => <div {...props}>{children}</div>,
     },
   };
 });
 
 jest.mock("@/lib/stellar", () => ({
-  isValidStellarAddress: jest.fn(
-    (addr: string) => addr.startsWith("G") && addr.length === 56
-  ),
+  isValidStellarAddress: jest.fn((addr: string) => addr.startsWith("G") && addr.length === 56),
 }));
 
 describe("PaymentBuilder", () => {
@@ -72,10 +98,7 @@ describe("PaymentBuilder", () => {
     const user = userEvent.setup();
     const handleRecipientsChange = jest.fn();
     render(
-      <PaymentBuilder
-        publicKey={defaultPublicKey}
-        onRecipientsChange={handleRecipientsChange}
-      />
+      <PaymentBuilder publicKey={defaultPublicKey} onRecipientsChange={handleRecipientsChange} />,
     );
 
     const addressInput = screen.getByPlaceholderText("G...");
@@ -151,12 +174,7 @@ describe("PaymentBuilder", () => {
       { id: "2", address: "GBBB", amount: "20", memo: "second", token: { code: "USDC" } },
     ];
 
-    render(
-      <PaymentBuilder
-        publicKey={defaultPublicKey}
-        initialRecipients={initialRecipients}
-      />
-    );
+    render(<PaymentBuilder publicKey={defaultPublicKey} initialRecipients={initialRecipients} />);
 
     const dragHandles = screen.getAllByRole("button", { name: /drag to reorder/i });
     expect(dragHandles).toHaveLength(2);
@@ -191,12 +209,7 @@ describe("PaymentBuilder", () => {
       { id: "row-1", address: "", amount: "", memo: "", token: { code: "XLM" } },
     ];
 
-    render(
-      <PaymentBuilder
-        publicKey={defaultPublicKey}
-        initialRecipients={initialRecipients}
-      />
-    );
+    render(<PaymentBuilder publicKey={defaultPublicKey} initialRecipients={initialRecipients} />);
 
     const item = screen.getByTestId("reorder-item-row-1");
 

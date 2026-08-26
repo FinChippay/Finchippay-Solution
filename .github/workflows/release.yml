@@ -3,6 +3,12 @@
 # Generates CycloneDX and SPDX SBOMs for all components and attaches them
 # as release assets so consumers can verify the supply chain.
 #
+# Supply-chain controls (issue #644):
+# - SBOM files are signed with cosign (keyless, OIDC) and both signature and
+#   certificate are attached to the release.
+# - SLSA v1.0 provenance is generated for the release assets via the official
+#   slsa-github-generator reusable workflow and attached to the release.
+#
 # Requires: no manual steps — push a tag to trigger:
 #   git tag v1.2.3 && git push origin v1.2.3
 
@@ -16,6 +22,7 @@ permissions:
   contents: write
   discussions: write
   security-events: write
+  id-token: write # required for keyless cosign signing and SLSA provenance
 
 jobs:
   # ─── Generate SBOMs ─────────────────────────────────────────────────────────
@@ -86,6 +93,8 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: sbom
+    outputs:
+      digests: ${{ steps.subjects.outputs.digests }}
 
     steps:
       - uses: actions/checkout@v4
@@ -124,12 +133,41 @@ jobs:
             echo "## Software Bill of Materials (SBOM)"
             echo ""
             echo "SPDX and CycloneDX SBOMs for the frontend, backend, and Soroban"
-            echo "contract are attached to this release as assets:"
+            echo "contract are attached to this release as assets. Each SBOM is"
+            echo "also signed with cosign (keyless) — see the \`.sig\`/\`.pem\`"
+            echo "companion assets and"
+            echo "\`docs/supply-chain-verification.md\` for verification steps."
             echo ""
             echo "- \`frontend.spdx.json\` / \`frontend.cdx.json\`"
             echo "- \`backend.spdx.json\` / \`backend.cdx.json\`"
             echo "- \`contract.spdx.json\` / \`contract.cdx.json\`"
           } > sbom-notes.md
+
+      # ── Sign SBOM release assets with cosign (keyless, OIDC) ──────────────
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Sign SBOM release assets with cosign
+        run: |
+          for f in sbom/*.json; do
+            cosign sign-blob --yes \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.pem" \
+              "$f"
+          done
+
+      # ── Compute SLSA subject digests for the attached release assets ───────
+      # The generator expects the same format as `sha256sum` output
+      # (`<hex>  <filename>` per line), base64-encoded.
+      - name: Compute SLSA subject digests
+        id: subjects
+        run: |
+          cd sbom
+          sha256sum *.json > subjects.txt
+          DIGESTS=$(base64 -w0 subjects.txt)
+          echo "digests=$DIGESTS" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -140,6 +178,23 @@ jobs:
           generate_release_notes: true
           append_body: true
           body_path: sbom-notes.md
-          files: sbom/*.json
+          files: |
+            sbom/*.json
+            sbom/*.sig
+            sbom/*.pem
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── SLSA Provenance ──────────────────────────────────────────────────────
+  slsa-provenance:
+    name: Generate SLSA Provenance
+    needs: create-release
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    with:
+      base64-subjects: "${{ needs.create-release.outputs.digests }}"
+      upload-assets: true
+      upload-tag-name: ${{ github.ref_name }}

@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, Symbol, Vec};
 
-use crate::DataKey;
+use crate::{require_not_paused, DataKey};
 
 #[contracttype]
 #[derive(Clone)]
@@ -60,6 +60,7 @@ pub fn create_airdrop(
     total_amount: i128,
     expiration_ledger: u32,
 ) -> u32 {
+    require_not_paused(env);
     funder.require_auth();
 
     if total_amount <= 0 {
@@ -114,6 +115,7 @@ pub fn claim_airdrop(
     proof: Vec<BytesN<32>>,
     index: u32,
 ) {
+    require_not_paused(env);
     recipient.require_auth();
 
     let mut airdrop: MerkleAirdrop = env
@@ -167,6 +169,7 @@ pub fn claim_airdrop(
 }
 
 pub fn cancel_airdrop(env: &Env, airdrop_id: u32, funder: Address) {
+    require_not_paused(env);
     funder.require_auth();
 
     let mut airdrop: MerkleAirdrop = env

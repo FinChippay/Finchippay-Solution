@@ -129,16 +129,17 @@ export function withAuth(fetchFn: typeof fetch): typeof fetch {
     const response = await fetchFn(input, reqInit);
 
     // If unauthorized, attempt to refresh and retry
-    if (response.status === 401) {
+    if (response.status === 401 && !(reqInit as any)._isRetry) {
       const freshToken = await refreshTokens();
       if (freshToken) {
         const retryHeaders = new Headers(reqInit.headers);
         retryHeaders.set("Authorization", `Bearer ${freshToken}`);
         reqInit.headers = retryHeaders;
+        (reqInit as any)._isRetry = true;
         return await fetchFn(input, reqInit);
       } else {
         // Redirect to wallet connect flow
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && window.location.pathname !== "/") {
           window.location.href = "/";
         }
       }

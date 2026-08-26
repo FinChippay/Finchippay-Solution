@@ -26,6 +26,8 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
+      packages: write
+      id-token: write # keyless cosign signing/attestation against GHCR
 
     steps:
       - uses: actions/checkout@v4
@@ -179,3 +181,35 @@ jobs:
           name: image-sboms
           path: sbom/
           retention-days: 30
+
+      # ── Supply-chain: cosign sign + SBOM attestation (issue #644) ─────────
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Sign backend image (keyless)
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign sign --yes \
+            "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"
+
+      - name: Attach backend SBOM attestation
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign attest --yes --type spdx \
+            --predicate sbom/backend-image.spdx.json \
+            "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"
+
+      - name: Sign frontend image (keyless)
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign sign --yes \
+            "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}"
+
+      - name: Attach frontend SBOM attestation
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign attest --yes --type spdx \
+            --predicate sbom/frontend-image.spdx.json \
+            "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}"

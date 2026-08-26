@@ -36,6 +36,7 @@
 //! | `admin_action_approved` | (id, approver, count, threshold) | Gov action approved |
 //! | `balance_reconciled` | (token, old, new) | Admin resynced cached contract balance |
 //! | `balance_drift_detected` | (token, cached, actual) | Cached vs actual balance drift surfaced |
+//! | `swap` | (requested_in, actual_in, amount_out, fee, path_len) | Contract-reserve swap settled |
 
 use soroban_sdk::Symbol;
 

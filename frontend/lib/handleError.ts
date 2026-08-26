@@ -481,7 +481,7 @@ export function handleError(
 }
 
 /**
- * Describe a numeric Soroban ContractError (1-17) for the user.
+ * Describe a numeric Soroban ContractError (1-29) for the user.
  *
  * @param contractErrorCode - The numeric ContractError value.
  * @param rawMessage - Optional raw message from the invocation.
