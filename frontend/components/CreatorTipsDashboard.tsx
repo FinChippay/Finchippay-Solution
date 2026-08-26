@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatXLM, shortenAddress, formatUSD, formatStroopsToXLM } from "@/utils/format";
 import { getContractTipTotal, getContractTipCount, CONTRACT_ID } from "@/lib/stellar";
+import { sdk } from "@/lib/sdk-instance";
 
 interface TipRecord {
   id: number;
@@ -75,22 +76,11 @@ export default function CreatorTipsDashboard({
     setError(null);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      
-      // Fetch tips received
-      const tipsResponse = await fetch(
-        `${apiBase}/api/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`
-      );
-      
-      if (!tipsResponse.ok) {
-        throw new Error("Failed to load tips");
-      }
-      
-      const tipsPayload = await tipsResponse.json();
-      
-      if (tipsPayload?.success) {
-        setTips(tipsPayload.data.tips || []);
-        setStats(tipsPayload.data.stats || null);
+      const payload = await sdk.tips.getReceived(publicKey);
+
+      if (payload?.success) {
+        setTips(payload.data || []);
+        setStats(payload.stats || null);
       } else {
         setTips([]);
       }

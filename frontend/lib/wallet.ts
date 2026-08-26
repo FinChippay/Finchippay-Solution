@@ -252,18 +252,9 @@ export function disconnectWallet(): void {
   // Freighter doesn't expose an explicit disconnect API, so the app clears
   // any local auth state and lets React own the connected wallet lifecycle.
   const rToken = typeof window !== "undefined" ? localStorage.getItem("finchippay_refresh_token") : null;
-  const aToken = getJwtToken();
 
-  if (rToken || aToken) {
-    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
-    fetch(`${API_URL}/api/auth/logout`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(aToken ? { "Authorization": `Bearer ${aToken}` } : {})
-      },
-      body: JSON.stringify({ refreshToken: rToken }),
-    }).catch((err) => {
+  if (rToken) {
+    sdk.logout(rToken).catch((err) => {
       console.error("Failed to revoke token family on logout:", err);
     });
   }

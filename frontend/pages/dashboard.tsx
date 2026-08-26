@@ -23,6 +23,7 @@ import {
   requestPermission,
   unsubscribeUser,
 } from "@/lib/pushNotifications";
+import { sdk } from "@/lib/sdk-instance";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
 import Skeleton from "@/components/Skeleton";
@@ -293,16 +294,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const fetchUsername = useCallback(async () => {
     if (!publicKey) return;
     
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     try {
-      const response = await fetch(
-        `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
-      );
-      if (response.ok) {
-        const payload = await response.json();
-        if (payload?.success && payload?.data?.username) {
-          setCreatorUsername(payload.data.username);
-        }
+      const res = await sdk.accounts.resolveUsername(publicKey);
+      if (res?.success && res?.data?.username) {
+        setCreatorUsername(res.data.username);
       }
     } catch (err) {
       console.error("Error fetching username:", err);
@@ -394,28 +389,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-
     setPaymentStatsLoading(true);
     setPaymentStatsError(null);
 
     try {
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        throw new Error("Unable to load payment stats right now.");
-      }
-
-      const payload = await response.json();
+      const payload = await sdk.payments.getStats(publicKey);
       const data = payload?.data;
 
       if (
@@ -578,17 +556,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!publicKey) return;
     setTopRecipientsLoading(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(
-        `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
-        { headers }
-      );
-      if (res.ok) {
-        const payload = await res.json();
-        setTopRecipients(payload?.data?.topRecipients ?? []);
+      const res = await sdk.analytics.getTopRecipients(publicKey);
+      if (res?.success) {
+        setTopRecipients(res?.data?.topRecipients ?? []);
       }
     } catch (err) {
       console.error("Failed to fetch top recipients:", err);

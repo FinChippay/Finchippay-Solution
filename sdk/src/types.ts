@@ -51,8 +51,13 @@ export interface AnalyticsSummary {
 }
 
 export interface TopRecipient {
+  address: string;
+  totalXLMSent: string;
+}
+
+export interface TopRecipientsData {
   publicKey: string;
-  totalXLM: string;
+  topRecipients: TopRecipient[];
   count: number;
 }
 
@@ -76,19 +81,29 @@ export interface AccountInfo {
 }
 
 export interface Tip {
-  id: string;
-  from: string;
-  to: string;
+  id: number;
+  senderPublicKey: string;
+  creatorPublicKey: string;
   amount: string;
-  memo?: string;
-  createdAt: string;
-  transactionHash: string;
+  asset: string;
+  memo: string;
+  txHash: string;
+  timestamp: string;
+}
+
+export interface TipsReceivedResponse {
+  success: boolean;
+  data: Tip[];
+  stats: TipStats;
+  pagination: { nextCursor: string | null; total: number; limit: number };
 }
 
 export interface TipStats {
-  totalReceived: string;
-  totalCount: number;
-  averageAmount: string;
+  totalTips: number;
+  totalByAsset: Record<string, { count: number; amount: string }>;
+  averageTip: string | null;
+  largestTip: string | null;
+  smallestTip: string | null;
 }
 
 export interface TxFunctionChallengeRequest {
@@ -255,11 +270,11 @@ export interface BalanceResponse {
 /* ─── Tip creation ─── */
 
 export interface CreateTipRequest {
-  from: string;
-  to: string;
+  senderPublicKey: string;
+  creatorPublicKey: string;
   amount: string;
+  asset?: string;
   memo?: string;
-  transactionHash?: string;
 }
 
 /* ─── Pagination / listing ─── */

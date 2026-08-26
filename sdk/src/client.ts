@@ -16,6 +16,7 @@ import type {
   /* Analytics */
   AnalyticsSummary,
   TopRecipient,
+  TopRecipientsData,
   ActivityDay,
   /* Payments */
   PaymentRecord,
@@ -24,6 +25,7 @@ import type {
   /* Tips */
   Tip,
   TipStats,
+  TipsReceivedResponse,
   CreateTipRequest,
   /* Turrets (txFunctions) */
   TxFunctionChallengeRequest,
@@ -97,6 +99,13 @@ export class FinchippayClient {
     }
   }
 
+  /**
+   * Update the base URL at runtime (e.g. lazy-loading from env vars in test environments).
+   */
+  setBaseUrl(url: string): void {
+    this.baseUrl = url.replace(/\/+$/, "");
+  }
+
   /* ─── Token management ─── */
 
   /** Returns the current JWT token, if any. */
@@ -150,20 +159,30 @@ export class FinchippayClient {
     });
 
     if (!res.ok) {
-      const errorBody = await res.text();
+      // Some mocked/partial responses (test suites) only expose `json()`.
+      const canReadText = typeof (res as { text?: unknown }).text === "function";
+      const errorBody = canReadText ? await res.text() : await (res as { json: () => Promise<unknown> }).json();
       let errorMessage: string;
-      try {
-        const parsed = JSON.parse(errorBody);
-        errorMessage = parsed.error || parsed.message || errorBody;
-      } catch {
-        errorMessage = errorBody || `HTTP ${res.status}`;
+      if (typeof errorBody === "string") {
+        try {
+          const parsed = JSON.parse(errorBody);
+          errorMessage = parsed.error || parsed.message || errorBody;
+        } catch {
+          errorMessage = errorBody || `HTTP ${res.status}`;
+        }
+      } else {
+        const parsed = errorBody as { error?: string; message?: string };
+        errorMessage = parsed?.error || parsed?.message || `HTTP ${res.status}`;
       }
       throw new ApiHttpError(res.status, errorMessage, res.headers);
     }
 
-    // Some endpoints return plain text (e.g. stellar.toml)
-    const contentType = res.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
+    // Some endpoints return plain text (e.g. stellar.toml). When the response
+    // carries a JSON content-type — or no header at all but exposes a `json()`
+    // method (typical of mocked responses in test suites) — parse as JSON.
+    const contentType = res.headers?.get?.("content-type") || "";
+    const hasJsonMethod = typeof (res as { json?: unknown }).json === "function";
+    if (contentType.includes("application/json") || (!contentType && hasJsonMethod)) {
       return (await res.json()) as T;
     }
     return (await res.text()) as unknown as T;
@@ -224,6 +243,33 @@ export class FinchippayClient {
     return "data" in res ? (res as SuccessResponse<HealthStatus>).data : (res as HealthStatus);
   }
 
+  /** Revoke the current token family (logout). */
+  async logout(refreshToken?: string | null): Promise<SuccessResponse<{ message: string }>> {
+    return this.request("POST", "/api/auth/logout", {
+      body: refreshToken ? { refreshToken } : undefined,
+    });
+  }
+
+  /* ─── Push notifications ─── */
+
+  push = {
+    /** Get the VAPID public key and whether push is enabled server-side. */
+    getPublicKey: (): Promise<SuccessResponse<{ publicKey: string; enabled: boolean }>> =>
+      this.request("GET", "/api/push/public-key"),
+
+    /** Register (or refresh) this browser's push subscription. */
+    subscribe: (
+      body: { publicKey: string; subscription: unknown }
+    ): Promise<SuccessResponse<{ created: boolean }>> =>
+      this.request("POST", "/api/push/subscribe", { body }),
+
+    /** Remove one device's push subscription (idempotent). */
+    unsubscribe: (
+      body: { publicKey: string; endpoint: string }
+    ): Promise<SuccessResponse<void>> =>
+      this.request("POST", "/api/push/unsubscribe", { body }),
+  };
+
   /* ─── Accounts ─── */
 
   accounts = {
@@ -267,7 +313,7 @@ export class FinchippayClient {
       this.request("GET", `/api/analytics/${publicKey}/summary`),
 
     /** Get top payment recipients. */
-    getTopRecipients: (publicKey: string): Promise<SuccessResponse<TopRecipient[]>> =>
+    getTopRecipients: (publicKey: string): Promise<SuccessResponse<TopRecipientsData>> =>
       this.request("GET", `/api/analytics/${publicKey}/top-recipients`),
 
     /** Get payment activity by day. */
@@ -278,8 +324,8 @@ export class FinchippayClient {
   /* ─── Tips ─── */
 
   tips = {
-    /** Get tips received by a creator. */
-    getReceived: (creatorPublicKey: string): Promise<SuccessResponse<Tip[]>> =>
+    /** Get tips received by a creator. Returns list + stats + pagination. */
+    getReceived: (creatorPublicKey: string): Promise<TipsReceivedResponse> =>
       this.request("GET", `/api/tips/received/${creatorPublicKey}`),
 
     /** Get tips sent by an account. */

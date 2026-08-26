@@ -11,7 +11,7 @@
  * Reference: https://developer.mozilla.org/en-US/docs/Web/API/Push_API
  */
 
-import { withAuth } from "@/lib/auth";
+import { sdk } from "@/lib/sdk-instance";
 
 /** Where the browser remembers the user's answer to the prompt. */
 export const OPT_IN_STORAGE_KEY = "notificationOptIn";
@@ -21,9 +21,6 @@ export const DISMISSED_STORAGE_KEY = "notificationPromptDismissedAt";
 
 /** How long "Not Now" suppresses the prompt. */
 export const DISMISSAL_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
-
-const apiBase = (): string =>
-  (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
 
 /**
  * Whether this browser can do Web Push at all.
@@ -83,14 +80,9 @@ export async function getVapidPublicKey(): Promise<string | null> {
   }
 
   try {
-    const res = await fetch(`${apiBase()}/api/push/public-key`);
-    if (!res.ok) {
-      cachedVapidKey = null;
-      return cachedVapidKey;
-    }
-    const body = await res.json();
-    cachedVapidKey = body?.data?.enabled
-      ? (body.data.publicKey as string | undefined) ?? null
+    const res = await sdk.push.getPublicKey();
+    cachedVapidKey = res?.data?.enabled
+      ? (res.data.publicKey as string | undefined) ?? null
       : null;
   } catch {
     // Backend unreachable — treat push as unavailable for now, but do not
@@ -169,25 +161,15 @@ export async function subscribeUser(
       ) as BufferSource,
     }));
 
-  const authedFetch = withAuth(window.fetch.bind(window));
-
   try {
-    const res = await authedFetch(`${apiBase()}/api/push/subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ publicKey, subscription }),
-    });
+    await sdk.push.subscribe({ publicKey, subscription });
 
-    if (!res.ok) {
-      // Leave the browser subscription in place: the user granted permission,
-      // and a later attempt can register it once the session is authenticated.
-      return null;
-    }
+    return subscription;
   } catch {
+    // Leave the browser subscription in place: the user granted permission,
+    // and a later attempt can register it once the session is authenticated.
     return null;
   }
-
-  return subscription;
 }
 
 /**
@@ -204,14 +186,8 @@ export async function unsubscribeUser(publicKey: string): Promise<boolean> {
 
   if (!subscription) return true;
 
-  const authedFetch = withAuth(window.fetch.bind(window));
-
   try {
-    await authedFetch(`${apiBase()}/api/push/unsubscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ publicKey, endpoint: subscription.endpoint }),
-    });
+    await sdk.push.unsubscribe({ publicKey, endpoint: subscription.endpoint });
   } catch {
     // Fall through: still drop the local subscription so the user's choice
     // takes effect immediately. Dead endpoints are pruned server-side on the

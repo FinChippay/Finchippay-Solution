@@ -32,6 +32,7 @@ import {
 } from "@/lib/stellar";
 import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { sdk } from "@/lib/sdk-instance";
 import FeeEstimator from "@/components/FeeEstimator";
 import { Transaction } from "@stellar/stellar-sdk";
 import {
@@ -587,16 +588,17 @@ function SendPaymentForm({
       throw new Error("Invalid username format");
     }
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
-    const payload = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      throw new Error(payload?.error || "Username not found");
-    }
-
-    if (payload?.success && isValidStellarAddress(payload?.data?.publicKey || "")) {
-      return payload.data.publicKey;
+    try {
+      const payload = await sdk.accounts.resolveUsername(cleanUsername);
+      const publicKey = payload?.data?.publicKey ?? "";
+      if (payload?.success && isValidStellarAddress(publicKey)) {
+        return publicKey;
+      }
+    } catch (err) {
+      if ((err as { status?: number })?.status === 404) {
+        throw new Error("Username not found");
+      }
+      throw new Error((err as { message?: string })?.message || "Username not found");
     }
 
     throw new Error("Username resolution did not return a valid public key");

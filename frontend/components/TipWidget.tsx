@@ -5,6 +5,7 @@ import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
 import { formatXLM } from "@/utils/format";
 import { useWallet } from "@/lib/useWallet";
+import { sdk } from "@/lib/sdk-instance";
 
 interface TipWidgetProps {
   creatorUsername: string;
@@ -93,22 +94,18 @@ export default function TipWidget({
   };
 
   const handleSuccess = async () => {
+    if (!publicKey) return;
     setShowCelebration(true);
     setFormVersion((current) => current + 1);
     window.setTimeout(() => setShowCelebration(false), 4200);
 
     // Record tip in backend
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      await fetch(`${apiBase}/api/tips`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          senderPublicKey: publicKey,
-          creatorPublicKey: destination,
-          amount: parsedAmount.toString(),
-          asset: "XLM",
-        }),
+      await sdk.tips.create({
+        senderPublicKey: publicKey,
+        creatorPublicKey: destination,
+        amount: parsedAmount.toString(),
+        asset: "XLM",
       });
     } catch (err) {
       console.error("Failed to record tip:", err);

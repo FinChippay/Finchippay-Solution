@@ -147,6 +147,7 @@ describe("getVapidPublicKey", () => {
     expect(await getVapidPublicKey()).toBe(VAPID);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.com/api/push/public-key",
+      expect.objectContaining({ method: "GET" }),
     );
   });
 

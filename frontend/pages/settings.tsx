@@ -21,6 +21,7 @@ import {
 import { shortenAddress } from "@/lib/stellar";
 import { resetTour } from '@/lib/onboardingState';
 import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
+import { sdk } from "@/lib/sdk-instance";
 import KyCForm from "@/components/KyCForm";
 import AccountSettings from "@/components/AccountSettings";
 import { useWallet } from "@/lib/useWallet";
@@ -83,16 +84,10 @@ export default function SettingsPage({
     const fetchUsername = async () => {
       if (!publicKey) return;
       
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
       try {
-        const response = await fetch(
-          `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
-        );
-        if (response.ok) {
-          const payload = await response.json();
-          if (payload?.success && payload?.data?.username) {
-            setRegisteredUsername(payload.data.username);
-          }
+        const res = await sdk.accounts.resolveUsername(publicKey);
+        if (res?.success && res?.data?.username) {
+          setRegisteredUsername(res.data.username);
         }
       } catch (err) {
         console.error("Error fetching username:", err);
@@ -298,20 +293,13 @@ export default function SettingsPage({
     setUsernameSuccess(null);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/accounts/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim().toLowerCase(),
-          publicKey,
-        }),
+      const payload = await sdk.accounts.register({
+        username: username.trim().toLowerCase(),
+        publicKey,
       });
 
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to register username");
+      if (!payload?.success) {
+        throw new Error("Failed to register username");
       }
 
       setRegisteredUsername(username.trim().toLowerCase());

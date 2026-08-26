@@ -35,6 +35,13 @@ const { data: payments } = await sdk.payments.getHistory("G...PUBLIC_KEY...", {
 console.log("Transactions:", payments);
 ```
 
+## Dogfooding note
+
+The Finchippay frontend is the primary consumer of this SDK. All frontend API
+calls go through `FinchippayClient` (`frontend/lib/sdk-instance.ts`), so SDK
+bugs surface during development rather than for external integrators. When
+changing API behavior, keep the frontend working and add/update unit tests.
+
 ## Authentication (SEP-0010)
 
 Some endpoints require a JWT token obtained via SEP-0010 challenge/response:
@@ -131,17 +138,31 @@ const sdk = new FinchippayClient(options?: FinchippayClientOptions);
 | Method                                             | Returns                                      | Description                    |
 |----------------------------------------------------|----------------------------------------------|--------------------------------|
 | `analytics.getSummary(publicKey)`                  | `SuccessResponse<AnalyticsSummary>`          | Payment summary                |
-| `analytics.getTopRecipients(publicKey)`            | `SuccessResponse<TopRecipient[]>`            | Top payment recipients         |
+| `analytics.getTopRecipients(publicKey)`            | `SuccessResponse<TopRecipientsData>`         | Top payment recipients         |
 | `analytics.getActivity(publicKey)`                 | `SuccessResponse<ActivityDay[]>`             | Payment activity by day        |
 
 #### Tips
 
 | Method                                          | Returns                              | Description                    |
 |-------------------------------------------------|--------------------------------------|--------------------------------|
-| `tips.getReceived(creatorPublicKey)`            | `SuccessResponse<Tip[]>`             | Tips received by a creator     |
+| `tips.getReceived(creatorPublicKey)`            | `TipsReceivedResponse`                | Tips received + stats + pagination |
 | `tips.getSent(senderPublicKey)`                 | `SuccessResponse<Tip[]>`             | Tips sent by an account        |
 | `tips.getStats(creatorPublicKey)`               | `SuccessResponse<TipStats>`          | Tip statistics                 |
 | `tips.create(body)`                             | `SuccessResponse<void>`              | Record a new tip               |
+
+#### Auth
+
+| Method                                              | Returns                                    | Description                           |
+|-----------------------------------------------------|--------------------------------------------|---------------------------------------|
+| `logout(refreshToken?)`                             | `SuccessResponse<{ message: string }>`     | Revoke the current token family       |
+
+#### Push notifications
+
+| Method                                              | Returns                                    | Description                           |
+|-----------------------------------------------------|--------------------------------------------|---------------------------------------|
+| `push.getPublicKey()`                               | `SuccessResponse<{ publicKey, enabled }>`  | VAPID public key + server capability |
+| `push.subscribe(body)`                              | `SuccessResponse<{ created }>`             | Register this browser's subscription |
+| `push.unsubscribe(body)`                            | `SuccessResponse<void>`                    | Remove a device's subscription       |
 
 #### Turrets (txFunctions)
 

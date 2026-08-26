@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import TipWidget from "@/components/TipWidget";
+import { sdk } from "@/lib/sdk-instance";
+import { ApiHttpError } from "@finchippay/sdk";
 
 interface ResolvedAccount {
   username: string;
@@ -36,47 +38,40 @@ export default function TipPage() {
     }
 
     let isActive = true;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
     setResolveState({
       status: "loading",
       message: `Looking up @${routeUsername}...`,
     });
 
-    fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(routeUsername)}`)
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-
-        if (response.status === 404) {
-          throw new ResolveError(
-            "not-found",
-            payload?.error || `@${routeUsername} does not have a public tip page yet.`
-          );
-        }
-
-        if (!response.ok) {
-          throw new ResolveError(
-            "error",
-            payload?.error || "We could not load this tip page right now."
-          );
-        }
+    sdk.accounts
+      .resolveUsername(routeUsername)
+      .then((payload) => {
+        if (!isActive) return;
 
         const account = payload?.data;
         if (!payload?.success || !account?.publicKey || !account?.username) {
           throw new ResolveError("error", "The tip page response was incomplete.");
         }
 
-        return {
-          username: account.username,
-          publicKey: account.publicKey,
-        } satisfies ResolvedAccount;
-      })
-      .then((account) => {
-        if (!isActive) return;
-        setResolveState({ status: "ready", account });
+        setResolveState({
+          status: "ready",
+          account: {
+            username: account.username,
+            publicKey: account.publicKey,
+          },
+        });
       })
       .catch((error: unknown) => {
         if (!isActive) return;
+
+        if (error instanceof ApiHttpError && error.status === 404) {
+          setResolveState({
+            status: "not-found",
+            message: error.message || `@${routeUsername} does not have a public tip page yet.`,
+          });
+          return;
+        }
 
         if (error instanceof ResolveError) {
           setResolveState({ status: error.kind, message: error.message });
