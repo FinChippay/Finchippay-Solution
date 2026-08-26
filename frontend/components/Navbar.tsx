@@ -144,6 +144,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
     { href: "/portfolio", label: t("nav.portfolio") },
     { href: "/trade", label: t("nav.trade") },
     { href: "/transactions", label: t("nav.transactions") },
+    { href: "/invoices", label: t("nav.invoices") },
     { href: "/network", label: t("nav.network") },
     { href: "/settings", label: t("nav.settings") },
   ];

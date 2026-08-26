@@ -21,7 +21,8 @@
     "removeLastAccountWarning": "これが唯一のアカウントです。削除するとウォレットが切断されます。もう一度クリックして確認してください。",
     "switchAccount": "アカウント切替",
     "switchAccountShortcut": "Ctrl+K（Cmd+K）でアカウント切替",
-    "primary": "プライマリ"
+    "primary": "プライマリ",
+    "invoices": "請求書"
   },
   "home": {
     "badge": "Stellar Testnet 構築 · オープンソース",
@@ -305,5 +306,26 @@
     "languageTitle": "言語",
     "languageDescription": "アプリケーションインターフェースの言語を選択してください。",
     "rtlSupportNote": "RTL サポート：アラビア語とヘブライ語のレイアウトはミラー表示されます。"
+  },
+  "invoices": {
+    "title": "請求書",
+    "subtitle": "未払い・支払済みの請求書を確認し、ステータスで絞り込んでリマインダーを送信できます。",
+    "createNew": "新規請求書",
+    "createFirst": "最初の請求書を作成する",
+    "loading": "請求書を読み込み中…",
+    "empty": "請求書はまだありません。作成して始めましょう。",
+    "emptyFilter": "このフィルターに一致する請求書はありません。",
+    "filters": "ステータスで絞り込む",
+    "filterAll": "すべて",
+    "filterDraft": "下書き",
+    "filterSent": "送信済み",
+    "filterPaid": "支払済み",
+    "filterOverdue": "期限切れ",
+    "statOutstanding": "未払い",
+    "statPaid": "支払済み",
+    "statTotal": "合計",
+    "created": "請求書を作成しました",
+    "reminderSent": "リマインダーを送信しました",
+    "downloadFailed": "PDFのダウンロードに失敗しました"
   }
 }

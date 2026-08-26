@@ -154,7 +154,8 @@
     "switchToDark": "מעבר למצב כהה",
     "switchToLight": "מעבר למצב בהיר",
     "trade": "מסחר",
-    "transactions": "עסקאות"
+    "transactions": "עסקאות",
+    "invoices": "חשבוניות"
   },
   "portfolio": {
     "addToken": "הוספת טוקן",
@@ -332,5 +333,26 @@
     "title": "תשלומים אחרונים",
     "tryAgain": "נסה שוב",
     "viewOnExpert": "צפייה ב-Stellar Expert"
+  },
+  "invoices": {
+    "title": "חשבוניות",
+    "subtitle": "עקוב אחר חשבוניות שלא שולמו ושולמו, סנן לפי סטטוס ושלח תזכורות.",
+    "createNew": "חשבונית חדשה",
+    "createFirst": "צור חשבונית ראשונה",
+    "loading": "טוען חשבוניות…",
+    "empty": "אין עדיין חשבוניות. צור אחת כדי להתחיל.",
+    "emptyFilter": "אין חשבוניות תואמות לפילטר זה.",
+    "filters": "סנן לפי סטטוס",
+    "filterAll": "הכל",
+    "filterDraft": "טיוטה",
+    "filterSent": "נשלחה",
+    "filterPaid": "שולמה",
+    "filterOverdue": "באיחור",
+    "statOutstanding": "יתרה",
+    "statPaid": "שולם",
+    "statTotal": "סה״כ",
+    "created": "החשבונית נוצרה",
+    "reminderSent": "התזכורת נשלחה",
+    "downloadFailed": "הורדת ה-PDF נכשלה"
   }
 }

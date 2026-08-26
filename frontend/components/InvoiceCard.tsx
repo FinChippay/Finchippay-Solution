@@ -6,6 +6,7 @@ interface InvoiceCardProps {
   invoice: Invoice;
   onView: (id: string) => void;
   onDownload: (id: string) => void;
+  onReminder?: (invoice: Invoice) => void;
 }
 
 const statusStyles: Record<string, string> = {
@@ -15,7 +16,12 @@ const statusStyles: Record<string, string> = {
   overdue: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
-export default function InvoiceCard({ invoice, onView, onDownload }: InvoiceCardProps) {
+export default function InvoiceCard({
+  invoice,
+  onView,
+  onDownload,
+  onReminder,
+}: InvoiceCardProps) {
   const isOverdue = invoice.status === "overdue" ||
     (invoice.status === "sent" && new Date(invoice.dueDate) < new Date());
 
@@ -72,6 +78,23 @@ export default function InvoiceCard({ invoice, onView, onDownload }: InvoiceCard
         >
           View Details
         </button>
+        {onReminder !== undefined && (
+          <button
+            onClick={() => onReminder(invoice)}
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 dark:bg-amber-500/15 dark:text-amber-400 dark:hover:bg-amber-500/25"
+            title="Send Reminder"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+              />
+            </svg>
+            Reminder
+          </button>
+        )}
         <button
           onClick={() => onDownload(invoice.id)}
           className="flex items-center justify-center rounded-xl bg-slate-100 px-3 py-2.5 text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"

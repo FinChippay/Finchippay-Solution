@@ -154,7 +154,8 @@
     "switchToDark": "التبديل إلى الوضع الداكن",
     "switchToLight": "التبديل إلى الوضع الفاتح",
     "trade": "تداول",
-    "transactions": "المعاملات"
+    "transactions": "المعاملات",
+    "invoices": "الفواتير"
   },
   "portfolio": {
     "addToken": "إضافة رمز",
@@ -332,5 +333,26 @@
     "title": "المدفوعات الأخيرة",
     "tryAgain": "حاول مرة أخرى",
     "viewOnExpert": "عرض على Stellar Expert"
+  },
+  "invoices": {
+    "title": "الفواتير",
+    "subtitle": "تتبع الفواتير المستحقة والمدفوعة، قم بالتصفية حسب الحالة، وأرسل التذكيرات.",
+    "createNew": "فاتورة جديدة",
+    "createFirst": "أنشئ فاتورتك الأولى",
+    "loading": "جارٍ تحميل الفواتير…",
+    "empty": "لا توجد فواتير بعد. أنشئ واحدة للبدء.",
+    "emptyFilter": "لا توجد فواتير تطابق هذا الفلتر.",
+    "filters": "تصفية حسب الحالة",
+    "filterAll": "الكل",
+    "filterDraft": "مسودة",
+    "filterSent": "مرسلة",
+    "filterPaid": "مدفوعة",
+    "filterOverdue": "متأخرة",
+    "statOutstanding": "مستحق",
+    "statPaid": "مدفوع",
+    "statTotal": "الإجمالي",
+    "created": "تم إنشاء الفاتورة",
+    "reminderSent": "تم إرسال التذكير",
+    "downloadFailed": "فشل تنزيل ملف PDF"
   }
 }

@@ -21,7 +21,8 @@
     "removeLastAccountWarning": "Esta é sua única conta. Removê-la desconecta sua carteira. Clique novamente para confirmar.",
     "switchAccount": "Trocar conta",
     "switchAccountShortcut": "Pressione Ctrl+K (Cmd+K) para trocar de conta",
-    "primary": "Principal"
+    "primary": "Principal",
+    "invoices": "Faturas"
   },
   "home": {
     "badge": "Construído em Stellar Testnet · Código Aberto",
@@ -305,5 +306,26 @@
     "languageTitle": "Idioma",
     "languageDescription": "Selecione seu idioma preferido para a interface do aplicativo.",
     "rtlSupportNote": "Suporte RTL: layouts em árabe são espelhados."
+  },
+  "invoices": {
+    "title": "Faturas",
+    "subtitle": "Acompanhe faturas pendentes e pagas, filtre por status e envie lembretes.",
+    "createNew": "Nova fatura",
+    "createFirst": "Crie sua primeira fatura",
+    "loading": "Carregando faturas…",
+    "empty": "Nenhuma fatura ainda. Crie uma para começar.",
+    "emptyFilter": "Nenhuma fatura corresponde a este filtro.",
+    "filters": "Filtrar por status",
+    "filterAll": "Todas",
+    "filterDraft": "Rascunho",
+    "filterSent": "Enviada",
+    "filterPaid": "Paga",
+    "filterOverdue": "Vencida",
+    "statOutstanding": "Pendente",
+    "statPaid": "Pago",
+    "statTotal": "Total",
+    "created": "Fatura criada",
+    "reminderSent": "Lembrete enviado",
+    "downloadFailed": "Falha ao baixar o PDF"
   }
 }
