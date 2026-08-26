@@ -182,7 +182,9 @@
     "refreshPrices": "Refresh Prices",
     "title": "Portfolio",
     "totalValue": "Total Value",
-    "valueOverTime": "Portfolio Value Over Time"
+    "valueOverTime": "Portfolio Value Over Time",
+    "tabOverview": "Portfolio",
+    "tabTaxReport": "Tax Report"
   },
   "sendPayment": {
     "accountDoesNotExist": "This account doesn't exist on the Stellar network.",
@@ -332,5 +334,23 @@
     "title": "Recent Payments",
     "tryAgain": "Try again",
     "viewOnExpert": "View on Stellar Expert"
+  },
+  "taxReport": {
+    "summary": "Tax Summary (FIFO)",
+    "exportCSV": "Export CSV",
+    "realizedGain": "Realized Gains",
+    "unrealizedGain": "Unrealized Gains",
+    "positions": "Assets",
+    "generatedAt": "Generated",
+    "currency": "Currency",
+    "asset": "Asset",
+    "remaining": "Remaining",
+    "costBasis": "Cost Basis",
+    "unrealized": "Unrealized",
+    "lots": "Lots",
+    "priced": "Priced",
+    "incomplete": "⚠ Unpriced",
+    "noData": "No transaction history available for tax reporting.",
+    "disclaimer": ""
   }
 }

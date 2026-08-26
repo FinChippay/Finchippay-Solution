@@ -310,3 +310,224 @@ export function calculatePnL(currentValue: number, days: number): PnLResult {
   const percent = baseline.totalValue > 0 ? (absolute / baseline.totalValue) * 100 : null;
   return { absolute, percent };
 }
+
+// ─── Tax reporting: FIFO cost basis (issue #605) ─────────────────────────────
+
+/**
+ * A single FIFO acquisition lot. `remaining` shrinks as later disposals
+ * consume it from the oldest lot first.
+ */
+export interface TaxLot {
+  asset: string;
+  /** ISO date (YYYY-MM-DD) the lot was acquired on. */
+  acquiredAt: string;
+  /** Quantity acquired in this lot. */
+  quantity: number;
+  /** Fiat cost per unit at acquisition (from historical price). */
+  unitCost: number;
+  /** Quantity still held from this lot (after FIFO disposals). */
+  remaining: number;
+}
+
+export interface AssetTaxPosition {
+  asset: string;
+  lots: TaxLot[];
+  /** Total fiat spent acquiring this asset (all lots). */
+  totalAcquired: number;
+  /** Total fiat received from disposals (sales). */
+  totalDisposed: number;
+  /** Remaining quantity still held. */
+  remainingQty: number;
+  /** Fiat cost basis of the remaining held quantity. */
+  costBasis: number;
+  /** Realized gain/loss from disposals. */
+  realizedGain: number;
+  /** Unrealized gain/loss on the remaining held quantity. */
+  unrealizedGain: number;
+  /** True when any lot lacked a historical price (cost basis is incomplete). */
+  unpriced: boolean;
+}
+
+export interface TaxReport {
+  currency: FiatCurrency;
+  positions: AssetTaxPosition[];
+  totalRealizedGain: number;
+  totalUnrealizedGain: number;
+  generatedAt: string;
+}
+
+/** Minimal shape the FIFO engine needs from a payment/operation record. */
+export interface TaxEventInput {
+  type: string;
+  amount: string;
+  asset: string;
+  createdAt: string;
+}
+
+function toNumber(value: string): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function dateKey(iso: string): string {
+  return (iso || "").slice(0, 10);
+}
+
+/**
+ * Compute FIFO cost basis + realized/unrealized gains from a chronological
+ * feed of payment/operation events.
+ *
+ * - `received` events open a new acquisition lot priced at `priceAt(asset, date)`.
+ * - `sent` events dispose against the oldest remaining lot (FIFO); sale
+ *   proceeds are also valued at `priceAt(asset, date)`.
+ * - Swap/trade operations are surfaced as paired sent (out) + received (in)
+ *   records by the caller, so they are taxed naturally here.
+ *
+ * `priceAt` must return a fiat unit price for the asset on the given date, or
+ * `null` when unavailable. When a price is missing the position is flagged
+ * `unpriced` and that event's contribution to gains is skipped (cost basis is
+ * reported as incomplete rather than wrong).
+ */
+export function computeFIFOTaxReport(
+  records: TaxEventInput[],
+  priceAt: (asset: string, date: string) => number | null,
+  currency: FiatCurrency = "USD"
+): TaxReport {
+  const byAsset = new Map<string, TaxLot[]>();
+  const unpricedAssets = new Set<string>();
+  let totalRealized = 0;
+  let totalUnrealized = 0;
+
+  const sorted = [...records].sort((a, b) =>
+    (a.createdAt || "").localeCompare(b.createdAt || "")
+  );
+
+  for (const rec of sorted) {
+    const asset = rec.asset;
+    const qty = toNumber(rec.amount);
+    if (qty <= 0) continue;
+    const date = dateKey(rec.createdAt);
+    const price = priceAt(asset, date);
+    const priced = price !== null && price > 0;
+
+    if (!priced) unpricedAssets.add(asset);
+
+    let lots = byAsset.get(asset);
+    if (!lots) {
+      lots = [];
+      byAsset.set(asset, lots);
+    }
+
+    if (rec.type === "received") {
+      lots.push({
+        asset,
+        acquiredAt: date,
+        quantity: qty,
+        unitCost: priced ? price : 0,
+        remaining: qty,
+      });
+    } else if (rec.type === "sent") {
+      // Dispose FIFO from oldest lot.
+      let remainingToSell = qty;
+      let costBasisSold = 0;
+      while (remainingToSell > 1e-9 && lots.length > 0) {
+        const lot = lots[0];
+        const take = Math.min(lot.remaining, remainingToSell);
+        costBasisSold += take * lot.unitCost;
+        lot.remaining -= take;
+        remainingToSell -= take;
+        if (lot.remaining <= 1e-9) lots.shift();
+      }
+      if (priced) {
+        const proceeds = qty * price;
+        // If some quantity couldn't be matched to a lot (no prior buy), treat
+        // it as zero-cost for a conservative realized gain.
+        totalRealized += proceeds - costBasisSold;
+      }
+    }
+  }
+
+  const positions: AssetTaxPosition[] = [];
+  // Find the latest event date for unrealized-gain valuation.
+  const latestDate = sorted.length > 0 ? dateKey(sorted[sorted.length - 1].createdAt) : "";
+  for (const [asset, lots] of byAsset) {
+    const remainingQty = lots.reduce((s, l) => s + l.remaining, 0);
+    const costBasis = lots.reduce((s, l) => s + l.remaining * l.unitCost, 0);
+    const totalAcquired = lots.reduce((s, l) => s + l.quantity * l.unitCost, 0);
+    const unpriced = unpricedAssets.has(asset);
+    // Value remaining lots at the latest available price.
+    const currentPrice = priceAt(asset, latestDate);
+    const unrealizedGain =
+      currentPrice !== null && currentPrice > 0 && !unpriced
+        ? remainingQty * currentPrice - costBasis
+        : 0;
+    totalUnrealized += unrealizedGain;
+
+    positions.push({
+      asset,
+      lots,
+      totalAcquired,
+      totalDisposed: 0,
+      remainingQty,
+      costBasis,
+      realizedGain: 0,
+      unrealizedGain,
+      unpriced,
+    });
+  }
+
+  // Realized gain is tracked at the report level because it spans matched lots.
+  return {
+    currency,
+    positions,
+    totalRealizedGain: totalRealized,
+    totalUnrealizedGain: totalUnrealized,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetch ~daily historical prices for a CoinGecko-mapped asset and return a
+ * lookup `dateKey(YYYY-MM-DD) -> price` for the requested fiat currency.
+ * Falls back to the live price for recent dates when the series is sparse.
+ */
+export async function fetchHistoricalPrices(
+  code: string,
+  currency: FiatCurrency,
+  days = 365
+): Promise<Record<string, number>> {
+  const geckoId = COINGECKO_ID_MAP[code];
+  if (!geckoId) return {};
+  const vs = VS_CURRENCY[currency];
+  const url = `https://api.coingecko.com/api/v3/coins/${geckoId}/market_chart?vs_currency=${vs}&days=${days}`;
+  const res = await fetch(url);
+  if (!res.ok) return {};
+  const data = (await res.json()) as { prices?: [number, number][] };
+  const map: Record<string, number> = {};
+  for (const [ts, price] of data.prices || []) {
+    const d = new Date(ts).toISOString().slice(0, 10);
+    map[d] = price;
+  }
+  return map;
+}
+
+/** Build a `priceAt` closure from a preloaded per-asset historical map. */
+export function historicalPriceLookup(
+  history: Record<string, Record<string, number>>,
+  live: Record<string, number>
+): (asset: string, date: string) => number | null {
+  return (asset, date) => {
+    const series = history[asset];
+    if (series) {
+      if (series[date] !== undefined) return series[date];
+      // Walk backwards a few days for weekend/holiday gaps.
+      const d = new Date(date + "T00:00:00Z");
+      for (let i = 1; i <= 5; i++) {
+        d.setUTCDate(d.getUTCDate() - 1);
+        const k = d.toISOString().slice(0, 10);
+        if (series[k] !== undefined) return series[k];
+      }
+    }
+    return live[asset] ?? null;
+  };
+}

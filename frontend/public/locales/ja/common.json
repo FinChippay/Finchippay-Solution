@@ -168,7 +168,9 @@
     "range90d": "90日",
     "noHoldings": "トークンはまだありません。",
     "priceUnavailable": "価格情報なし",
-    "priceHistoryUnavailable": "このトークンの価格履歴は利用できません。"
+    "priceHistoryUnavailable": "このトークンの価格履歴は利用できません。",
+    "tabOverview": "ポートフォリオ",
+    "tabTaxReport": "税務レポート"
   },
   "sendPayment": {
     "title": "支払いを送信",
@@ -305,5 +307,23 @@
     "languageTitle": "言語",
     "languageDescription": "アプリケーションインターフェースの言語を選択してください。",
     "rtlSupportNote": "RTL サポート：アラビア語とヘブライ語のレイアウトはミラー表示されます。"
+  },
+  "taxReport": {
+    "summary": "税務サマリー（FIFO）",
+    "exportCSV": "CSV書き出し",
+    "realizedGain": "実現損益",
+    "unrealizedGain": "未実現損益",
+    "positions": "資産",
+    "generatedAt": "生成日",
+    "currency": "通貨",
+    "asset": "資産",
+    "remaining": "残高",
+    "costBasis": "原価基準",
+    "unrealized": "未実現",
+    "lots": "ロット数",
+    "priced": "価格",
+    "incomplete": "⚠ 価格なし",
+    "noData": "税務レポートに利用できる取引履歴がありません。",
+    "disclaimer": ""
   }
 }

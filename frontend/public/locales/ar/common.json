@@ -182,7 +182,9 @@
     "refreshPrices": "__MISSING_TRANSLATION__",
     "title": "المحفظة",
     "totalValue": "القيمة الإجمالية",
-    "valueOverTime": "__MISSING_TRANSLATION__"
+    "valueOverTime": "__MISSING_TRANSLATION__",
+    "tabOverview": "المحفظة",
+    "tabTaxReport": "تقرير الضرائب"
   },
   "sendPayment": {
     "accountDoesNotExist": "هذا الحساب غير موجود على شبكة Stellar.",
@@ -332,5 +334,23 @@
     "title": "المدفوعات الأخيرة",
     "tryAgain": "حاول مرة أخرى",
     "viewOnExpert": "عرض على Stellar Expert"
+  },
+  "taxReport": {
+    "summary": "ملخص الضرائب (FIFO)",
+    "exportCSV": "تصدير CSV",
+    "realizedGain": "أرباح محققة",
+    "unrealizedGain": "أرباح غير محققة",
+    "positions": "الأصول",
+    "generatedAt": "تم الإنشاء",
+    "currency": "العملة",
+    "asset": "الأصل",
+    "remaining": "المتبقي",
+    "costBasis": "أساس التكلفة",
+    "unrealized": "غير محقق",
+    "lots": "الدفعات",
+    "priced": "السعر",
+    "incomplete": "⚠ بدون سعر",
+    "noData": "لا يوجد سجل معاملات متاح لتقرير الضرائب.",
+    "disclaimer": ""
   }
 }

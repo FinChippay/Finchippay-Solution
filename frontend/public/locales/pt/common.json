@@ -168,7 +168,9 @@
     "range90d": "90D",
     "noHoldings": "Nenhum token no portfólio ainda.",
     "priceUnavailable": "Preço indisponível",
-    "priceHistoryUnavailable": "Histórico de preço indisponível para este token."
+    "priceHistoryUnavailable": "Histórico de preço indisponível para este token.",
+    "tabOverview": "Portfólio",
+    "tabTaxReport": "Relatório Fiscal"
   },
   "sendPayment": {
     "title": "Enviar Pagamento",
@@ -305,5 +307,23 @@
     "languageTitle": "Idioma",
     "languageDescription": "Selecione seu idioma preferido para a interface do aplicativo.",
     "rtlSupportNote": "Suporte RTL: layouts em árabe são espelhados."
+  },
+  "taxReport": {
+    "summary": "Resumo Fiscal (FIFO)",
+    "exportCSV": "Exportar CSV",
+    "realizedGain": "Ganhos Realizados",
+    "unrealizedGain": "Ganhos Não Realizados",
+    "positions": "Ativos",
+    "generatedAt": "Gerado",
+    "currency": "Moeda",
+    "asset": "Ativo",
+    "remaining": "Restante",
+    "costBasis": "Base de Custo",
+    "unrealized": "Não Realizado",
+    "lots": "Lotes",
+    "priced": "Preço",
+    "incomplete": "⚠ Sem Preço",
+    "noData": "Nenhum histórico de transações disponível para o relatório fiscal.",
+    "disclaimer": ""
   }
 }

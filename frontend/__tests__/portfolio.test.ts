@@ -24,6 +24,7 @@ import {
   recordPortfolioValueSnapshot,
   loadPortfolioHistory,
   calculatePnL,
+  computeFIFOTaxReport,
 } from "@/lib/portfolio";
 
 const mockGetBalances = stellarModule.getBalances as jest.Mock;
@@ -242,5 +243,96 @@ describe("portfolio value history and P&L", () => {
     recordPortfolioValueSnapshot(100);
     const pnl = calculatePnL(150, 30);
     expect(pnl).toEqual({ absolute: 0, percent: null });
+  });
+});
+
+describe("FIFO cost-basis tax reporting (issue #605)", () => {
+  it("builds a single lot for one received event and values it at acquisition price", () => {
+    const report = computeFIFOTaxReport(
+      [
+        { type: "received", amount: "10", asset: "XLM", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      (asset) => (asset === "XLM" ? 0.1 : null),
+      "USD"
+    );
+    expect(report.positions).toHaveLength(1);
+    const pos = report.positions[0];
+    expect(pos.asset).toBe("XLM");
+    expect(pos.remainingQty).toBe(10);
+    expect(pos.costBasis).toBeCloseTo(1.0, 5);
+    expect(pos.unrealizedGain).toBeCloseTo(0, 5);
+    expect(report.totalRealizedGain).toBeCloseTo(0, 5);
+  });
+
+  it("computes realized gain on a FIFO disposal", () => {
+    const report = computeFIFOTaxReport(
+      [
+        // Buy 10 XLM @ 1.00 on day 1
+        { type: "received", amount: "10", asset: "XLM", createdAt: "2026-01-01T00:00:00Z" },
+        // Sell 4 XLM @ 2.00 on day 2 -> realized gain = 4*(2-1) = 4
+        { type: "sent", amount: "4", asset: "XLM", createdAt: "2026-01-02T00:00:00Z" },
+      ],
+      (asset, date) => (asset === "XLM" ? (date.startsWith("2026-01-01") ? 1 : 2) : null),
+      "USD"
+    );
+    expect(report.totalRealizedGain).toBeCloseTo(4, 5);
+    // Remaining 6 XLM @ cost basis 1.0 each = 6, valued @ 2.0 -> unrealized 6
+    expect(report.positions[0].remainingQty).toBe(6);
+    expect(report.positions[0].costBasis).toBeCloseTo(6, 5);
+    expect(report.totalUnrealizedGain).toBeCloseTo(6, 5);
+  });
+
+  it("consumes the oldest lot first (FIFO order)", () => {
+    const report = computeFIFOTaxReport(
+      [
+        // Buy 10 @ 1, then 10 @ 3
+        { type: "received", amount: "10", asset: "XLM", createdAt: "2026-01-01T00:00:00Z" },
+        { type: "received", amount: "10", asset: "XLM", createdAt: "2026-02-01T00:00:00Z" },
+        // Sell 15 -> consumes all 10 of lot1 (cost 10) + 5 of lot2 (cost 15) = 25
+        { type: "sent", amount: "15", asset: "XLM", createdAt: "2026-03-01T00:00:00Z" },
+      ],
+      (asset, date) => {
+        if (date.startsWith("2026-01")) return 1;
+        if (date.startsWith("2026-02")) return 3;
+        return 5; // sell price
+      },
+      "USD"
+    );
+    expect(report.totalRealizedGain).toBeCloseTo(15 * 5 - 25, 5); // 75-25=50
+    expect(report.positions[0].remainingQty).toBe(5); // 5 from lot2 remain
+    expect(report.positions[0].costBasis).toBeCloseTo(15, 5); // 5 * 3
+  });
+
+  it("flags a position as unpriced when historical price is unavailable", () => {
+    const report = computeFIFOTaxReport(
+      [
+        { type: "received", amount: "10", asset: "CUSTOM", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      () => null,
+      "USD"
+    );
+    expect(report.positions[0].unpriced).toBe(true);
+    expect(report.positions[0].costBasis).toBe(0);
+  });
+
+  it("is order-independent across the feed and handles swaps as paired events", () => {
+    // Swap 10 XLM -> 20 USDC on the same date: XLM sent, USDC received.
+    const feed = [
+      { type: "received", amount: "10", asset: "XLM", createdAt: "2026-01-01T00:00:00Z" },
+      { type: "sent", amount: "10", asset: "XLM", createdAt: "2026-01-05T00:00:00Z" },
+      { type: "received", amount: "20", asset: "USDC", createdAt: "2026-01-05T00:00:00Z" },
+    ];
+    const priceAt = (asset: string, date: string) => {
+      if (asset === "XLM") return 1; // constant
+      if (asset === "USDC") return date.startsWith("2026-01") ? 1 : 1;
+      return null;
+    };
+    const report = computeFIFOTaxReport([...feed].reverse(), priceAt, "USD");
+    // Sorting inside the engine makes order irrelevant
+    expect(report.totalRealizedGain).toBeCloseTo(0, 5);
+    const xlm = report.positions.find((p) => p.asset === "XLM");
+    const usdc = report.positions.find((p) => p.asset === "USDC");
+    expect(xlm?.remainingQty).toBe(0);
+    expect(usdc?.remainingQty).toBe(20);
   });
 });
