@@ -33,19 +33,22 @@ jobs:
       - run: cargo install --locked stellar-cli
 
       - name: Generate bindings
-        id: generate
-        continue-on-error: true
         run: |
-          if [ -n "${{ secrets.TESTNET_CONTRACT_ID }}" ]; then
+          if [ -n "$TESTNET_CONTRACT_ID" ]; then
             bash ../scripts/gen-contract-bindings.sh
           else
             echo "::notice::Skipping - TESTNET_CONTRACT_ID not set."
           fi
         env:
-          CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID }}
+          TESTNET_CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID }}
 
       - name: Check drift
-        if: ${{ steps.generate.outcome == 'success' && secrets.TESTNET_CONTRACT_ID != '' }}
         run: |
-          git diff --exit-code frontend/lib/contract-bindings/ \
-            || (echo "ERROR: Generated contract bindings differ. Run scripts/gen-contract-bindings.sh and commit." && exit 1)
+          if [ -n "$TESTNET_CONTRACT_ID" ]; then
+            git diff --exit-code frontend/lib/contract-bindings/ \
+              || (echo "ERROR: Generated contract bindings differ. Run scripts/gen-contract-bindings.sh and commit." && exit 1)
+          else
+            echo "::notice::Skipping drift check - TESTNET_CONTRACT_ID not set."
+          fi
+        env:
+          TESTNET_CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID }}
