@@ -35,7 +35,7 @@ class FinchippaySdk {
   }
 
   async getChallenge(publicKey: string): Promise<{ transaction: string; networkPassphrase: string }> {
-    const res = await apiFetch(\`\${this.baseUrl}/api/auth?account=\${encodeURIComponent(publicKey)}\`, {
+    const res = await apiFetch(`${this.baseUrl}/api/auth?account=${encodeURIComponent(publicKey)}`, {
       method: "GET",
       credentials: "include",
       headers: this.headers(),
@@ -48,7 +48,7 @@ class FinchippaySdk {
     token?: string;
     refreshToken?: string;
   }> {
-    const res = await apiFetch(\`\${this.baseUrl}/api/auth\`, {
+    const res = await apiFetch(`${this.baseUrl}/api/auth`, {
       method: "POST",
       credentials: "include",
       headers: this.headers(),
