@@ -9,6 +9,7 @@
  * Renders a "coming soon" fallback when the flag is off.
  */
 
+import clsx from "clsx";
 import dynamic from "next/dynamic";
 import Head from "next/head";
 import Link from "next/link";
@@ -16,8 +17,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
 import PortfolioOverview from "@/components/PortfolioOverview";
+import TaxReport from "@/components/TaxReport";
 import TokenPriceChart from "@/components/TokenPriceChart";
 import { FeatureGate } from "@/lib/FeatureFlags";
+import { logger } from "@/lib/logger";
 import {
   getPortfolioHoldings,
   loadCustomTokens,
@@ -32,7 +35,6 @@ import {
   type FiatCurrency,
 } from "@/lib/portfolio";
 import { useWallet } from "@/lib/useWallet";
-import { logger } from "@/lib/logger";
 
 const WalletConnect = dynamic(() => import("@/components/WalletConnect"), { ssr: false });
 
@@ -45,6 +47,7 @@ export default function PortfolioPage() {
   const [loading, setLoading] = useState(true);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>("USD");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [viewTab, setViewTab] = useState<"portfolio" | "tax">("portfolio");
 
   const [addTokenInput, setAddTokenInput] = useState("");
   const [addTokenError, setAddTokenError] = useState<string | null>(null);
@@ -203,22 +206,46 @@ export default function PortfolioPage() {
 
           {addTokenError && <p className="text-sm text-red-500">{addTokenError}</p>}
 
+          {/* Tab switcher: Portfolio overview ⇄ Tax report */}
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-white/10">
+            {(["portfolio", "tax"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setViewTab(tab)}
+                className={clsx(
+                  "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+                  viewTab === tab
+                    ? "border-stellar-500 text-stellar-600 dark:text-stellar-300"
+                    : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                )}
+              >
+                {tab === "portfolio"
+                  ? t("portfolio.tabOverview")
+                  : t("portfolio.tabTaxReport")}
+              </button>
+            ))}
+          </div>
+
           <PortfolioOverview holdings={holdings} prices={prices} fiatCurrency={fiatCurrency} loading={loading} />
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <PortfolioAllocation
-              holdings={holdings}
-              prices={prices}
-              fiatCurrency={fiatCurrency}
-              selectedCode={selectedCode}
-              onSelectToken={setSelectedCode}
-              loading={loading}
-            />
+          {viewTab === "portfolio" && (
+            <div className="grid gap-6 md:grid-cols-2">
+              <PortfolioAllocation
+                holdings={holdings}
+                prices={prices}
+                fiatCurrency={fiatCurrency}
+                selectedCode={selectedCode}
+                onSelectToken={setSelectedCode}
+                loading={loading}
+              />
 
-            {selectedHolding && (
-              <TokenPriceChart contractId={selectedHolding.contractId} code={selectedHolding.code} />
-            )}
-          </div>
+              {selectedHolding && (
+                <TokenPriceChart contractId={selectedHolding.contractId} code={selectedHolding.code} />
+              )}
+            </div>
+          )}
+
+          {viewTab === "tax" && <TaxReport fiatCurrency={fiatCurrency} />}
         </div>
         )}
       </FeatureGate>

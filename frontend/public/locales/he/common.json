@@ -182,7 +182,9 @@
     "refreshPrices": "__MISSING_TRANSLATION__",
     "title": "תיק השקעות",
     "totalValue": "שווי כולל",
-    "valueOverTime": "__MISSING_TRANSLATION__"
+    "valueOverTime": "__MISSING_TRANSLATION__",
+    "tabOverview": "תיק",
+    "tabTaxReport": "דוח מס"
   },
   "sendPayment": {
     "accountDoesNotExist": "החשבון הזה אינו קיים ברשת Stellar.",
@@ -332,5 +334,23 @@
     "title": "תשלומים אחרונים",
     "tryAgain": "נסה שוב",
     "viewOnExpert": "צפייה ב-Stellar Expert"
+  },
+  "taxReport": {
+    "summary": "סיכום מס (FIFO)",
+    "exportCSV": "ייצוא CSV",
+    "realizedGain": "רווחים ממומשים",
+    "unrealizedGain": "רווחים לא ממומשים",
+    "positions": "נכסים",
+    "generatedAt": "נוצר",
+    "currency": "מטבע",
+    "asset": "נכס",
+    "remaining": "יתרה",
+    "costBasis": "בסיס עלות",
+    "unrealized": "לא ממומש",
+    "lots": "מנות",
+    "priced": "מחיר",
+    "incomplete": "⚠ ללא מחיר",
+    "noData": "אין היסטוריית עסקאות זמינה לדוח המס.",
+    "disclaimer": ""
   }
 }

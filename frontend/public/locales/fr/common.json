@@ -182,7 +182,9 @@
     "refreshPrices": "__MISSING_TRANSLATION__",
     "title": "Portefeuille",
     "totalValue": "Valeur Totale",
-    "valueOverTime": "__MISSING_TRANSLATION__"
+    "valueOverTime": "__MISSING_TRANSLATION__",
+    "tabOverview": "Portefeuille",
+    "tabTaxReport": "Rapport Fiscal"
   },
   "sendPayment": {
     "accountDoesNotExist": "Ce compte n'existe pas sur le réseau Stellar.",
@@ -332,5 +334,23 @@
     "title": "Paiements Récents",
     "tryAgain": "Réessayer",
     "viewOnExpert": "Voir sur Stellar Expert"
+  },
+  "taxReport": {
+    "summary": "Résumé Fiscal (FIFO)",
+    "exportCSV": "Exporter CSV",
+    "realizedGain": "Gains Réalisés",
+    "unrealizedGain": "Gains Non Réalisés",
+    "positions": "Actifs",
+    "generatedAt": "Généré",
+    "currency": "Devise",
+    "asset": "Actif",
+    "remaining": "Restant",
+    "costBasis": "Base de Coût",
+    "unrealized": "Non Réalisé",
+    "lots": "Lots",
+    "priced": "Prix",
+    "incomplete": "⚠ Sans Prix",
+    "noData": "Aucun historique de transactions disponible pour le rapport fiscal.",
+    "disclaimer": ""
   }
 }
