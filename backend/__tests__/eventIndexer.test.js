@@ -2,7 +2,7 @@
 /**
  * __tests__/eventIndexer.test.js
  * Unit tests for the contract event indexer with idempotency and replay support.
- * 
+ *
  * Tests:
  *  1. Deduplication - same event ingested twice produces no duplicates
  *  2. Cursor persistence - cursor saved atomically with batch
@@ -81,7 +81,7 @@ describe("Event Indexer - Idempotency & Replay", () => {
       // Since we're using in-memory storage, we need to manually add it
       // or use the storeEvents function
       const { storeEvents } = eventIndexer;
-      
+
       // First insertion
       const count1 = await storeEvents([parsed]);
       expect(count1).toBe(1);
@@ -154,7 +154,7 @@ describe("Event Indexer - Idempotency & Replay", () => {
 
       // Store event and manually update cursor (simulating poll)
       await storeEvents([parsed]);
-      
+
       // In the real flow, cursor is updated after batch
       // We're testing that the cursor can be retrieved
       const lastProcessed = eventIndexer.getLastProcessedLedger();
@@ -162,10 +162,9 @@ describe("Event Indexer - Idempotency & Replay", () => {
 
       // Simulate cursor advancement
       // (This would normally happen in pollOnce)
-      const cursor = 200;
       // We can't directly set lastProcessedLedger since it's a module variable,
       // but we can test that loadCursor returns the right value
-      
+
       // Test that the cursor persists in memory
       expect(typeof eventIndexer.getLastProcessedLedger).toBe("function");
     });
@@ -187,12 +186,12 @@ describe("Event Indexer - Idempotency & Replay", () => {
     it("should validate replay parameters", async () => {
       // Test invalid fromLedger
       await expect(eventIndexer.replayFrom(0)).rejects.toThrow(
-        "fromLedger must be a positive integer"
+        "fromLedger must be a positive integer",
       );
 
       // Test fromLedger > toLedger
       await expect(eventIndexer.replayFrom(100, 10)).rejects.toThrow(
-        "cannot be greater than toLedger"
+        "cannot be greater than toLedger",
       );
 
       // Test valid parameters (may fail if no PostgreSQL)
@@ -234,13 +233,14 @@ describe("Event Indexer - Idempotency & Replay", () => {
 
       // Parse should handle this without crashing
       const parsed = parseEvent(badEvent);
+      const logger = require("../src/utils/logger");
+      logger.info("Test log message");
+
       expect(parsed).toBeDefined();
       expect(parsed.event_type).toBe("unknown"); // Should default to unknown
     });
 
     it("should log dropped/reorged events", async () => {
-      const logger = require("../src/utils/logger");
-      
       // Create an event with missing data
       const badEvent = {
         topic: ["tip"],
@@ -280,7 +280,7 @@ describe("Event Indexer - Idempotency & Replay", () => {
         },
       ];
 
-      const parsed = mockEvents.map(e => parseEvent(e));
+      const parsed = mockEvents.map((e) => parseEvent(e));
       const { storeEvents } = eventIndexer;
 
       const count = await storeEvents(parsed);
@@ -295,7 +295,7 @@ describe("Event Indexer - Idempotency & Replay", () => {
   describe("Query Helpers", () => {
     it("queryEventsByPublicKey returns empty for unknown key", async () => {
       const { events, total } = await eventIndexer.queryEventsByPublicKey(
-        "GUNKNOWN___________________________________________________________"
+        "GUNKNOWN___________________________________________________________",
       );
       expect(events).toEqual([]);
       expect(total).toBe(0);
@@ -303,7 +303,7 @@ describe("Event Indexer - Idempotency & Replay", () => {
 
     it("getEventStats returns empty for unknown key", async () => {
       const stats = await eventIndexer.getEventStats(
-        "GUNKNOWN___________________________________________________________"
+        "GUNKNOWN___________________________________________________________",
       );
       expect(stats).toEqual([]);
     });

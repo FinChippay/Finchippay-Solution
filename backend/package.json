@@ -31,7 +31,7 @@
     "@sentry/node": "^10.69.0",
     "@stellar/stellar-sdk": "^16.2.0",
     "axios": "^1.6.8",
-    "better-sqlite3": "^8.7.0",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -58,6 +58,9 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-env": "^8.0.2",
+    "babel-jest": "^30.4.1",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "9.1.0",
     "fast-check": "^3.22.0",
