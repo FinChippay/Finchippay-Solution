@@ -13,6 +13,8 @@
  *    stellarService.js).
  *  - When DATABASE_URL is not set the indexer stores events in an in-memory
  *    buffer so the API remains functional in CI / dev without PostgreSQL.
+ *    The in-memory fallback uses exact column match on from_addr/to_addr
+ *    (best-effort — no index, but correct results).
  *
  * Event types emitted by the contract (see lib.rs):
  *   init, admin_transfer, paused, unpaused, pauser_set, upgraded,
@@ -461,7 +463,11 @@ function isRunning() {
 /**
  * Query events filtered by event type for a given public key.
  *
- * @param {string} publicKey - Stellar public key (GÔÇª)
+ * Uses exact-match on from_addr / to_addr columns (indexed) instead of
+ * ILIKE on the serialized JSON payload — avoids full-table scans and
+ * eliminates false matches from substring collisions.
+ *
+ * @param {string} publicKey - Stellar public key (G…)
  * @param {string} eventType - event type to filter by
  * @param {{ limit?: number, offset?: number, since?: string }} options
  * @returns {Promise<{ events: Array<object>, total: number }>}
@@ -470,8 +476,8 @@ async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0,
   const pool = getPgPool();
 
   if (pool) {
-    let where = `payload::text ILIKE $1 AND event_type = $2`;
-    const params = [`%${publicKey}%`, eventType];
+    let where = `(from_addr = $1 OR to_addr = $2) AND event_type = $3`;
+    const params = [publicKey, publicKey, eventType];
 
     if (since) {
       where += ` AND emitted_at >= $${params.length + 1}`;
@@ -501,10 +507,11 @@ async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0,
     };
   }
 
-  // In-memory fallback
-  let filtered = memoryStore.filter((ev) => {
-    const payloadStr = JSON.stringify(ev.payload).toLowerCase();
-    const match = payloadStr.includes(publicKey.toLowerCase()) && ev.event_type === eventType;
+  // In-memory fallback (best-effort substring match — see module header)
+  const filtered = memoryStore.filter((ev) => {
+    const match =
+      (ev.from_addr === publicKey || ev.to_addr === publicKey) &&
+      ev.event_type === eventType;
     if (!match) return false;
     if (since && new Date(ev.emitted_at) < new Date(since)) return false;
     return true;
@@ -522,8 +529,9 @@ async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0,
 /**
  * Query events where a given public key appears as a participant.
  *
- * Looks for the public key in payload->>'from' or payload->>'to',
- * or nested within payload.topics and payload.data fields.
+ * Uses exact-match on from_addr / to_addr columns (indexed) instead of
+ * ILIKE on the serialized JSON payload — avoids full-table scans and
+ * eliminates false matches from substring collisions.
  *
  * @param {string} publicKey - Stellar public key (G…)
  * @param {{ limit?: number, offset?: number }} options
@@ -533,8 +541,8 @@ async function queryEventsByPublicKey(publicKey, { limit = 20, offset = 0, since
   const pool = getPgPool();
 
   if (pool) {
-    let where = `payload::text ILIKE $1`;
-    const params = [`%${publicKey}%`];
+    let where = `from_addr = $1 OR to_addr = $2`;
+    const params = [publicKey, publicKey];
 
     if (since) {
       where += ` AND emitted_at >= $${params.length + 1}`;
@@ -564,10 +572,9 @@ async function queryEventsByPublicKey(publicKey, { limit = 20, offset = 0, since
     };
   }
 
-  // In-memory fallback
+  // In-memory fallback (best-effort — exact match on parsed columns)
   const filtered = memoryStore.filter((ev) => {
-    const payloadStr = JSON.stringify(ev.payload).toLowerCase();
-    return payloadStr.includes(publicKey.toLowerCase());
+    return ev.from_addr === publicKey || ev.to_addr === publicKey;
   });
 
   const paged = filtered
@@ -582,6 +589,9 @@ async function queryEventsByPublicKey(publicKey, { limit = 20, offset = 0, since
 /**
  * Get aggregate counts grouped by event type for a given public key.
  *
+ * Uses exact-match on from_addr / to_addr columns (indexed) instead of
+ * ILIKE on the serialized JSON payload.
+ *
  * @param {string} publicKey
  * @returns {Promise<Array<{ event_type: string, count: number }>>}
  */
@@ -592,19 +602,18 @@ async function getEventStats(publicKey) {
     const result = await pool.query(
       `SELECT event_type, COUNT(*) AS count
        FROM contract_events
-       WHERE payload::text ILIKE $1
+       WHERE from_addr = $1 OR to_addr = $2
        GROUP BY event_type
        ORDER BY count DESC`,
-      [`%${publicKey}%`],
+      [publicKey, publicKey],
     );
     return result.rows;
   }
 
-  // In-memory fallback
+  // In-memory fallback (best-effort — exact match on parsed columns)
   const counts = {};
   for (const ev of memoryStore) {
-    const payloadStr = JSON.stringify(ev.payload).toLowerCase();
-    if (payloadStr.includes(publicKey.toLowerCase())) {
+    if (ev.from_addr === publicKey || ev.to_addr === publicKey) {
       counts[ev.event_type] = (counts[ev.event_type] || 0) + 1;
     }
   }
@@ -657,6 +666,21 @@ module.exports = {
     if (pgPool) {
       pgPool.end().catch(() => {});
       pgPool = null;
+    }
+  },
+
+  /**
+   * Seed events directly into the in-memory store for testing.
+   * Each entry should have from_addr, to_addr, event_type, payload, etc.
+   * @param {Array<object>} events
+   */
+  _seedForTest: (events) => {
+    for (const ev of events) {
+      memoryStore.push({
+        id: memoryIdCounter++,
+        ...ev,
+        created_at: ev.created_at || new Date().toISOString(),
+      });
     }
   },
 };
