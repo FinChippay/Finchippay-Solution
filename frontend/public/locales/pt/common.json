@@ -21,7 +21,8 @@
     "removeLastAccountWarning": "Esta é sua única conta. Removê-la desconecta sua carteira. Clique novamente para confirmar.",
     "switchAccount": "Trocar conta",
     "switchAccountShortcut": "Pressione Ctrl+K (Cmd+K) para trocar de conta",
-    "primary": "Principal"
+    "primary": "Principal",
+    "paymentLinks": "Links de pagamento"
   },
   "home": {
     "badge": "Construído em Stellar Testnet · Código Aberto",

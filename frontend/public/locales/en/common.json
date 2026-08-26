@@ -154,7 +154,8 @@
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode",
     "trade": "Trade",
-    "transactions": "Transactions"
+    "transactions": "Transactions",
+    "paymentLinks": "Payment Links"
   },
   "portfolio": {
     "addToken": "Add Token",

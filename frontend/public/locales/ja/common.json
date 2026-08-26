@@ -21,7 +21,8 @@
     "removeLastAccountWarning": "これが唯一のアカウントです。削除するとウォレットが切断されます。もう一度クリックして確認してください。",
     "switchAccount": "アカウント切替",
     "switchAccountShortcut": "Ctrl+K（Cmd+K）でアカウント切替",
-    "primary": "プライマリ"
+    "primary": "プライマリ",
+    "paymentLinks": "支払いリンク"
   },
   "home": {
     "badge": "Stellar Testnet 構築 · オープンソース",

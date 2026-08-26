@@ -154,7 +154,8 @@
     "switchToDark": "Passer au mode sombre",
     "switchToLight": "Passer au mode clair",
     "trade": "Échange",
-    "transactions": "Transactions"
+    "transactions": "Transactions",
+    "paymentLinks": "Liens de paiement"
   },
   "portfolio": {
     "addToken": "Ajouter un jeton",

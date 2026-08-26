@@ -12,6 +12,7 @@ import {
   canRedeemPaymentLink,
   markPaymentLinkRedeemed,
   parsePaymentLinkQuery,
+  recordPaymentLinkView,
 } from "@/lib/paymentLinks";
 import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
@@ -69,13 +70,19 @@ export default function PayPage() {
     // Reuse guard (#157): block links that have already been redeemed
     // on this device. Expiry is also checked centrally immediately before
     // the request can be paid.
+    // Analytics (#807): count every valid link open as a view so the
+    // Payment Links dashboard can show views vs. payments per link.
+    recordPaymentLinkView(parsed.payload);
+
     const redeemable = canRedeemPaymentLink(parsed.payload);
     if (!redeemable.ok) {
       setPrefill(null);
       setError(
-        redeemable.reason === "redeemed"
-          ? "This payment link has already been redeemed."
-          : "This payment link has expired.",
+        redeemable.reason === "disabled"
+          ? "This payment link has been disabled by its creator."
+          : redeemable.reason === "redeemed"
+            ? "This payment link has already been redeemed."
+            : "This payment link has expired.",
       );
       return;
     }

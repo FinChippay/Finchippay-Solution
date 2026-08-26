@@ -11,7 +11,11 @@
 
 const STORAGE_KEY = "finchippay.paymentLinks.v1";
 
-export type PaymentLinkStatus = "pending" | "redeemed" | "expired";
+export type PaymentLinkStatus =
+  | "pending"
+  | "redeemed"
+  | "expired"
+  | "disabled";
 
 export interface PaymentLinkPayload {
   destination: string;
@@ -29,6 +33,14 @@ export interface PaymentLinkRecord {
   createdAt: number;
   redeemedAt?: number;
   redeemedTxHash?: string;
+  /** Unix ms when the link was disabled by its creator. */
+  disabledAt?: number;
+  /** Running total of times this link URL was viewed (analytics). */
+  viewCount?: number;
+  /** Running total of successful payments against this link (analytics). */
+  paymentCount?: number;
+  /** Sum of amounts collected from successful payments (analytics). */
+  totalCollected?: number;
 }
 
 type QueryValue = string | string[] | undefined;
@@ -241,7 +253,7 @@ export function getPaymentLinkRecord(
 /**
  * Mark a link as redeemed once the payer's transaction hash is known.
  * Returns true if the link transitioned to `redeemed`, false if it was
- * already redeemed or expired (and therefore cannot be reused).
+ * already redeemed, expired, or disabled (and therefore cannot be reused).
  */
 export function markPaymentLinkRedeemed(
   payload: PaymentLinkPayload,
@@ -255,6 +267,12 @@ export function markPaymentLinkRedeemed(
   existing.status = "redeemed";
   existing.redeemedAt = Date.now();
   existing.redeemedTxHash = txHash;
+  // Analytics: accumulate payment record for the dashboard stats.
+  existing.paymentCount = (existing.paymentCount ?? 0) + 1;
+  const amount = parseFloat(existing.payload.amount);
+  if (Number.isFinite(amount)) {
+    existing.totalCollected = (existing.totalCollected ?? 0) + amount;
+  }
   all[id] = existing;
   writeAll(all);
   return true;
@@ -281,15 +299,20 @@ export function listPaymentLinks(): PaymentLinkRecord[] {
 
 /**
  * Returns true if a link in `pending` (or never-recorded) state can still be
- * paid. Used by pay.tsx to block reuse after redemption.
+ * paid. Used by pay.tsx to block reuse after redemption or disabling.
  */
 export function canRedeemPaymentLink(
   payload: PaymentLinkPayload,
-): { ok: true } | { ok: false; reason: "expired" | "redeemed" } {
+):
+  | { ok: true }
+  | { ok: false; reason: "expired" | "redeemed" | "disabled" } {
   if (payload.validUntil != null && Date.now() > payload.validUntil) {
     return { ok: false, reason: "expired" };
   }
   const record = getPaymentLinkRecord(payload);
+  if (record?.status === "disabled") {
+    return { ok: false, reason: "disabled" };
+  }
   if (record?.status === "redeemed") {
     return { ok: false, reason: "redeemed" };
   }
@@ -297,6 +320,86 @@ export function canRedeemPaymentLink(
     return { ok: false, reason: "expired" };
   }
   return { ok: true };
+}
+
+/**
+ * Disable a recorded link by id so it can no longer be paid. Returns the
+ * updated record, or `null` if the id is not in the local store.
+ */
+export function disablePaymentLink(id: string): PaymentLinkRecord | null {
+  const all = readAll();
+  const record = all[id];
+  if (!record) return null;
+  if (record.status !== "disabled") {
+    record.status = "disabled";
+    record.disabledAt = Date.now();
+    all[id] = record;
+    writeAll(all);
+  }
+  return record;
+}
+
+/**
+ * Re-enable a previously-disabled link by id, returning it to `pending` so
+ * it can be paid again. Returns `null` if the id is unknown. Links that are
+ * already redeemed/expired are left untouched.
+ */
+export function enablePaymentLink(id: string): PaymentLinkRecord | null {
+  const all = readAll();
+  const record = all[id];
+  if (!record) return null;
+  if (record.status === "disabled") {
+    record.status = "pending";
+    delete record.disabledAt;
+    all[id] = record;
+    writeAll(all);
+  }
+  return record;
+}
+
+/**
+ * Increment the view counter for a recorded link. Called from pay.tsx each
+ * time a link URL is opened so the dashboard can show views vs. payments.
+ * Silently no-ops for links that were never recorded locally (external payer).
+ */
+export function recordPaymentLinkView(payload: PaymentLinkPayload): void {
+  const id = paymentLinkId(payload);
+  const all = readAll();
+  const record = all[id];
+  if (!record) return;
+  record.viewCount = (record.viewCount ?? 0) + 1;
+  all[id] = record;
+  writeAll(all);
+}
+
+export interface PaymentLinkStats {
+  id: string;
+  status: PaymentLinkStatus;
+  views: number;
+  payments: number;
+  totalCollected: number;
+  /** payments / views, 0 when no views. */
+  conversionRate: number;
+}
+
+/**
+ * Derive analytics stats for a recorded link. Returns `null` if the id is not
+ * in the local store.
+ */
+export function getPaymentLinkStats(id: string): PaymentLinkStats | null {
+  const record = readAll()[id];
+  if (!record) return null;
+  const views = record.viewCount ?? 0;
+  const payments = record.paymentCount ?? 0;
+  const totalCollected = record.totalCollected ?? 0;
+  return {
+    id: record.id,
+    status: record.status,
+    views,
+    payments,
+    totalCollected,
+    conversionRate: views > 0 ? payments / views : 0,
+  };
 }
 
 /** Test/dev helper — wipes the local store. */
