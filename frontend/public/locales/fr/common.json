@@ -154,7 +154,8 @@
     "switchToDark": "Passer au mode sombre",
     "switchToLight": "Passer au mode clair",
     "trade": "Échange",
-    "transactions": "Transactions"
+    "transactions": "Transactions",
+    "invoices": "Factures"
   },
   "portfolio": {
     "addToken": "Ajouter un jeton",
@@ -332,5 +333,26 @@
     "title": "Paiements Récents",
     "tryAgain": "Réessayer",
     "viewOnExpert": "Voir sur Stellar Expert"
+  },
+  "invoices": {
+    "title": "Factures",
+    "subtitle": "Suivez les factures impayées et payées, filtrez par statut et envoyez des rappels.",
+    "createNew": "Nouvelle facture",
+    "createFirst": "Créez votre première facture",
+    "loading": "Chargement des factures…",
+    "empty": "Aucune facture pour le moment. Créez-en une pour commencer.",
+    "emptyFilter": "Aucune facture ne correspond à ce filtre.",
+    "filters": "Filtrer par statut",
+    "filterAll": "Toutes",
+    "filterDraft": "Brouillon",
+    "filterSent": "Envoyée",
+    "filterPaid": "Payée",
+    "filterOverdue": "En retard",
+    "statOutstanding": "Impayé",
+    "statPaid": "Payé",
+    "statTotal": "Total",
+    "created": "Facture créée",
+    "reminderSent": "Rappel envoyé",
+    "downloadFailed": "Échec du téléchargement du PDF"
   }
 }

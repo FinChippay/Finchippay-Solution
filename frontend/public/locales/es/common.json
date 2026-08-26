@@ -154,7 +154,8 @@
     "switchToDark": "Cambiar a modo oscuro",
     "switchToLight": "Cambiar a modo claro",
     "trade": "Comercio",
-    "transactions": "Transacciones"
+    "transactions": "Transacciones",
+    "invoices": "Facturas"
   },
   "portfolio": {
     "addToken": "Agregar token",
@@ -332,5 +333,26 @@
     "title": "Pagos Recientes",
     "tryAgain": "Intentar de nuevo",
     "viewOnExpert": "Ver en Stellar Expert"
+  },
+  "invoices": {
+    "title": "Facturas",
+    "subtitle": "Consulta facturas pendientes y pagadas, filtra por estado y envía recordatorios.",
+    "createNew": "Nueva factura",
+    "createFirst": "Crea tu primera factura",
+    "loading": "Cargando facturas…",
+    "empty": "Aún no hay facturas. Crea una para empezar.",
+    "emptyFilter": "Ninguna factura coincide con este filtro.",
+    "filters": "Filtrar por estado",
+    "filterAll": "Todas",
+    "filterDraft": "Borrador",
+    "filterSent": "Enviada",
+    "filterPaid": "Pagada",
+    "filterOverdue": "Vencida",
+    "statOutstanding": "Pendiente",
+    "statPaid": "Pagado",
+    "statTotal": "Total",
+    "created": "Factura creada",
+    "reminderSent": "Recordatorio enviado",
+    "downloadFailed": "No se pudo descargar el PDF"
   }
 }

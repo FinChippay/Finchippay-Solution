@@ -154,7 +154,8 @@
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode",
     "trade": "Trade",
-    "transactions": "Transactions"
+    "transactions": "Transactions",
+    "invoices": "Invoices"
   },
   "portfolio": {
     "addToken": "Add Token",
@@ -332,5 +333,26 @@
     "title": "Recent Payments",
     "tryAgain": "Try again",
     "viewOnExpert": "View on Stellar Expert"
+  },
+  "invoices": {
+    "title": "Invoices",
+    "subtitle": "Track outstanding and paid invoices, filter by status, and send reminders.",
+    "createNew": "New Invoice",
+    "createFirst": "Create your first invoice",
+    "loading": "Loading invoices…",
+    "empty": "No invoices yet. Create one to get started.",
+    "emptyFilter": "No invoices match this filter.",
+    "filters": "Filter by status",
+    "filterAll": "All",
+    "filterDraft": "Draft",
+    "filterSent": "Sent",
+    "filterPaid": "Paid",
+    "filterOverdue": "Overdue",
+    "statOutstanding": "Outstanding",
+    "statPaid": "Paid",
+    "statTotal": "Total",
+    "created": "Invoice created",
+    "reminderSent": "Reminder sent",
+    "downloadFailed": "Failed to download PDF"
   }
 }
