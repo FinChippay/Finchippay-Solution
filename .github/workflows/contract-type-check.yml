@@ -1,5 +1,3 @@
-name: Contract Type Check
-
 on:
   push:
     branches: [main, develop]
@@ -33,16 +31,24 @@ jobs:
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-bindings-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
       - run: cargo install --locked stellar-cli
+
       - name: Generate bindings
-        if: ${{ secrets.TESTNET_CONTRACT_ID != '' }}
-        run: bash ../scripts/gen-contract-bindings.sh
-        env:
-          CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID }}
-      - name: Check drift
-        if: ${{ secrets.TESTNET_CONTRACT_ID != '' }}
         run: |
-          git diff --exit-code frontend/lib/contract-bindings/ \
-            || (echo "ERROR: Generated contract bindings differ. Run scripts/gen-contract-bindings.sh and commit." && exit 1)
-      - name: Skip (no CONTRACT_ID)
-        if: ${{ secrets.TESTNET_CONTRACT_ID == '' }}
-        run: echo "::notice::Skipping - TESTNET_CONTRACT_ID not set."
+          if [ -n "$TESTNET_CONTRACT_ID" ]; then
+            bash ../scripts/gen-contract-bindings.sh
+          else
+            echo "::notice::Skipping - TESTNET_CONTRACT_ID not set."
+          fi
+        env:
+          TESTNET_CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID }}
+
+      - name: Check drift
+        run: |
+          if [ -n "$TESTNET_CONTRACT_ID" ]; then
+            git diff --exit-code frontend/lib/contract-bindings/ \
+              || (echo "ERROR: Generated contract bindings differ. Run scripts/gen-contract-bindings.sh and commit." && exit 1)
+          else
+            echo "::notice::Skipping drift check - TESTNET_CONTRACT_ID not set."
+          fi
+        env:
+          TESTNET_CONTRACT_ID: ${{ secrets.TESTNET_CONTRACT_ID }}

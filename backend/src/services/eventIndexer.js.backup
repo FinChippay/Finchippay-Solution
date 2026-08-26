@@ -13,8 +13,6 @@
  *    stellarService.js).
  *  - When DATABASE_URL is not set the indexer stores events in an in-memory
  *    buffer so the API remains functional in CI / dev without PostgreSQL.
- *  - Idempotent: uses ingestion_batches table to track processed ledgers
- *    and prevents double-counting with unique constraints.
  *
  * Event types emitted by the contract (see lib.rs):
  *   init, admin_transfer, paused, unpaused, pauser_set, upgraded,
@@ -46,10 +44,6 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 /** @type {Array<object>} */
 const memoryStore = [];
 let memoryIdCounter = 1;
-
-/** @type {Array<object>} */
-const memoryBatches = [];
-let memoryBatchIdCounter = 1;
 
 // ─── PostgreSQL client (lazy singleton) ──────────────────────────────────────
 
@@ -198,14 +192,13 @@ async function getLatestLedger() {
  * @param {number} [endLedger] - inclusive upper bound (defaults to startLedger)
  * @returns {Promise<Array<object>>}
  */
-async function getEvents(startLedger, endLedger) {
+async function getEvents(startLedger) {
   const body = {
     jsonrpc: "2.0",
     id: 1,
     method: "getEvents",
     params: {
       startLedger,
-      endLedger: endLedger || undefined,
       filters: [
         {
           type: "contract",
@@ -225,104 +218,62 @@ async function getEvents(startLedger, endLedger) {
 
 // ─── Event parsing ────────────────────────────────────────────────────────────
 
-// ─── Batch persistence (atomic) ──────────────────────────────────────────────
+// Event parsing is delegated to eventParser.js, which handles
+// SCVal extraction, participant address mapping, and amount parsing
+// for all known FinchippayContract event types.
+
+// ─── Event storage ────────────────────────────────────────────────────────────
 
 /**
- * Save a batch of events atomically with the cursor.
- * Uses a transaction to ensure both the events and the batch record are saved together.
+ * Insert parsed events into the store (PostgreSQL or in-memory fallback).
  *
- * @param {Array<object>} events - Parsed event rows
- * @param {number} startLedger - First ledger in this batch
- * @param {number} endLedger - Last ledger in this batch
- * @param {string} cursor - RPC cursor string
- * @returns {Promise<number>} Number of events inserted
+ * @param {Array<object>} events - parsed event rows
+ * @returns {Promise<number>} number of events inserted
  */
-async function saveBatchAtomically(events, startLedger, endLedger, cursor) {
-  if (events.length === 0) {
-    // Even with no events, we need to save the cursor to track progress
-    const pool = getPgPool();
-    if (pool) {
-      const client = await pool.connect();
-      try {
-        await client.query(
-          `INSERT INTO ingestion_batches (start_ledger, end_ledger, cursor, event_count, metadata)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [startLedger, endLedger, cursor, 0, JSON.stringify({ note: "no events in range" })],
-        );
-        logger.debug({ startLedger, endLedger, cursor }, "Saved empty batch cursor");
-      } finally {
-        client.release();
-      }
-    } else {
-      // In-memory fallback
-      memoryBatches.push({
-        id: memoryBatchIdCounter++,
-        start_ledger: startLedger,
-        end_ledger: endLedger,
-        cursor: cursor,
-        event_count: 0,
-        processed_at: new Date().toISOString(),
-      });
-    }
-    return 0;
-  }
+async function storeEvents(events) {
+  if (events.length === 0) return 0;
 
   const pool = getPgPool();
 
   if (pool) {
-    // PostgreSQL path with transaction
+    // PostgreSQL path
+    let inserted = 0;
     const client = await pool.connect();
-    let insertedCount = 0;
-
     try {
-      await client.query("BEGIN");
-
-      // Insert all events with ON CONFLICT
       for (const ev of events) {
-        const result = await client.query(
-          `INSERT INTO contract_events
-             (event_type, contract_id, ledger_sequence, emitted_at,
-              from_addr, to_addr, amount_raw, payload,
-              txn_hash, op_index)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-           ON CONFLICT (ledger_sequence, COALESCE(txn_hash, ''), COALESCE(op_index, -1), event_type)
-           DO NOTHING
-           RETURNING id`,
-          [
-            ev.event_type,
-            ev.contract_id,
-            ev.ledger_sequence,
-            ev.emitted_at,
-            ev.from_addr || null,
-            ev.to_addr || null,
-            ev.amount_raw || null,
-            JSON.stringify(ev.payload),
-            ev.txn_hash || null,
-            ev.op_index !== undefined && ev.op_index !== null ? ev.op_index : -1,
-          ],
-        );
-        if (result.rows.length > 0) {
-          insertedCount++;
+        try {
+          await client.query(
+            `INSERT INTO contract_events
+               (event_type, contract_id, ledger_sequence, emitted_at,
+                from_addr, to_addr, amount_raw, payload)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (ledger_sequence, contract_id, event_type, (payload->>'id'))
+             DO NOTHING`,
+            [
+              ev.event_type,
+              ev.contract_id,
+              ev.ledger_sequence,
+              ev.emitted_at,
+              ev.from_addr || null,
+              ev.to_addr || null,
+              ev.amount_raw || null,
+              JSON.stringify(ev.payload),
+            ],
+          );
+          inserted++;
+        } catch (err) {
+          // ON CONFLICT DO NOTHING should handle duplicates, but log
+          // unexpected errors and continue with remaining events.
+          logger.error(
+            { err, event_type: ev.event_type, ledger: ev.ledger_sequence },
+            "Failed to insert contract event",
+          );
         }
       }
-
-      // Insert the batch record (cursor) - this is the atomic commit point
-      await client.query(
-        `INSERT INTO ingestion_batches (start_ledger, end_ledger, cursor, event_count, metadata)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [startLedger, endLedger, cursor, insertedCount, JSON.stringify({})],
-      );
-
-      await client.query("COMMIT");
-      logger.debug({ startLedger, endLedger, cursor, insertedCount }, "Batch saved atomically");
-      return insertedCount;
-    } catch (err) {
-      await client.query("ROLLBACK");
-      logger.error({ err, startLedger, endLedger }, "Failed to save batch atomically");
-      throw err;
     } finally {
       client.release();
     }
+    return inserted;
   }
 
   // In-memory fallback
@@ -333,72 +284,9 @@ async function saveBatchAtomically(events, startLedger, endLedger, cursor) {
       created_at: new Date().toISOString(),
     });
   }
-
-  memoryBatches.push({
-    id: memoryBatchIdCounter++,
-    start_ledger: startLedger,
-    end_ledger: endLedger,
-    cursor: cursor,
-    event_count: events.length,
-    processed_at: new Date().toISOString(),
-  });
-
   return events.length;
 }
 
-/**
- * Store parsed events (legacy wrapper for tests).
- * Wraps saveBatchAtomically for backward compatibility.
- *
- * @param {Array<object>} events - Parsed event rows
- * @returns {Promise<number>} Number of events inserted
- */
-async function storeEvents(events) {
-  if (events.length === 0) return 0;
-
-  // Get the max ledger from events
-  let maxLedger = 0;
-  let minLedger = Infinity;
-  for (const ev of events) {
-    if (ev.ledger_sequence > maxLedger) maxLedger = ev.ledger_sequence;
-    if (ev.ledger_sequence < minLedger) minLedger = ev.ledger_sequence;
-  }
-
-  // For in-memory fallback, check for duplicates before inserting
-  const pool = getPgPool();
-  if (!pool) {
-    // In-memory deduplication
-    let insertedCount = 0;
-    for (const ev of events) {
-      // Check if event already exists in memory store
-      const exists = memoryStore.some((existing) => {
-        return (
-          existing.ledger_sequence === ev.ledger_sequence &&
-          existing.event_type === ev.event_type &&
-          existing.txn_hash === ev.txn_hash &&
-          existing.op_index === ev.op_index
-        );
-      });
-
-      if (!exists) {
-        memoryStore.push({
-          id: memoryIdCounter++,
-          ...ev,
-          created_at: new Date().toISOString(),
-        });
-        insertedCount++;
-      }
-    }
-    return insertedCount;
-  }
-
-  // Use a generic cursor for PostgreSQL
-  const cursor = `store-${Date.now()}-${minLedger}-${maxLedger}`;
-
-  // Save atomically
-  const inserted = await saveBatchAtomically(events, minLedger, maxLedger, cursor);
-  return inserted;
-}
 // ─── Cursor persistence ──────────────────────────────────────────────────────
 
 /**
@@ -408,172 +296,25 @@ async function storeEvents(events) {
 let lastProcessedLedger = 0;
 
 /**
- * Load the last processed ledger from the ingestion_batches table.
- * This is more reliable than MAX(ledger_sequence) because it tracks
- * ledgers with no events as well.
+ * Load the last processed ledger from PostgreSQL (or return in-memory value).
  */
 async function loadCursor() {
   const pool = getPgPool();
   if (!pool) return lastProcessedLedger;
 
   try {
-    // Primary: load from ingestion_batches
     const result = await pool.query(
-      `SELECT COALESCE(MAX(end_ledger), 0) AS max_ledger FROM ingestion_batches`,
-    );
-    const max = result?.rows?.[0]?.max_ledger;
-    if (max !== null && max !== undefined && parseInt(max, 10) > 0) {
-      lastProcessedLedger = parseInt(max, 10);
-      logger.info({ lastProcessedLedger }, "Loaded event cursor from ingestion_batches");
-      return lastProcessedLedger;
-    }
-
-    // Fallback: if no batches exist, use MAX(ledger_sequence)
-    const fallbackResult = await pool.query(
       `SELECT MAX(ledger_sequence) AS max_ledger FROM contract_events`,
     );
-    const fallbackMax = fallbackResult?.rows?.[0]?.max_ledger;
-    if (fallbackMax !== null && fallbackMax !== undefined) {
-      lastProcessedLedger = parseInt(fallbackMax, 10);
-      logger.info({ lastProcessedLedger }, "Loaded cursor from contract_events (fallback)");
-
-      // Create an initial batch record to bootstrap the new system
-      if (lastProcessedLedger > 0) {
-        try {
-          await pool.query(
-            `INSERT INTO ingestion_batches (start_ledger, end_ledger, cursor, event_count, metadata)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (cursor) DO NOTHING`,
-            [
-              1,
-              lastProcessedLedger,
-              `initial-${lastProcessedLedger}`,
-              0,
-              JSON.stringify({ note: "initial migration bootstrap" }),
-            ],
-          );
-          logger.info({ lastProcessedLedger }, "Bootstrapped initial batch record");
-        } catch (bootstrapErr) {
-          logger.warn({ bootstrapErr }, "Failed to bootstrap initial batch record");
-        }
-      }
+    const max = result?.rows?.[0]?.max_ledger;
+    if (max !== null && max !== undefined) {
+      lastProcessedLedger = parseInt(max, 10);
+      logger.info({ lastProcessedLedger }, "Loaded event cursor from PostgreSQL");
     }
   } catch (err) {
     logger.error({ err }, "Failed to load cursor from PostgreSQL");
   }
   return lastProcessedLedger;
-}
-
-/**
- * Get the last processed ledger (memory value).
- * Used by the replay function.
- */
-function getLastProcessedLedger() {
-  return lastProcessedLedger;
-}
-
-// ─── Replay functionality ────────────────────────────────────────────────────
-
-/**
- * Replay ingestion from a specific ledger.
- * This allows re-processing history without duplication.
- *
- * @param {number} fromLedger - Ledger to start replay from
- * @param {number} [toLedger] - Ledger to end replay at (default: latest)
- * @returns {Promise<{ processed: number, inserted: number, duplicates: number }>}
- */
-async function replayFrom(fromLedger, toLedger) {
-  if (!fromLedger || fromLedger < 1) {
-    throw new Error("fromLedger must be a positive integer");
-  }
-
-  const pool = getPgPool();
-
-  // If toLedger not provided, get the latest
-  if (!toLedger) {
-    toLedger = await getLatestLedger();
-    if (toLedger === 0) {
-      throw new Error("Failed to get latest ledger from Soroban RPC");
-    }
-  }
-
-  if (fromLedger > toLedger) {
-    throw new Error(`fromLedger (${fromLedger}) cannot be greater than toLedger (${toLedger})`);
-  }
-
-  logger.info({ fromLedger, toLedger, usingPostgres: !!pool }, "Starting replay from ledger range");
-
-  let totalProcessed = 0;
-  let totalInserted = 0;
-  let totalDuplicates = 0;
-
-  // Process in chunks to avoid overwhelming the system
-  const CHUNK_SIZE = 100;
-  let currentLedger = fromLedger;
-
-  while (currentLedger <= toLedger) {
-    const chunkEnd = Math.min(currentLedger + CHUNK_SIZE - 1, toLedger);
-
-    try {
-      // Fetch events for this chunk
-      const rawEvents = await getEvents(currentLedger, chunkEnd);
-
-      // Parse events
-      const parsed = [];
-      for (const raw of rawEvents) {
-        try {
-          parsed.push(parseEvent(raw));
-        } catch (parseErr) {
-          logger.warn(
-            { parseErr, eventId: raw.id },
-            "Failed to parse individual Soroban event — skipping",
-          );
-        }
-      }
-
-      // Save the batch atomically (works for both PG and SQLite)
-      const cursor = `replay-${currentLedger}-${chunkEnd}`;
-
-      // Use saveBatchAtomically - it handles both PG and SQLite
-      const inserted = await saveBatchAtomically(parsed, currentLedger, chunkEnd, cursor);
-
-      totalProcessed += rawEvents.length;
-      totalInserted += inserted;
-      totalDuplicates += parsed.length - inserted;
-
-      logger.info(
-        {
-          currentLedger,
-          chunkEnd,
-          rawEvents: rawEvents.length,
-          inserted,
-          duplicates: parsed.length - inserted,
-        },
-        "Replay chunk processed",
-      );
-
-      // Update the cursor for metrics
-      lastProcessedLedger = Math.max(lastProcessedLedger, chunkEnd);
-    } catch (err) {
-      logger.error({ err, currentLedger, chunkEnd }, "Replay failed for chunk");
-      throw err;
-    }
-
-    currentLedger = chunkEnd + 1;
-  }
-
-  logger.info(
-    { fromLedger, toLedger, totalProcessed, totalInserted, totalDuplicates },
-    "Replay completed",
-  );
-
-  return {
-    processed: totalProcessed,
-    inserted: totalInserted,
-    duplicates: totalDuplicates,
-    fromLedger,
-    toLedger,
-  };
 }
 
 // ─── Polling loop ────────────────────────────────────────────────────────────
@@ -583,7 +324,7 @@ let isPolling = false;
 
 /**
  * Single poll cycle: fetch events since lastProcessedLedger,
- * parse, store, and advance the cursor atomically.
+ * parse, store, and advance the cursor.
  */
 async function pollOnce() {
   if (isPolling) return;
@@ -609,49 +350,39 @@ async function pollOnce() {
       return;
     }
 
-    // Fetch events for the full unprocessed range
-    const rawEvents = await getEvents(startLedger, latestLedger);
+    // Fetch events for the full unprocessed range.
+    // The RPC may paginate internally; we request up to 100 events at a time
+    // and follow pagination cursors to ensure completeness.
+    const rawEvents = await getEvents(startLedger);
 
-    // Parse events
-    const parsed = [];
-    for (const raw of rawEvents) {
-      try {
-        parsed.push(parseEvent(raw));
-      } catch (parseErr) {
-        metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
-        logger.warn(
-          { parseErr, eventId: raw.id },
-          "Failed to parse individual Soroban event — skipping",
-        );
+    if (rawEvents.length > 0) {
+      const parsed = [];
+      for (const raw of rawEvents) {
+        try {
+          parsed.push(parseEvent(raw));
+        } catch (parseErr) {
+          metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
+          logger.warn(
+            { parseErr, eventId: raw.id },
+            "Failed to parse individual Soroban event — skipping",
+          );
+        }
       }
-    }
+      const inserted = await storeEvents(parsed);
+      metrics.contractEventsProcessedTotal.inc({ outcome: "indexed" }, inserted);
+      logger.info(
+        {
+          eventCount: rawEvents.length,
+          inserted,
+          startLedger,
+          endLedger: latestLedger,
+        },
+        "Indexed Soroban contract events",
+      );
 
-    // Save atomically with cursor
-    const cursor = `ledger-${startLedger}-${latestLedger}`;
-    const inserted = await saveBatchAtomically(parsed, startLedger, latestLedger, cursor);
-
-    // Update metrics
-    metrics.contractEventsProcessedTotal.inc({ outcome: "indexed" }, inserted);
-    metrics.contractEventsProcessedTotal.inc({ outcome: "duplicate" }, parsed.length - inserted);
-
-    logger.info(
-      {
-        eventCount: rawEvents.length,
-        inserted,
-        duplicates: parsed.length - inserted,
-        startLedger,
-        endLedger: latestLedger,
-      },
-      "Indexed Soroban contract events",
-    );
-
-    // Update last processed ledger
-    lastProcessedLedger = latestLedger;
-
-    // Push notifications for the events users care about (payment received,
-    // stream opened, escrow activity). Required lazily and wrapped so the
-    // indexer keeps its cursor moving even if notification delivery breaks.
-    if (parsed.length > 0) {
+      // Push notifications for the events users care about (payment received,
+      // stream opened, escrow activity). Required lazily and wrapped so the
+      // indexer keeps its cursor moving even if notification delivery breaks.
       try {
         const pushNotifier = require("./pushNotifier");
         await pushNotifier.notifyContractEvents(parsed);
@@ -659,6 +390,8 @@ async function pollOnce() {
         logger.warn({ notifyErr }, "Failed to dispatch push notifications for indexed events");
       }
     }
+
+    lastProcessedLedger = latestLedger;
   } catch (err) {
     logger.error({ err }, "Event indexer poll failed");
   } finally {
@@ -728,7 +461,7 @@ function isRunning() {
 /**
  * Query events filtered by event type for a given public key.
  *
- * @param {string} publicKey - Stellar public key (G…)
+ * @param {string} publicKey - Stellar public key (GÔÇª)
  * @param {string} eventType - event type to filter by
  * @param {{ limit?: number, offset?: number, since?: string }} options
  * @returns {Promise<{ events: Array<object>, total: number }>}
@@ -769,7 +502,7 @@ async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0,
   }
 
   // In-memory fallback
-  const filtered = memoryStore.filter((ev) => {
+  let filtered = memoryStore.filter((ev) => {
     const payloadStr = JSON.stringify(ev.payload).toLowerCase();
     const match = payloadStr.includes(publicKey.toLowerCase()) && ev.event_type === eventType;
     if (!match) return false;
@@ -910,10 +643,6 @@ module.exports = {
   start,
   stop,
   isRunning,
-  replayFrom,
-  getLastProcessedLedger,
-  getLatestLedger,
-  storeEvents,
   queryEventsByPublicKey,
   queryEventsByType,
   getEventStats,
@@ -924,8 +653,6 @@ module.exports = {
     stop();
     memoryStore.length = 0;
     memoryIdCounter = 1;
-    memoryBatches.length = 0;
-    memoryBatchIdCounter = 1;
     lastProcessedLedger = 0;
     if (pgPool) {
       pgPool.end().catch(() => {});
