@@ -38,9 +38,21 @@ const POLL_INTERVAL_MS = 5000;
 
 interface StreamingPaymentsProps {
   publicKey: string;
+  /**
+   * Optional real-time sync callbacks (#641). When a stream is claimed the
+   * wallet's XLM balance rises by the claimable amount — reflect it
+   * optimistically so the balance stream stays honest before the next SSE
+   * event confirms it. `rollback` is invoked on a failed claim.
+   */
+  onClaimOptimistic?: (amountXlm: number) => void;
+  onClaimRollback?: () => void;
 }
 
-export default function StreamingPayments({ publicKey }: StreamingPaymentsProps) {
+export default function StreamingPayments({
+  publicKey,
+  onClaimOptimistic,
+  onClaimRollback,
+}: StreamingPaymentsProps) {
   const [streams, setStreams] = useState<StreamRecord[]>([]);
   const [currentLedger, setCurrentLedger] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,9 +121,19 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
         throw new Error(signError || "Signing was rejected.");
       }
       await submitTransaction(signedXDR);
+      // The claim is on-chain: bump the balance optimistically so the UI
+      // reflects the inbound XLM before the next SSE event confirms it (#641).
+      const stream = streams.find((s) => s.id === pendingClaimId);
+      if (onClaimOptimistic && stream) {
+        const claimableXlm =
+          Number(computeStreamClaimable(stream, currentLedger ?? stream.startLedger)) /
+          STELLAR_STROOPS_PER_XLM;
+        onClaimOptimistic(claimableXlm);
+      }
       addToast("Stream claimed successfully.", "success");
       await fetchStreams();
     } catch (err) {
+      onClaimRollback?.();
       addToast(err instanceof Error ? err.message : "Claim failed. Please try again.", "error");
     } finally {
       setClaimingId(null);

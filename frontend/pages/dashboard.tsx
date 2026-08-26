@@ -211,6 +211,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const {
     xlmBalance: streamedXlmBalance,
     isLive: isBalanceLive,
+    connectionState: balanceConnectionState,
+    hasOptimisticUpdate: hasOptimisticBalance,
+    applyOptimisticBalance,
+    rollbackOptimistic,
     lastUpdatedAt: balanceUpdatedAt,
   } = useBalanceStream(publicKey);
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
@@ -1143,6 +1147,31 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                     {t("dashboard.offlineSnapshot")} {formatSnapshotTime(staleBalanceAt)}
                   </p>
                 )}
+                <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="balance-connection-indicator">
+                  {balanceConnectionState === "live" && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                      {t("dashboard.balanceLive")}
+                    </span>
+                  )}
+                  {balanceConnectionState === "reconnecting" && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
+                      {t("dashboard.balanceReconnecting")}
+                    </span>
+                  )}
+                  {balanceConnectionState === "stale" && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-400/30 bg-slate-400/10 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden="true" />
+                      {t("dashboard.balanceStale")}
+                    </span>
+                  )}
+                  {hasOptimisticBalance && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">
+                      {t("dashboard.balanceOptimistic")}
+                    </span>
+                  )}
+                </div>
                 {!sparklineLoading && sparklineData.length > 0 && (
                   <div className="mt-3">
                     <BalanceSparkline data={sparklineData} t={t} />
@@ -1329,7 +1358,18 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       </Link>
 
       <FeatureGate flag="streaming_payments">
-        <StreamingPayments publicKey={publicKey} />
+        <StreamingPayments
+          publicKey={publicKey}
+          onClaimOptimistic={(amountXlm) => {
+            if (balanceConnectionState === "live" || balanceConnectionState === "reconnecting") {
+              const base = parseFloat(xlmBalance || "0");
+              if (Number.isFinite(base)) {
+                applyOptimisticBalance((base + amountXlm).toFixed(7));
+              }
+            }
+          }}
+          onClaimRollback={() => rollbackOptimistic()}
+        />
       </FeatureGate>
 
       {/* Price Alerts — Issue #80 */}
@@ -1397,6 +1437,16 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               usdcBalance={usdcBalance}
               accountBalances={otherBalances}
               onSuccess={handlePaymentSuccess}
+              optimisticBalance={{
+                apply: (next) => {
+                  // Trust the hook's authoritative base and only adjust by the
+                  // send amount; the next authoritative event reconciles (#641).
+                  if (balanceConnectionState === "live" || balanceConnectionState === "reconnecting") {
+                    applyOptimisticBalance(next);
+                  }
+                },
+                rollback: () => rollbackOptimistic(),
+              }}
               prefill={
                 recurringPrefill
                   ? recurringPrefill

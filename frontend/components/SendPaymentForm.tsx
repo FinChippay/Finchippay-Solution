@@ -84,6 +84,19 @@ interface SendPaymentFormProps {
     amount: string;
     memo?: string;
   } | null;
+  /**
+   * Optional optimistic-balance callbacks for real-time sync (#641).
+   * Passed by the dashboard so a successful send/or failure reflects in the
+   * live balance stream immediately instead of waiting for the next SSE event.
+   *
+   * `apply` receives the XLM balance that should be displayed while the tx is
+   * in flight (or after it confirms); `rollback` restores the authoritative
+   * value when the send fails.
+   */
+  optimisticBalance?: {
+    apply: (nextBalance: string) => void;
+    rollback: () => void;
+  } | null;
 }
 
 type Status = PaymentFlowStatus;
@@ -138,6 +151,7 @@ function SendPaymentForm({
   hideAmountField = false,
   hideMemoField = false,
   accountBalances = [],
+  optimisticBalance = null,
 }: SendPaymentFormProps) {
   const { t } = useTranslation("common");
   const { addToast } = useToastContext();
@@ -750,6 +764,15 @@ function SendPaymentForm({
   const executeSend = async () => {
     if (!canSubmit) return;
     startTracker();
+    /** Apply a pessimistic balance deduction for XLM sends (#641). */
+    const applyOptimisticForSend = (asset: "XLM" | "USDC" | { code: string; issuer: string }) => {
+      if (!optimisticBalance) return;
+      if (asset !== "XLM") return; // only XLM affects the balance stream
+      const current = parseFloat(xlmBalance);
+      if (Number.isFinite(current) && Number.isFinite(amountNum)) {
+        optimisticBalance.apply((current - amountNum - networkFeeXlm).toFixed(7));
+      }
+    };
     let activeStep: PaymentStepId = "building";
     let pendingId: string | null = null;
     try {
@@ -823,12 +846,18 @@ function SendPaymentForm({
         setIsStatusModalOpen(false);
         setStatus("idle");
         saveRecipient(trimmedDestination);
+        // Queued offline: the balance will drop once the queue flushes, but
+        // reflecting it now keeps the UI honest about the user's intent (#641).
+        applyOptimisticForSend(assetParam);
         addToast("You're offline. Your signed payment has been queued and will send when you're back online.", "info");
         onSuccess?.();
         return;
       }
       const result = await submitTransaction(signedXDR);
       setTxHash(result.hash);
+      // Reflect the send immediately; if the SSE stream is down the optimistic
+      // value stands in until the next poll/reconcile confirms it (#641).
+      applyOptimisticForSend(assetParam);
 
       activeStep = "confirming";
       markStepStarted("confirming");
@@ -862,6 +891,10 @@ function SendPaymentForm({
       setError(message);
       markStepFailed(activeStep, message);
       setStatus("error");
+      // The send failed — the optimistic deduction must not stick (#641).
+      if (optimisticBalance) {
+        optimisticBalance.rollback();
+      }
       addToast(message, "error", () => { setStatus("idle"); void executeSend(); });
     }
   };

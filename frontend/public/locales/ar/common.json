@@ -70,7 +70,10 @@
     "walletAddress": "عنوان المحفظة",
     "xlmBalance": "رصيد XLM",
     "xlmReceived": "إجمالي المُستلم",
-    "xlmSent": "إجمالي المُرسل"
+    "xlmSent": "إجمالي المُرسل",
+    "balanceReconnecting": "جارٍ إعادة الاتصال…",
+    "balanceStale": "قديم",
+    "balanceOptimistic": "قيد الانتظار…"
   },
   "home": {
     "badge": "مبني على شبكة Stellar التجريبية · مفتوح المصدر",

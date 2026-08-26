@@ -150,7 +150,10 @@
     "balanceTrendDownward": "残高傾向：下降",
     "balanceLive": "リアルタイム",
     "balancePolling": "30秒ごとに更新",
-    "viewPortfolio": "ポートフォリオを見る →"
+    "viewPortfolio": "ポートフォリオを見る →",
+    "balanceReconnecting": "再接続中…",
+    "balanceStale": "古い",
+    "balanceOptimistic": "保留中…"
   },
   "portfolio": {
     "title": "ポートフォリオ",

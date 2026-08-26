@@ -70,7 +70,10 @@
     "walletAddress": "Wallet Address",
     "xlmBalance": "XLM Balance",
     "xlmReceived": "Total Received",
-    "xlmSent": "Total Sent"
+    "xlmSent": "Total Sent",
+    "balanceReconnecting": "Reconnecting…",
+    "balanceStale": "Stale",
+    "balanceOptimistic": "Pending…"
   },
   "home": {
     "badge": "Built on Stellar Testnet · Open Source",

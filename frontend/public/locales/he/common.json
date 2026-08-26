@@ -70,7 +70,10 @@
     "walletAddress": "כתובת הארנק",
     "xlmBalance": "יתרת XLM",
     "xlmReceived": "סך הכל התקבל",
-    "xlmSent": "סך הכל נשלח"
+    "xlmSent": "סך הכל נשלח",
+    "balanceReconnecting": "מתחבר מחדש…",
+    "balanceStale": "מיושן",
+    "balanceOptimistic": "בהמתנה…"
   },
   "home": {
     "badge": "בנוי על רשת הבדיקות של Stellar · קוד פתוח",

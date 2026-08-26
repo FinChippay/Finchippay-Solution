@@ -70,7 +70,10 @@
     "walletAddress": "Adresse du Portefeuille",
     "xlmBalance": "Solde XLM",
     "xlmReceived": "Total Reçu",
-    "xlmSent": "Total Envoyé"
+    "xlmSent": "Total Envoyé",
+    "balanceReconnecting": "Reconnexion…",
+    "balanceStale": "Obsolète",
+    "balanceOptimistic": "En attente…"
   },
   "home": {
     "badge": "Construit sur Stellar Testnet · Open Source",

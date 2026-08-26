@@ -70,7 +70,10 @@
     "walletAddress": "Dirección de Billetera",
     "xlmBalance": "Saldo XLM",
     "xlmReceived": "Total Recibido",
-    "xlmSent": "Total Enviado"
+    "xlmSent": "Total Enviado",
+    "balanceReconnecting": "Reconectando…",
+    "balanceStale": "Desactualizado",
+    "balanceOptimistic": "Pendiente…"
   },
   "home": {
     "badge": "Construido en Stellar Testnet · Código Abierto",
