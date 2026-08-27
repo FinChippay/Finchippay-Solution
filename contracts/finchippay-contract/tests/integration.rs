@@ -252,6 +252,38 @@ fn test_mint_receipt() {
 }
 
 #[test]
+fn test_mint_receipt_cap() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let payer = Address::generate(&env);
+    let payee = Address::generate(&env);
+    env.mock_all_auths();
+    let memo = Symbol::new(&env, "Rent");
+
+    for _ in 0..1000 {
+        client.mint_receipt(&payer, &payee, &1_500, &memo);
+    }
+
+    assert_eq!(client.get_receipt_count(&payer), 1000);
+}
+
+#[test]
+#[should_panic(expected = "User receipt limit reached")]
+fn test_mint_receipt_cap_exceeded() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let payer = Address::generate(&env);
+    let payee = Address::generate(&env);
+    env.mock_all_auths();
+    let memo = Symbol::new(&env, "Rent");
+
+    for _ in 0..1000 {
+        client.mint_receipt(&payer, &payee, &1_500, &memo);
+    }
+    client.mint_receipt(&payer, &payee, &1_500, &memo); // panics here
+}
+
+#[test]
 fn test_get_receipt_not_found() {
     let env = Env::default();
     let (_, client) = deploy(&env);
@@ -1276,14 +1308,7 @@ fn test_create_vesting_rejects_current_or_past_end_ledger() {
         )
         .is_err());
     assert!(client
-        .try_create_vesting(
-            &token_id,
-            &funder,
-            &beneficiary,
-            &5_000,
-            &cliff,
-            &past_end,
-        )
+        .try_create_vesting(&token_id, &funder, &beneficiary, &5_000, &cliff, &past_end,)
         .is_err());
 }
 

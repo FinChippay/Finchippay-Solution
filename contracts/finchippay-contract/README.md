@@ -49,6 +49,7 @@ Recipients can call `claim_stream` at any time to drain accrued tokens. Payers c
   - Stream deposits are capped at `MAX_STREAM_DEPOSIT` with cumulative top-up enforcement.
   - Stream rates are capped at `MAX_STREAM_RATE` to prevent overflow.
   - Multi-sig proposals are capped at `MAX_MULTISIG_AMOUNT` and `MAX_MULTISIG_SIGNERS` (20).
+  - Receipts are capped at `MAX_USER_RECEIPTS` (1,000) per user to prevent storage bloat.
 - Escrow amounts are capped at `MAX_ESCROW_AMOUNT` and have a minimum of `MIN_ESCROW_AMOUNT` to prevent dust attacks.
 - Multi-sig proposals have a minimum of `MIN_MULTISIG_AMOUNT` and can include an `expiration_ledger` to auto-expire abandoned proposals.
 - Multi-sig signer lists are checked for duplicates at creation time.

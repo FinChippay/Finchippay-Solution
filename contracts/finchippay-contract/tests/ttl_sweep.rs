@@ -18,11 +18,11 @@ use finchippay_contract::{
     storage::{ttl_class_at, MAX_KEYS_PER_SWEEP, MIN_TTL_LEDGERS, TTL_CLASS_COUNT},
     DataKey, FinchippayContract, FinchippayContractClient, TtlClass,
 };
+use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token, Address, Env, Symbol, Vec,
 };
-use soroban_sdk::testutils::storage::Persistent as _;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -62,7 +62,8 @@ fn ttl_env() -> Env {
 }
 
 fn shorten_entry_lifetimes(env: &Env) {
-    env.ledger().with_mut(|li| li.min_persistent_entry_ttl = TTL_TEST_ENTRY_BIRTH_TTL);
+    env.ledger()
+        .with_mut(|li| li.min_persistent_entry_ttl = TTL_TEST_ENTRY_BIRTH_TTL);
 }
 
 fn ttl_of(env: &Env, contract: &Address, key: &DataKey) -> u32 {
@@ -78,8 +79,10 @@ fn read_cursor(env: &Env, contract: &Address) -> (u32, u32) {
 
 fn read_watermark(env: &Env, contract: &Address, class: &TtlClass) -> u32 {
     env.as_contract(contract, || {
-        let watermark: Option<u32> =
-            env.storage().persistent().get(&DataKey::TtlWatermark(class.clone()));
+        let watermark: Option<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TtlWatermark(class.clone()));
         watermark.unwrap_or(0)
     })
 }
@@ -133,10 +136,14 @@ fn add_state(env: &Env, infra: &Infra<'_>) -> State {
     }
     for _ in 0..2 {
         let recipient = Address::generate(env);
-        let _ = infra.client.open_stream(&infra.token, &infra.payer, &recipient, &10, &50_000);
+        let _ = infra
+            .client
+            .open_stream(&infra.token, &infra.payer, &recipient, &10, &50_000);
     }
     let receipt_to = Address::generate(env);
-    let _ = infra.client.mint_receipt(&infra.payer, &receipt_to, &1_000, &Symbol::new(env, "memo"));
+    let _ = infra
+        .client
+        .mint_receipt(&infra.payer, &receipt_to, &1_000, &Symbol::new(env, "memo"));
     State { escrow_recipients }
 }
 
@@ -231,7 +238,10 @@ fn chunked_sweep_resumes_monotonically_and_covers_every_key_once() {
         let bumped = a.client.bump_all_ttls(&a.admin, &budget);
         let after = read_cursor(&env, &a.id);
 
-        assert!(bumped <= MAX_KEYS_PER_SWEEP, "chunk overshot the hard key cap");
+        assert!(
+            bumped <= MAX_KEYS_PER_SWEEP,
+            "chunk overshot the hard key cap"
+        );
         total += bumped;
 
         if after == (0, 0) && before != (0, 0) {
@@ -249,7 +259,10 @@ fn chunked_sweep_resumes_monotonically_and_covers_every_key_once() {
 
     // No key skipped or double-bumped: the chunked total equals the uninterrupted
     // total, and every key is back at the floor.
-    assert_eq!(total, reference_total, "chunked sweep skipped or double-bumped keys");
+    assert_eq!(
+        total, reference_total,
+        "chunked sweep skipped or double-bumped keys"
+    );
     assert_swept_keys_at_floor(&env, &a.id, &a.payer, &a_state.escrow_recipients);
 
     // After a completed sweep, get_min_ttl is a sound lower bound.
@@ -378,7 +391,10 @@ fn single_sweep_step_stays_within_instruction_budget() {
     let after = env.budget().cpu_instruction_cost();
     let used = after.saturating_sub(before);
 
-    assert!(bumped <= MAX_KEYS_PER_SWEEP, "step overshot the hard key cap");
+    assert!(
+        bumped <= MAX_KEYS_PER_SWEEP,
+        "step overshot the hard key cap"
+    );
     // Soroban's per-transaction CPU budget is 100M instructions on mainnet; a
     // single full-size sweep step must consume only a fraction of it.
     assert!(used < 100_000_000, "sweep step used {used} instructions");
