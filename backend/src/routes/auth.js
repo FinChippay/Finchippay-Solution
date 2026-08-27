@@ -9,6 +9,7 @@
  */
 "use strict";
 
+const crypto = require("crypto");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
@@ -35,6 +36,7 @@ const accessTokenMaxAgeMs = () => tokenService.getAccessTokenTTLSeconds() * 1000
 const refreshTokenMaxAgeMs = () => tokenService.getRefreshTokenTTLSeconds() * 1000;
 
 // Cache the server keypair — regenerated only on cold start.
+// Never log SERVER_PRIVATE_KEY / secret; only the public key is exposed to clients.
 let cachedServerKeypair = null;
 function getServerKeypair() {
   if (!cachedServerKeypair) {
@@ -44,12 +46,25 @@ function getServerKeypair() {
   return cachedServerKeypair;
 }
 
+/**
+ * Stable client-facing version for the signing key so wallets can detect rotation
+ * without comparing full public keys. Override with SIGNING_KEY_VERSION if needed.
+ * Derived only from the public key — never from the private key.
+ */
+function getSigningKeyVersion(publicKey) {
+  if (process.env.SIGNING_KEY_VERSION) {
+    return process.env.SIGNING_KEY_VERSION;
+  }
+  return crypto.createHash("sha256").update(publicKey, "utf8").digest("hex").slice(0, 16);
+}
+
 // GET /api/auth?account=G... — issue a SEP-0010 challenge transaction
 router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
   const { account } = req.validated;
 
   try {
     const keypair = getServerKeypair();
+    const signingKey = keypair.publicKey();
     const challenge = Utils.buildChallengeTx(
       keypair,
       account,
@@ -57,7 +72,12 @@ router.get("/", validate(authChallengeQuerySchema, "query"), (req, res) => {
       300, // 5-minute validity window
       NETWORK_PASSPHRASE,
     );
-    res.json({ transaction: challenge, networkPassphrase: NETWORK_PASSPHRASE });
+    res.json({
+      transaction: challenge,
+      networkPassphrase: NETWORK_PASSPHRASE,
+      signingKey,
+      signingKeyVersion: getSigningKeyVersion(signingKey),
+    });
   } catch (e) {
     res
       .status(ERROR_CODES.AUTH_CHALLENGE_FAILED.httpStatus)

@@ -207,6 +207,10 @@ export interface HealthStatus {
 export interface ChallengeResponse {
   transaction: string;
   networkPassphrase?: string;
+  /** Server SEP-10 signing public key (never the private key). */
+  signingKey?: string;
+  /** Opaque version token; changes when the server signing key rotates. */
+  signingKeyVersion?: string;
 }
 
 export interface TokenResponse {
