@@ -4,8 +4,7 @@
  *
  * Re-exports the central apiClient instance from @/lib/api dogfooding @finchippay/sdk.
  */
-
-import { apiClient, apiFetch } from "./api";
+import { apiFetch } from "./api";
 import { getJwtToken } from "./auth";
 
 interface SdkConfig {
@@ -35,7 +34,7 @@ class FinchippaySdk {
   }
 
   async getChallenge(publicKey: string): Promise<{ transaction: string; networkPassphrase: string }> {
-    const res = await apiFetch(\`\${this.baseUrl}/api/auth?account=\${encodeURIComponent(publicKey)}\`, {
+    const res = await apiFetch(`${this.baseUrl}/api/auth?account=${encodeURIComponent(publicKey)}`, {
       method: "GET",
       credentials: "include",
       headers: this.headers(),
@@ -48,7 +47,7 @@ class FinchippaySdk {
     token?: string;
     refreshToken?: string;
   }> {
-    const res = await apiFetch(\`\${this.baseUrl}/api/auth\`, {
+    const res = await apiFetch(`${this.baseUrl}/api/auth`, {
       method: "POST",
       credentials: "include",
       headers: this.headers(),

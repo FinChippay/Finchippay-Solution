@@ -5,11 +5,15 @@ import {
   buildPaymentLinkUrl,
   canRedeemPaymentLink,
   clearPaymentLinkStore,
+  disablePaymentLink,
+  enablePaymentLink,
   getPaymentLinkRecord,
+  getPaymentLinkStats,
   listPaymentLinks,
   markPaymentLinkRedeemed,
   parsePaymentLinkQuery,
   paymentLinkId,
+  recordPaymentLinkView,
   rememberPaymentLink,
   type PaymentLinkPayload,
 } from "@/lib/paymentLinks";
@@ -191,5 +195,103 @@ describe("canRedeemPaymentLink", () => {
       ok: false,
       reason: "redeemed",
     });
+  });
+
+  it("rejects disabled links", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    const id = paymentLinkId(PAYLOAD);
+    disablePaymentLink(id);
+    expect(canRedeemPaymentLink(PAYLOAD)).toEqual({
+      ok: false,
+      reason: "disabled",
+    });
+  });
+});
+
+describe("disable/enable payment link", () => {
+  beforeEach(() => {
+    clearPaymentLinkStore();
+  });
+
+  it("disables a pending link and prevents reuse", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    const id = paymentLinkId(PAYLOAD);
+    const disabled = disablePaymentLink(id);
+    expect(disabled?.status).toBe("disabled");
+    expect(disabled?.disabledAt).toBeGreaterThan(0);
+    const record = getPaymentLinkRecord(PAYLOAD);
+    expect(record?.status).toBe("disabled");
+    expect(markPaymentLinkRedeemed(PAYLOAD, "tx-1")).toBe(false);
+  });
+
+  it("re-enables a disabled link back to pending", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    const id = paymentLinkId(PAYLOAD);
+    disablePaymentLink(id);
+    const reEnabled = enablePaymentLink(id);
+    expect(reEnabled?.status).toBe("pending");
+    expect(reEnabled?.disabledAt).toBeUndefined();
+    expect(canRedeemPaymentLink(PAYLOAD)).toEqual({ ok: true });
+  });
+
+  it("returns null for unknown ids", () => {
+    expect(disablePaymentLink("nope")).toBeNull();
+    expect(enablePaymentLink("nope")).toBeNull();
+  });
+});
+
+describe("payment link analytics", () => {
+  beforeEach(() => {
+    clearPaymentLinkStore();
+  });
+
+  it("records views for locally-known links", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    const id = paymentLinkId(PAYLOAD);
+    recordPaymentLinkView(PAYLOAD);
+    recordPaymentLinkView(PAYLOAD);
+    expect(getPaymentLinkStats(id)).toMatchObject({
+      views: 2,
+      payments: 0,
+      totalCollected: 0,
+      conversionRate: 0,
+    });
+  });
+
+  it("does not record views for links never stored locally", () => {
+    const id = paymentLinkId(PAYLOAD);
+    recordPaymentLinkView(PAYLOAD);
+    expect(getPaymentLinkStats(id)).toBeNull();
+  });
+
+  it("accumulates payment stats on redemption", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    const id = paymentLinkId(PAYLOAD);
+    markPaymentLinkRedeemed(PAYLOAD, "tx-1");
+    const stats = getPaymentLinkStats(id);
+    expect(stats).toMatchObject({
+      payments: 1,
+      totalCollected: 10,
+      conversionRate: 0,
+      status: "redeemed",
+    });
+  });
+
+  it("computes conversion rate from views and payments", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    const id = paymentLinkId(PAYLOAD);
+    recordPaymentLinkView(PAYLOAD);
+    recordPaymentLinkView(PAYLOAD);
+    recordPaymentLinkView(PAYLOAD);
+    markPaymentLinkRedeemed(PAYLOAD, "tx-1");
+    expect(getPaymentLinkStats(id)).toMatchObject({
+      views: 3,
+      payments: 1,
+      conversionRate: 1 / 3,
+    });
+  });
+
+  it("returns null stats for unknown ids", () => {
+    expect(getPaymentLinkStats("nope")).toBeNull();
   });
 });

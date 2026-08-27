@@ -156,7 +156,8 @@
     "switchToDark": "מעבר למצב כהה",
     "switchToLight": "מעבר למצב בהיר",
     "trade": "מסחר",
-    "transactions": "עסקאות"
+    "transactions": "עסקאות",
+    "paymentLinks": "קישורי תשלום"
   },
   "portfolio": {
     "addToken": "הוספת טוקן",

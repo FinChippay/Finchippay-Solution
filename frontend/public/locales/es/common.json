@@ -156,7 +156,8 @@
     "switchToDark": "Cambiar a modo oscuro",
     "switchToLight": "Cambiar a modo claro",
     "trade": "Comercio",
-    "transactions": "Transacciones"
+    "transactions": "Transacciones",
+    "paymentLinks": "Enlaces de pago"
   },
   "portfolio": {
     "addToken": "Agregar token",

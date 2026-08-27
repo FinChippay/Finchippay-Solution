@@ -156,7 +156,8 @@
     "switchToDark": "التبديل إلى الوضع الداكن",
     "switchToLight": "التبديل إلى الوضع الفاتح",
     "trade": "تداول",
-    "transactions": "المعاملات"
+    "transactions": "المعاملات",
+    "paymentLinks": "روابط الدفع"
   },
   "portfolio": {
     "addToken": "إضافة رمز",
