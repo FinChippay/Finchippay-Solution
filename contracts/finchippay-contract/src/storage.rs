@@ -274,10 +274,7 @@ pub fn ttl_class_item_key_cost(class: &TtlClass, index: u32) -> u32 {
                 2
             }
         }
-        TtlClass::MultiSig
-        | TtlClass::Vesting
-        | TtlClass::Emergency
-        | TtlClass::YieldEscrow => 1,
+        TtlClass::MultiSig | TtlClass::Vesting | TtlClass::Emergency | TtlClass::YieldEscrow => 1,
     }
 }
 
