@@ -1533,3 +1533,138 @@ fn test_resolve_dispute_state_and_token_checks() {
     let contract_bal_after = sac_client.balance(&contract_id);
     assert_eq!(contract_bal_after, contract_bal_mid);
 }
+
+// ─── Admin Action Timelock & Veto Tests ──────────────────────────────────────
+
+#[test]
+fn test_admin_timelock_happy_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(FinchippayContract, ());
+    let client = FinchippayContractClient::new(&env, &id);
+
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+    client.initialize(&signers, &2);
+
+    let data = Vec::new(&env);
+    let proposal_id = client.propose_admin_action(&signer1, &Symbol::new(&env, "pause"), &data);
+    
+    // Approving reaches threshold
+    client.approve_admin_action(&proposal_id, &signer2);
+
+    let proposal = client.get_admin_action_proposal(&proposal_id);
+    assert_eq!(proposal.executed, false);
+    assert!(proposal.activation_ledger > 0);
+
+    // Fast-forward ledger to pass the timelock
+    env.ledger().set_sequence(proposal.activation_ledger);
+
+    client.execute_admin_action(&proposal_id);
+
+    let proposal_after = client.get_admin_action_proposal(&proposal_id);
+    assert_eq!(proposal_after.executed, true);
+}
+
+#[test]
+fn test_admin_timelock_veto() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(FinchippayContract, ());
+    let client = FinchippayContractClient::new(&env, &id);
+
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+    client.initialize(&signers, &2);
+
+    let data = Vec::new(&env);
+    let proposal_id = client.propose_admin_action(&signer1, &Symbol::new(&env, "pause"), &data);
+    
+    client.approve_admin_action(&proposal_id, &signer2);
+    
+    // Veto before timelock expires
+    client.veto_admin_action(&proposal_id, &signer1);
+
+    let proposal = client.get_admin_action_proposal(&proposal_id);
+    assert_eq!(proposal.approvals.len(), 0);
+    assert_eq!(proposal.activation_ledger, 0);
+}
+
+#[test]
+fn test_admin_timelock_expired_veto_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(FinchippayContract, ());
+    let client = FinchippayContractClient::new(&env, &id);
+
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+    client.initialize(&signers, &2);
+
+    let data = Vec::new(&env);
+    let proposal_id = client.propose_admin_action(&signer1, &Symbol::new(&env, "pause"), &data);
+    
+    client.approve_admin_action(&proposal_id, &signer2);
+    
+    let proposal = client.get_admin_action_proposal(&proposal_id);
+    
+    // Advance beyond activation_ledger
+    env.ledger().set_sequence(proposal.activation_ledger);
+
+    let result = client.try_veto_admin_action(&proposal_id, &signer1);
+    assert_eq!(result.is_err(), true);
+}
+
+#[test]
+fn test_admin_timelock_multi_veto() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(FinchippayContract, ());
+    let client = FinchippayContractClient::new(&env, &id);
+
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+    client.initialize(&signers, &2);
+
+    let data = Vec::new(&env);
+    let proposal_id = client.propose_admin_action(&signer1, &Symbol::new(&env, "pause"), &data);
+    
+    client.approve_admin_action(&proposal_id, &signer2);
+    
+    // First veto
+    client.veto_admin_action(&proposal_id, &signer1);
+    
+    // Re-approve
+    client.approve_admin_action(&proposal_id, &signer1);
+    client.approve_admin_action(&proposal_id, &signer2);
+    
+    // Second veto
+    client.veto_admin_action(&proposal_id, &signer2);
+
+    let proposal = client.get_admin_action_proposal(&proposal_id);
+    assert_eq!(proposal.approvals.len(), 0);
+    assert_eq!(proposal.activation_ledger, 0);
+}
+
+#[test]
+fn test_admin_timelock_fast_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(FinchippayContract, ());
+    let client = FinchippayContractClient::new(&env, &id);
+
+    let admin = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin.clone()]);
+    client.initialize(&signers, &1);
+
+    let data = Vec::new(&env);
+    let proposal_id = client.propose_admin_action(&admin, &Symbol::new(&env, "pause"), &data);
+    
+    // With threshold 1, it executes immediately on propose
+    let proposal = client.get_admin_action_proposal(&proposal_id);
+    assert_eq!(proposal.executed, true);
+}

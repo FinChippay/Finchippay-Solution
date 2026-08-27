@@ -497,6 +497,10 @@ const MAX_ADMIN_SIGNERS: u32 = 20;
 /// `validate_storage_compatibility` before upgrading to ensure the new WASM
 /// declares a layout version >= this value, preventing bricked storage.
 const STORAGE_LAYOUT_VERSION: u32 = 3;
+/// Mandatory delay in ledgers before an admin action can be executed
+/// (≈24 hours at 5 s/ledger).
+const ADMIN_ACTION_DELAY: u32 = 17_280;
+
 
 // ─── Storage TTL classes ──────────────────────────────────────────────────────
 
@@ -548,6 +552,8 @@ pub struct AdminActionProposal {
     pub executed: bool,
     /// Ledger after which the proposal expires and can no longer be approved.
     pub expiration_ledger: u32,
+    /// Ledger at which this action becomes executable (0 means not yet activated).
+    pub activation_ledger: u32,
 }
 
 // ─── Storage key enum ─────────────────────────────────────────────────────────
@@ -1326,6 +1332,7 @@ impl FinchippayContract {
             executed: false,
             // Expire after 7 days (~120,960 ledgers at 5s/ledger).
             expiration_ledger: current_ledger + 120_960,
+            activation_ledger: 0,
         };
 
         env.storage()
@@ -1344,6 +1351,7 @@ impl FinchippayContract {
         // Threshold 1: the proposer's recorded approval already meets it.
         if threshold == 1 {
             proposal.executed = true;
+            proposal.activation_ledger = current_ledger;
             env.storage()
                 .persistent()
                 .set(&DataKey::AdminActionProposal(counter), &proposal);
@@ -1352,7 +1360,7 @@ impl FinchippayContract {
                 (Symbol::new(&env, "admin_action_approved"),),
                 (counter, proposer, 1u32, threshold),
             );
-            Self::execute_admin_action(&env, &proposal);
+            Self::do_execute_admin_action(&env, &proposal);
         }
 
         counter
@@ -1404,22 +1412,105 @@ impl FinchippayContract {
             (proposal_id, approver, approval_count, proposal.threshold),
         );
 
-        // Auto-execute when threshold met
+        // Queue for execution when threshold met
         if approval_count >= proposal.threshold {
-            proposal.executed = true;
+            if proposal.activation_ledger == 0 {
+                proposal.activation_ledger = current_ledger + ADMIN_ACTION_DELAY;
+                env.events().publish(
+                    (Symbol::new(&env, "admin_action_queued"),),
+                    (proposal_id, proposal.activation_ledger),
+                );
+            }
             env.storage()
                 .persistent()
                 .set(&DataKey::AdminActionProposal(proposal_id), &proposal);
             bump(&env, &DataKey::AdminActionProposal(proposal_id));
-
-            // Dispatch the action
-            Self::execute_admin_action(&env, &proposal);
         } else {
             env.storage()
                 .persistent()
                 .set(&DataKey::AdminActionProposal(proposal_id), &proposal);
             bump(&env, &DataKey::AdminActionProposal(proposal_id));
         }
+    }
+
+    /// Veto a queued admin action proposal, resetting its approvals and timelock.
+    pub fn veto_admin_action(env: Env, proposal_id: u64, vetoer: Address) {
+        let _guard = ReentrancyGuard::acquire(&env);
+        vetoer.require_auth();
+
+        // Validate signer
+        let signers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AdminSigners)
+            .unwrap_or_else(|| panic!("Admin signers not configured"));
+        if !signers.contains(&vetoer) {
+            panic!("not an admin signer");
+        }
+
+        let mut proposal: AdminActionProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AdminActionProposal(proposal_id))
+            .unwrap_or_else(|| panic!("{:?}", ContractError::ProposalNotFound));
+
+        if proposal.executed {
+            panic!("{:?}", ContractError::ProposalAlreadyExecuted);
+        }
+
+        if proposal.activation_ledger == 0 {
+            panic!("{:?}", ContractError::InvalidState); // Not yet queued
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger >= proposal.activation_ledger {
+            panic!("{:?}", ContractError::InvalidState); // Time window expired
+        }
+
+        proposal.approvals = Vec::new(&env);
+        proposal.activation_ledger = 0;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::AdminActionProposal(proposal_id), &proposal);
+        bump(&env, &DataKey::AdminActionProposal(proposal_id));
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_action_vetoed"),),
+            (proposal_id, vetoer),
+        );
+    }
+
+    /// Execute an admin action whose timelock delay has passed.
+    pub fn execute_admin_action(env: Env, proposal_id: u64) {
+        let _guard = ReentrancyGuard::acquire(&env);
+
+        let mut proposal: AdminActionProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AdminActionProposal(proposal_id))
+            .unwrap_or_else(|| panic!("{:?}", ContractError::ProposalNotFound));
+
+        if proposal.executed {
+            panic!("{:?}", ContractError::ProposalAlreadyExecuted);
+        }
+
+        if proposal.activation_ledger == 0 {
+            panic!("{:?}", ContractError::InvalidState); // Not yet queued
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < proposal.activation_ledger {
+            panic!("{:?}", ContractError::ReleaseLedgerNotReached);
+        }
+
+        proposal.executed = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::AdminActionProposal(proposal_id), &proposal);
+        bump(&env, &DataKey::AdminActionProposal(proposal_id));
+
+        Self::do_execute_admin_action(&env, &proposal);
     }
 
     /// Return an admin action proposal by id.
@@ -1431,7 +1522,7 @@ impl FinchippayContract {
     }
 
     /// Internal: execute the concrete admin action after threshold is met.
-    fn execute_admin_action(env: &Env, proposal: &AdminActionProposal) {
+    fn do_execute_admin_action(env: &Env, proposal: &AdminActionProposal) {
         let action = &proposal.action_type;
         if action == &Symbol::new(env, "pause") {
             Self::do_pause(env);
