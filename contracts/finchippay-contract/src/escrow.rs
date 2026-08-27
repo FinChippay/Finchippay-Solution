@@ -854,6 +854,9 @@ pub fn batch_create_escrow(
             disputed: false,
             dispute_raised_by: Option::None,
             dispute_raised_at: 0,
+            agent: Option::None,
+            milestones: Vec::new(&env),
+            is_milestone_based: false,
         };
 
         env.storage()
