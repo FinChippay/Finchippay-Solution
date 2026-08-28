@@ -1649,9 +1649,11 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::Version)
             .unwrap_or(CONTRACT_VERSION);
+        let next_ver = current_ver.checked_add(1).expect("version overflow");
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::Version, &(current_ver + 1));
+            .set(&DataKey::Version, &next_ver);
         bump(&env, &DataKey::Version);
         env.storage()
             .persistent()
@@ -1934,13 +1936,14 @@ impl FinchippayContract {
             status: EmergencyWithdrawalStatus::Pending,
         };
 
+        let next_count = id.checked_add(1).expect("withdrawal count overflow");
         env.storage()
             .persistent()
             .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
         bump_to_floor(&env, &DataKey::EmergencyWithdrawal(id));
         env.storage()
             .persistent()
-            .set(&DataKey::EmergencyWithdrawalCount, &(id + 1));
+            .set(&DataKey::EmergencyWithdrawalCount, &next_count);
         bump(&env, &DataKey::EmergencyWithdrawalCount);
 
         env.events().publish(
@@ -2283,9 +2286,10 @@ impl FinchippayContract {
             .set(&DataKey::ReceiptRecord(from.clone(), count), &receipt);
         bump_to_floor(&env, &DataKey::ReceiptRecord(from.clone(), count));
 
+        let next_count = count.checked_add(1).expect("receipt count overflow");
         env.storage()
             .persistent()
-            .set(&DataKey::ReceiptCount(from.clone()), &(count + 1));
+            .set(&DataKey::ReceiptCount(from.clone()), &next_count);
         bump(&env, &DataKey::ReceiptCount(from.clone()));
 
         // Increment global receipt count and store index mapping
@@ -3054,6 +3058,7 @@ impl FinchippayContract {
 
         Ok(requested_amount_in)
     }
+}
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -3066,9 +3071,7 @@ mod tests {
         vec, Address, Env, IntoVal, Symbol,
     };
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS2 + WS6: Admin-action governance (propose / approve / execute)
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ── helpers ───────────────────────────────────────────────────────────────
 
     /// Deploy with a single admin signer and threshold 1, so
     /// `propose_admin_action` auto-executes on the first call — the closest
@@ -3103,115 +3106,19 @@ mod tests {
         token_id
     }
 
-    /// Internal: dispatch an approved admin action.
-    fn _execute_admin_action(env: &Env, proposal: &AdminActionProposal) {
-        let upgrade_sym = Symbol::new(env, "upgrade");
-        let set_fee_sym = Symbol::new(env, "set_swap_fee");
-        let set_col_sym = Symbol::new(env, "set_fee_collector");
-
-        if proposal.action == upgrade_sym {
-            // Payload: 32-byte WASM hash
-            if proposal.payload.len() != 32 {
-                panic!("upgrade payload must be 32 bytes");
-            }
-            let mut arr = [0u8; 32];
-            for i in 0..32 {
-                arr[i as usize] = proposal.payload.get(i).unwrap();
-            }
-            let wasm_hash = BytesN::<32>::from_array(env, &arr);
-            // WS6: validate against approved-wasm allowlist
-            let approved: soroban_sdk::Vec<BytesN<32>> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::ApprovedWasmHashes)
-                .unwrap_or_else(|| soroban_sdk::Vec::new(env));
-            if !approved.iter().any(|h| h == wasm_hash) {
-                // Emit downgrade_blocked event for observability
-                env.events().publish(
-                    (Symbol::new(env, "downgrade_blocked"),),
-                    wasm_hash.clone(),
-                );
-                panic!("UnapprovedWasm: wasm hash not in allowlist");
-            }
-            let current_ver: u32 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Version)
-                .unwrap_or(CONTRACT_VERSION);
-            let new_ver = current_ver + 1;
-            env.deployer().update_current_contract_wasm(wasm_hash.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::Version, &new_ver);
-            bump(env, &DataKey::Version);
-            env.events().publish(
-                (Symbol::new(env, "upgraded"),),
-                (new_ver, wasm_hash),
-            );
-        } else if proposal.action == set_fee_sym {
-            // Payload: 16-byte little-endian i128
-            if proposal.payload.len() != 16 {
-                panic!("set_swap_fee payload must be 16 bytes");
-            }
-            let mut bytes = [0u8; 16];
-            for i in 0..16 {
-                bytes[i as usize] = proposal.payload.get(i).unwrap();
-            }
-            let fee_bps = i128::from_le_bytes(bytes);
-            if fee_bps < 0 || fee_bps > MAX_SWAP_FEE_BPS {
-                panic!("fee_bps out of range");
-            }
-            env.storage()
-                .persistent()
-                .set(&DataKey::SwapFee, &fee_bps);
-            bump(env, &DataKey::SwapFee);
-            env.events().publish(
-                (Symbol::new(env, "fee_config_set"),),
-                fee_bps,
-            );
-        } else if proposal.action == set_col_sym {
-            env.events().publish(
-                (Symbol::new(env, "fee_config_set"),),
-                Symbol::new(env, "collector"),
-            );
-        } else {
-            panic!("unknown admin action");
-        }
+    fn advance(env: &Env, to: u32) {
+        env.ledger().with_mut(|i| i.sequence_number = to);
     }
 
-    /// Admin: add a WASM hash to the approved allowlist (WS6).
-    /// Only the legacy single admin or an existing admin signer may call this.
-    pub fn add_approved_wasm_hash(env: Env, caller: Address, wasm_hash: BytesN<32>) {
-        caller.require_auth();
-        require_initialized(&env);
-        if !is_admin_signer(&env, &caller) {
-            panic!("Unauthorized");
-        }
-        let mut approved: soroban_sdk::Vec<BytesN<32>> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::ApprovedWasmHashes)
-            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
-        if !approved.iter().any(|h| h == wasm_hash) {
-            approved.push_back(wasm_hash.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::ApprovedWasmHashes, &approved);
-            bump(&env, &DataKey::ApprovedWasmHashes);
-        }
-        env.events().publish(
-            (Symbol::new(&env, "wasm_hash_approved"),),
-            wasm_hash,
-        );
-    }
+    // ── Admin ──────────────────────────────────────────────────────────────────
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS2: Swap fee setters (governance-gated via propose_admin_action)
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /// Return the current swap fee in basis points.
-    pub fn get_swap_fee_bps(env: Env) -> i128 {
-        get_swap_fee_bps(&env)
+    #[test]
+    fn test_initialize_sets_admin() {
+        let env = Env::default();
+        let (_id, client) = deploy(&env);
+        // get_admin should return the admin we initialised with.
+        // We can't easily compare without storing it, so just confirm no panic.
+        let _ = client.get_admin();
     }
 
     #[test]
@@ -3345,478 +3252,6 @@ mod tests {
         // Admin can no longer pause directly; must go through
         // propose_admin_action.
         client.pause(&admin);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS1 + WS2 + WS3: Emergency-withdrawal machinery
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /// Initiate an emergency withdrawal. Only admin signers may call this.
-    /// The withdrawal cannot execute until `activation_ledger` (current + delay).
-    pub fn initiate_emergency_withdrawal(
-        env: Env,
-        caller: Address,
-        token: Address,
-        to: Address,
-        amount: i128,
-    ) -> u32 {
-        caller.require_auth();
-        require_initialized(&env);
-        require_not_paused(&env);
-        let _guard = ReentrancyGuard::acquire(&env);
-        if !is_admin_signer(&env, &caller) {
-            panic!("Unauthorized");
-        }
-        if amount <= 0 {
-            panic!("amount must be positive");
-        }
-        let activation_ledger = env
-            .ledger()
-            .sequence()
-            .checked_add(EMERGENCY_WITHDRAWAL_DELAY)
-            .expect("overflow");
-        let id: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EmergencyWithdrawalCount)
-            .unwrap_or(0u32);
-        let ew = EmergencyWithdrawal {
-            id,
-            token: token.clone(),
-            to: to.clone(),
-            amount,
-            approvals: soroban_sdk::Vec::new(&env),
-            activation_ledger,
-            status: EmergencyWithdrawalStatus::Pending,
-        };
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawal(id), &ew);
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawalCount, &(id + 1));
-        bump(&env, &DataKey::EmergencyWithdrawalCount);
-        ReentrancyGuard::release(&env);
-        env.events().publish(
-            (Symbol::new(&env, "emergency_initiated"), id),
-            (token, to, amount, activation_ledger),
-        );
-        id
-    }
-
-    /// Admin signer approves an emergency withdrawal.
-    pub fn approve_emergency_withdrawal(env: Env, signer: Address, id: u32) {
-        signer.require_auth();
-        require_initialized(&env);
-        let _guard = ReentrancyGuard::acquire(&env);
-        if !is_admin_signer(&env, &signer) {
-            panic!("Unauthorized");
-        }
-        let mut ew: EmergencyWithdrawal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EmergencyWithdrawal(id))
-            .expect("emergency withdrawal not found");
-        if ew.status != EmergencyWithdrawalStatus::Pending {
-            panic!("not pending");
-        }
-        if ew.approvals.iter().any(|a| a == signer) {
-            panic!("already approved");
-        }
-        ew.approvals.push_back(signer.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawal(id), &ew);
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
-        ReentrancyGuard::release(&env);
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_approve"), id),
-            signer,
-        );
-    }
-
-    /// Execute an approved emergency withdrawal after the delay has elapsed.
-    /// CEI: state committed before token transfer.
-    pub fn execute_emergency_withdrawal(env: Env, caller: Address, id: u32) {
-        caller.require_auth();
-        require_initialized(&env);
-        let _guard = ReentrancyGuard::acquire(&env);
-        if !is_admin_signer(&env, &caller) {
-            panic!("Unauthorized");
-        }
-        let mut ew: EmergencyWithdrawal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EmergencyWithdrawal(id))
-            .expect("emergency withdrawal not found");
-        if ew.status != EmergencyWithdrawalStatus::Pending {
-            panic!("not pending");
-        }
-        let threshold = get_admin_signers_threshold(&env);
-        if ew.approvals.len() < threshold {
-            panic!("insufficient approvals");
-        }
-        if env.ledger().sequence() < ew.activation_ledger {
-            panic!("EmergencyDelayNotElapsed");
-        }
-        // WS3: safe unlocked-balance check — emit diagnostic instead of bare panic
-        let token_client = get_token_client(&env, &ew.token);
-        let balance = token_client.balance(&env.current_contract_address());
-        if balance < ew.amount {
-            env.events().publish(
-                (Symbol::new(&env, "balance_drift_detected"),),
-                (ew.token.clone(), balance, ew.amount),
-            );
-            panic!("InsufficientUnlockedBalance");
-        }
-        // CEI: commit state first, then transfer
-        ew.status = EmergencyWithdrawalStatus::Executed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawal(id), &ew);
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
-        ReentrancyGuard::release(&env);
-        // Interaction: transfer after state committed
-        token_client.transfer(&env.current_contract_address(), &ew.to, &ew.amount);
-        env.events().publish(
-            (Symbol::new(&env, "emergency_executed"), id),
-            (ew.to, ew.amount),
-        );
-    }
-
-    /// Cancel an emergency withdrawal. Requires admin-signer auth (WS2).
-    /// Guard added for pattern parity (WS1).
-    pub fn cancel_emergency_withdrawal(env: Env, caller: Address, id: u32) {
-        caller.require_auth();
-        require_initialized(&env);
-        // WS1: guard for pattern parity
-        let _guard = ReentrancyGuard::acquire(&env);
-        // WS2: signer-gated (not single legacy admin key)
-        if !is_admin_signer(&env, &caller) {
-            panic!("Unauthorized");
-        }
-        let mut ew: EmergencyWithdrawal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EmergencyWithdrawal(id))
-            .expect("emergency withdrawal not found");
-        if ew.status != EmergencyWithdrawalStatus::Pending {
-            panic!("not pending");
-        }
-        // CEI: commit state before any external calls
-        ew.status = EmergencyWithdrawalStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::EmergencyWithdrawal(id), &ew);
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
-        ReentrancyGuard::release(&env);
-        env.events().publish(
-            (Symbol::new(&env, "emergency_withdrawal_cancelled"), id),
-            caller,
-        );
-    }
-
-    /// Return an emergency withdrawal record.
-    pub fn get_emergency_withdrawal(env: Env, id: u32) -> EmergencyWithdrawal {
-        let ew: EmergencyWithdrawal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EmergencyWithdrawal(id))
-            .expect("not found");
-        bump(&env, &DataKey::EmergencyWithdrawal(id));
-        ew
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS1 + WS2 + WS3 + WS4: Yield-escrow machinery (feature-gated)
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /// Admin: enable or disable the yield-escrow feature (WS3 feature-gate).
-    pub fn set_yield_escrow_enabled(env: Env, admin: Address, enabled: bool) {
-        admin.require_auth();
-        require_initialized(&env);
-        if admin != get_admin(&env) && !is_admin_signer(&env, &admin) {
-            panic!("Unauthorized");
-        }
-        env.storage()
-            .persistent()
-            .set(&DataKey::YieldEscrowEnabled, &enabled);
-        bump(&env, &DataKey::YieldEscrowEnabled);
-        env.events().publish(
-            (Symbol::new(&env, "yield_escrow_feature_set"),),
-            enabled,
-        );
-    }
-
-    fn require_yield_escrow_enabled(env: &Env) {
-        let enabled: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::YieldEscrowEnabled)
-            .unwrap_or(false);
-        if !enabled {
-            panic!("YieldEscrowDisabled");
-        }
-    }
-
-    /// Create a yield escrow. Both tokens must differ; pool_address must not
-    /// equal token_a (WS2 placeholder rejection). Feature-gated (WS3).
-    pub fn create_yield_escrow(
-        env: Env,
-        token_a: Address,
-        from: Address,
-        to: Address,
-        amount: i128,
-        release_ledger: u32,
-    ) -> u32 {
-        // WS1: guard + initialization + pause checks
-        require_initialized(&env);
-        require_not_paused(&env);
-        ReentrancyGuard::acquire(&env);
-        // WS3: feature gate
-        Self::require_yield_escrow_enabled(&env);
-        from.require_auth();
-        if from == to {
-            panic!("cannot create yield escrow to yourself");
-        }
-        if amount <= 0 {
-            panic!("amount must be positive");
-        }
-        if release_ledger <= env.ledger().sequence() {
-            panic!("release_ledger must be in the future");
-        }
-        // WS3: CEI — compute state before transfer
-        let id: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::YieldEscrowCount)
-            .unwrap_or(0u32);
-        // WS3: shares placeholder — explicitly documented as meaningless
-        let shares_received: i128 = amount; // 1:1 placeholder; NOT for pricing
-        let ye = YieldEscrow {
-            id,
-            from: from.clone(),
-            to: to.clone(),
-            token_a: token_a.clone(),
-            amount,
-            release_ledger,
-            status: YieldEscrowStatus::Pending,
-            shares_received, // documented placeholder
-        };
-        // CEI: write state before transfer
-        env.storage()
-            .persistent()
-            .set(&DataKey::YieldEscrow(id), &ye);
-        bump(&env, &DataKey::YieldEscrow(id));
-        env.storage()
-            .persistent()
-            .set(&DataKey::YieldEscrowCount, &(id + 1));
-        bump(&env, &DataKey::YieldEscrowCount);
-        ReentrancyGuard::release(&env);
-        // Interaction: transfer after state written
-        let token = get_token_client(&env, &token_a);
-        token.transfer(&from, &env.current_contract_address(), &amount);
-        env.events().publish(
-            (Symbol::new(&env, "yield_escrow_create"), id),
-            (from, to, token_a, amount, release_ledger),
-        );
-        id
-    }
-
-    /// Recipient claims the yield escrow after release_ledger.
-    /// WS1: guard + CEI (state committed before transfer).
-    /// WS2: `escrow.to.require_auth()` enforces recipient-only claim.
-    pub fn claim_yield_escrow(env: Env, id: u32) {
-        // WS1: guard + checks
-        require_initialized(&env);
-        require_not_paused(&env);
-        ReentrancyGuard::acquire(&env);
-        Self::require_yield_escrow_enabled(&env);
-        let mut ye: YieldEscrow = env
-            .storage()
-            .persistent()
-            .get(&DataKey::YieldEscrow(id))
-            .expect("yield escrow not found");
-        if ye.status != YieldEscrowStatus::Pending {
-            panic!("yield escrow not pending");
-        }
-        if env.ledger().sequence() < ye.release_ledger {
-            panic!("release_ledger not reached");
-        }
-        // WS2: enforce recipient-only claim
-        ye.to.require_auth();
-        // WS1 CEI: commit state BEFORE transfer
-        ye.status = YieldEscrowStatus::Claimed;
-        let payout = ye.amount;
-        let to = ye.to.clone();
-        let token_a = ye.token_a.clone();
-        env.storage()
-            .persistent()
-            .set(&DataKey::YieldEscrow(id), &ye);
-        bump(&env, &DataKey::YieldEscrow(id));
-        ReentrancyGuard::release(&env);
-        // Interaction: transfer after state committed
-        let token = get_token_client(&env, &token_a);
-        token.transfer(&env.current_contract_address(), &to, &payout);
-        env.events().publish(
-            (Symbol::new(&env, "yield_escrow_claim"), id),
-            (to, payout),
-        );
-    }
-
-    /// Funder cancels the yield escrow before release_ledger.
-    /// WS1: guard + CEI (state committed before transfer).
-    pub fn cancel_yield_escrow(env: Env, id: u32) {
-        // WS1: guard + checks
-        require_initialized(&env);
-        require_not_paused(&env);
-        ReentrancyGuard::acquire(&env);
-        Self::require_yield_escrow_enabled(&env);
-        let mut ye: YieldEscrow = env
-            .storage()
-            .persistent()
-            .get(&DataKey::YieldEscrow(id))
-            .expect("yield escrow not found");
-        if ye.status != YieldEscrowStatus::Pending {
-            panic!("yield escrow not pending");
-        }
-        if env.ledger().sequence() >= ye.release_ledger {
-            panic!("release_ledger already passed — use claim");
-        }
-        ye.from.require_auth();
-        // WS1 CEI: commit state BEFORE transfer
-        ye.status = YieldEscrowStatus::Cancelled;
-        let refund = ye.amount;
-        let from = ye.from.clone();
-        let token_a = ye.token_a.clone();
-        env.storage()
-            .persistent()
-            .set(&DataKey::YieldEscrow(id), &ye);
-        bump(&env, &DataKey::YieldEscrow(id));
-        ReentrancyGuard::release(&env);
-        // Interaction: transfer after state committed
-        let token = get_token_client(&env, &token_a);
-        token.transfer(&env.current_contract_address(), &from, &refund);
-        env.events().publish(
-            (Symbol::new(&env, "yield_escrow_cancelled"), id),
-            (from, refund),
-        );
-    }
-
-    /// Return a yield escrow record.
-    pub fn get_yield_escrow(env: Env, id: u32) -> YieldEscrow {
-        let ye: YieldEscrow = env
-            .storage()
-            .persistent()
-            .get(&DataKey::YieldEscrow(id))
-            .expect("not found");
-        bump(&env, &DataKey::YieldEscrow(id));
-        ye
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS3: Swap with fee breakdown
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /// Swap `amount_in` of `token_in` for at least `min_amount_out` of `token_out`.
-    /// Fee is deducted from `amount_in` and sent to the fee collector (if set).
-    /// WS3: uses `compute_fee_breakdown` to assert `fee + swapped == gross`.
-    pub fn swap_tokens(
-        env: Env,
-        caller: Address,
-        token_in: Address,
-        token_out: Address,
-        amount_in: i128,
-        min_amount_out: i128,
-    ) -> FeeBreakdown {
-        require_initialized(&env);
-        require_not_paused(&env);
-        caller.require_auth();
-        if amount_in <= 0 {
-            panic!("amount_in must be positive");
-        }
-        if min_amount_out <= 0 {
-            panic!("min_amount_out must be positive");
-        }
-        let fee_bps = get_swap_fee_bps(&env);
-        // WS3: invariant-checked fee breakdown
-        let breakdown = compute_fee_breakdown(&env, amount_in, fee_bps);
-        let amount_to_swap = breakdown.amount_to_swap;
-        // Release-safe swap invariant (not debug_assert — active in WASM)
-        if amount_to_swap < min_amount_out {
-            panic!("amount_to_swap < min_amount_out");
-        }
-        // Transfer gross amount from caller
-        let t_in = get_token_client(&env, &token_in);
-        t_in.transfer(&caller, &env.current_contract_address(), &amount_in);
-        // Send fee to collector if configured
-        if breakdown.fee > 0 {
-            if let Some(collector) = get_fee_collector(&env) {
-                t_in.transfer(&env.current_contract_address(), &collector, &breakdown.fee);
-            }
-        }
-        // Transfer output tokens to caller
-        let t_out = get_token_client(&env, &token_out);
-        t_out.transfer(&env.current_contract_address(), &caller, &amount_to_swap);
-        env.events().publish(
-            (Symbol::new(&env, "swap"),),
-            (caller, token_in, token_out, amount_in, amount_to_swap, breakdown.fee),
-        );
-        breakdown
-    }
-}
-
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
-
-    // ── helpers ───────────────────────────────────────────────────────────────
-
-    fn deploy(env: &Env) -> (Address, FinchippayContractClient) {
-        let id = env.register_contract(None, FinchippayContract);
-        let client = FinchippayContractClient::new(env, &id);
-        let admin = Address::generate(env);
-        client.initialize(&admin);
-        (id, client)
-    }
-
-    fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-        let token_id = env.register_stellar_asset_contract(admin.clone());
-        let sac = token::StellarAssetClient::new(env, &token_id);
-        sac.mint(to, &amount);
-        token_id
-    }
-
-    fn advance(env: &Env, to: u32) {
-        env.ledger().with_mut(|i| i.sequence_number = to);
-    }
-
-    // ── Admin ──────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_initialize_sets_admin() {
-        let env = Env::default();
-        let (_id, client) = deploy(&env);
-        // get_admin should return the admin we initialised with.
-        // We can't easily compare without storing it, so just confirm no panic.
-        let _ = client.get_admin();
-    }
-
-    #[test]
-    fn test_double_initialize_returns_error() {
-        let env = Env::default();
-        let id = env.register_contract(None, FinchippayContract);
-        let client = FinchippayContractClient::new(&env, &id);
-        let admin = Address::generate(&env);
-        client.initialize(&admin);
-        let result = client.try_initialize(&admin);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().unwrap(), ContractError::AlreadyInitialized);
     }
 
     // ── Tips ───────────────────────────────────────────────────────────────────
@@ -6804,320 +6239,117 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // WS1 — Re-entrancy & CEI tests
+    // WS3 — Arithmetic invariant tests (swap fee math)
     // ═══════════════════════════════════════════════════════════════════════════
 
     #[test]
-    fn test_yield_escrow_create_claim_cancel_require_feature_enabled() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
-        let to = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &from, 5000);
-        // Feature is disabled by default — create should panic
-        let result = client.try_create_yield_escrow(
-            &token_id, &from, &to, &1000, &(env.ledger().sequence() + 10),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_yield_escrow_full_lifecycle() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
-        let to = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &from, 5000);
-        let token = soroban_sdk::token::Client::new(&env, &token_id);
-        // Enable yield escrow
-        client.set_yield_escrow_enabled(&admin, &true);
-        let release = env.ledger().sequence() + 10;
-        let id = client.create_yield_escrow(&token_id, &from, &to, &1000, &release);
-        assert_eq!(token.balance(&from), 4000);
-        advance(&env, release + 1);
-        client.claim_yield_escrow(&id);
-        assert_eq!(token.balance(&to), 1000);
-        let ye = client.get_yield_escrow(&id);
-        assert_eq!(ye.status, YieldEscrowStatus::Claimed);
-    }
-
-    #[test]
-    fn test_yield_escrow_cancel_before_release() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
-        let to = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &from, 5000);
-        let token = soroban_sdk::token::Client::new(&env, &token_id);
-        client.set_yield_escrow_enabled(&admin, &true);
-        let release = env.ledger().sequence() + 20;
-        let id = client.create_yield_escrow(&token_id, &from, &to, &2000, &release);
-        client.cancel_yield_escrow(&id);
-        assert_eq!(token.balance(&from), 5000); // refunded
-        assert_eq!(client.get_yield_escrow(&id).status, YieldEscrowStatus::Cancelled);
-    }
-
-    #[test]
-    #[should_panic(expected = "yield escrow not pending")]
-    fn test_yield_escrow_double_claim_panics() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
-        let to = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &from, 5000);
-        client.set_yield_escrow_enabled(&admin, &true);
-        let release = env.ledger().sequence() + 5;
-        let id = client.create_yield_escrow(&token_id, &from, &to, &1000, &release);
-        advance(&env, release + 1);
-        client.claim_yield_escrow(&id);
-        // second claim must panic
-        client.claim_yield_escrow(&id);
-    }
-
-    #[test]
-    #[should_panic(expected = "yield escrow not pending")]
-    fn test_yield_escrow_cancel_after_claim_panics() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
-        let to = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &from, 5000);
-        client.set_yield_escrow_enabled(&admin, &true);
-        let release = env.ledger().sequence() + 5;
-        let id = client.create_yield_escrow(&token_id, &from, &to, &1000, &release);
-        advance(&env, release + 1);
-        client.claim_yield_escrow(&id);
-        // cancel after claim must panic
-        client.cancel_yield_escrow(&id);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS2 — Access control tests
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn test_set_admin_signers_and_propose_action() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let s1 = Address::generate(&env);
-        let s2 = Address::generate(&env);
-        env.mock_all_auths();
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(s1.clone());
-        signers.push_back(s2.clone());
-        client.set_admin_signers(&admin, &signers, &2);
-        let list = client.get_admin_signers_list();
-        assert_eq!(list.len(), 2);
-    }
-
-    #[test]
-    #[should_panic(expected = "Unauthorized: not an admin signer")]
-    fn test_propose_admin_action_non_signer_panics() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let s1 = Address::generate(&env);
-        let outsider = Address::generate(&env);
-        env.mock_all_auths();
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(s1.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        // outsider is not a signer
-        client.propose_admin_action(
-            &outsider,
-            &Symbol::new(&env, "upgrade"),
-            &soroban_sdk::Bytes::new(&env),
-            &0,
-        );
-    }
-
-    #[test]
-    fn test_emergency_withdrawal_full_lifecycle() {
-        let env = Env::default();
-        let (contract_id, client) = deploy(&env);
-        let admin = client.get_admin();
-        let recipient = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &contract_id, 5000);
-        let token = soroban_sdk::token::Client::new(&env, &token_id);
-        // Set 1-of-1 admin signer set with admin
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &recipient, &1000);
-        client.approve_emergency_withdrawal(&admin, &id);
-        // Advance past delay
-        advance(&env, env.ledger().sequence() + EMERGENCY_WITHDRAWAL_DELAY + 1);
-        client.execute_emergency_withdrawal(&admin, &id);
-        assert_eq!(token.balance(&recipient), 1000);
-        assert_eq!(client.get_emergency_withdrawal(&id).status, EmergencyWithdrawalStatus::Executed);
-    }
-
-    #[test]
-    fn test_emergency_withdrawal_cancel_signer_gated() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let recipient = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &Address::generate(&env), 100);
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &recipient, &100);
-        client.cancel_emergency_withdrawal(&admin, &id);
-        assert_eq!(client.get_emergency_withdrawal(&id).status, EmergencyWithdrawalStatus::Cancelled);
-    }
-
-    #[test]
-    #[should_panic(expected = "Unauthorized")]
-    fn test_cancel_emergency_withdrawal_non_signer_panics() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let outsider = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &Address::generate(&env), 100);
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &recipient, &100);
-        // outsider (not signer) tries to cancel — must panic
-        client.cancel_emergency_withdrawal(&outsider, &id);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS3 — Arithmetic invariant tests
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn test_fee_breakdown_invariant_zero_bps() {
-        let env = Env::default();
-        env.mock_all_auths();
+    fn test_swap_fee_breakdown_invariant_zero_bps() {
         // 0 bps: fee=0, amount_to_swap=gross
-        let b = compute_fee_breakdown(&env, 1_000_000, 0);
-        assert_eq!(b.fee, 0);
-        assert_eq!(b.amount_to_swap, 1_000_000);
-        assert_eq!(b.fee + b.amount_to_swap, b.gross_amount_in);
+        let (fee, amount_to_swap) = compute_swap_fee(1_000_000, 0);
+        assert_eq!(fee, 0);
+        assert_eq!(amount_to_swap, 1_000_000);
+        assert_eq!(fee + amount_to_swap, 1_000_000);
     }
 
     #[test]
-    fn test_fee_breakdown_invariant_30_bps() {
-        let env = Env::default();
-        env.mock_all_auths();
-        // 30 bps on 10_000: fee=3, amount_to_swap=9_997
-        let b = compute_fee_breakdown(&env, 10_000, 30);
-        assert_eq!(b.fee, 3);
-        assert_eq!(b.amount_to_swap, 9_997);
-        assert_eq!(b.fee + b.amount_to_swap, 10_000);
+    fn test_swap_fee_breakdown_invariant_30_bps() {
+        // 30 bps on 10_000: fee=30, amount_to_swap=9_970
+        let (fee, amount_to_swap) = compute_swap_fee(10_000, 30);
+        assert_eq!(fee, 30);
+        assert_eq!(amount_to_swap, 9_970);
+        assert_eq!(fee + amount_to_swap, 10_000);
     }
 
     #[test]
-    fn test_fee_breakdown_invariant_max_bps() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let b = compute_fee_breakdown(&env, 100_000, MAX_SWAP_FEE_BPS);
-        assert_eq!(b.fee + b.amount_to_swap, 100_000);
+    fn test_swap_fee_breakdown_invariant_max_bps() {
+        let (fee, amount_to_swap) = compute_swap_fee(100_000, MAX_SWAP_FEE_BPS);
+        assert_eq!(fee + amount_to_swap, 100_000);
     }
 
     #[test]
-    fn test_fee_breakdown_dust_amount() {
-        let env = Env::default();
-        env.mock_all_auths();
-        // amount < BPS_DENOM: fee truncates to 0 — documented dust edge
-        let b = compute_fee_breakdown(&env, 100, 30);
-        assert_eq!(b.fee, 0);
-        assert_eq!(b.amount_to_swap, 100);
-        assert_eq!(b.fee + b.amount_to_swap, 100);
+    fn test_swap_fee_breakdown_dust_amount() {
+        // amount < 10_000 / bps: fee truncates to 0 — documented dust edge
+        let (fee, amount_to_swap) = compute_swap_fee(100, 30);
+        assert_eq!(fee, 0);
+        assert_eq!(amount_to_swap, 100);
+        assert_eq!(fee + amount_to_swap, 100);
+    }
+
+    #[test]
+    fn test_swap_fee_breakdown_invariant_many_amounts() {
+        // Property: fee + swapped == gross for various amounts and bps values
+        for amount in [0i128, 1, 999, 10_000, 1_000_000, 1_000_000_000] {
+            for bps in [0u32, 1, 30, 100, 300, 500] {
+                let (fee, amount_to_swap) = compute_swap_fee(amount, bps);
+                assert_eq!(
+                    fee + amount_to_swap,
+                    amount,
+                    "invariant failed: amount={}, bps={}",
+                    amount,
+                    bps
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_swap_fee_math_monotonicity() {
+        // Higher fee_bps => higher fee, lower amount_to_swap
+        let (fee1, swapped1) = compute_swap_fee(100_000, 10);
+        let (fee2, swapped2) = compute_swap_fee(100_000, 100);
+        let (fee3, swapped3) = compute_swap_fee(100_000, 500);
+        assert!(fee1 <= fee2);
+        assert!(fee2 <= fee3);
+        assert!(swapped1 >= swapped2);
+        assert!(swapped2 >= swapped3);
+    }
+
+    #[test]
+    fn test_swap_fee_bounded_by_gross() {
+        for bps in [0u32, 1, 30, 100, 300, 500] {
+            let (fee, _) = compute_swap_fee(1_000_000, bps);
+            assert!(fee <= 1_000_000, "fee exceeded gross at bps={}", bps);
+            // fee <= gross * MAX_FEE_BPS / 10_000
+            assert!(
+                fee <= 1_000_000 * (MAX_SWAP_FEE_BPS as i128) / 10_000,
+                "fee exceeded max at bps={}",
+                bps
+            );
+        }
     }
 
     #[test]
     fn test_compute_required_amount_in_roundtrip() {
         // required_in >= amount_out for all fee_bps
-        for fee_bps in [0i128, 1, 30, 100, 500] {
+        for fee_bps in [0u32, 1, 30, 100, 500] {
             let required = compute_required_amount_in(10_000, fee_bps);
-            assert!(required >= 10_000, "required_in < amount_out at fee_bps={}", fee_bps);
-        }
-    }
-
-    #[test]
-    fn test_fee_breakdown_invariant_many_amounts() {
-        let env = Env::default();
-        env.mock_all_auths();
-        // Property: fee + swapped == gross for various amounts and bps values
-        for amount in [0i128, 1, 999, 10_000, 1_000_000, 1_000_000_000] {
-            for bps in [0i128, 1, 30, 100, 300, 500] {
-                let b = compute_fee_breakdown(&env, amount, bps);
-                assert_eq!(b.fee + b.amount_to_swap, amount,
-                    "invariant failed: amount={}, bps={}", amount, bps);
-            }
+            assert!(
+                required >= 10_000,
+                "required_in < amount_out at fee_bps={}",
+                fee_bps
+            );
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // WS4 — Event integrity tests
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn test_yield_escrow_events_emitted() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
-        let to = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &from, 5000);
-        client.set_yield_escrow_enabled(&admin, &true);
-        let release = env.ledger().sequence() + 5;
-        let id = client.create_yield_escrow(&token_id, &from, &to, &1000, &release);
-        advance(&env, release + 1);
-        client.claim_yield_escrow(&id);
-        // Events are published — no panic means they were emitted
-    }
-
-    #[test]
-    fn test_emergency_withdrawal_events_emitted() {
-        let env = Env::default();
-        let (contract_id, client) = deploy(&env);
-        let admin = client.get_admin();
-        let recipient = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &contract_id, 1000);
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &recipient, &500);
-        client.approve_emergency_withdrawal(&admin, &id);
-        advance(&env, env.ledger().sequence() + EMERGENCY_WITHDRAWAL_DELAY + 1);
-        client.execute_emergency_withdrawal(&admin, &id);
-        // All events published without panic — event integrity confirmed
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS5 — TTL durability tests
+    // WS5 — Persistence & governance tests
     // ═══════════════════════════════════════════════════════════════════════════
 
     #[test]
     fn test_swap_fee_persists_and_can_be_read() {
         let env = Env::default();
         let (_, client) = deploy(&env);
+        let admin = client.get_admin();
         env.mock_all_auths();
         // Default fee
-        assert_eq!(client.get_swap_fee_bps(), DEFAULT_SWAP_FEE_BPS);
-        // Reading bumps TTL — no panic
-        let _ = client.get_fee_collector_address();
+        assert_eq!(client.get_swap_fee(), DEFAULT_SWAP_FEE_BPS);
+        // Update fee and read it back
+        assert!(client.try_set_swap_fee(&admin, &50).unwrap().is_ok());
+        assert_eq!(client.get_swap_fee(), 50);
+        // Out-of-range fee is rejected
+        assert!(client
+            .try_set_swap_fee(&admin, &(MAX_SWAP_FEE_BPS + 1))
+            .is_err());
     }
 
     #[test]
@@ -7126,135 +6358,51 @@ mod tests {
         let (_, client) = deploy(&env);
         let admin = client.get_admin();
         env.mock_all_auths();
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
         let id = client.propose_admin_action(
             &admin,
-            &Symbol::new(&env, "noop"),
-            &soroban_sdk::Bytes::new(&env),
-            &0,
+            &Symbol::new(&env, "pause"),
+            &Vec::new(&env),
         );
-        // AdminActionCount was bumped; id should be 0
-        assert_eq!(id, 0);
+        // AdminActionCount was bumped; first proposal id should be 1
+        assert_eq!(id, 1);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // WS6 — Upgrade/storage safety tests
+    // WS1 — Emergency-withdrawal state machine tests
     // ═══════════════════════════════════════════════════════════════════════════
-
-    #[test]
-    #[should_panic(expected = "upgrade() is disabled")]
-    fn test_legacy_upgrade_is_disabled() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        env.mock_all_auths();
-        let fake_hash = BytesN::<32>::from_array(&env, &[0u8; 32]);
-        client.upgrade(&admin, &fake_hash);
-    }
-
-    #[test]
-    fn test_add_approved_wasm_hash() {
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        env.mock_all_auths();
-        let hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
-        client.add_approved_wasm_hash(&admin, &hash);
-        // No panic = hash added successfully
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WS7 — Formal / property tests for fee math and state machines
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    #[test]
-    fn test_fee_math_monotonicity() {
-        let env = Env::default();
-        env.mock_all_auths();
-        // Higher fee_bps => higher fee, lower amount_to_swap
-        let b1 = compute_fee_breakdown(&env, 100_000, 10);
-        let b2 = compute_fee_breakdown(&env, 100_000, 100);
-        let b3 = compute_fee_breakdown(&env, 100_000, 500);
-        assert!(b1.fee <= b2.fee);
-        assert!(b2.fee <= b3.fee);
-        assert!(b1.amount_to_swap >= b2.amount_to_swap);
-        assert!(b2.amount_to_swap >= b3.amount_to_swap);
-    }
-
-    #[test]
-    fn test_fee_bounded_by_gross() {
-        let env = Env::default();
-        env.mock_all_auths();
-        for bps in [0i128, 1, 30, 100, 300, 500] {
-            let b = compute_fee_breakdown(&env, 1_000_000, bps);
-            assert!(b.fee <= b.gross_amount_in,
-                "fee exceeded gross at bps={}", bps);
-            // fee <= gross * MAX_FEE_BPS / 10_000
-            assert!(b.fee <= b.gross_amount_in * MAX_SWAP_FEE_BPS / BPS_DENOM,
-                "fee exceeded max at bps={}", bps);
-        }
-    }
 
     #[test]
     fn test_emergency_state_machine_terminality() {
         // A withdrawal in Executed state cannot be executed again
         let env = Env::default();
-        let (contract_id, client) = deploy(&env);
+        let (_, client, token_id, signers) = setup_emergency(&env, 2, 2, 10_000);
         let admin = client.get_admin();
-        let recipient = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &contract_id, 2000);
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &recipient, &500);
-        client.approve_emergency_withdrawal(&admin, &id);
-        advance(&env, env.ledger().sequence() + EMERGENCY_WITHDRAWAL_DELAY + 1);
-        client.execute_emergency_withdrawal(&admin, &id);
-        // Try to execute again — must fail
-        let result = client.try_execute_emergency_withdrawal(&admin, &id);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_yield_escrow_lifecycle_conservation() {
-        // amount deposited == amount claimed (conservation)
-        let env = Env::default();
-        let (_, client) = deploy(&env);
-        let admin = client.get_admin();
-        let from = Address::generate(&env);
         let to = Address::generate(&env);
-        env.mock_all_auths();
-        let initial = 3000i128;
-        let token_id = create_token(&env, &admin, &from, initial);
-        let token = soroban_sdk::token::Client::new(&env, &token_id);
-        client.set_yield_escrow_enabled(&admin, &true);
-        let release = env.ledger().sequence() + 5;
-        let id = client.create_yield_escrow(&token_id, &from, &to, &initial, &release);
-        advance(&env, release + 1);
-        client.claim_yield_escrow(&id);
-        // Conservation: balance(to) == initial (1:1 placeholder)
-        assert_eq!(token.balance(&to), initial);
+        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &5_000, &to);
+        client.approve_emergency_withdrawal(&id, &admin);
+        let w = client.get_emergency_withdrawal(&id);
+        advance(&env, w.activation_ledger);
+        client.approve_emergency_withdrawal(&id, &signers.get(1).unwrap());
+        assert_eq!(
+            client.get_emergency_withdrawal(&id).status,
+            EmergencyWithdrawalStatus::Executed
+        );
+        // Try to execute again — must fail
+        let result = client.try_execute_emergency_withdrawal(&id);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_emergency_withdrawal_delay_enforced() {
+    #[should_panic(expected = "Unauthorized")]
+    fn test_cancel_emergency_withdrawal_non_admin_panics() {
         let env = Env::default();
-        let (contract_id, client) = deploy(&env);
+        let (_, client, token_id, _signers) = setup_emergency(&env, 2, 2, 5_000);
         let admin = client.get_admin();
-        let recipient = Address::generate(&env);
-        env.mock_all_auths();
-        let token_id = create_token(&env, &admin, &contract_id, 1000);
-        let mut signers = soroban_sdk::Vec::new(&env);
-        signers.push_back(admin.clone());
-        client.set_admin_signers(&admin, &signers, &1);
-        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &recipient, &500);
-        client.approve_emergency_withdrawal(&admin, &id);
-        // Do NOT advance — delay not elapsed
-        let result = client.try_execute_emergency_withdrawal(&admin, &id);
-        assert!(result.is_err());
+        let outsider = Address::generate(&env);
+        let to = Address::generate(&env);
+        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &1_000, &to);
+        // outsider (not the legacy admin) tries to cancel — must panic
+        client.cancel_emergency_withdrawal(&id, &outsider);
     }
 }
 
