@@ -29,9 +29,12 @@ const ME = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
 const SOMEONE_ELSE = "GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI";
 
 const ENDPOINT = "https://push.example.com/device-1";
+const P256DH =
+  "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fw";
+const AUTH = "tBHItJI5svbpez7KI4CCXg";
 const SUBSCRIPTION = {
   endpoint: ENDPOINT,
-  keys: { p256dh: "p256dh-key", auth: "auth-secret" },
+  keys: { p256dh: P256DH, auth: AUTH },
 };
 
 function app() {
@@ -129,6 +132,10 @@ describe("POST /api/push/subscribe", () => {
     ["a missing subscription", {}],
     ["a non-HTTPS endpoint", { subscription: { ...SUBSCRIPTION, endpoint: "http://x.test/a" } }],
     ["missing keys", { subscription: { endpoint: ENDPOINT } }],
+    [
+      "malformed p256dh key",
+      { subscription: { endpoint: ENDPOINT, keys: { p256dh: "!!!", auth: AUTH } } },
+    ],
   ])("rejects %s with 400", async (_label, body) => {
     const res = await request(app())
       .post("/api/push/subscribe")
@@ -137,6 +144,20 @@ describe("POST /api/push/subscribe", () => {
 
     expect(res.status).toBe(400);
     expect(pushService.addSubscription).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when the account is at the device cap", async () => {
+    const err = new Error("Maximum of 10 devices per account");
+    err.status = 400;
+    pushService.addSubscription.mockRejectedValue(err);
+
+    const res = await request(app())
+      .post("/api/push/subscribe")
+      .set("Authorization", auth(ME))
+      .send({ subscription: SUBSCRIPTION });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/maximum of 10 devices/i);
   });
 });
 

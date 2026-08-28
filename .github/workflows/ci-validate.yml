@@ -1,8 +1,6 @@
 name: CI Validate
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main]
 

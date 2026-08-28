@@ -8,8 +8,8 @@ use soroban_sdk::{token, Address, Env, Symbol, Vec};
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_admin, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
-    ContractError, DataKey, Escrow, EscrowStatus, MAX_ESCROW_AMOUNT, MAX_ESCROW_LEDGERS,
-    MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
+    ContractError, DataKey, Escrow, EscrowStatus, EscrowSummary, Milestone, MAX_ESCROW_AMOUNT,
+    MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
 };
 
 use crate::storage::*;
@@ -87,6 +87,9 @@ pub fn create_escrow(
         disputed: false,
         dispute_raised_by: Option::None,
         dispute_raised_at: 0,
+        agent: Option::None,
+        milestones: Vec::new(&env),
+        is_milestone_based: false,
     };
 
     env.storage()
@@ -144,6 +147,9 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
     let mut escrow = escrow.expect("escrow not found");
     let idx = found_index.unwrap();
 
+    if escrow.is_milestone_based {
+        panic!("milestone escrow must be claimed via claim_milestone");
+    }
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
@@ -232,6 +238,9 @@ pub fn claim_escrow(env: Env, id: u32) {
     let mut escrow = escrow.expect("escrow not found");
     let idx = found_index.unwrap();
 
+    if escrow.is_milestone_based {
+        panic!("milestone escrow must be claimed via claim_milestone");
+    }
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
@@ -293,25 +302,40 @@ pub fn cancel_escrow(env: Env, id: u32) {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
-    if env.ledger().sequence() >= escrow.release_ledger {
-        panic!("release_ledger already reached — cancellation is no longer allowed");
-    }
     escrow.from.require_auth();
+
+    // Milestone escrows have no single release ledger: cancellation is allowed
+    // any time while pending, and refunds only the milestone amounts that have
+    // not been claimed yet (claimed milestones are already with the recipient).
+    let refund_amount = if escrow.is_milestone_based {
+        let mut total: i128 = 0;
+        for m in escrow.milestones.iter() {
+            if !m.claimed {
+                total = total.checked_add(m.amount).expect("overflow");
+            }
+        }
+        total
+    } else {
+        if env.ledger().sequence() >= escrow.release_ledger {
+            panic!("release_ledger already reached — cancellation is no longer allowed");
+        }
+        escrow.amount
+    };
 
     // Checks-effects-interactions: commit the cancelled state and release the
     // locked balance *before* the external token transfer.
     escrow.status = EscrowStatus::Cancelled;
-    decrease_locked_balance(&env, &escrow.token, escrow.amount);
+    decrease_locked_balance(&env, &escrow.token, refund_amount);
     r_escrows.set(idx, escrow.clone());
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
 
     let token = get_token_client(&env, &escrow.token);
-    contract_transfer_out(&env, &token, &escrow.from, &escrow.amount);
+    contract_transfer_out(&env, &token, &escrow.from, &refund_amount);
 
     env.events().publish(
         (Symbol::new(&env, "escrow_cancelled"),),
-        (id, escrow.from, escrow.amount),
+        (id, escrow.from, refund_amount),
     );
 }
 
@@ -339,6 +363,350 @@ pub fn get_escrow(env: Env, id: u32) -> Result<Escrow, ContractError> {
         }
     }
     Err(ContractError::NotFound)
+}
+
+// ─── Milestone-based escrows ───────────────────────────────────────────────
+
+/// Create an escrow whose funds release per approved milestone.
+///
+/// `milestones` must contain between 1 and `MAX_MILESTONES` entries, every
+/// milestone amount must be positive, and the sum of milestone amounts must
+/// equal `deposit`. Milestone ids are assigned sequentially (0..n) by the
+/// contract, ignoring any ids supplied by the caller.
+///
+/// The `agent` is the designated approver; the client (`from`) may also
+/// approve. The agent may not be the recipient, otherwise the recipient could
+/// approve their own milestones.
+pub fn create_milestone_escrow(
+    env: Env,
+    token_address: Address,
+    from: Address,
+    to: Address,
+    agent: Address,
+    milestones: Vec<Milestone>,
+    deposit: i128,
+) -> Result<u32, ContractError> {
+    let _guard = ReentrancyGuard::acquire(&env);
+    require_initialized(&env);
+    require_not_paused(&env);
+    from.require_auth();
+    if from == to {
+        panic!("cannot create escrow to yourself");
+    }
+    if agent == to {
+        panic!("agent cannot be the recipient");
+    }
+    if deposit <= 0 {
+        panic!("amount must be positive");
+    }
+    if deposit > MAX_ESCROW_AMOUNT {
+        panic!("amount exceeds maximum escrow size");
+    }
+    if deposit < MIN_ESCROW_AMOUNT {
+        panic!("amount below minimum escrow size");
+    }
+    if milestones.len() == 0 {
+        panic!("at least one milestone is required");
+    }
+    if milestones.len() > MAX_MILESTONES {
+        panic!("too many milestones");
+    }
+
+    let current_ledger = env.ledger().sequence();
+    let milestone_count = milestones.len();
+    let mut total: i128 = 0;
+    let mut normalized = Vec::new(&env);
+    for (i, m) in milestones.iter().enumerate() {
+        if m.amount <= 0 {
+            panic!("milestone amount must be positive");
+        }
+        if m.approval_deadline_ledger > 0 && m.approval_deadline_ledger <= current_ledger {
+            panic!("approval deadline must be in the future");
+        }
+        total = total.checked_add(m.amount).expect("overflow");
+        let mut m = m;
+        m.id = i as u32;
+        normalized.push_back(m);
+    }
+    if total != deposit {
+        panic!("milestone amounts must sum to the deposit");
+    }
+
+    // Enforce the recipient escrow index cap before any funds move, so a
+    // rejected call has no side effects.
+    let rkey = DataKey::EscrowByRecipient(to.clone());
+    let mut r_escrows: Vec<Escrow> = env
+        .storage()
+        .persistent()
+        .get(&rkey)
+        .unwrap_or(Vec::new(&env));
+    if r_escrows.len() >= MAX_USER_ESCROWS {
+        return Err(ContractError::IndexFull);
+    }
+
+    let token = get_token_client(&env, &token_address);
+    let contract_address = env.current_contract_address();
+    require_transfer_succeeded(&env, &token, &from, &contract_address, &deposit);
+    increase_locked_balance(&env, &token_address, deposit);
+
+    let next_id: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowCount)
+        .unwrap_or(0);
+    let escrow = Escrow {
+        id: next_id,
+        from: from.clone(),
+        to: to.clone(),
+        token: token_address,
+        amount: deposit,
+        // Milestone escrows have no single release ledger; each milestone
+        // carries its own approval deadline. Cancellation and claims are
+        // gated on the milestone flags instead of this field.
+        release_ledger: 0,
+        status: EscrowStatus::Pending,
+        memo: Symbol::new(&env, ""),
+        arbitrator: Option::None,
+        disputed: false,
+        dispute_raised_by: Option::None,
+        dispute_raised_at: 0,
+        agent: Some(agent.clone()),
+        milestones: normalized,
+        is_milestone_based: true,
+    };
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::EscrowRecipient(next_id), &to);
+    bump_to_floor(&env, &DataKey::EscrowRecipient(next_id));
+    env.storage()
+        .persistent()
+        .set(&DataKey::EscrowCount, &(next_id + 1));
+    bump(&env, &DataKey::EscrowCount);
+
+    r_escrows.push_back(escrow);
+    env.storage().persistent().set(&rkey, &r_escrows);
+    bump_to_floor(&env, &rkey);
+
+    env.events().publish(
+        (Symbol::new(&env, "milestone_escrow_created"), next_id),
+        milestone_count,
+    );
+    Ok(next_id)
+}
+
+/// Approve a milestone for release. Only the escrow agent or the client
+/// (`from`) may approve. Once approved, the milestone can be claimed by the
+/// recipient.
+pub fn approve_milestone(env: Env, escrow_id: u32, milestone_id: u32, approver: Address) {
+    let _guard = ReentrancyGuard::acquire(&env);
+    require_not_paused(&env);
+    approver.require_auth();
+
+    let recipient: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowRecipient(escrow_id))
+        .expect("escrow recipient not found");
+    bump(&env, &DataKey::EscrowRecipient(escrow_id));
+
+    let rkey = DataKey::EscrowByRecipient(recipient);
+    let mut r_escrows: Vec<Escrow> = env
+        .storage()
+        .persistent()
+        .get(&rkey)
+        .expect("escrow list not found");
+
+    let mut found_index = None;
+    let mut escrow = None;
+    for i in 0..r_escrows.len() {
+        let e = r_escrows.get(i).unwrap();
+        if e.id == escrow_id {
+            found_index = Some(i);
+            escrow = Some(e);
+            break;
+        }
+    }
+
+    let mut escrow = escrow.expect("escrow not found");
+    let idx = found_index.unwrap();
+
+    if !escrow.is_milestone_based {
+        panic!("escrow is not milestone-based");
+    }
+    if escrow.status != EscrowStatus::Pending {
+        panic!("escrow is not pending");
+    }
+    if escrow.agent.as_ref() != Some(&approver) && approver != escrow.from {
+        panic!("Unauthorized");
+    }
+
+    let mut milestone_found = false;
+    for i in 0..escrow.milestones.len() {
+        let mut m = escrow.milestones.get(i).unwrap();
+        if m.id == milestone_id {
+            if m.approved {
+                panic!("milestone already approved");
+            }
+            if m.approval_deadline_ledger > 0
+                && env.ledger().sequence() > m.approval_deadline_ledger
+            {
+                panic!("approval deadline passed");
+            }
+            m.approved = true;
+            escrow.milestones.set(i, m);
+            milestone_found = true;
+            break;
+        }
+    }
+    if !milestone_found {
+        panic!("milestone not found");
+    }
+
+    r_escrows.set(idx, escrow);
+    env.storage().persistent().set(&rkey, &r_escrows);
+    bump(&env, &rkey);
+
+    env.events().publish(
+        (Symbol::new(&env, "milestone_approved"), escrow_id),
+        milestone_id,
+    );
+}
+
+/// Claim an approved milestone. Only the escrow recipient (`to`) may claim.
+/// When the last milestone is claimed the escrow is marked `Released`.
+pub fn claim_milestone(env: Env, escrow_id: u32, milestone_id: u32, recipient: Address) {
+    let _guard = ReentrancyGuard::acquire(&env);
+    require_not_paused(&env);
+    recipient.require_auth();
+
+    let to: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowRecipient(escrow_id))
+        .expect("escrow recipient not found");
+    bump(&env, &DataKey::EscrowRecipient(escrow_id));
+
+    let rkey = DataKey::EscrowByRecipient(to);
+    let mut r_escrows: Vec<Escrow> = env
+        .storage()
+        .persistent()
+        .get(&rkey)
+        .expect("escrow list not found");
+
+    let mut found_index = None;
+    let mut escrow = None;
+    for i in 0..r_escrows.len() {
+        let e = r_escrows.get(i).unwrap();
+        if e.id == escrow_id {
+            found_index = Some(i);
+            escrow = Some(e);
+            break;
+        }
+    }
+
+    let mut escrow = escrow.expect("escrow not found");
+    let idx = found_index.unwrap();
+
+    if !escrow.is_milestone_based {
+        panic!("escrow is not milestone-based");
+    }
+    if escrow.status != EscrowStatus::Pending {
+        panic!("escrow is not pending");
+    }
+    if recipient != escrow.to {
+        panic!("Unauthorized");
+    }
+
+    // Find the milestone and compute the payout before any state changes.
+    let mut claim_amount: i128 = 0;
+    let mut milestone_found = false;
+    for i in 0..escrow.milestones.len() {
+        let mut m = escrow.milestones.get(i).unwrap();
+        if m.id == milestone_id {
+            if !m.approved {
+                panic!("milestone not approved");
+            }
+            if m.claimed {
+                panic!("milestone already claimed");
+            }
+            claim_amount = m.amount;
+            m.claimed = true;
+            escrow.milestones.set(i, m);
+            milestone_found = true;
+            break;
+        }
+    }
+    if !milestone_found {
+        panic!("milestone not found");
+    }
+
+    // After the last milestone is claimed the escrow is fully released.
+    if escrow.milestones.iter().all(|m| m.claimed) {
+        escrow.status = EscrowStatus::Released;
+    }
+
+    // Checks-effects-interactions: commit state before the external transfer.
+    decrease_locked_balance(&env, &escrow.token, claim_amount);
+    r_escrows.set(idx, escrow.clone());
+    env.storage().persistent().set(&rkey, &r_escrows);
+    bump(&env, &rkey);
+
+    let token = get_token_client(&env, &escrow.token);
+    contract_transfer_out(&env, &token, &recipient, &claim_amount);
+
+    env.events().publish(
+        (
+            Symbol::new(&env, "milestone_claimed"),
+            escrow_id,
+            milestone_id,
+        ),
+        claim_amount,
+    );
+}
+
+/// Return the milestone schedule of a milestone-based escrow.
+pub fn get_milestones(env: Env, escrow_id: u32) -> Vec<Milestone> {
+    let escrow = get_escrow(env, escrow_id).expect("escrow not found");
+    escrow.milestones
+}
+
+/// Return an aggregated summary of an escrow for dashboards/off-chain consumers.
+pub fn get_escrow_summary(env: Env, escrow_id: u32) -> EscrowSummary {
+    let escrow = get_escrow(env, escrow_id).expect("escrow not found");
+    let (mut released_amount, mut approved, mut claimed) = (0i128, 0u32, 0u32);
+    if escrow.is_milestone_based {
+        for m in escrow.milestones.iter() {
+            if m.claimed {
+                released_amount = released_amount.checked_add(m.amount).expect("overflow");
+                claimed += 1;
+            }
+            if m.approved {
+                approved += 1;
+            }
+        }
+    } else if escrow.status == EscrowStatus::Released {
+        released_amount = escrow.amount;
+    }
+    // Cancelled escrows have refunded everything not yet claimed, so nothing
+    // remains in the contract even though `amount` still holds the original
+    // deposit.
+    let remaining_amount = if escrow.status == EscrowStatus::Cancelled {
+        0
+    } else {
+        escrow.amount - released_amount
+    };
+    EscrowSummary {
+        id: escrow.id,
+        total_amount: escrow.amount,
+        released_amount,
+        remaining_amount,
+        milestone_count: escrow.milestones.len(),
+        approved_milestones: approved,
+        claimed_milestones: claimed,
+        status: escrow.status,
+        is_milestone_based: escrow.is_milestone_based,
+    }
 }
 
 /// Return the total number of escrows ever created.
@@ -505,6 +873,9 @@ pub fn create_disputable_escrow(
         disputed: false,
         dispute_raised_by: Option::None,
         dispute_raised_at: 0,
+        agent: Option::None,
+        milestones: Vec::new(&env),
+        is_milestone_based: false,
     };
 
     env.storage()
@@ -640,6 +1011,9 @@ pub fn resolve_dispute(
     let mut escrow = escrow.expect("escrow not found");
     let idx = found_index.unwrap();
 
+    if escrow.status != EscrowStatus::Pending {
+        panic!("Escrow is not pending");
+    }
     if !escrow.disputed {
         panic!("Escrow is not disputed");
     }
@@ -677,6 +1051,7 @@ pub fn resolve_dispute(
 
     // Effects: commit the released state before the external transfers.
     escrow.status = EscrowStatus::Released;
+    escrow.disputed = false;
     decrease_locked_balance(&env, &token_address, transferred);
 
     r_escrows.set(idx, escrow);

@@ -150,7 +150,9 @@
     "balanceTrendDownward": "残高傾向：下降",
     "balanceLive": "リアルタイム",
     "balancePolling": "30秒ごとに更新",
-    "viewPortfolio": "ポートフォリオを見る →"
+    "viewPortfolio": "ポートフォリオを見る →",
+    "balanceReconnecting": "再接続中…",
+    "balanceStale": "古い可能性 — データが古い場合があります"
   },
   "portfolio": {
     "title": "ポートフォリオ",
@@ -213,7 +215,8 @@
     "invalidUsername": "無効なユーザー名形式",
     "resolutionFailed": "ユーザー名解決が有効な公開鍵を返しませんでした",
     "invalidDestination": "有効な Stellar 公開鍵、フェデレーションアドレス、またはユーザー名を入力してください。",
-    "destinationSelf": "自分のウォレットを宛先にすることはできません。"
+    "destinationSelf": "自分のウォレットを宛先にすることはできません。",
+    "needsTrustline": "送信前に{asset}のトラストラインを追加してください。"
   },
   "transactions": {
     "title": "最近の支払い",
@@ -305,5 +308,9 @@
     "languageTitle": "言語",
     "languageDescription": "アプリケーションインターフェースの言語を選択してください。",
     "rtlSupportNote": "RTL サポート：アラビア語とヘブライ語のレイアウトはミラー表示されます。"
+  },
+  "assetSelect": {
+    "noAssets": "利用可能な資産がありません。",
+    "addTrustline": "トラストライン"
   }
 }

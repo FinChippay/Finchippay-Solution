@@ -16,7 +16,7 @@ Soroban smart contract for the **Finchippay-Solution** platform on Stellar.
 | **Streaming** | `open_stream`, `claim_stream`, `top_up_stream`, `close_stream`, `reject_stream`, `transfer_stream`, `get_stream`, `get_claimable` |
 | **Multi-sig** | `create_multisig`, `approve_multisig`, `cancel_multisig`, `timeout_multisig`, `get_multisig` |
 | **Batch** | `batch_send` |
-| **Admin** | `initialize`, `transfer_admin`, `get_admin`, `pause`, `unpause`, `is_paused`, `set_pauser`, `get_pauser`, `upgrade`, `get_version`, `rescue_tokens` |
+| **Admin** | `initialize`, `transfer_admin`, `get_admin`, `pause`, `unpause`, `is_paused`, `set_pauser`, `get_pauser`, `upgrade`, `get_version` |
 | **Diagnostics** | `get_contract_stats`, `get_escrow_count`, `get_stream_count`, `get_multisig_count` |
 
 ## Streaming Payments
@@ -53,6 +53,8 @@ Recipients can call `claim_stream` at any time to drain accrued tokens. Payers c
 - Multi-sig proposals have a minimum of `MIN_MULTISIG_AMOUNT` and can include an `expiration_ledger` to auto-expire abandoned proposals.
 - Multi-sig signer lists are checked for duplicates at creation time.
 - Self-transfers (from == to) are rejected for tips, escrows, streams, and multi-sig.
+- Custody transitions use an instance-scoped re-entry lock and verify exact contract-balance deltas on outbound transfers.
+- Per-token locked-balance accounting is increased on deposits and decreased before every tracked payout or refund; `rescue_tokens` can only withdraw the unlocked balance.
 - Batch sends are limited to `MAX_BATCH_SIZE` (50) recipients and amounts are pre-validated for atomicity.
 - All operational entry points require the contract to be initialized via `initialize()`.
 - **Balance reconciliation**: the contract keeps a cached `LastContractBalance`
@@ -124,13 +126,13 @@ bash ../../scripts/deploy-contract.sh
 | `(admin_transfer,)` | `new_admin: Address` | `transfer_admin` |
 | `(tip, from, to)` | `amount: i128` | `send_tip` |
 | `(receipt, from)` | `index: u32` | `mint_receipt` |
-| `(escrow_create, id)` | `(from, to, amount, release_ledger)` | `create_escrow` |
-| `(escrow_claim, id)` | `(to, amount)` | `claim_escrow` |
-| `(escrow_cancel, id)` | `(from, amount)` | `cancel_escrow` |
-| `(stream_open, id)` | `(payer, recipient, rate, deposit)` | `open_stream` |
-| `(stream_claim, id)` | `(recipient, amount)` | `claim_stream` |
-| `(stream_topup, id)` | `(payer, amount)` | `top_up_stream` |
-| `(stream_close, id)` | `(payer, refund)` | `close_stream` |
+| `(escrow_created, id)` | `(from, to, amount, release_ledger)` | `create_escrow` |
+| `(escrow_released, id)` | `(to, amount)` | `claim_escrow` |
+| `(escrow_cancelled,)` | `(id, from, amount)` | `cancel_escrow` |
+| `(stream_opened, id)` | `(payer, recipient, rate, deposit)` | `open_stream` |
+| `(stream_claimed, id)` | `(recipient, amount)` | `claim_stream` |
+| `(stream_topped_up,)` | `(id, payer, added, new_deposit)` | `top_up_stream` |
+| `(stream_closed, id)` | `(payer, refund)` | `close_stream` |
 | `(multisig_create, id)` | `(proposer, recipient, amount, threshold)` | `create_multisig` |
 | `(multisig_approve, id)` | `(signer, current_approvals, threshold)` | `approve_multisig` |
 | `(multisig_executed, id)` | `(recipient, amount)` | `approve_multisig` (auto) |
@@ -139,7 +141,6 @@ bash ../../scripts/deploy-contract.sh
 | `(stream_reject, id)` | `(recipient, refund)` | `reject_stream` |
 | `(stream_transfer, id)` | `(old_recipient, new_recipient)` | `transfer_stream` |
 | `(escrow_claim_partial, id)` | `(to, claim_amount, remaining)` | `claim_escrow_partial` |
-| `(rescue_tokens,)` | `(token, amount, to)` | `rescue_tokens` |
 | `(pauser_set,)` | `pauser: Address` | `set_pauser` |
 | `(batch_send, from)` | `count: u32` | `batch_send` |
 | `(paused,)` | `()` | `pause` |

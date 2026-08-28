@@ -402,6 +402,92 @@ includes:
 - **Workflow summaries:** Results written to GitHub Actions step summary
 - **State persistence:** Saves deployment info to temp files for rollback
 
+## Docker Compose Production Hardening
+
+`docker-compose.prod.yml` runs every service non-root where the underlying
+image supports it, with resource limits, health-check gating, a read-only
+root filesystem, and secrets mounted from files rather than passed as plain
+environment variables.
+
+### Production Secrets
+
+Real secret values are never committed. `secrets/.gitignore` excludes
+everything in that directory except `.gitignore` itself and `*.example`
+templates. Before running `docker compose -f docker-compose.prod.yml up`,
+copy each template and fill in a real value:
+
+```bash
+cd secrets
+cp jwt_secret.txt.example jwt_secret.txt                     # openssl rand -hex 32
+cp webhook_encryption_key.txt.example webhook_encryption_key.txt  # openssl rand -hex 32
+cp rate_limit_ip_hash_salt.txt.example rate_limit_ip_hash_salt.txt  # openssl rand -hex 32, independent of jwt_secret
+cp database_url.txt.example database_url.txt                 # only used when DB_PROVIDER=postgres
+cp anthropic_api_key.txt.example anthropic_api_key.txt        # optional — leave empty to disable AI payment parsing
+```
+
+`database_url.txt` and `anthropic_api_key.txt` can be left empty (or
+`touch`ed) if unused — Compose requires the referenced file to exist, but the
+backend only reads it when `DB_PROVIDER=postgres` / when the AI parsing
+feature is invoked, via `backend/src/config/dockerSecrets.js`, which resolves
+any `<NAME>_FILE` environment variable (the standard `/run/secrets/<name>`
+mount) into the corresponding plain `<NAME>` variable before the rest of the
+app starts. An explicit non-`_FILE` env var always wins if both are set.
+
+Note: the compose secret names (`jwt_secret`, `database_url`,
+`webhook_encryption_key`, `rate_limit_ip_hash_salt`, `anthropic_api_key`) are
+named after the actual environment variables this backend reads (see
+`backend/.env.example` and `backend/src/config/validateEnv.js`) rather than
+a generic `db_password` / `api_keys` split — this codebase authenticates to
+Postgres via a single `DATABASE_URL` connection string, not a separate
+password field, and has exactly one external API key (Anthropic).
+
+### Non-root Execution
+
+- **backend** runs as the built-in `node` user (`user: "node"` in compose,
+  `USER node` in `backend/Dockerfile.prod`, with `COPY --chown=node:node`).
+- **frontend** serves static files via `nginxinc/nginx-unprivileged`, not the
+  stock `nginx` image — the stock image has no non-root user capable of
+  binding to a low port, so it defaults to root. `nginxinc/nginx-unprivileged`
+  is purpose-built to run as the non-root `nginx` user (uid 101) and listens
+  on 8080 internally instead of 80 (mapped to host port 80 in compose).
+- **redis** and **jaeger** are left running as their image defaults (root).
+  Neither official image documents a supported non-root UID for this exact
+  volume/entrypoint setup, and guessing one risks silently breaking the
+  container's own privilege-drop or volume-permission logic. They still get
+  the filesystem/capability hardening below (`read_only`, `cap_drop: [ALL]`,
+  `no-new-privileges`) — least-privilege in every dimension that doesn't
+  require verifying image-internal behavior we can't check in this repo.
+
+### Read-only Root Filesystem
+
+All four services set `read_only: true` with `tmpfs` mounts for paths each
+process needs to write at runtime (nginx's cache/pid/temp dirs, `/tmp`
+generally) and named volumes for anything that must survive a restart
+(`redis_data`, `jaeger_data`, and the new `backend_data` / `backend_backups`
+covering the backend's SQLite DB + token-metadata cache and DB backup
+archives — see `backend/src/services/backupService.js` and
+`backend/src/services/tokenMetadataService.js`).
+
+### Docker Content Trust
+
+Docker Content Trust is a client-side setting, not something a compose file
+can declare — it's controlled by the `DOCKER_CONTENT_TRUST` environment
+variable wherever `docker pull` / `docker build` / `docker compose` runs:
+
+```bash
+export DOCKER_CONTENT_TRUST=1
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml build
+```
+
+This only works for images with published Notary trust data. `node`,
+`nginx`/`nginxinc/nginx-unprivileged`, and `redis` are Docker Official
+Images and are signed. `jaegertracing/all-in-one` is **not** — pulling it
+with `DOCKER_CONTENT_TRUST=1` set will fail with "remote trust data does not
+exist". Either verify trust data for every image you pin before enabling
+this project-wide in CI/CD, or pull/build the jaeger image in a separate
+step with `DOCKER_CONTENT_TRUST=0`.
+
 ## Support
 
 For questions or issues:

@@ -52,16 +52,42 @@ export interface StreamRecord {
   status: "Active" | "Ended" | "Cancelled";
 }
 
+/** Contract `MultiSigProposal` (contracts/finchippay-contract/src/types.rs). */
 export interface MultiSigProposal {
   id: number;
+  proposer: string;
+  recipient: string;
   token: string;
-  from: string;
-  to: string;
   amount: string;
-  approvals: number;
   threshold: number;
+  signers: string[];
+  approvals: string[];
+  status: "Pending" | "Executed" | "Cancelled";
+  expirationLedger: number;
+  /** Back-compat alias for legacy consumers reading `.from`. */
+  from: string;
+  /** Back-compat alias for legacy consumers reading `.to`. */
+  to: string;
+  /** Back-compat aliases for legacy consumers reading `.executed/.cancelled`. */
   executed: boolean;
   cancelled: boolean;
+}
+
+/** A single-admin-governance action proposed for approval by the admin signer set. */
+export interface AdminActionProposal {
+  id: number;
+  /** e.g. "pause", "unpause", "set_admin_signers", "set_pauser", "upgrade", "reconcile_balance". */
+  actionType: string;
+  /** Function-specific payload produced by `propose_admin_action`. */
+  actionData: unknown[];
+  /** Admin signers that have approved so far. */
+  approvals: string[];
+  /** Number of unique admin approvals required to execute. */
+  threshold: number;
+  /** Whether this proposal has been executed. */
+  executed: boolean;
+  /** Ledger after which the proposal expires and can no longer be approved. */
+  expirationLedger: number;
 }
 
 export interface ContractStats {
@@ -120,24 +146,37 @@ export async function simulateTransactionResources(
 
 // ─── Contract Error Codes ─────────────────────────────────────────────────
 
+/** Maps `ContractError` discriminant values from the Soroban contract catalogue. */
 const ERROR_MESSAGES: Record<number, string> = {
   1: "Contract already initialized",
   2: "Unauthorized — you don't have permission for this action",
   3: "Amount must be positive",
-  4: "Insufficient balance — the sender account does not have enough funds",
-  5: "Escrow not found — no escrow exists with that ID",
-  6: "Escrow already released — funds have already been claimed",
-  7: "Escrow already cancelled — the escrow was previously cancelled",
-  8: "Not escrow recipient — only the designated recipient can claim this escrow",
-  9: "Not escrow sender — only the sender can cancel this escrow",
-  10: "Release ledger not reached — the release ledger has not been reached yet",
-  11: "Stream not found — no payment stream exists with that ID",
-  12: "Stream already ended — the stream has already been closed",
-  13: "Stream already cancelled — the stream was previously cancelled",
-  14: "Not stream participant — you are not a participant in this stream",
-  15: "Multi-sig proposal not found — no proposal exists with that ID",
-  16: "Already approved — you have already approved this proposal",
-  17: "Threshold already met — the signature threshold has already been reached",
+  4: "Release ledger must be in the future",
+  5: "Not found — the referenced escrow, stream, or proposal does not exist",
+  6: "Invalid state — this operation is not allowed in the current state",
+  7: "Arithmetic overflow detected",
+  8: "Invalid threshold — signer list length does not match the required threshold",
+  9: "Length mismatch — recipient or signer arrays have mismatched lengths",
+  10: "Already signed — you have already approved this proposal",
+  11: "Insufficient funds — the stream has insufficient deposited funds",
+  12: "Contract paused — value-transferring operations are temporarily blocked",
+  13: "Self-transfer is not allowed",
+  14: "Batch too large — the number of recipients exceeds the maximum allowed",
+  15: "Duplicate signer detected in the signers list",
+  16: "Proposal expired — this proposal can no longer be approved",
+  17: "Transfer failed — token balance did not increase by the expected amount",
+  18: "Index full — the recipient already has the maximum number of escrows",
+  19: "Emergency withdrawal is not ready yet",
+  20: "Not an authorized admin signer for this withdrawal",
+  21: "Invalid swap path — path is malformed or does not match the tokens",
+  22: "Slippage exceeded — the swap would return less than the minimum amount out",
+  23: "Excessive amount in — input required exceeds the maximum amount in",
+  24: "Invalid fee — new fee exceeds the maximum allowed swap fee",
+  25: "Admin action proposal not found",
+  26: "Admin action proposal has already been executed",
+  27: "Release ledger not reached — the yield escrow is not yet releasable",
+  28: "Reentrant call blocked — a mutating operation was re-entered mid-flight",
+  29: "Stale swap path — path references empty reserves or a repeated token",
 };
 
 function getErrorMessage(code: number): string {
@@ -326,7 +365,14 @@ export class FinchippayClient {
    */
   private toScVal(value: unknown): import("@stellar/stellar-sdk").xdr.ScVal {
     if (typeof value === "number") {
-      return nativeToScVal(value, { type: Number.isInteger(value) ? "u32" : "i128" });
+      if (Number.isInteger(value)) {
+        // u64 ancestors are used for multisig/admin proposal ids; fall back to
+        // u64 for any integer beyond the u32 range.
+        return value >= 0 && value <= 0xffffffff
+          ? nativeToScVal(value, { type: "u32" })
+          : nativeToScVal(BigInt(value), { type: "u64" });
+      }
+      return nativeToScVal(value, { type: "i128" });
     }
     if (typeof value === "bigint") {
       return nativeToScVal(value, { type: "i128" });
@@ -480,23 +526,132 @@ export class FinchippayClient {
     const result = await this.simulateCall("get_multisig", [proposalId], caller);
     if (!result) return null;
     const decoded = result as Record<string, unknown>;
+    const signersRaw = decoded.signers;
+    const approvalsRaw = decoded.approvals;
+    const proposer = String(decoded.proposer ?? "");
+    const recipient = String(decoded.recipient ?? "");
+    const status = String(decoded.status ?? "Pending") as MultiSigProposal["status"];
+    const executed = status === "Executed" || Boolean(decoded.executed ?? false);
+    const cancelled = status === "Cancelled" || Boolean(decoded.cancelled ?? false);
     return {
       id: Number(proposalId),
+      proposer,
+      recipient,
       token: String(decoded.token ?? ""),
-      from: String(decoded.from ?? ""),
-      to: String(decoded.to ?? ""),
       amount: String(decoded.amount ?? "0"),
-      approvals: Number(decoded.approvals ?? 0),
       threshold: Number(decoded.threshold ?? 0),
-      executed: Boolean(decoded.executed ?? false),
-      cancelled: Boolean(decoded.cancelled ?? false),
+      signers: Array.isArray(signersRaw) ? signersRaw.map(String) : [],
+      approvals: Array.isArray(approvalsRaw) ? approvalsRaw.map(String) : [],
+      status,
+      expirationLedger: Number(decoded.expiration_ledger ?? decoded.expirationLedger ?? 0),
+      from: proposer,
+      to: recipient,
+      executed,
+      cancelled,
     };
+  }
+
+  /**
+   * Return the number of payment multi-sig proposals created so far
+   * (mirrors `get_multisig_count` on the contract).
+   */
+  async getMultisigCount(caller?: string): Promise<number> {
+    const result = await this.simulateCall("get_multisig_count", [], caller);
+    return Number(result ?? 0);
+  }
+
+  // ── Treasury / admin-governance query methods ─────────────────────────
+
+  /** Return the current admin signer set (G... addresses). */
+  async getAdminSigners(caller?: string): Promise<string[]> {
+    const result = await this.simulateCall("get_admin_signers", [], caller);
+    if (!Array.isArray(result)) return [];
+    return result.map(String);
+  }
+
+  /** Return the number of approvals required for admin actions to execute. */
+  async getAdminSignersThreshold(caller?: string): Promise<number> {
+    const result = await this.simulateCall("get_admin_signers_threshold", [], caller);
+    return Number(result ?? 1);
+  }
+
+  /**
+   * Fetch a single admin-governance proposal from the contract.
+   *
+   * The contract stores admin-action proposals as `AdminActionProposal`
+   * (id, action_type, action_data, approvals, threshold, executed,
+   * expiration_ledger). `action_data` is a `Vec<Val>` of crypto primitives
+   * (addresses / u32 / symbols / bytes); `scValToNative` yields them as JS
+   * values so we keep the raw array for display.
+   */
+  async getAdminActionProposal(
+    proposalId: number,
+    caller?: string,
+  ): Promise<AdminActionProposal | null> {
+    const result = await this.simulateCall("get_admin_action_proposal", [proposalId], caller);
+    if (!result) return null;
+    const decoded = result as Record<string, unknown>;
+    const approvalsRaw = decoded.approvals;
+    return {
+      id: Number(proposalId),
+      actionType: String(decoded.action_type ?? decoded.actionType ?? "unknown"),
+      actionData: Array.isArray(decoded.action_data ?? decoded.actionData)
+        ? (decoded.action_data ?? decoded.actionData)
+        : [],
+      approvals: Array.isArray(approvalsRaw) ? approvalsRaw.map(String) : [],
+      threshold: Number(decoded.threshold ?? 1),
+      executed: Boolean(decoded.executed ?? false),
+      expirationLedger: Number(decoded.expiration_ledger ?? decoded.expirationLedger ?? 0),
+    };
+  }
+
+  /**
+   * Build an approve_admin_action transaction, ready for wallet signing.
+   *
+   * When the approval count reaches the configured admin threshold the
+   * contract auto-executes the action.
+   */
+  async buildApproveAdminActionTx(
+    proposalId: number,
+    approver: string,
+  ): Promise<Transaction> {
+    return this.buildTransaction("approve_admin_action", [proposalId, approver], approver);
+  }
+
+  /**
+   * Build an approve_multisig transaction for a payment multi-sig proposal,
+   * ready for wallet signing.
+   */
+  async buildApprovePaymentMultisigTx(
+    proposalId: number,
+    signer: string,
+  ): Promise<Transaction> {
+    return this.buildTransaction("approve_multisig", [proposalId, signer], signer);
   }
 }
 
 // ─── Lazy Singleton ─────────────────────────────────────────────────────────
 
 let _client: FinchippayClient | null = null;
+
+/**
+ * Registry of reset callbacks for all contract clients that need to be
+ * invalidated when the network changes. Other modules can register their
+ * own reset functions here so that resetClient() invalidates every cached
+ * contract client, not just the one in this file.
+ */
+type ResetCallback = () => void;
+const _resetRegistry: ResetCallback[] = [];
+
+/**
+ * Register a reset callback that will be invoked when resetClient() is called.
+ * Use this to invalidate module-level client singletons elsewhere so a network
+ * switch clears every cached contract client in one call.
+ * @param callback A function that resets the calling module's cached client.
+ */
+export function registerClientReset(callback: ResetCallback): void {
+  _resetRegistry.push(callback);
+}
 
 /**
  * Get or create the default FinchippayClient singleton.
@@ -522,8 +677,14 @@ export function getClient(): FinchippayClient {
 }
 
 /**
- * Reset the singleton (useful for testing or network changes).
+ * Reset the singleton and every registered client singleton (useful for testing
+ * or network changes). After calling this, the next call to getClient() or any
+ * registered client factory will build a fresh instance targeting the current
+ * network configuration.
  */
 export function resetClient(): void {
   _client = null;
+  for (const callback of _resetRegistry) {
+    callback();
+  }
 }

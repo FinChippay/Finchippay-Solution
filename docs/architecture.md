@@ -57,6 +57,7 @@ Key design decisions:
 - **Emergency pause**: the admin *or* a designated pauser can call `pause()`/`unpause()` to freeze all value-transferring operations (circuit breaker). Read-only queries remain accessible during pause.
 - **Upgradability**: admin can call `upgrade(new_wasm_hash)` to deploy security patches without state migration. Version counter is incremented on each upgrade.
 - **Bounded inputs**: escrow timelocks, stream deposits/rates, and multi-sig amounts are capped to prevent griefing, overflow, and permanent fund lock-up.
+- **Custody safety**: value transitions are serialized by an instance lock, effects are committed before token calls, outbound deltas are verified exactly, and per-token locked balances prevent rescue operations from touching active funds.
 
 #### Roles
 
@@ -65,8 +66,8 @@ response does not require exposing the highest-privilege key.
 
 | Role | Set by | Capabilities | Cannot |
 |---|---|---|---|
-| **Admin** | `initialize` (once); rotated via `transfer_admin` | Everything: `transfer_admin`, `set_pauser`, `upgrade`, `rescue_tokens`, `pause`/`unpause` | — |
-| **Pauser** | `set_pauser` (admin only) | `pause` / `unpause` only | `transfer_admin`, `set_pauser`, `upgrade`, `rescue_tokens` |
+| **Admin** | `initialize` (once); rotated via `transfer_admin` | Everything: `transfer_admin`, `set_pauser`, `upgrade`, `pause`/`unpause` | — |
+| **Pauser** | `set_pauser` (admin only) | `pause` / `unpause` only | `transfer_admin`, `set_pauser`, `upgrade` |
 
 The pauser is intended to be a low-exposure "hot key" that can trigger the
 circuit breaker during an incident without the admin key ever coming online.
@@ -90,17 +91,16 @@ carries the remaining fields needed to reconstruct state.
 | `unpaused` | `(unpaused,)` | `()` | `unpause` |
 | `pauser_set` | `(pauser_set,)` | `pauser` | `set_pauser` |
 | `upgraded` | `(upgraded,)` | `(new_version, new_wasm_hash)` | `upgrade` |
-| `rescue_tokens` | `(rescue_tokens,)` | `(token_address, amount, to)` | `rescue_tokens` |
 | `tip` | `(tip, from, to)` | `amount` | `send_tip` |
 | `receipt` | `(receipt, from)` | `index` | `mint_receipt` |
-| `escrow_create` | `(escrow_create, id)` | `(from, to, amount, release_ledger)` | `create_escrow` |
-| `escrow_claim_partial` | `(escrow_claim_partial, id)` | `(to, claim_amount, remaining)` | `claim_escrow_partial` |
-| `escrow_claim` | `(escrow_claim, id)` | `(to, amount)` | `claim_escrow` |
+| `escrow_created` | `(escrow_created, id)` | `(from, to, amount, release_ledger)` | `create_escrow` |
+| `escrow_partial_released` | `(escrow_partial_released, id)` | `(to, claim_amount, remaining)` | `claim_escrow_partial` |
+| `escrow_released` | `(escrow_released, id)` | `(to, amount)` | `claim_escrow` |
 | `escrow_cancelled` | `(escrow_cancelled,)` | `(id, from, amount)` | `cancel_escrow` |
-| `stream_open` | `(stream_open, id)` | `(payer, recipient, rate_per_ledger, deposit)` | `open_stream` |
-| `stream_claim` | `(stream_claim, id)` | `(recipient, claimable)` | `claim_stream` |
+| `stream_opened` | `(stream_opened, id)` | `(payer, recipient, rate_per_ledger, deposit)` | `open_stream` |
+| `stream_claimed` | `(stream_claimed, id)` | `(recipient, claimable)` | `claim_stream` |
 | `stream_topped_up` | `(stream_topped_up,)` | `(id, payer, added, new_deposit)` | `top_up_stream` |
-| `stream_close` | `(stream_close, id)` | `(payer, refund)` | `close_stream` |
+| `stream_closed` | `(stream_closed, id)` | `(payer, refund)` | `close_stream` |
 | `stream_reject` | `(stream_reject, id)` | `(recipient, refund)` | `reject_stream` |
 | `stream_transfer` | `(stream_transfer, id)` | `(current_recipient, new_recipient)` | `transfer_stream` |
 | `multisig_create` | `(multisig_create, id)` | `(proposer, recipient, amount, threshold)` | `create_multisig` |

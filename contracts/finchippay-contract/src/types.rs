@@ -202,7 +202,6 @@ pub enum AdminAction {
     Unpause,
     SetPauser(Address),
     Upgrade(BytesN<32>, u32),
-    RescueTokens(Address, Address, i128),
 }
 
 #[contracttype]

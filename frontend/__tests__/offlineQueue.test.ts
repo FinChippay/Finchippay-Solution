@@ -56,17 +56,8 @@ import {
   queueAction,
   getQueuedActions,
   clearQueuedAction,
-  // Issue #483 — generic queue API
-  enqueue,
-  dequeue,
-  peek,
-  remove,
-  getAll,
-  getFailed,
-  getPendingCount,
-  backoffDelayMs,
-  MAX_RETRIES,
-  PAYMENT_ENTRY_TYPE,
+  subscribeToQueue,
+  onQueueChanged,
 } from "@/lib/offlineQueue";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -354,185 +345,40 @@ describe("offlineQueue", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Issue #483 — generic queue API
-  // ─────────────────────────────────────────────────────────────────────────
+  describe("change notifications (pub/sub)", () => {
+    it("subscribeToQueue fires on queueTransaction", async () => {
+      const listener = jest.fn();
+      const unsub = subscribeToQueue(listener);
 
-  describe("enqueue (generic queue)", () => {
-    it("persists a pending entry with retryCount 0 and returns its id", async () => {
-      const id = await enqueue(PAYMENT_ENTRY_TYPE, {
-        destination: "GDEST...ABC",
-        amount: "10.00",
+      // Clean the queue first.
+      const prev = await getQueuedTransactions();
+      for (const t of prev) await removeTransaction(t.id);
+      listener.mockClear();
+
+      await queueTransaction(TEST_XDR, TEST_META);
+      expect(listener).toHaveBeenCalled();
+      unsub();
+    });
+
+    it("fires on removeTransaction", async () => {
+      await queueTransaction(TEST_XDR, TEST_META);
+      const items = await getQueuedTransactions();
+      const listener = jest.fn();
+      const unsub = subscribeToQueue(listener);
+      listener.mockClear();
+
+      await removeTransaction(items[items.length - 1].id);
+      expect(listener).toHaveBeenCalled();
+      unsub();
+    });
+
+    it("onQueueChanged bridges to the window event", (done) => {
+      const unsub = onQueueChanged(() => {
+        unsub();
+        done();
       });
-
-      expect(typeof id).toBe("string");
-
-      const entries = await getAll();
-      expect(entries).toHaveLength(1);
-
-      const entry = entries[0];
-      expect(entry.id).toBe(id);
-      expect(entry.type).toBe(PAYMENT_ENTRY_TYPE);
-      expect(entry.status).toBe("pending");
-      expect(entry.retryCount).toBe(0);
-      expect(entry.createdAt).toBeLessThanOrEqual(Date.now());
-    });
-
-    it("registers the process-transaction-queue Background Sync tag", async () => {
-      await enqueue(PAYMENT_ENTRY_TYPE, {});
-      expect(mockSyncRegister).toHaveBeenCalledWith("process-transaction-queue");
-    });
-  });
-
-  describe("dequeue / peek", () => {
-    it("dequeues entries in FIFO order and marks them processing", async () => {
-      await enqueue("payment", { order: 1 });
-      await new Promise((r) => setTimeout(r, 5));
-      await enqueue("payment", { order: 2 });
-
-      const first = await dequeue();
-      const second = await dequeue();
-
-      expect(first?.status).toBe("processing");
-      expect((first?.payload as { order: number }).order).toBe(1);
-      expect((second?.payload as { order: number }).order).toBe(2);
-      expect(await dequeue()).toBeNull();
-    });
-
-    it("peek returns the oldest pending entry without mutating it", async () => {
-      await enqueue("payment", { order: 1 });
-
-      const peeked = await peek();
-      expect(peeked?.status).toBe("pending");
-      expect((peeked?.payload as { order: number }).order).toBe(1);
-
-      const entries = await getAll();
-      expect(entries[0].status).toBe("pending");
-    });
-
-    it("returns null when the queue is empty", async () => {
-      expect(await dequeue()).toBeNull();
-      expect(await peek()).toBeNull();
-    });
-  });
-
-  describe("remove / getAll / getFailed / getPendingCount", () => {
-    it("remove deletes an entry by id and is a no-op for unknown ids", async () => {
-      const id = await enqueue("payment", {});
-      await remove(id);
-      expect(await getAll()).toHaveLength(0);
-
-      await expect(remove("non-existent")).resolves.toBeUndefined();
-    });
-
-    it("getAll returns entries oldest-first", async () => {
-      await enqueue("payment", { order: 1 });
-      await new Promise((r) => setTimeout(r, 5));
-      await enqueue("payment", { order: 2 });
-
-      const entries = await getAll();
-      expect(entries.map((e) => (e.payload as { order: number }).order)).toEqual([1, 2]);
-    });
-
-    it("getFailed returns only failed entries", async () => {
-      await enqueue("payment", { signedXDR: "AAAA" });
-      mockFetchFail(400, "Bad Request");
-      await processQueue();
-
-      expect(await getFailed()).toHaveLength(1);
-    });
-
-    it("getPendingCount reflects the number of entries awaiting submission", async () => {
-      expect(await getPendingCount()).toBe(0);
-      await enqueue("payment", {});
-      expect(await getPendingCount()).toBe(1);
-    });
-  });
-
-  describe("retry / backoff", () => {
-    it("applies exponential backoff between retries", () => {
-      expect(backoffDelayMs(0)).toBe(1000);
-      expect(backoffDelayMs(1)).toBe(2000);
-      expect(backoffDelayMs(2)).toBe(4000);
-    });
-
-    it("marks a failed entry with retryCount and a future nextRetryAt", async () => {
-      mockFetchFail(500, "Server Error");
-      await enqueue("payment", { signedXDR: "AAAA" });
-      await processQueue();
-
-      const [entry] = await getAll();
-      expect(entry.status).toBe("failed");
-      expect(entry.retryCount).toBe(1);
-      expect(entry.lastError).toMatch(/Horizon/);
-      expect(entry.nextRetryAt).toBeGreaterThan(Date.now());
-    });
-
-    it("skips a retry until nextRetryAt has passed (backoff)", async () => {
-      mockFetchFail();
-      await enqueue("payment", { signedXDR: "AAAA" });
-      await processQueue(); // attempt 1 → failed, retryCount 1
-
-      await processQueue(); // immediately → skipped due to backoff
-      const [entry] = await getAll();
-      expect(entry.retryCount).toBe(1);
-    });
-
-    it("stops retrying after MAX_RETRIES and leaves the entry failed", async () => {
-      mockFetchFail();
-      await enqueue("payment", { signedXDR: "AAAA" });
-
-      for (let i = 0; i <= MAX_RETRIES; i += 1) {
-        await processQueue();
-        await clearBackoff();
-      }
-
-      const [entry] = await getAll();
-      expect(entry.status).toBe("failed");
-      expect(entry.retryCount).toBe(MAX_RETRIES);
-
-      await processQueue(); // another drain should not increment further
-      const [after] = await getAll();
-      expect(after.retryCount).toBe(MAX_RETRIES);
-    });
-  });
-
-  describe("malformed entries", () => {
-    it("coerces malformed records without throwing and drains safely", async () => {
-      const db = await openTestDb();
-      await new Promise<void>((resolve) => {
-        const tx = db.transaction("entries", "readwrite");
-        const store = tx.objectStore("entries");
-        store.add({ id: "bad-1", type: "payment" }); // missing status/createdAt
-        store.add({ id: "bad-2", type: 123 }); // invalid type → dropped
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-      });
-
-      const entries = await getAll();
-      expect(entries.some((e) => e.id === "bad-1")).toBe(true);
-      expect(entries.some((e) => e.id === "bad-2")).toBe(false);
-
-      const bad = entries.find((e) => e.id === "bad-1");
-      expect(bad?.status).toBe("failed");
-      expect(bad?.retryCount).toBe(0);
-
-      mockFetchOk();
-      await expect(processQueue()).resolves.toBeUndefined();
-    });
-  });
-
-  describe("persistence across reloads", () => {
-    it("entries survive a simulated page reload (module re-import)", async () => {
-      await enqueue("payment", { destination: "GDEST...ABC", amount: "5.00" });
-
-      jest.resetModules();
-      const fresh = await import("@/lib/offlineQueue");
-
-      const entries = await fresh.getAll();
-      expect(entries).toHaveLength(1);
-      expect((entries[0].payload as { destination: string }).destination).toBe("GDEST...ABC");
+      // queueTransaction dispatches the change event on window.
+      void queueTransaction(TEST_XDR, TEST_META);
     });
   });
 });

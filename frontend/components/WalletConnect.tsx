@@ -5,23 +5,26 @@
 
 import { useState, useEffect } from "react";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
-import { LedgerIcon, WalletIcon, PuzzleIcon, ExternalLinkIcon, Spinner } from "@/components/icons";
+import { LedgerIcon, WalletIcon, PuzzleIcon, ExternalLinkIcon, Spinner, TrezorIcon } from "@/components/icons";
 import { useWallet } from "@/lib/useWallet";
-import { 
+import {
   connectWallet as requestWalletConnection,
-  isFreighterInstalled, 
-  detectBrowser, 
-  EXTENSION_URLS, 
+  isFreighterInstalled,
+  detectBrowser,
+  EXTENSION_URLS,
   performSEP0010Auth,
   getLedgerPublicKey,
-  isLedgerSupported
+  isLedgerSupported,
+  getTrezorPublicKey,
+  isTrezorSupported,
+  setActiveWalletType,
 } from "@/lib/wallet";
 
 interface WalletConnectProps {
   onConnectSuccess?: (publicKey: string) => void;
 }
 
-type WalletType = "freighter" | "ledger";
+type WalletType = "freighter" | "ledger" | "trezor";
 
 function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
   const { accounts, connectWallet } = useWallet();
@@ -34,11 +37,14 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
   const [browser, setBrowser] = useState<"chrome" | "firefox" | "other">("other");
   const [selectedWallet, setSelectedWallet] = useState<WalletType | null>(null);
   const [ledgerSupported, setLedgerSupported] = useState(false);
+  const [trezorSupported, setTrezorSupported] = useState(false);
 
   useEffect(() => {
     setBrowser(detectBrowser());
     // Check if Ledger is supported
     isLedgerSupported().then(setLedgerSupported);
+    // Check if Trezor is supported
+    setTrezorSupported(isTrezorSupported());
   }, []);
 
   const handleFreighterConnect = async () => {
@@ -94,6 +100,39 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
       setStep("idle");
       return;
     }
+
+    // SEP-0010: prove ownership of the connected wallet
+    setStep("authenticating");
+    const { error: authError } = await performSEP0010Auth(publicKey);
+    setLoading(false);
+    setStep("idle");
+
+    if (authError) {
+      setError(authError);
+      return;
+    }
+
+    connectWallet(publicKey);
+    onConnectSuccess?.(publicKey);
+  };
+
+  const handleTrezorConnect = async () => {
+    setSelectedWallet("trezor");
+    setLoading(true);
+    setError(null);
+    setStep("connecting");
+
+    const { publicKey, error: trezorError } = await getTrezorPublicKey();
+
+    if (trezorError || !publicKey) {
+      setError(trezorError || "Could not retrieve public key from Trezor device.");
+      setLoading(false);
+      setStep("idle");
+      return;
+    }
+
+    // Route subsequent signing through Trezor
+    setActiveWalletType("trezor");
 
     // SEP-0010: prove ownership of the connected wallet
     setStep("authenticating");
@@ -237,6 +276,20 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
            step === "authenticating" && selectedWallet === "ledger" ? <><Spinner /> Authenticating...</> :
            "Connect Ledger Hardware Wallet"}
         </button>
+
+        {/* Trezor Option */}
+        <button
+          onClick={handleTrezorConnect}
+          disabled={loading || !trezorSupported}
+          className="btn-secondary w-full flex items-center justify-center gap-3"
+        >
+          <div className="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center">
+            <TrezorIcon className="w-3 h-3 text-purple-400" />
+          </div>
+          {step === "connecting" && selectedWallet === "trezor" ? <><Spinner /> Connecting...</> :
+           step === "authenticating" && selectedWallet === "trezor" ? <><Spinner /> Authenticating...</> :
+           "Connect Trezor Hardware Wallet"}
+        </button>
       </div>
 
       {/* Help Text */}
@@ -261,6 +314,25 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
         
         <div>
           Using Ledger? Make sure your device is connected, unlocked, and the Stellar app is open.
+        </div>
+
+        {!trezorSupported && (
+          <div className="text-amber-400">
+            Trezor requires a browser environment. Please use a desktop browser with the Trezor Suite extension or Bridge installed.
+          </div>
+        )}
+
+        <div>
+          Using Trezor? Install&nbsp;
+          <a
+            href="https://suite.trezor.io"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-stellar-700 dark:text-stellar-400 hover:underline"
+          >
+            Trezor Suite + Bridge
+          </a>
+          , then connect your device and open the Stellar app.
         </div>
       </div>
 

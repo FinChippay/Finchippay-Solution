@@ -36,9 +36,22 @@ pub const MIN_TTL_LEDGERS: u32 = 535_680;
 /// which keeps per-call gas flat on frequently exercised paths.
 pub const MIN_TTL_THRESHOLD: u32 = 100_000;
 
-/// Hard cap on the number of keys a single `bump_all_ttls` call will touch, so
-/// a sweep can never exceed the resource budget of one Soroban transaction.
-pub const MAX_TTL_BUMP_KEYS: u32 = 100;
+/// Hard cap on the number of keys a single `bump_all_ttls` call may touch.
+///
+/// # Budget rationale
+///
+/// Soroban meters every transaction against a per-transaction CPU instruction
+/// budget (100M instructions on mainnet). Each swept key costs a constant
+/// handful of instructions (`extend_ttl` is a host call, and multi-key items
+/// additionally perform one `get`), so a call is bounded by the number of keys
+/// it touches, not by the total size of user state. Bounding a single invocation
+/// to 100 keys keeps the worst case — 100 TTL extensions plus a few dozen reads
+/// — orders of magnitude inside the instruction budget, which is what guarantees
+/// a full sweep can be driven to completion by repeated calls without any one
+/// call failing part-way and leaving the sweep half-applied. The value is
+/// deliberately conservative to leave headroom for the contract's other work and
+/// for future metering changes.
+pub const MAX_KEYS_PER_SWEEP: u32 = 100;
 
 /// Number of variants in `TtlClass`, i.e. how many key groups a full sweep
 /// walks through.
@@ -233,13 +246,49 @@ pub fn bump_config_key(env: &Env, index: u32) -> u32 {
     }
 }
 
+/// Worst-case number of keys [`bump_ttl_class_item`] will touch for sweep item
+/// `index` of `class`. `bump_all_ttls` checks this *before* starting an item so
+/// a call can plan its budget and never overshoot [`MAX_KEYS_PER_SWEEP`], even
+/// though a single item is bumped atomically (it can own up to three keys).
+///
+/// This must stay in sync with [`bump_ttl_class_item`]: it reports the count the
+/// sibling function would touch when every optional key is present. Actual
+/// touches may be lower when optional keys are absent, which is safe because the
+/// budget is planned against the worst case.
+pub fn ttl_class_item_key_cost(class: &TtlClass, index: u32) -> u32 {
+    match class {
+        TtlClass::Config => 1,
+        TtlClass::Receipts => {
+            if index == 0 {
+                1
+            } else {
+                // Index entry + receipt record + per-payer receipt counter.
+                3
+            }
+        }
+        TtlClass::Escrows | TtlClass::Streams => {
+            if index == 0 {
+                1
+            } else {
+                // Per-id entry + per-owner index entry.
+                2
+            }
+        }
+        TtlClass::MultiSig
+        | TtlClass::Vesting
+        | TtlClass::Emergency
+        | TtlClass::YieldEscrow => 1,
+    }
+}
+
 /// Bump every key belonging to sweep item `index` of `class` and return how many
 /// keys were actually touched.
 ///
 /// An item can own more than one key — an escrow owns both its per-id recipient
 /// entry and the recipient's escrow index — so the caller checks its budget
-/// before starting an item rather than between the keys of one item. That keeps
-/// a sweep making progress for any `max_keys >= 1`.
+/// (via [`ttl_class_item_key_cost`]) before starting an item rather than between
+/// the keys of one item. That keeps a sweep making progress for any
+/// `max_keys >= 1` while respecting [`MAX_KEYS_PER_SWEEP`].
 pub fn bump_ttl_class_item(env: &Env, class: &TtlClass, index: u32) -> u32 {
     match class {
         TtlClass::Config => bump_config_key(env, index),

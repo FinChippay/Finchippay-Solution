@@ -16,24 +16,36 @@ export function setJwtToken(token: string | null): void {
   inMemoryAccessToken = token;
 }
 
+/**
+ * Returns a non-null sentinel value when a session flag exists in localStorage.
+ * The actual refresh token is never stored in the client — /api/auth/refresh
+ * relies on the backend's httpOnly cookie. A boolean flag is kept so the app
+ * can attempt a refresh right after a page reload without a 401-first round
+ * trip.
+ */
 export function getRefreshToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("finchippay_refresh_token");
+  return localStorage.getItem("finchippay_has_session") ? "true" : null;
 }
 
 export function setRefreshToken(token: string | null): void {
   if (typeof window !== "undefined") {
     if (token) {
-      localStorage.setItem("finchippay_refresh_token", token);
+      localStorage.setItem("finchippay_has_session", "true");
     } else {
-      localStorage.removeItem("finchippay_refresh_token");
+      localStorage.removeItem("finchippay_has_session");
     }
+    // Defence-in-depth: purge any legacy residual refresh-token key from
+    // earlier versions. Nothing in the current codebase ever writes it.
+    localStorage.removeItem("finchippay_refresh_token");
   }
 }
 
 export function clearJwtToken(): void {
   inMemoryAccessToken = null;
   if (typeof window !== "undefined") {
+    localStorage.removeItem("finchippay_has_session");
+    // Purge any legacy residual key from versions that stored the token.
     localStorage.removeItem("finchippay_refresh_token");
   }
 }
@@ -45,14 +57,14 @@ async function performRefresh(): Promise<string | null> {
   const rToken = getRefreshToken();
   if (!rToken) return null;
 
+  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
   try {
-    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ refreshToken: rToken }),
     });
 
     if (res.ok) {
@@ -156,34 +168,18 @@ export async function getAccessToken(): Promise<string | null> {
   return ensureAccessToken();
 }
 
-export interface SessionInfo {
-  id: number;
-  publicKey: string;
-  deviceInfo?: string;
-  ipAddress?: string;
-  createdAt: string;
-  lastUsedAt?: string;
-  expiresAt: string;
-}
+export type { SessionInfo } from "@finchippay/sdk";
 
 /**
  * Get active sessions for current user
  */
-export async function getSessions(): Promise<SessionInfo[]> {
+export async function getSessions(): Promise<import("@finchippay/sdk").SessionInfo[]> {
   const token = await ensureAccessToken();
   if (!token) return [];
 
-  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
   try {
-    const res = await fetch(`${API_URL}/api/auth/sessions`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data.sessions || [];
-    }
+    const { apiClient } = await import("./api");
+    return await apiClient.auth.getSessions();
   } catch (err) {
     logger.error("Failed to fetch sessions", {}, err instanceof Error ? err : undefined);
   }
@@ -195,10 +191,12 @@ export async function getSessions(): Promise<SessionInfo[]> {
  */
 export async function revokeSession(sessionId: number | string): Promise<boolean> {
   const token = await ensureAccessToken();
-  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+  if (!token) return false;
+
   try {
     const res = await fetch(`${API_URL}/api/auth/revoke`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -220,10 +218,12 @@ export async function revokeSession(sessionId: number | string): Promise<boolean
  */
 export async function revokeAllSessions(): Promise<boolean> {
   const token = await ensureAccessToken();
-  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+  if (!token) return false;
+
   try {
     const res = await fetch(`${API_URL}/api/auth/revoke`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

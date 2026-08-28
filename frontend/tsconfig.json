@@ -26,6 +26,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@finchippay/sdk": [
+        "../sdk/src/index.ts"
       ]
     }
   },

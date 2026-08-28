@@ -10,6 +10,10 @@
 // set in .env is visible when the OpenTelemetry SDK initialises.
 require("dotenv").config();
 
+// Docker secrets (JWT_SECRET_FILE, DATABASE_URL_FILE, etc.) must be resolved
+// into plain env vars before any other module reads them.
+require("./config/dockerSecrets");
+
 // ─── OpenTelemetry tracing (must load before Express/HTTP imports) ────────────
 // Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
 // so this must be required before express, http, etc. are imported.
@@ -38,6 +42,7 @@ const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
 const { restoreWebhooks } = require("./services/webhookService");
+const inboundWebhookSecretService = require("./services/inboundWebhookSecretService");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
@@ -490,6 +495,21 @@ if (require.main === module) {
       // streams. Must run after the server is bound so the port is guaranteed
       // ready before any incoming payment events trigger deliveries.
       await restoreWebhooks();
+      // First boot only: provision a secret for the SEP-24 anchor callback
+      // if one doesn't already exist, so the endpoint is verifiable without
+      // a separate manual setup step. Printed once — never persisted to
+      // logs again — so an operator can capture it and configure it on the
+      // anchor's side. Use inboundWebhookSecretService.rotateSecret() to
+      // change it afterwards.
+      const newSep24Secret = await inboundWebhookSecretService.ensureSecretExists(
+        "sep24_callback",
+      );
+      if (newSep24Secret) {
+        logger.warn(
+          { endpoint: "sep24_callback", secretId: newSep24Secret.id },
+          `Generated a new sep24_callback webhook secret — configure this on the anchor's side, it will not be shown again: ${newSep24Secret.secret}`,
+        );
+      }
       startTurretsServer();
       eventIndexer.start();
       startRetryWorker();

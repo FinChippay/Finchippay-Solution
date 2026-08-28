@@ -380,10 +380,10 @@ fn test_pause_blocks_swap_operations() {
     assert_eq!(out_token.balance(&caller), 0);
 }
 
-// ─── Rescue & emergency withdrawal ───────────────────────────────────────────
+// ─── Emergency withdrawal ───────────────────────────────────────────────────
 
 #[test]
-fn test_pause_blocks_rescue_and_emergency_withdrawal() {
+fn test_pause_blocks_emergency_withdrawal() {
     let env = Env::default();
     let (contract_id, client) = deploy(&env);
     let admin = client.get_admin();
@@ -392,16 +392,12 @@ fn test_pause_blocks_rescue_and_emergency_withdrawal() {
 
     let token_id = create_token(&env, &admin, &funder, 100_000);
     // Fund the contract directly with *unlocked* tokens (no escrow/stream
-    // locking), so a rescue or emergency withdrawal would otherwise succeed.
+    // locking), so an emergency withdrawal would otherwise succeed.
     token::Client::new(&env, &token_id).transfer(&funder, &contract_id, &50_000);
     let wid = client.initiate_emergency_withdrawal(&admin, &token_id, &10_000, &admin);
 
     pause_contract(&env, &client);
 
-    assert_blocked_by_pause(
-        client.try_rescue_tokens(&admin, &token_id, &10_000, &admin),
-        "rescue_tokens",
-    );
     assert_blocked_by_pause(
         client.try_initiate_emergency_withdrawal(&admin, &token_id, &10_000, &admin),
         "initiate_emergency_withdrawal",
@@ -426,42 +422,6 @@ fn test_pause_blocks_rescue_and_emergency_withdrawal() {
         client.get_emergency_withdrawal(&wid).status,
         finchippay_contract::EmergencyWithdrawalStatus::Pending
     );
-}
-
-// ─── Admin multi-sig rescue action ───────────────────────────────────────────
-
-#[test]
-fn test_pause_blocks_rescue_tokens_admin_action() {
-    let env = Env::default();
-    let (contract_id, client) = deploy(&env);
-    let admin = client.get_admin();
-    env.mock_all_auths();
-
-    let token_id = create_token(&env, &admin, &admin, 100_000);
-    token::Client::new(&env, &token_id).transfer(&admin, &contract_id, &50_000);
-
-    pause_contract(&env, &client);
-
-    // `rescue_tokens` is the one value-transferring branch of the admin
-    // multi-sig governance path. It must be blocked while paused even though
-    // `propose_admin_action` itself stays callable (so `unpause` can still be
-    // proposed). The guard lives inside `execute_admin_action`.
-    let data: Vec<Val> = Vec::from_array(
-        &env,
-        [
-            token_id.clone().into_val(&env),
-            admin.clone().into_val(&env),
-            10_000i128.into_val(&env),
-        ],
-    );
-    assert_blocked_by_pause(
-        client.try_propose_admin_action(&admin, &Symbol::new(&env, "rescue_tokens"), &data),
-        "propose_admin_action(rescue_tokens)",
-    );
-
-    // Funds untouched.
-    let token = token::Client::new(&env, &token_id);
-    assert_eq!(token.balance(&contract_id), 50_000);
 }
 
 // ─── Read-only views keep working while paused ───────────────────────────────

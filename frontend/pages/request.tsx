@@ -1,11 +1,15 @@
+import dynamic from "next/dynamic";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
-import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { logger } from "@/lib/logger";
 import { getXLMBalance } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+
+// SendPaymentForm pulls in @zxing QR-scanning (~500KB); load it lazily so it
+// does not ship in the request route's first-load chunk (issue #610).
+const SendPaymentForm = dynamic(() => import("@/components/SendPaymentForm"), { ssr: false });
 
 interface PrefillData {
   destination: string;
@@ -42,7 +46,7 @@ export default function RequestPage() {
         setPrefill(parsedData);
         setError(null);
       } catch (err) {
-        logger.error("Invalid request link data", err);
+        logger.error("Invalid request link data", {}, err instanceof Error ? err : undefined);
         setError("Invalid request link. Please check the URL.");
       }
     }

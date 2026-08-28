@@ -39,7 +39,7 @@ blocked while paused, and every view still works.
 | 6 | `is_paused` | lib.rs | — | — | — | View |
 | 7 | `pause` | lib.rs | ✅ | — | — | Emergency brake; must work while paused |
 | 8 | `unpause` | lib.rs | ✅ | — | — | Must work while paused |
-| 9 | `propose_admin_action` | lib.rs | ✅ | ⚠️¹ | — | Must stay open so `unpause` can be proposed; fund-moving branch (`rescue_tokens`) is guarded at execution |
+| 9 | `propose_admin_action` | lib.rs | ✅ | ⚠️¹ | — | Must stay open so `unpause` can be proposed; no dispatched action moves funds (see ¹) |
 | 10 | `approve_admin_action` | lib.rs | ✅ | ⚠️¹ | — | Same as above |
 | 11 | `get_admin_action_proposal` | lib.rs | — | — | — | View |
 | 12 | `get_pauser` | lib.rs | — | — | — | View |
@@ -54,7 +54,7 @@ blocked while paused, and every view still works.
 | 21 | `estimate_open_stream` | lib.rs | — | — | — | Pure |
 | 22 | `estimate_batch_send` | lib.rs | — | — | — | Pure |
 | 23 | `estimate_create_multisig` | lib.rs | — | — | — | Pure |
-| 24 | `rescue_tokens` | lib.rs | ✅ | ✅ | ✅ | **Fixed** — legacy admin rescue was moving funds while paused |
+| 24 | ~~`rescue_tokens`~~ | lib.rs | — | — | — | **Removed** — legacy single-admin rescue deleted (#678); use `initiate_emergency_withdrawal` → `approve_emergency_withdrawal` → `execute_emergency_withdrawal` |
 | 25 | `initiate_emergency_withdrawal` | lib.rs | ✅ | ⚠️² | ✅ | Guarded |
 | 26 | `approve_emergency_withdrawal` | lib.rs | ✅ | ✅ | ✅ | Guarded; auto-executes transfer |
 | 27 | `execute_emergency_withdrawal` | lib.rs | ✅ | ✅ | ✅ | Guarded |
@@ -126,9 +126,10 @@ blocked while paused, and every view still works.
 
 ¹ `propose_admin_action` / `approve_admin_action` are the multi-sig governance
 path. They **must** remain callable while paused so the `unpause` action can be
-proposed and approved. The only value-transferring action they can dispatch —
-`rescue_tokens` — is individually guarded inside `execute_admin_action`, so a
-rescue cannot move funds while paused, while `unpause` still can.
+proposed and approved. No dispatched admin action moves funds (the legacy
+`rescue_tokens` branch was removed in #678); funds rescue now goes exclusively
+through the time-delayed, pause-guarded `initiate_emergency_withdrawal` →
+`approve_emergency_withdrawal` → `execute_emergency_withdrawal` flow.
 
 ² `initiate_emergency_withdrawal` only records parameters (no transfer), but it
 is guarded anyway, consistent with the existing design that no funds move while
@@ -165,6 +166,12 @@ Eight fund-moving code paths were missing the pause guard:
 7. `create_yield_escrow` — yield_escrow.rs
 8. `claim_yield_escrow` — yield_escrow.rs
 9. `cancel_yield_escrow` — yield_escrow.rs
+
+> **Update (#678):** items 1 and 2 above (`rescue_tokens` and the
+> `execute_admin_action` → `rescue_tokens` branch) have since been **removed
+> entirely**. Funds rescue now goes exclusively through the time-delayed,
+> multi-sig-gated `initiate_emergency_withdrawal` → `approve_emergency_withdrawal`
+> → `execute_emergency_withdrawal` flow, which is pause-guarded.
 
 No pause **semantics** were changed (the pauser/legacy-admin distinction is
 untouched); only coverage gaps were closed. All new guards reuse the existing

@@ -21,19 +21,75 @@ const {
   setPaginationHeaders,
   formatPaginatedResponse,
 } = require("../utils/paginate");
+const { verifyJWT } = require("../middleware/auth");
+const { sensitiveLimiter } = require("../middleware/rateLimit");
+const { userLimiter } = require("../middleware/userRateLimit");
+
+/**
+ * Restrict scheduled-transaction routes to the authenticated account holder.
+ * Runs after verifyJWT (which sets req.user.publicKey from the SEP-10 JWT).
+ */
+function requireOwnSchedule(req, res, next) {
+  if (req.user?.publicKey !== req.params.publicKey) {
+    return res
+      .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
+      .json(formatErrorResponse("AUTH_FORBIDDEN", {
+        message: "Forbidden: you may only access your own scheduled transactions.",
+      }));
+  }
+  next();
+}
+
+/**
+ * Restrict schedule-by-ID routes to the schedule owner.
+ * Fetches the schedule and verifies ownership.
+ */
+async function requireScheduleOwner(req, res, next) {
+  try {
+    const schedule = await scheduledTransactionService.getScheduleById(req.params.id);
+    if (!schedule) {
+      return res
+        .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+        .json(formatErrorResponse("RES_NOT_FOUND", {
+          resourceType: "scheduledTransaction",
+          id: req.params.id,
+        }));
+    }
+    if (req.user?.publicKey !== schedule.owner_pk) {
+      return res
+        .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
+        .json(formatErrorResponse("AUTH_FORBIDDEN", {
+          message: "Forbidden: you may only access your own scheduled transactions.",
+        }));
+    }
+    req.schedule = schedule;
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
 
 /**
  * POST /api/scheduled-transactions
  * Schedules a new transaction for future submission.
- * Body: { signedXDR: string, submitAt: string (ISO 8601), publicKey: string }
+ * Body: { signedXDR: string, submitAt: string (ISO 8601), publicKey?: string }
+ * The owner is derived from the authenticated user's JWT.
+ * If publicKey is provided, it must match the authenticated user's publicKey.
  */
-router.post("/", validate(scheduleTransactionSchema), async (req, res, next) => {
+router.post("/", sensitiveLimiter, userLimiter, verifyJWT, validate(scheduleTransactionSchema), async (req, res, next) => {
   try {
     const { signedXDR, submitAt, publicKey } = req.validated;
+    if (publicKey && publicKey !== req.user.publicKey) {
+      return res
+        .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
+        .json(formatErrorResponse("AUTH_FORBIDDEN", {
+          message: "Forbidden: publicKey in body must match authenticated user.",
+        }));
+    }
     const schedule = await scheduledTransactionService.createSchedule({
       signedXDR,
       submitAt: new Date(submitAt),
-      publicKey,
+      ownerPk: req.user.publicKey,
     });
     res.status(201).json(schedule);
   } catch (error) {
@@ -48,7 +104,7 @@ router.post("/", validate(scheduleTransactionSchema), async (req, res, next) => 
  * Validation: the id comes from req.validated (idParamSchema enforces a
  * non-empty string). Service treats it as opaque.
  */
-router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req, res, next) => {
+router.post("/pending/:id/submit", sensitiveLimiter, userLimiter, verifyJWT, validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
     const { signedXDR } = req.body;
@@ -56,6 +112,23 @@ router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req
       return res
         .status(ERROR_CODES.VAL_MISSING_FIELD.httpStatus)
         .json(formatErrorResponse("VAL_MISSING_FIELD", { fields: ["signedXDR"] }));
+    }
+    // Verify the pending execution belongs to the authenticated user
+    const pending = await scheduledTransactionService.getPendingExecutionById(id);
+    if (!pending) {
+      return res
+        .status(ERROR_CODES.RES_NOT_FOUND.httpStatus)
+        .json(formatErrorResponse("RES_NOT_FOUND", {
+          resourceType: "pendingExecution",
+          id,
+        }));
+    }
+    if (req.user.publicKey !== pending.owner_pk) {
+      return res
+        .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
+        .json(formatErrorResponse("AUTH_FORBIDDEN", {
+          message: "Forbidden: you may only submit your own pending executions.",
+        }));
     }
     const result = await scheduledTransactionService.submitPendingExecution(id, signedXDR);
     res.json(result);
@@ -68,7 +141,7 @@ router.post("/pending/:id/submit", validate(idParamSchema, "params"), async (req
  * GET /api/scheduled-transactions/:publicKey/pending
  * Lists pending executions for a given public key with standardized pagination.
  */
-router.get("/:publicKey/pending", async (req, res, next) => {
+router.get("/:publicKey/pending", sensitiveLimiter, userLimiter, verifyJWT, requireOwnSchedule, async (req, res, next) => {
   try {
     const rawPending = await scheduledTransactionService.listPendingExecutions(
       req.params.publicKey,
@@ -94,7 +167,7 @@ router.get("/:publicKey/pending", async (req, res, next) => {
  * GET /api/scheduled-transactions/:publicKey
  * Lists all schedules for a given public key with standardized pagination.
  */
-router.get("/:publicKey", validate(loosePublicKeyParamSchema, "params"), async (req, res, next) => {
+router.get("/:publicKey", sensitiveLimiter, userLimiter, verifyJWT, requireOwnSchedule, validate(loosePublicKeyParamSchema, "params"), async (req, res, next) => {
   try {
     const { publicKey } = req.validated;
     const rawSchedules = await scheduledTransactionService.listSchedules(publicKey);
@@ -122,7 +195,7 @@ router.get("/:publicKey", validate(loosePublicKeyParamSchema, "params"), async (
  * Validation: the id comes from req.validated (idParamSchema enforces a
  * non-empty string), so the service can treat it as opaque.
  */
-router.put("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
+router.put("/:id", sensitiveLimiter, userLimiter, verifyJWT, requireScheduleOwner, validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
     const updated = await scheduledTransactionService.updateSchedule(id, req.body);
@@ -136,7 +209,7 @@ router.put("/:id", validate(idParamSchema, "params"), async (req, res, next) => 
  * DELETE /api/scheduled-transactions/:id
  * Deletes or cancels a scheduled transaction by ID.
  */
-router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) => {
+router.delete("/:id", sensitiveLimiter, userLimiter, verifyJWT, requireScheduleOwner, validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
     const deleted = await scheduledTransactionService.deleteSchedule(id);
@@ -160,7 +233,7 @@ router.delete("/:id", validate(idParamSchema, "params"), async (req, res, next) 
  * Manually trigger immediate execution of a scheduled transaction,
  * regardless of its scheduled time.
  */
-router.post("/:id/execute-now", validate(idParamSchema, "params"), async (req, res, next) => {
+router.post("/:id/execute-now", sensitiveLimiter, userLimiter, verifyJWT, requireScheduleOwner, validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
     const result = await scheduledExecutor.executeNow(id);
@@ -175,7 +248,7 @@ router.post("/:id/execute-now", validate(idParamSchema, "params"), async (req, r
  * Get execution history for a scheduled transaction.
  * Shows all execution attempts, retries, and failures.
  */
-router.get("/:id/executions", validate(idParamSchema, "params"), async (req, res, next) => {
+router.get("/:id/executions", sensitiveLimiter, userLimiter, verifyJWT, requireScheduleOwner, validate(idParamSchema, "params"), async (req, res, next) => {
   try {
     const { id } = req.validated;
     const executions = await scheduledExecutor.getExecutionHistory(id);

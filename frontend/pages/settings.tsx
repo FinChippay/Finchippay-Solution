@@ -15,6 +15,8 @@ import NotificationPreferences from "@/components/NotificationPreferences";
 import ThemeSettings from "@/components/ThemeSettings";
 import { useContacts } from "@/hooks/useContacts";
 import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
+import { apiClient } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import { resetTour } from '@/lib/onboardingState';
 import { shortenAddress } from "@/lib/stellar";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
@@ -28,6 +30,7 @@ import {
 } from "@/lib/turrets";
 import { useWallet } from "@/lib/useWallet";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
+import { logger } from "@/lib/logger";
 
 interface SettingsPageProps {
   publicKey?: string | null;
@@ -87,23 +90,17 @@ export default function SettingsPage({
   useEffect(() => {
     const fetchUsername = async () => {
       if (!publicKey) return;
-      
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+
       try {
-        const response = await fetch(
-          `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
-        );
-        if (response.ok) {
-          const payload = await response.json();
-          if (payload?.success && payload?.data?.username) {
-            setRegisteredUsername(payload.data.username);
-          }
+        const payload = await apiClient.accounts.resolveUsername(publicKey);
+        if (payload?.data?.username) {
+          setRegisteredUsername(payload.data.username);
         }
       } catch (err) {
-        logger.error("Error fetching username:", err);
+        logger.error("Error fetching username", {}, err instanceof Error ? err : undefined);
       }
     };
-    
+
     fetchUsername();
   }, [publicKey]);
 
@@ -303,21 +300,10 @@ export default function SettingsPage({
     setUsernameSuccess(null);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/v1/accounts/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim().toLowerCase(),
-          publicKey,
-        }),
+      await apiClient.accounts.register({
+        username: username.trim().toLowerCase(),
+        publicKey,
       });
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to register username");
-      }
 
       setRegisteredUsername(username.trim().toLowerCase());
       setUsernameSuccess(`Username @${username.trim()} registered successfully!`);
@@ -859,13 +845,12 @@ export default function SettingsPage({
             </div>
           </div>
         
-          {/* ──             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+          <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Onboarding Tour</h2>
               <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">Replay the onboarding tour to refamiliarize yourself with the app.</p>
               <button onClick={() => { resetTour(); window.location.href = '/dashboard'; }} className="px-4 py-2 bg-stellar-500 hover:bg-stellar-600 text-white font-medium rounded-lg transition-colors text-sm">Replay Onboarding Tour</button>
             </div>
 
-            {/*  ── */}
           <div className="card">
             <h2 className="text-lg font-semibold mb-2">Your Stellar Name</h2>
             <p className="text-sm text-gray-500 mb-4">

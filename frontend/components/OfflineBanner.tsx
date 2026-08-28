@@ -10,7 +10,8 @@
  *  - Brief "Back online!" confirmation when connectivity returns
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { getCachedData, getMinutesAgo } from "@/lib/cacheData";
 import {
   getQueueCount,
@@ -19,11 +20,13 @@ import {
 } from "@/lib/offlineQueue";
 
 export default function OfflineBanner() {
-  const [isOffline, setIsOffline] = useState(false);
+  const { isOnline } = useNetworkStatus();
+  const isOffline = !isOnline;
   const [cacheAge, setCacheAge] = useState<number | null>(null);
   const [queueCount, setQueueCount] = useState(0);
   const [showOnlineTransition, setShowOnlineTransition] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const prevOnline = useRef(isOnline);
 
   /** Refresh the pending-transaction count from IndexedDB. */
   const refreshQueueCount = useCallback(async () => {
@@ -34,49 +37,51 @@ export default function OfflineBanner() {
     }
   }, []);
 
+  /** Refresh the cached-data age from IndexedDB. */
+  const refreshCacheAge = useCallback(async () => {
+    try {
+      const cached = await getCachedData("dashboard-data");
+      if (cached) setCacheAge(getMinutesAgo(cached.cachedAt));
+    } catch {
+      // Cache unavailable — skip.
+    }
+  }, []);
+
+  // Initial data load on mount.
+  useEffect(() => {
+    void refreshCacheAge();
+    void refreshQueueCount();
+  }, [refreshCacheAge, refreshQueueCount]);
+
+  // React to online/offline transitions reported by useNetworkStatus().
+  useEffect(() => {
+    if (prevOnline.current === isOnline) return;
+    prevOnline.current = isOnline;
+
+    if (isOnline) {
+      setShowOnlineTransition(true);
+      void (async () => {
+        // Trigger queue processing as soon as the tab comes online.
+        try {
+          await registerBackgroundSync();
+        } catch {
+          // Fallback: process directly in the main thread.
+          void processQueue();
+        }
+        await refreshQueueCount();
+        setTimeout(() => setShowOnlineTransition(false), 2500);
+      })();
+    } else {
+      setShowOnlineTransition(false);
+      void refreshCacheAge();
+      void refreshQueueCount();
+    }
+  }, [isOnline, refreshCacheAge, refreshQueueCount]);
+
+  // Listen for the SW's QUEUE_PROCESSED message to refresh badge count.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    setIsOffline(!navigator.onLine);
-
-    // Initial data load
-    const init = async () => {
-      try {
-        const cached = await getCachedData("dashboard-data");
-        if (cached) setCacheAge(getMinutesAgo(cached.cachedAt));
-      } catch {
-        // Cache unavailable — skip.
-      }
-      await refreshQueueCount();
-    };
-    void init();
-
-    const goOnline = async () => {
-      setShowOnlineTransition(true);
-      // Trigger queue processing as soon as the tab comes online.
-      try {
-        await registerBackgroundSync();
-      } catch {
-        // Fallback: process directly in the main thread.
-        void processQueue();
-      }
-      await refreshQueueCount();
-
-      setTimeout(() => {
-        setIsOffline(false);
-        setShowOnlineTransition(false);
-      }, 2500);
-    };
-
-    const goOffline = () => {
-      setIsOffline(true);
-      setShowOnlineTransition(false);
-    };
-
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-
-    // Listen for the SW's QUEUE_PROCESSED message to refresh badge count.
     const handleSwMessage = (event: MessageEvent) => {
       if (event.data?.type === "QUEUE_PROCESSED") {
         void refreshQueueCount();
@@ -85,8 +90,6 @@ export default function OfflineBanner() {
     navigator.serviceWorker?.addEventListener("message", handleSwMessage);
 
     return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
       navigator.serviceWorker?.removeEventListener("message", handleSwMessage);
     };
   }, [refreshQueueCount]);

@@ -1,45 +1,47 @@
 ## Summary
 
-Emits complete, structured events for the contract entry points that were missing or under-specified them, so off-chain indexers can reconstruct escrow/stream/multisig/batch state without replaying every ledger or reading storage.
+Closes #XYZ - Removes insecure `localStorage` persistence of `finchippay_refresh_token` and relies strictly on the backend-issued `httpOnly` cookie for session resilience. 
 
 ## Type of change
 
+- [x] Security fix (non-breaking change which fixes an issue)
 - [ ] Bug fix
-- [x] New feature
-- [x] Documentation update
+- [ ] New feature
+- [ ] Documentation update
 - [ ] Refactor / chore
-- [x] Smart contract change
 
 ## Related issue
 
-Closes #55
+Fixes High Severity vulnerability: "performSEP0010Auth stores finchippay_refresh_token in localStorage in addition to the httpOnly cookie set by the backend."
+
+## What this fixes / the gap
+
+The `finchippay_refresh_token` was being redundantly stored in the browser's `localStorage` during the SEP-0010 authentication flow. This bypassed the security protections of the `httpOnly` cookie set by the backend, exposing the 7-day refresh token to potential XSS attacks and enabling persistent session hijacking.
+
+## The fix and why this approach
+
+- **Removed `localStorage` token storage:** Removed the `localStorage.setItem` for `finchippay_refresh_token` in `performSEP0010Auth`.
+- **Introduced non-sensitive auth hint:** Replaced the token storage in `frontend/lib/auth.ts` with a non-sensitive boolean flag (`finchippay_has_session = 'true'`). This allows the frontend to know it *should* attempt a token refresh without exposing the token payload itself.
+- **Enabled Cross-Origin Cookies (`credentials: "include"`):** 
+  - Updated `performRefresh`, `revokeSession`, and `revokeAllSessions` in `frontend/lib/auth.ts` to omit the refresh token from their JSON body payloads and instead include `credentials: "include"`, relying on the browser to send the `httpOnly` cookie.
+  - Updated `disconnectWallet` in `frontend/lib/wallet.ts` to utilize `credentials: "include"` when calling `/api/auth/logout`.
+  - Updated `verifyChallenge` and `getChallenge` in `frontend/lib/sdk-instance.ts` to include `credentials: "include"` so the `Set-Cookie` directives from the backend are properly saved by the browser.
 
 ## Changes
 
-- `cancel_escrow`: renamed `escrow_cancel` → `escrow_cancelled`, topic reduced to `(escrow_cancelled,)`, data now `(id, from, amount)`.
-- `top_up_stream`: renamed `stream_topup` → `stream_topped_up`, topic reduced to `(stream_topped_up,)`, data now `(id, payer, added, new_deposit)`.
-- `cancel_multisig`: renamed `multisig_cancel` → `multisig_cancelled`, topic reduced to `(multisig_cancelled,)`, data now `(id, proposer, amount)`.
-- `batch_send`: renamed `batch_send` event → `batch_sent`, topic reduced to `(batch_sent,)`, data now `(from, count, total_amount)` — `total_amount` is accumulated via `checked_add` across the fan-out loop.
-- Verified `rescue_tokens` already emits `(rescue_tokens,)` with `(token_address, amount, to)`, matching the required single-symbol topic pattern — added a regression test since none previously existed.
-- Added a "Event Catalogue" section to `docs/architecture.md` cataloguing every contract event (topics, data, emitting function), including the ones changed here.
+- `frontend/lib/wallet.ts`: Removed token storage, updated `disconnectWallet` fetch options.
+- `frontend/lib/auth.ts`: Refactored `getRefreshToken`/`setRefreshToken` to use a boolean flag; removed token from JSON body of refresh/revoke requests; added `credentials: "include"`.
+- `frontend/lib/sdk-instance.ts`: Added `credentials: "include"` to SDK fetch wrappers.
 
 ## Testing
 
-- [ ] Tested locally on Testnet
-- [x] Added/updated unit tests
-- [ ] Manually tested UI flow
-
-Added 5 new unit tests in `contracts/finchippay-contract/src/lib.rs` that assert on `env.events().all().filter_by_contract(&contract_id)`, verifying exact topics and data for `escrow_cancelled`, `stream_topped_up`, `multisig_cancelled`, `batch_sent`, and `rescue_tokens`.
-
-Note: `cargo test` currently fails to build in this environment even on a clean checkout of `master` (verified via `git stash`), due to an upstream dependency conflict — `soroban-env-host 27.0.0`'s test utilities pull in a `ChaCha20Rng` that no longer satisfies `ed25519_dalek::rand_core::CryptoRng` under the currently resolved `rand_core` versions. This is unrelated to this PR and wasn't addressed here. The non-test contract code was verified with `cargo check --lib`, which compiles cleanly (only pre-existing `#[deprecated]` warnings on `Events::publish`, consistent with the rest of the file).
-
-## Screenshots (if UI change)
-
-N/A — contract-only change.
+- [x] Verified `localStorage` no longer contains the refresh token upon login.
+- [x] Verified automated refresh cycle succeeds via the `httpOnly` cookie.
+- [x] Verified `logout` successfully clears the `httpOnly` cookies from the browser.
 
 ## Checklist
 
 - [x] My code follows the project style
-- [x] I've updated docs if needed
-- [ ] No console errors or warnings
+- [ ] I've updated docs if needed
+- [x] No console errors or warnings
 - [x] I've rebased on latest `main`

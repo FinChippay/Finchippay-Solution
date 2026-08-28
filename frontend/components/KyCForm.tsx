@@ -8,7 +8,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { getJwtToken } from "@/lib/auth";
+import { apiClient } from "@/lib/api";
 
 interface KyCFormProps {
   publicKey: string | null;
@@ -79,25 +79,14 @@ export default function KyCForm({ publicKey }: KyCFormProps) {
   const fetchStatus = useCallback(async () => {
     if (!publicKey) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    const token = getJwtToken();
-    if (!token) return;
-
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(
-        `${apiBase}/api/sep12/customer/status?anchorName=${encodeURIComponent(ANCHOR_NAME)}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-
-      if (res.ok) {
-        const payload = await res.json();
-        if (payload?.success) {
-          setStatus(payload.data.status || "NONE");
-          setMessage(payload.data.message || null);
-        }
+      const payload = await apiClient.sep12.getStatus(ANCHOR_NAME);
+      if (payload?.data) {
+        setStatus((payload.data.status as KycStatus) || "NONE");
+        setMessage(payload.data.message || null);
       }
     } catch {
       // Silently fail — status check is non-blocking
@@ -152,9 +141,6 @@ export default function KyCForm({ publicKey }: KyCFormProps) {
     setError(null);
     setSuccess(null);
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    const token = getJwtToken();
-
     try {
       // Build fields payload — only include non-empty values
       const payload: Record<string, string> = {};
@@ -165,27 +151,14 @@ export default function KyCForm({ publicKey }: KyCFormProps) {
         }
       }
 
-      const res = await fetch(`${apiBase}/api/sep12/customer`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          anchorName: ANCHOR_NAME,
-          fields: payload,
-        }),
+      const res = await apiClient.sep12.putCustomer({
+        anchorName: ANCHOR_NAME,
+        fields: payload,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to submit KYC information");
-      }
-
-      if (data?.success) {
-        setStatus(data.data.status || "PROCESSING");
-        setMessage(data.data.message || null);
+      if (res?.data) {
+        setStatus((res.data.status as KycStatus) || "PROCESSING");
+        setMessage(res.data.message || null);
         setSuccess("KYC information submitted successfully!");
       }
     } catch (err) {

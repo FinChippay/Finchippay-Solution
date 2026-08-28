@@ -16,7 +16,7 @@
  *   const handled = handleError(err, "WALLET_SIGNATURE_REJECTED");
  */
 
-import { getError, getErrorLayer } from "../../shared/errorCodes";
+import { ERROR_CODES, getError, getErrorLayer } from "../../shared/errorCodes";
 import {
   parseApiError,
   getContractErrorMessage,
@@ -40,14 +40,7 @@ import {
  *   none        – informational; no recovery step applies.
  */
 export type RecoveryKind =
-  | "retry"
-  | "reconnect"
-  | "reauth"
-  | "fix_input"
-  | "wait"
-  | "fund"
-  | "contact_support"
-  | "none";
+  "retry" | "reconnect" | "reauth" | "fix_input" | "wait" | "fund" | "contact_support" | "none";
 
 export interface RecoveryAction {
   kind: RecoveryKind;
@@ -87,10 +80,7 @@ const ACTIONS: Record<RecoveryKind, RecoveryAction> = {
  * act on are listed; anything else falls through to a category default, so the
  * table never has to be exhaustive to stay correct.
  */
-const USER_COPY: Record<
-  string,
-  { title: string; message: string; action: RecoveryKind }
-> = {
+const USER_COPY: Record<string, { title: string; message: string; action: RecoveryKind }> = {
   // ── Auth ────────────────────────────────────────────────────────────────
   AUTH_MISSING_TOKEN: {
     title: "Sign in required",
@@ -132,8 +122,7 @@ const USER_COPY: Record<
   // ── Validation ──────────────────────────────────────────────────────────
   VAL_INVALID_PUBLIC_KEY: {
     title: "Invalid address",
-    message:
-      "That is not a valid Stellar address. It should be 56 characters and start with G.",
+    message: "That is not a valid Stellar address. It should be 56 characters and start with G.",
     action: "fix_input",
   },
   VAL_INVALID_STELLAR_ADDRESS: {
@@ -158,8 +147,7 @@ const USER_COPY: Record<
   },
   VAL_INVALID_USERNAME: {
     title: "Invalid username",
-    message:
-      "Usernames must be 3 to 20 characters, using only letters and numbers.",
+    message: "Usernames must be 3 to 20 characters, using only letters and numbers.",
     action: "fix_input",
   },
   VAL_BODY_TOO_LARGE: {
@@ -211,14 +199,12 @@ const USER_COPY: Record<
   // ── Payments ────────────────────────────────────────────────────────────
   PAY_INSUFFICIENT_BALANCE: {
     title: "Not enough balance",
-    message:
-      "Your balance will not cover this payment plus the network fee and reserve.",
+    message: "Your balance will not cover this payment plus the network fee and reserve.",
     action: "fund",
   },
   PAY_DESTINATION_NOT_FUNDED: {
     title: "Recipient account not created",
-    message:
-      "This address has no Stellar account yet. Send at least 1 XLM to create it.",
+    message: "This address has no Stellar account yet. Send at least 1 XLM to create it.",
     action: "fix_input",
   },
   PAY_SELF_PAYMENT: {
@@ -261,8 +247,7 @@ const USER_COPY: Record<
   },
   CONTRACT_INVALID_STATE: {
     title: "Cannot do that yet",
-    message:
-      "This action is not available in the current state. Refresh to see the latest status.",
+    message: "This action is not available in the current state. Refresh to see the latest status.",
     action: "retry",
   },
   CONTRACT_INSUFFICIENT_FUNDS: {
@@ -360,14 +345,47 @@ const USER_COPY: Record<
   },
 };
 
+// ─── Production message sanitization ───────────────────────────────────────
+
+/** True outside a production build, where surfacing raw text aids debugging. */
+function isDevelopment(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+/**
+ * Every string the catalogue has vetted for display: mapped user copy plus
+ * the catalogue's own messages. `sanitizeMessage` only lets a message through
+ * unchanged in production if it is a member of this set.
+ */
+const SAFE_MESSAGES = new Set<string>([
+  ...Object.values(USER_COPY).map((entry) => entry.message),
+  ...Object.values(ERROR_CODES).map((entry) => entry.message),
+]);
+
+/**
+ * Last line of defence before free-text reaches a toast or error banner.
+ * Raw `Error.message` strings can carry SQL errors, stack fragments, or
+ * contract panic details (storage keys, addresses) that a backend or
+ * dependency failure surfaced verbatim (see #issue: sanitize error toasts).
+ *
+ * In development the original text is returned so bugs stay visible. In
+ * production, only text already vetted through the catalogue is shown;
+ * anything else collapses to the generic SRV_INTERNAL copy.
+ *
+ * @param message - Free-text message that may or may not be user-safe.
+ */
+export function sanitizeMessage(message: string | undefined | null): string {
+  const fallback = USER_COPY.SRV_INTERNAL.message;
+  if (!message) return fallback;
+  if (isDevelopment()) return message;
+  return SAFE_MESSAGES.has(message) ? message : fallback;
+}
+
 /**
  * Fallback copy per category prefix, used when a code has no bespoke entry.
  * This is why the table above does not need to list all 75 codes.
  */
-const CATEGORY_FALLBACK: Record<
-  string,
-  { title: string; action: RecoveryKind }
-> = {
+const CATEGORY_FALLBACK: Record<string, { title: string; action: RecoveryKind }> = {
   AUTH: { title: "Sign in required", action: "reauth" },
   TOKEN: { title: "Sign in required", action: "reauth" },
   VAL: { title: "Check your details", action: "fix_input" },
@@ -390,7 +408,7 @@ const CATEGORY_FALLBACK: Record<
  */
 export function describeError(
   code: string,
-  context: { details?: unknown; correlationId?: string; message?: string } = {}
+  context: { details?: unknown; correlationId?: string; message?: string } = {},
 ): HandledError {
   const entry = getError(code);
   const copy = USER_COPY[entry.code];
@@ -404,11 +422,7 @@ export function describeError(
   // offering "Try again" only wastes their time.
   const actionKind = copy?.action ?? fallback.action;
   const action =
-    ACTIONS[
-      isSupportError(entry.code) && actionKind === "retry"
-        ? "contact_support"
-        : actionKind
-    ];
+    ACTIONS[isSupportError(entry.code) && actionKind === "retry" ? "contact_support" : actionKind];
 
   return {
     code: entry.code,
@@ -449,10 +463,7 @@ export async function handleApiError(response: Response): Promise<HandledError> 
  * @param error - The caught value.
  * @param fallbackCode - Code to assume when nothing more specific is inferable.
  */
-export function handleError(
-  error: unknown,
-  fallbackCode = "GEN_UNKNOWN"
-): HandledError {
+export function handleError(error: unknown, fallbackCode = "GEN_UNKNOWN"): HandledError {
   if (error && typeof error === "object") {
     const candidate = error as {
       code?: unknown;
@@ -463,11 +474,8 @@ export function handleError(
     if (typeof candidate.code === "string") {
       return describeError(candidate.code, {
         correlationId:
-          typeof candidate.correlationId === "string"
-            ? candidate.correlationId
-            : undefined,
-        message:
-          typeof candidate.message === "string" ? candidate.message : undefined,
+          typeof candidate.correlationId === "string" ? candidate.correlationId : undefined,
+        message: typeof candidate.message === "string" ? candidate.message : undefined,
       });
     }
   }
@@ -486,10 +494,7 @@ export function handleError(
  * @param contractErrorCode - The numeric ContractError value.
  * @param rawMessage - Optional raw message from the invocation.
  */
-export function handleContractError(
-  contractErrorCode: number,
-  rawMessage?: string
-): HandledError {
+export function handleContractError(contractErrorCode: number, rawMessage?: string): HandledError {
   const parsed = getContractErrorMessage(contractErrorCode, rawMessage);
   return describeError(parsed.code, { details: parsed.details });
 }
@@ -499,10 +504,11 @@ export function handleContractError(
  * appended when there is one worth quoting to support.
  */
 export function formatForDisplay(handled: HandledError): string {
+  const safeMessage = sanitizeMessage(handled.userMessage);
   if (handled.action.kind === "contact_support" && handled.correlationId) {
-    return `${handled.userMessage} (reference: ${handled.correlationId})`;
+    return `${safeMessage} (reference: ${handled.correlationId})`;
   }
-  return handled.userMessage;
+  return safeMessage;
 }
 
 // ─── Private helpers ────────────────────────────────────────────────────────

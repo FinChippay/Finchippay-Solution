@@ -150,7 +150,9 @@
     "balanceTrendDownward": "Tendência do saldo: baixa",
     "balanceLive": "Ao vivo",
     "balancePolling": "Atualizando a cada 30s",
-    "viewPortfolio": "Ver Portfólio →"
+    "viewPortfolio": "Ver Portfólio →",
+    "balanceReconnecting": "Reconectando…",
+    "balanceStale": "Desatualizado — os dados podem estar desatualizados"
   },
   "portfolio": {
     "title": "Portfólio",
@@ -213,7 +215,8 @@
     "invalidUsername": "Formato de usuário inválido",
     "resolutionFailed": "A resolução do usuário não retornou uma chave pública válida",
     "invalidDestination": "Insira uma chave pública Stellar, endereço de federação ou nome de usuário válido.",
-    "destinationSelf": "O destino não pode ser sua própria carteira."
+    "destinationSelf": "O destino não pode ser sua própria carteira.",
+    "needsTrustline": "Adicione uma trustline para {asset} antes de enviar."
   },
   "transactions": {
     "title": "Pagamentos Recentes",
@@ -305,5 +308,9 @@
     "languageTitle": "Idioma",
     "languageDescription": "Selecione seu idioma preferido para a interface do aplicativo.",
     "rtlSupportNote": "Suporte RTL: layouts em árabe são espelhados."
+  },
+  "assetSelect": {
+    "noAssets": "Nenhum ativo disponível.",
+    "addTrustline": "Trustline"
   }
 }
