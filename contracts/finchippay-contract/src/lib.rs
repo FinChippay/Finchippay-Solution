@@ -6237,6 +6237,173 @@ mod tests {
         let (remaining, _) = client.get_min_ttl();
         assert_eq!(remaining, MIN_TTL_LEDGERS - 10_000);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WS3 — Arithmetic invariant tests (swap fee math)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_swap_fee_breakdown_invariant_zero_bps() {
+        // 0 bps: fee=0, amount_to_swap=gross
+        let (fee, amount_to_swap) = compute_swap_fee(1_000_000, 0);
+        assert_eq!(fee, 0);
+        assert_eq!(amount_to_swap, 1_000_000);
+        assert_eq!(fee + amount_to_swap, 1_000_000);
+    }
+
+    #[test]
+    fn test_swap_fee_breakdown_invariant_30_bps() {
+        // 30 bps on 10_000: fee=30, amount_to_swap=9_970
+        let (fee, amount_to_swap) = compute_swap_fee(10_000, 30);
+        assert_eq!(fee, 30);
+        assert_eq!(amount_to_swap, 9_970);
+        assert_eq!(fee + amount_to_swap, 10_000);
+    }
+
+    #[test]
+    fn test_swap_fee_breakdown_invariant_max_bps() {
+        let (fee, amount_to_swap) = compute_swap_fee(100_000, MAX_SWAP_FEE_BPS);
+        assert_eq!(fee + amount_to_swap, 100_000);
+    }
+
+    #[test]
+    fn test_swap_fee_breakdown_dust_amount() {
+        // amount < 10_000 / bps: fee truncates to 0 — documented dust edge
+        let (fee, amount_to_swap) = compute_swap_fee(100, 30);
+        assert_eq!(fee, 0);
+        assert_eq!(amount_to_swap, 100);
+        assert_eq!(fee + amount_to_swap, 100);
+    }
+
+    #[test]
+    fn test_swap_fee_breakdown_invariant_many_amounts() {
+        // Property: fee + swapped == gross for various amounts and bps values
+        for amount in [0i128, 1, 999, 10_000, 1_000_000, 1_000_000_000] {
+            for bps in [0u32, 1, 30, 100, 300, 500] {
+                let (fee, amount_to_swap) = compute_swap_fee(amount, bps);
+                assert_eq!(
+                    fee + amount_to_swap,
+                    amount,
+                    "invariant failed: amount={}, bps={}",
+                    amount,
+                    bps
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_swap_fee_math_monotonicity() {
+        // Higher fee_bps => higher fee, lower amount_to_swap
+        let (fee1, swapped1) = compute_swap_fee(100_000, 10);
+        let (fee2, swapped2) = compute_swap_fee(100_000, 100);
+        let (fee3, swapped3) = compute_swap_fee(100_000, 500);
+        assert!(fee1 <= fee2);
+        assert!(fee2 <= fee3);
+        assert!(swapped1 >= swapped2);
+        assert!(swapped2 >= swapped3);
+    }
+
+    #[test]
+    fn test_swap_fee_bounded_by_gross() {
+        for bps in [0u32, 1, 30, 100, 300, 500] {
+            let (fee, _) = compute_swap_fee(1_000_000, bps);
+            assert!(fee <= 1_000_000, "fee exceeded gross at bps={}", bps);
+            // fee <= gross * MAX_FEE_BPS / 10_000
+            assert!(
+                fee <= 1_000_000 * (MAX_SWAP_FEE_BPS as i128) / 10_000,
+                "fee exceeded max at bps={}",
+                bps
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_required_amount_in_roundtrip() {
+        // required_in >= amount_out for all fee_bps
+        for fee_bps in [0u32, 1, 30, 100, 500] {
+            let required = compute_required_amount_in(10_000, fee_bps);
+            assert!(
+                required >= 10_000,
+                "required_in < amount_out at fee_bps={}",
+                fee_bps
+            );
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WS5 — Persistence & governance tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_swap_fee_persists_and_can_be_read() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        env.mock_all_auths();
+        // Default fee
+        assert_eq!(client.get_swap_fee(), DEFAULT_SWAP_FEE_BPS);
+        // Update fee and read it back
+        assert!(client.try_set_swap_fee(&admin, &50).unwrap().is_ok());
+        assert_eq!(client.get_swap_fee(), 50);
+        // Out-of-range fee is rejected
+        assert!(client
+            .try_set_swap_fee(&admin, &(MAX_SWAP_FEE_BPS + 1))
+            .is_err());
+    }
+
+    #[test]
+    fn test_admin_action_count_persists() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        env.mock_all_auths();
+        let id = client.propose_admin_action(
+            &admin,
+            &Symbol::new(&env, "pause"),
+            &Vec::new(&env),
+        );
+        // AdminActionCount was bumped; first proposal id should be 1
+        assert_eq!(id, 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WS1 — Emergency-withdrawal state machine tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_emergency_state_machine_terminality() {
+        // A withdrawal in Executed state cannot be executed again
+        let env = Env::default();
+        let (_, client, token_id, signers) = setup_emergency(&env, 2, 2, 10_000);
+        let admin = client.get_admin();
+        let to = Address::generate(&env);
+        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &5_000, &to);
+        client.approve_emergency_withdrawal(&id, &admin);
+        let w = client.get_emergency_withdrawal(&id);
+        advance(&env, w.activation_ledger);
+        client.approve_emergency_withdrawal(&id, &signers.get(1).unwrap());
+        assert_eq!(
+            client.get_emergency_withdrawal(&id).status,
+            EmergencyWithdrawalStatus::Executed
+        );
+        // Try to execute again — must fail
+        let result = client.try_execute_emergency_withdrawal(&id);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_cancel_emergency_withdrawal_non_admin_panics() {
+        let env = Env::default();
+        let (_, client, token_id, _signers) = setup_emergency(&env, 2, 2, 5_000);
+        let admin = client.get_admin();
+        let outsider = Address::generate(&env);
+        let to = Address::generate(&env);
+        let id = client.initiate_emergency_withdrawal(&admin, &token_id, &1_000, &to);
+        // outsider (not the legacy admin) tries to cancel — must panic
+        client.cancel_emergency_withdrawal(&id, &outsider);
+    }
 }
 
 // Mock contracts for storage compatibility tests — no longer needed.
