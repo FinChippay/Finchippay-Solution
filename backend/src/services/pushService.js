@@ -18,6 +18,32 @@ const knex = require("../db/connection");
 const logger = require("../utils/logger");
 
 const TABLE = "push_subscriptions";
+const TOKENS_TABLE = "push_tokens";
+
+/** Maximum distinct devices (endpoints) an account may register. */
+const MAX_DEVICES_PER_ACCOUNT = 10;
+
+/** Web Push endpoint URLs are long but bounded to reject garbage payloads. */
+const MAX_ENDPOINT_LENGTH = 2048;
+
+/** p256dh / auth keys are base64url-encoded binary material from the browser. */
+const MIN_P256DH_LENGTH = 80;
+const MAX_P256DH_LENGTH = 256;
+const MIN_AUTH_LENGTH = 16;
+const MAX_AUTH_LENGTH = 64;
+const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Native mobile device-token formats (FCM and APNs).
+ *
+ * APNs: 64 hexadecimal characters (32-byte device token).
+ * FCM:  140–4096 characters from [A-Za-z0-9_-] (registration token).
+ *
+ * The combined check accepts either shape so clients do not need to declare
+ * the provider up front; pass `provider: "fcm"` or `"apns"` to require one.
+ */
+const FCM_DEVICE_TOKEN_RE = /^[a-zA-Z0-9_-]{140,4096}$/;
+const APNS_DEVICE_TOKEN_RE = /^[a-fA-F0-9]{64}$/;
 
 /**
  * Status codes a push service returns when a subscription is permanently
@@ -87,20 +113,63 @@ function getPublicKey() {
 }
 
 /**
+ * Build a 400-class error for push validation failures.
+ * @param {string} message
+ * @returns {Error}
+ */
+function pushValidationError(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
+/**
+ * Validate a native push device token (FCM or APNs).
+ *
+ * @param {unknown} token
+ * @param {"fcm"|"apns"|undefined} [provider]  When set, only that format is accepted.
+ * @returns {boolean}
+ */
+function isValidDeviceToken(token, provider) {
+  if (typeof token !== "string") return false;
+  const trimmed = token.trim();
+  if (!trimmed) return false;
+
+  if (provider === "fcm") return FCM_DEVICE_TOKEN_RE.test(trimmed);
+  if (provider === "apns") return APNS_DEVICE_TOKEN_RE.test(trimmed);
+
+  return APNS_DEVICE_TOKEN_RE.test(trimmed) || FCM_DEVICE_TOKEN_RE.test(trimmed);
+}
+
+/**
  * Validate the shape of a PushSubscription sent by a browser.
  *
  * @param {unknown} subscription
  * @returns {boolean}
  */
 function isValidSubscription(subscription) {
-  return Boolean(
-    subscription &&
-    typeof subscription === "object" &&
-    typeof subscription.endpoint === "string" &&
-    subscription.endpoint.startsWith("https://") &&
-    subscription.keys &&
-    typeof subscription.keys.p256dh === "string" &&
-    typeof subscription.keys.auth === "string",
+  if (
+    !subscription ||
+    typeof subscription !== "object" ||
+    typeof subscription.endpoint !== "string" ||
+    !subscription.endpoint.startsWith("https://") ||
+    subscription.endpoint.length > MAX_ENDPOINT_LENGTH ||
+    !subscription.keys ||
+    typeof subscription.keys.p256dh !== "string" ||
+    typeof subscription.keys.auth !== "string"
+  ) {
+    return false;
+  }
+
+  const { p256dh, auth } = subscription.keys;
+
+  return (
+    p256dh.length >= MIN_P256DH_LENGTH &&
+    p256dh.length <= MAX_P256DH_LENGTH &&
+    BASE64URL_RE.test(p256dh) &&
+    auth.length >= MIN_AUTH_LENGTH &&
+    auth.length <= MAX_AUTH_LENGTH &&
+    BASE64URL_RE.test(auth)
   );
 }
 
@@ -118,7 +187,7 @@ function isValidSubscription(subscription) {
 async function addSubscription(publicKey, subscription) {
   if (!publicKey) throw new Error("publicKey is required");
   if (!isValidSubscription(subscription)) {
-    throw new Error("A valid push subscription is required");
+    throw pushValidationError("A valid push subscription is required");
   }
 
   const { endpoint } = subscription;
@@ -131,6 +200,13 @@ async function addSubscription(publicKey, subscription) {
     return { created: false };
   }
 
+  const [{ count }] = await knex(TABLE).where({ public_key: publicKey }).count("* as count");
+  if (Number(count) >= MAX_DEVICES_PER_ACCOUNT) {
+    throw pushValidationError(
+      `Maximum of ${MAX_DEVICES_PER_ACCOUNT} devices per account`,
+    );
+  }
+
   await knex(TABLE).insert({
     public_key: publicKey,
     endpoint,
@@ -139,6 +215,85 @@ async function addSubscription(publicKey, subscription) {
   });
 
   return { created: true };
+}
+
+/**
+ * Detect the provider for a validated native device token.
+ * @param {string} token
+ * @returns {"fcm"|"apns"}
+ */
+function detectDeviceTokenProvider(token) {
+  const trimmed = token.trim();
+  return APNS_DEVICE_TOKEN_RE.test(trimmed) ? "apns" : "fcm";
+}
+
+/**
+ * Register a native mobile device token (FCM or APNs) for an account.
+ *
+ * Idempotent: re-registering the same token reassigns it to the caller and
+ * refreshes provider metadata instead of creating a duplicate row.
+ *
+ * @param {string} publicKey
+ * @param {string} token
+ * @param {"fcm"|"apns"|undefined} [provider]
+ * @returns {Promise<{created: boolean, provider: string}>}
+ */
+async function registerDeviceToken(publicKey, token, provider) {
+  if (!publicKey) throw new Error("publicKey is required");
+  if (!isValidDeviceToken(token, provider)) {
+    throw pushValidationError("Invalid device token format");
+  }
+
+  const trimmed = token.trim();
+  const resolvedProvider = provider || detectDeviceTokenProvider(trimmed);
+
+  const existing = await knex(TOKENS_TABLE).where({ token: trimmed }).first();
+
+  if (existing) {
+    await knex(TOKENS_TABLE)
+      .where({ id: existing.id })
+      .update({ public_key: publicKey, provider: resolvedProvider });
+    return { created: false, provider: resolvedProvider };
+  }
+
+  const [{ count }] = await knex(TOKENS_TABLE).where({ public_key: publicKey }).count("* as count");
+  if (Number(count) >= MAX_DEVICES_PER_ACCOUNT) {
+    throw pushValidationError(
+      `Maximum of ${MAX_DEVICES_PER_ACCOUNT} devices per account`,
+    );
+  }
+
+  await knex(TOKENS_TABLE).insert({
+    public_key: publicKey,
+    token: trimmed,
+    provider: resolvedProvider,
+  });
+
+  return { created: true, provider: resolvedProvider };
+}
+
+/**
+ * List native device tokens registered for an account.
+ * @param {string} publicKey
+ * @returns {Promise<Array<object>>}
+ */
+async function listDeviceTokens(publicKey) {
+  if (!publicKey) return [];
+  return knex(TOKENS_TABLE).where({ public_key: publicKey }).select("*");
+}
+
+/**
+ * Remove one native device token for an account.
+ * @param {string} publicKey
+ * @param {string} token
+ * @returns {Promise<{removed: number}>}
+ */
+async function removeDeviceToken(publicKey, token) {
+  if (!publicKey) throw new Error("publicKey is required");
+  if (!token) throw new Error("token is required");
+
+  const removed = await knex(TOKENS_TABLE).where({ public_key: publicKey, token: token.trim() }).del();
+  return { removed };
 }
 
 /**
@@ -264,12 +419,17 @@ async function sendNotification(publicKey, { title, body, data = {} } = {}) {
 }
 
 module.exports = {
+  MAX_DEVICES_PER_ACCOUNT,
   addSubscription,
+  registerDeviceToken,
+  removeDeviceToken,
+  listDeviceTokens,
   removeSubscription,
   listSubscriptions,
   sendNotification,
   isPushEnabled,
   getPublicKey,
+  isValidDeviceToken,
   isValidSubscription,
   resetVapidConfigForTests,
 };
