@@ -12,15 +12,9 @@
 
 import clsx from "clsx";
 import { useState } from "react";
-import {
-  AlertCircleIcon,
-  ExternalLinkIcon,
-} from "@/components/icons";
-import {
-  getErrorMessage,
-  isRetryableError,
-  isSupportError,
-} from "@/lib/errorHandler";
+import { AlertCircleIcon, ExternalLinkIcon } from "@/components/icons";
+import { getErrorMessage, isRetryableError, isSupportError } from "@/lib/errorHandler";
+import { sanitizeMessage } from "@/lib/handleError";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -101,10 +95,12 @@ export default function ErrorDisplay({
   const [showDetails, setShowDetails] = useState(false);
 
   // Resolve the error message.
-  const resolved = errorCode
-    ? getErrorMessage(errorCode, details)
-    : null;
-  const displayMessage = message || resolved?.message || "An unexpected error occurred.";
+  const resolved = errorCode ? getErrorMessage(errorCode, details) : null;
+  // `message` may be free text from a caught error, not vetted catalogue
+  // copy, so it is the one value here that needs sanitizing before display.
+  const displayMessage = message
+    ? sanitizeMessage(message)
+    : resolved?.message || "An unexpected error occurred.";
   const displayCode = errorCode || resolved?.code || "GEN_UNKNOWN";
   const canRetry = onRetry && isRetryableError(displayCode);
   const showSupport = isSupportError(displayCode);
@@ -132,7 +128,13 @@ export default function ErrorDisplay({
             className="text-slate-400 hover:text-white transition-colors flex-shrink-0"
             aria-label="Dismiss error"
           >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="h-3.5 w-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -192,9 +194,7 @@ export default function ErrorDisplay({
           </div>
 
           {/* Message */}
-          <p className="mt-1 text-sm text-slate-300 leading-relaxed">
-            {displayMessage}
-          </p>
+          <p className="mt-1 text-sm text-slate-300 leading-relaxed">{displayMessage}</p>
 
           {/* Details toggle */}
           {details != null && (
@@ -205,10 +205,7 @@ export default function ErrorDisplay({
                 className="text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1"
               >
                 <svg
-                  className={clsx(
-                    "h-3 w-3 transition-transform",
-                    showDetails && "rotate-90",
-                  )}
+                  className={clsx("h-3 w-3 transition-transform", showDetails && "rotate-90")}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"

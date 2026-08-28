@@ -17,6 +17,7 @@
     "test:a11y:full": "playwright test e2e/accessibility.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
+    "test:visual": "playwright test e2e/visual-regression.spec.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },

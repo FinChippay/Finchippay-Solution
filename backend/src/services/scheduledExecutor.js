@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/services/scheduledExecutor.js
  *
  * Automatic execution engine for scheduled transactions.
@@ -30,6 +30,7 @@ const knex = require("../db/connection");
 const logger = require("../utils/logger");
 const scheduledTransactionService = require("./scheduledTransactionService");
 const webhookService = require("./webhookService");
+const tracer = require("../config/tracing").getTracer("scheduler");
 
 // Configuration
 const EXECUTOR_INTERVAL_MS = process.env.SCHEDULED_EXECUTOR_INTERVAL_MS || 60_000; // 60 seconds
@@ -48,7 +49,7 @@ const EXECUTION_STATUS = Object.freeze({
 let executorTimer = null;
 let isRunning = false;
 
-// ─── Helper Functions ────────────────────────────────────────────────────────
+// â”€â”€â”€ Helper Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Parse error response from Stellar Horizon.
@@ -87,7 +88,7 @@ function parseHorizonError(err) {
  * @returns {boolean} true if the error is retryable
  */
 function isRetryableError(errorCode) {
-  // Permanent failures — don't retry
+  // Permanent failures â€” don't retry
   const permanentErrors = [
     "tx_failed",
     "tx_too_early",
@@ -140,7 +141,7 @@ function executionIdForRun(schedule) {
   return `${schedule.id}:${runAt}`;
 }
 
-// ─── Redis distributed lock (ioredis, only when REDIS_URL is set) ────────────
+// â”€â”€â”€ Redis distributed lock (ioredis, only when REDIS_URL is set) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 let lockRedis = null;
 
@@ -178,7 +179,7 @@ async function acquireLock(key, ttlMs) {
     const result = await redis.set(key, "1", "PX", ttlMs, "NX");
     return result === "OK" ? "acquired" : "held";
   } catch (err) {
-    logger.warn({ err, key }, "Redis lock acquire failed — falling back to DB claim");
+    logger.warn({ err, key }, "Redis lock acquire failed â€” falling back to DB claim");
     return "unavailable";
   }
 }
@@ -197,7 +198,7 @@ async function releaseLock(key) {
   }
 }
 
-// ─── Claim / lease management ────────────────────────────────────────────────
+// â”€â”€â”€ Claim / lease management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Claim a brand-new execution so only one worker runs its side effect.
@@ -299,7 +300,7 @@ async function claimRetry(executionId, schedule) {
 /**
  * Mark a claimed execution as resolved and release its lease + lock.
  * @param {object} claim - Claim returned by claimExecution()
- * @param {object} updates - Column updates to apply (status, execution_status, …)
+ * @param {object} updates - Column updates to apply (status, execution_status, â€¦)
  */
 async function finalizeClaim(claim, updates) {
   await knex("scheduled_txn_executions")
@@ -308,13 +309,13 @@ async function finalizeClaim(claim, updates) {
   await releaseLock(claim.lockKey);
 }
 
-// ─── Due / retry discovery ───────────────────────────────────────────────────
+// â”€â”€â”€ Due / retry discovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Get all scheduled transactions due for execution, including missed runs.
  *
- * A schedule is "due" when its next_run_at is now or in the past — the old
- * ±60s window silently dropped runs whenever a tick was missed, so we sweep
+ * A schedule is "due" when its next_run_at is now or in the past â€” the old
+ * Â±60s window silently dropped runs whenever a tick was missed, so we sweep
  * everything overdue instead. Schedules that already have an unresolved
  * (pending) execution are excluded: those are handled by the retry sweep.
  *
@@ -361,7 +362,7 @@ async function getPendingRetries() {
   return pendingRetries;
 }
 
-// ─── Submission ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Submission â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Build and submit a scheduled transaction to Stellar.
@@ -392,7 +393,7 @@ async function submitScheduledTransaction(schedule) {
     //   2. The owner receives a webhook payload and signs via Freighter/Albedo/Ledger.
     //   3. The signed XDR is submitted back to the API, which submits to Horizon.
     //   4. For future: multisig with a backend recovery signer using SEP-30.
-    // See docs/architecture.md § Scheduled Transactions for the full design.
+    // See docs/architecture.md Â§ Scheduled Transactions for the full design.
 
     logger.warn(
       { scheduleId: schedule.id, recipient: schedule.recipient },
@@ -503,7 +504,7 @@ async function advanceSchedule(schedule) {
  * Handle a due transaction: claim it, then submit it or queue for retry.
  * @param {object} schedule - Scheduled transaction record
  */
-async function executeDueTransaction(schedule) {
+async function executeDueTransactionImpl(schedule) {
   const executionId = executionIdForRun(schedule);
   const claim = await claimExecution(executionId, schedule);
   if (!claim) {
@@ -587,6 +588,20 @@ async function executeDueTransaction(schedule) {
  * Handle a pending retry: re-claim and re-submit a failed transaction.
  * @param {object} execution - Execution history record
  */
+async function executeDueTransaction(schedule) {
+  const span = tracer.startSpan("scheduler.execute_due_transaction", {
+    attributes: { "schedule.id": schedule.id, "schedule.recipient": schedule.recipient },
+  });
+  try {
+    return await executeDueTransactionImpl(schedule);
+  } catch (err) {
+    span.recordException(err);
+    throw err;
+  } finally {
+    span.end();
+  }
+}
+
 async function handleRetry(execution) {
   const schedule = await knex("scheduled_transactions").where("id", execution.schedule_id).first();
 
@@ -731,7 +746,7 @@ async function executeCycle() {
   }
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Start the scheduled executor.
@@ -860,3 +875,5 @@ module.exports = {
   getPendingRetries,
   executionIdForRun,
 };
+
+

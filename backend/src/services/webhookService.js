@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/services/webhookService.js
  *
  * Webhook registration, delivery, retry with exponential backoff, dead
@@ -35,7 +35,7 @@
  * NOTE: Because delivery requires the original plaintext secret, the in-memory
  * Map holds the raw secret for webhooks registered in the current process.
  * Webhooks reloaded on restart use the stored encrypted secret via
- * decryptSecret() — no re-registration required.
+ * decryptSecret() â€” no re-registration required.
  */
 
 "use strict";
@@ -49,6 +49,7 @@ const { propagation, context } = require("@opentelemetry/api");
 const { getRequestIdHeader } = require("../utils/correlationId");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 const { encryptSecret, decryptSecret } = require("../utils/encryption");
+const { hashSecret, WEBHOOK_SECRET_KEY } = require("../utils/webhookSecretHash");
 const {
   SUPPORTED_WEBHOOK_TOPICS,
   normalizeTopics,
@@ -56,6 +57,10 @@ const {
   parseTopics,
   matchesWebhookTopic,
 } = require("./webhookTopics");
+const {
+  accountCacheKey,
+  paymentsCachePattern,
+} = require("./stellarCacheKeys");
 const knex = require("../db/connection");
 require("dotenv").config();
 
@@ -76,24 +81,9 @@ const MAX_RETRIES = parseInt(process.env.WEBHOOK_MAX_RETRIES, 10) || 6;
 const RETRY_INTERVALS_SECONDS = [60, 300, 900, 3600, 21600, 86400];
 const RETRY_WORKER_INTERVAL = 30000;
 
-/**
- * Server-side secret used to produce the stored HMAC-SHA256 hash.
- * Must be set in the environment; defaults to a generated value that won't
- * survive restarts — force explicit configuration in production.
- */
-const WEBHOOK_SECRET_KEY = process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
-
-if (!process.env.WEBHOOK_SECRET_KEY && process.env.NODE_ENV !== "test") {
-  logger.warn(
-    "WEBHOOK_SECRET_KEY is not set — a random key will be used. " +
-      "Stored secret hashes will not be reproducible across restarts. " +
-      "Set WEBHOOK_SECRET_KEY in your environment for production use.",
-  );
-}
-
 /** In-process cache of the most recently registered webhooks (by id). The DB
- *  is the source of truth — this Map just gives the SSE delivery path a
- *  cheap way to resolve `id → secret + url` without a SELECT per payment. */
+ *  is the source of truth â€” this Map just gives the SSE delivery path a
+ *  cheap way to resolve `id â†’ secret + url` without a SELECT per payment. */
 /** @type {Map<string, {id:string,publicKey:string,url:string,secret:string,createdAt:string}>} */
 const webhooks = new Map();
 
@@ -105,22 +95,7 @@ const pendingDeliveries = new Set();
 
 let retryWorkerTimer = null;
 
-// ─── Secret hashing ───────────────────────────────────────────────────────────
-
-/**
- * Produce a deterministic HMAC-SHA256 hash of `secret` keyed by `id`.
- * This is stored alongside the encrypted secret so the hash can be
- * verified without decryption.
- *
- * @param {string} id
- * @param {string} secret
- * @returns {string} hex digest
- */
-function hashSecret(id, secret) {
-  return crypto.createHmac("sha256", WEBHOOK_SECRET_KEY).update(`${id}:${secret}`).digest("hex");
-}
-
-// ─── ID generation ────────────────────────────────────────────────────────────
+// â”€â”€â”€ ID generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Generate a collision-resistant webhook ID.
@@ -131,7 +106,7 @@ function generateId() {
   return crypto.randomUUID();
 }
 
-// ─── Registration ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Registration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Register a new webhook for a Stellar public key.
@@ -243,7 +218,7 @@ async function getWebhookById(id) {
  * Horizon SSE streams for each unique public key.
  *
  * Call this once during server startup. Secrets are decrypted at delivery
- * time via decryptSecret() — no re-registration required after restart.
+ * time via decryptSecret() â€” no re-registration required after restart.
  *
  * @returns {Promise<number>} Count of unique accounts for which streams were started.
  */
@@ -275,7 +250,7 @@ async function restoreWebhooks() {
   return restored;
 }
 
-// ─── Signature ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Signature â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Compute the HMAC-SHA256 signature for a payload.
@@ -295,7 +270,7 @@ function generateIdempotencyKey(webhookId, eventType, payloadStr, timestamp) {
     .digest("hex");
 }
 
-// ─── Delivery ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Delivery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Attempt to deliver a signed webhook payload to a single endpoint.
@@ -431,7 +406,7 @@ async function writeToDeadLetterQueue(deliveryId, webhook, payload, errorMsg, re
     await knex("dead_letter_queue").insert({
       id: crypto.randomUUID(),
       delivery_id: deliveryId,
-      webhook_id: resolvedWebhook.id,
+      webhook_id: webhook.id,
       payload: typeof payload === "string" ? payload : JSON.stringify(payload),
       retry_timestamps: JSON.stringify(retryTimestamps),
       final_error: errorMsg,
@@ -505,7 +480,7 @@ async function handleDeliveryFailure(deliveryId, webhook, errorMsg, payload) {
   }
 }
 
-// ─── Retry Worker ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Retry Worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Process pending webhook deliveries that are due for retry.
@@ -600,7 +575,7 @@ function stopRetryWorker() {
   }
 }
 
-// ─── Dead Letter Queue ────────────────────────────────────────────────────────
+// â”€â”€â”€ Dead Letter Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Get failed (dead) webhook deliveries for a given public key.
@@ -631,7 +606,7 @@ async function retryDeadDeliveries(publicKey) {
   return { reset: count };
 }
 
-// ─── Monitoring ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Monitoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Start a Horizon SSE stream for `webhook.publicKey` if one is not already
@@ -651,11 +626,12 @@ function startMonitoring(webhookArg) {
     .stream({
       onmessage: async (payment) => {
         if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
+        const sseSpan = tracer.startSpan("webhook.sse.receive", { attributes: { "webhook.public_key": webhook.publicKey, "stellar.payment_id": payment.id } });
         try {
           const cache = getCache();
           if (cache) {
-            await cache.del(`account:${webhook.publicKey}`);
-            await cache.delPattern(`payments:${webhook.publicKey}:*`);
+            await cache.del(accountCacheKey(webhook.publicKey));
+            await cache.delPattern(paymentsCachePattern(webhook.publicKey));
           }
         } catch {
           /* cache clear failure is non-critical */
@@ -681,6 +657,7 @@ function startMonitoring(webhookArg) {
           return promise;
         });
         await Promise.allSettled(deliveries);
+        sseSpan.end();
       },
       onerror: (err) => {
         logger.error({
@@ -698,7 +675,7 @@ function startMonitoring(webhookArg) {
   logger.info({ type: "horizon_monitoring_started", publicKey: webhook.publicKey });
 }
 
-// ─── Graceful Shutdown ────────────────────────────────────────────────────────
+// â”€â”€â”€ Graceful Shutdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Close all active Horizon SSE streams and wait for in-flight deliveries.
@@ -727,7 +704,7 @@ async function closeAllStreams(timeoutMs = 5000) {
   pendingDeliveries.clear();
 }
 
-// ─── Event Replay & Querying ──────────────────────────────────────────────────
+// â”€â”€â”€ Event Replay & Querying â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getEvents(publicKey, { since, until, type, limit = 50, cursor } = {}) {
   const query = knex("webhook_events as e")
@@ -776,7 +753,7 @@ async function getEventStats(publicKey) {
     .count("e.id as count");
 }
 
-// ─── Delivery Status Query API ────────────────────────────────────────────────
+// â”€â”€â”€ Delivery Status Query API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getDeliveries(publicKey, { status, page = 1, limit = 20 } = {}) {
   const offset = (Math.max(1, page) - 1) * limit;
@@ -835,4 +812,13 @@ module.exports = {
   restoreWebhooks,
   MAX_RETRIES,
   RETRY_INTERVALS_SECONDS,
+  // Re-exported for backward compatibility â€” these now live in
+  // utils/webhookSecretHash.js (shared with inboundWebhookSecretService.js)
+  // so that dependency-free module can be required without pulling in this
+  // file's @stellar/stellar-sdk dependency.
+  hashSecret,
+  WEBHOOK_SECRET_KEY,
 };
+
+
+

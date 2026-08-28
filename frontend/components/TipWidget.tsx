@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { logger } from "@/lib/logger";
+import { apiClient } from "@/lib/api";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
 import { formatXLM } from "@/utils/format";
@@ -100,19 +101,14 @@ export default function TipWidget({
 
     // Record tip in backend
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      await fetch(`${apiBase}/api/v1/tips`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          senderPublicKey: publicKey,
-          creatorPublicKey: destination,
-          amount: parsedAmount.toString(),
-          asset: "XLM",
-        }),
+      await apiClient.tips.create({
+        senderPublicKey: publicKey || undefined,
+        creatorPublicKey: destination,
+        amount: parsedAmount.toString(),
+        asset: "XLM",
       });
     } catch (err) {
-      logger.error("Failed to record tip:", err);
+      logger.error("Failed to record tip", {}, err instanceof Error ? err : undefined);
     }
   };
 

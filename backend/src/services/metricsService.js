@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 const promClient = require("prom-client");
 const logger = require("../utils/logger");
@@ -112,6 +112,22 @@ const rateLimitBypassedTotal = new promClient.Counter({
   registers: [register],
 });
 
+const emailsSentTotal = new promClient.Counter({
+  name: "emails_sent_total",
+  help: "Total number of emails successfully sent.",
+  registers: [register],
+});
+const emailsFailedTotal = new promClient.Counter({
+  name: "emails_failed_total",
+  help: "Total number of emails that failed after exhausting retries.",
+  registers: [register],
+});
+const emailsRateLimitedTotal = new promClient.Counter({
+  name: "emails_rate_limited_total",
+  help: "Total number of emails dropped due to per-user rate limiting.",
+  registers: [register],
+});
+
 async function getMetrics() {
   return register.metrics();
 }
@@ -141,6 +157,11 @@ module.exports = {
   rateLimitHitsTotal,
   rateLimitBreachesTotal,
   rateLimitBypassedTotal,
+  emailsSentTotal,
+  emailsFailedTotal,
+  emailsRateLimitedTotal,
   getMetrics,
   getContentType,
 };
+
+

@@ -29,7 +29,7 @@ export default function Network() {
       setStats(newStats);
       setPreviousLedgerSequence(newStats.latestLedgerSequence);
     } catch (err) {
-      logger.error("Failed to load network stats:", err);
+      logger.error("Failed to load network stats:", {}, err instanceof Error ? err : undefined);
       setError(err instanceof Error ? err.message : "Failed to load network statistics");
     } finally {
       setLoading(false);

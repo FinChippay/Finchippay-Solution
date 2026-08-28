@@ -230,10 +230,12 @@ function parseEvent(raw) {
   }
 
   const payload = {
-    topics,
+    id: raw.id ?? null,
+    topics: topics,
     data: data ?? null,
     eventId: raw.id ?? null,
     pagingToken: raw.pagingToken ?? null,
+    txHash: raw.txHash ?? null,
   };
 
   return {

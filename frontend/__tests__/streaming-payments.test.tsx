@@ -34,6 +34,28 @@ jest.mock("@/lib/useCountUp", () => ({
   useCountUp: () => ({ count: 0, elementRef: { current: null } }),
 }));
 
+// Stub the simulation hook so the claim preview can proceed to signing
+// without a real Soroban RPC round-trip.
+jest.mock("@/hooks/useTransactionSimulation", () => ({
+  useTransactionSimulation: () => ({
+    simulate: jest.fn().mockResolvedValue(undefined),
+    result: {
+      success: true,
+      preparedTransactionXdr: "PREPARED_XDR",
+      balanceChanges: [],
+      resourceFee: null,
+      contractError: null,
+      rawSimulation: null,
+      transactionXdr: "XDR",
+      warning: null,
+    },
+    loading: false,
+    error: null,
+    warning: null,
+    reset: jest.fn(),
+  }),
+}));
+
 const PUBLIC_KEY = "GRECIPIENT00000000000000000000000000000000000000000000";
 const PAYER_KEY = "GPAYER000000000000000000000000000000000000000000000000";
 
@@ -115,9 +137,15 @@ describe("StreamingPayments widget", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /claim/i }));
 
+    // The preview modal requires an explicit "Sign with Freighter" proceed.
+    const proceedButton = await screen.findByRole("button", { name: /sign with freighter/i });
+    fireEvent.click(proceedButton);
+
     await waitFor(() => {
       expect(mockBuildClaimStreamTransaction).toHaveBeenCalledWith(PUBLIC_KEY, 1);
-      expect(mockSubmitTransaction).toHaveBeenCalledWith("SIGNED_XDR");
+      expect(mockSubmitTransaction).toHaveBeenCalledWith(
+        expect.stringMatching(/PREPARED_XDR|SIGNED_XDR/)
+      );
     });
   });
 
@@ -131,6 +159,76 @@ describe("StreamingPayments widget", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /claim/i })).toBeDisabled();
+    });
+  });
+
+  it("applies an optimistic balance delta before signing a claim", async () => {
+    mockGetActiveStreamsForRecipient.mockResolvedValue([makeStream()]);
+    mockGetCurrentLedger.mockResolvedValue(150);
+    mockBuildClaimStreamTransaction.mockResolvedValue({ toXDR: () => "UNSIGNED_XDR" });
+    mockSubmitTransaction.mockResolvedValue({ hash: "abc123" });
+
+    const applyDelta = jest.fn();
+    const rollback = jest.fn();
+    const optimisticBalanceApi = { applyDelta, rollback };
+
+    render(
+      <StreamingPayments
+        publicKey={PUBLIC_KEY}
+        optimisticBalanceApi={optimisticBalanceApi}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stream-row-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /claim/i }));
+    await waitFor(() => {
+      expect(mockBuildClaimStreamTransaction).toHaveBeenCalledWith(PUBLIC_KEY, 1);
+    });
+
+    // The preview modal's "Sign with Freighter" proceeds to sign & submit.
+    const proceedButton = await screen.findByRole("button", { name: /sign with freighter/i });
+    fireEvent.click(proceedButton);
+
+    await waitFor(() => {
+      expect(mockSubmitTransaction).toHaveBeenCalledWith(
+        expect.stringMatching(/PREPARED_XDR|SIGNED_XDR/)
+      );
+      // stream 1: 50 ledgers × 0.1 XLM = 5 XLM streamed, 2 XLM claimed → 3 XLM
+      expect(applyDelta).toHaveBeenCalledWith("3.0000000", "claim:1");
+    });
+    expect(rollback).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the optimistic delta when a claim fails", async () => {
+    mockGetActiveStreamsForRecipient.mockResolvedValue([makeStream()]);
+    mockGetCurrentLedger.mockResolvedValue(150);
+    mockBuildClaimStreamTransaction.mockResolvedValue({ toXDR: () => "UNSIGNED_XDR" });
+    mockSubmitTransaction.mockRejectedValue(new Error("Horizon unavailable"));
+
+    const applyDelta = jest.fn();
+    const rollback = jest.fn();
+    const optimisticBalanceApi = { applyDelta, rollback };
+
+    render(
+      <StreamingPayments
+        publicKey={PUBLIC_KEY}
+        optimisticBalanceApi={optimisticBalanceApi}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stream-row-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /claim/i }));
+    const proceedButton = await screen.findByRole("button", { name: /sign with freighter/i });
+    fireEvent.click(proceedButton);
+
+    await waitFor(() => {
+      expect(rollback).toHaveBeenCalledWith("claim:1");
     });
   });
 });

@@ -86,9 +86,14 @@ export interface Tip {
 }
 
 export interface TipStats {
-  totalReceived: string;
-  totalCount: number;
-  averageAmount: string;
+  totalReceived?: string;
+  totalTips?: number;
+  totalCount?: number;
+  averageAmount?: string;
+  averageTip?: string | null;
+  largestTip?: string | null;
+  smallestTip?: string | null;
+  totalByAsset?: Record<string, { count: number; amount: string }>;
 }
 
 export interface TxFunctionChallengeRequest {
@@ -166,6 +171,21 @@ export interface Sep24Transaction {
   message: string | null;
 }
 
+/* ─── SEP-0012 ─── */
+
+export interface Sep12StatusResponse {
+  status: string;
+  message?: string | null;
+}
+
+export interface Sep12CustomerResponse {
+  publicKey: string;
+  anchorName: string;
+  status: string;
+  fields?: Record<string, unknown>;
+  message?: string | null;
+}
+
 export interface ExecutionLogEntry {
   id: string;
   deploymentId: string;
@@ -186,6 +206,7 @@ export interface HealthStatus {
 
 export interface ChallengeResponse {
   transaction: string;
+  networkPassphrase?: string;
 }
 
 export interface TokenResponse {
@@ -196,6 +217,31 @@ export interface TokenResponse {
 
 export interface AuthRequest {
   transaction: string;
+}
+
+export interface RefreshTokenRequest {
+  refreshToken: string;
+}
+
+export interface RevokeSessionRequest {
+  sessionId?: number | string;
+  refreshToken?: string;
+  all?: boolean;
+}
+
+export interface SessionInfo {
+  id: number;
+  publicKey: string;
+  deviceInfo?: string;
+  ipAddress?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt: string;
+}
+
+export interface SessionsResponse {
+  success: boolean;
+  sessions: SessionInfo[];
 }
 
 /* ─── Parse Payment ─── */
@@ -255,11 +301,26 @@ export interface BalanceResponse {
 /* ─── Tip creation ─── */
 
 export interface CreateTipRequest {
-  from: string;
-  to: string;
+  from?: string;
+  senderPublicKey?: string;
+  to?: string;
+  creatorPublicKey?: string;
   amount: string;
+  asset?: string;
   memo?: string;
   transactionHash?: string;
+  txHash?: string;
+}
+
+/* ─── Events ─── */
+
+export interface EventsStatsResponse {
+  totalEvents: number;
+  [key: string]: unknown;
+}
+
+export interface TopRecipientsResponse {
+  topRecipients: TopRecipient[];
 }
 
 /* ─── Pagination / listing ─── */

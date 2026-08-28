@@ -52,7 +52,7 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
       try {
         walletHoldings = await getPortfolioHoldings(publicKey);
       } catch (err) {
-        logger.error("DashboardPortfolioWidget: failed to load holdings:", err);
+        logger.error("DashboardPortfolioWidget: failed to load holdings:", {}, err instanceof Error ? err : undefined);
       }
       setHoldings(walletHoldings);
 
@@ -72,7 +72,7 @@ export default function DashboardPortfolioWidget({ publicKey }: DashboardPortfol
         }
         setHistory(loadPortfolioHistory());
       } catch (err) {
-        logger.error("DashboardPortfolioWidget: failed to load prices:", err);
+        logger.error("DashboardPortfolioWidget: failed to load prices:", {}, err instanceof Error ? err : undefined);
         setPricesUnavailable(true);
       }
       setLastRefreshedAt(Date.now());

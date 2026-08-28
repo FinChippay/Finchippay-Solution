@@ -237,3 +237,13 @@ export function AlertCircleIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function TrezorIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <rect x="8.5" y="3" width="7" height="4" rx="1.5" />
+      <rect x="6" y="7" width="12" height="14" rx="2" />
+      <path strokeLinecap="round" d="M10 13.5h4M10 17h4" />
+    </svg>
+  );
+}

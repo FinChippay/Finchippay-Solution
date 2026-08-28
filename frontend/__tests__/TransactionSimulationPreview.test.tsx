@@ -65,9 +65,48 @@ describe("TransactionSimulationPreview", () => {
       />,
     );
     expect(screen.getByText("Balance Changes")).toBeInTheDocument();
-    expect(screen.getByText("Before: 100.0000000")).toBeInTheDocument();
-    expect(screen.getByText("After: 95.0000000")).toBeInTheDocument();
-    expect(screen.getByText("-5.0000000 XLM")).toBeInTheDocument();
+    expect(screen.getByText("Before: 100 XLM")).toBeInTheDocument();
+    expect(screen.getByText("After: 95 XLM")).toBeInTheDocument();
+    expect(screen.getByText("-5 XLM")).toBeInTheDocument();
+  });
+
+  it("clamps huge simulated values in the preview", () => {
+    render(
+      <TransactionSimulationPreview
+        isOpen={true}
+        onClose={jest.fn()}
+        onProceed={jest.fn()}
+        simulation={{
+          ...mockSimulation,
+          balanceChanges: [{ ...mockSimulation.balanceChanges[0], before: "999999999999", after: "999999999999", difference: "999999999999" }],
+        }}
+        loading={false}
+        error={null}
+        warning={null}
+      />,
+    );
+    expect(screen.getByText("Before: 1,000,000,000 XLM")).toBeInTheDocument();
+    expect(screen.getByText("+1,000,000,000 XLM")).toBeInTheDocument();
+    expect(screen.getByText("Simulation Error")).toBeInTheDocument();
+  });
+
+  it("shows an error state for negative simulated balances", () => {
+    render(
+      <TransactionSimulationPreview
+        isOpen={true}
+        onClose={jest.fn()}
+        onProceed={jest.fn()}
+        simulation={{
+          ...mockSimulation,
+          balanceChanges: [{ ...mockSimulation.balanceChanges[0], before: "-1" }],
+        }}
+        loading={false}
+        error={null}
+        warning={null}
+      />,
+    );
+    expect(screen.getByText("Simulation Error")).toBeInTheDocument();
+    expect(screen.getByText(/unsafe balance amount/)).toBeInTheDocument();
   });
 
   it("shows resource fees in XLM", () => {

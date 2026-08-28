@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/services/notificationService.js
  *
  * Pluggable email notification service that sends templated alerts for
@@ -25,14 +25,22 @@ var logger = require("../utils/logger");
 var knex = require("../db/connection");
 var emailRenderer = require("./emailRenderer");
 var emailTrackingService = require("./emailTrackingService");
-var emailVerificationService = require("./emailVerificationService");
+var metricsService = require("./metricsService");
 
-// ─── Configuration ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 var isEnabled = process.env.NOTIFICATION_EMAIL_ENABLED === "true";
 var BATCH_THRESHOLD = parseInt(process.env.EMAIL_BATCH_THRESHOLD || "3", 10);
 var BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 var UNSUBSCRIBE_EMAIL = process.env.EMAIL_UNSUBSCRIBE_ADDRESS || "unsubscribe@finchippay.io";
+var RATE_LIMIT_PER_HOUR = parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || "10", 10);
+
+async function isRateLimited(toAddress) {
+  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  var row = await knex("email_send_queue").where("to_address", toAddress).where("created_at", ">=", oneHourAgo).count("id as cnt").first();
+  var count = parseInt((row && row.cnt) || "0", 10);
+  return count >= RATE_LIMIT_PER_HOUR;
+}
 
 var smtpConfig = {
   host: process.env.SMTP_HOST || "",
@@ -47,7 +55,7 @@ var smtpConfig = {
 var fromAddress = process.env.SMTP_FROM || "noreply@finchippay.io";
 var transport = null;
 
-// ─── Transport ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Transport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initTransport() {
   if (!isEnabled) {
@@ -83,7 +91,7 @@ function getTransport() {
   return transport;
 }
 
-// ─── Unsubscribe helpers ──────────────────────────────────────────────────────
+// â”€â”€â”€ Unsubscribe helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Build List-Unsubscribe headers for a given email address + token.
@@ -121,7 +129,7 @@ async function ensureUnsubscribeToken(email, category) {
       email,
       category,
       token,
-      unsubscribed_at: null, // not yet unsubscribed — token pre-created for headers
+      unsubscribed_at: null, // not yet unsubscribed â€” token pre-created for headers
     })
     .onConflict(["email", "category"])
     .ignore();
@@ -130,7 +138,7 @@ async function ensureUnsubscribeToken(email, category) {
   return row ? row.token : token;
 }
 
-// ─── Core send ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Core send â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Send a raw email immediately (bypass queue).
@@ -185,7 +193,7 @@ async function sendEmail(to, subject, html, options) {
   }
 }
 
-// ─── Queue-based sending ──────────────────────────────────────────────────────
+// â”€â”€â”€ Queue-based sending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Enqueue an email for async processing.
@@ -198,6 +206,11 @@ async function sendEmail(to, subject, html, options) {
  */
 async function queueEmail(to, templateType, data, opts) {
   if (!opts) opts = {};
+  if (await isRateLimited(to)) {
+    metricsService.emailsRateLimitedTotal.inc();
+    logger.warn({ type: "email_rate_limited", to }, "Rate limit exceeded, dropping email");
+    return { emailId: null, rateLimited: true };
+  }
   const emailId = emailTrackingService.generateEmailId();
   const pixelUrl = emailTrackingService.trackingPixelUrl(emailId);
 
@@ -205,7 +218,9 @@ async function queueEmail(to, templateType, data, opts) {
   let unsubToken = null;
   try {
     unsubToken = await ensureUnsubscribeToken(to, "all");
-  } catch (_) {}
+  } catch (err) {
+    logger.debug({ type: "unsubscribe_token_precreate_failed", error: err.message }, "Unsubscribe token pre-create failed");
+  }
 
   const unsubscribeUrl = unsubToken
     ? `${BASE_URL}/api/emails/unsubscribe?token=${unsubToken}`
@@ -276,6 +291,7 @@ async function processEmailQueue() {
       unsubscribeToken: null, // already baked into the rendered html
     });
 
+    metricsService.emailsSentTotal.inc();
     if (result.sent) {
       await knex("email_send_queue").where("id", item.id).update({
         status: "sent",
@@ -285,6 +301,7 @@ async function processEmailQueue() {
       processed++;
     } else {
       failed++;
+      metricsService.emailsFailedTotal.inc();
       if (attempts >= maxAttempts) {
         await knex("email_send_queue").where("id", item.id).update({
           status: "failed",
@@ -309,7 +326,7 @@ async function processEmailQueue() {
   return { processed, failed };
 }
 
-// ─── Notification integration ─────────────────────────────────────────────────
+// â”€â”€â”€ Notification integration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Map internal event types to email template names.
@@ -342,7 +359,7 @@ var EVENT_SUBJECTS = {
 
 /**
  * Send a single event notification to a specific address.
- * Legacy method — kept for backwards compatibility.
+ * Legacy method â€” kept for backwards compatibility.
  *
  * @param {string} to
  * @param {string} eventType
@@ -381,7 +398,7 @@ async function sendEventNotification(to, eventType, data) {
   });
 }
 
-// ─── Batch / digest logic ─────────────────────────────────────────────────────
+// â”€â”€â”€ Batch / digest logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Count events queued in the last hour for a specific recipient.
@@ -399,7 +416,7 @@ async function recentEventCount(toAddress) {
   return parseInt((row && row.cnt) || "0", 10);
 }
 
-// ─── Email Preference Management ──────────────────────────────────────────────
+// â”€â”€â”€ Email Preference Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function registerEmail(publicKey, email, options) {
   if (!options) options = {};
@@ -467,7 +484,7 @@ async function deleteEmailPreference(publicKey) {
   return false;
 }
 
-// ─── Subscriber notification with preference + verification check ─────────────
+// â”€â”€â”€ Subscriber notification with preference + verification check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Notify all subscribers of an event.
@@ -581,3 +598,6 @@ module.exports = {
   EVENT_TEMPLATE_MAP,
   EVENT_SUBJECTS,
 };
+
+
+

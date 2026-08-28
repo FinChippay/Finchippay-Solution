@@ -154,12 +154,10 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
 
     proposal.approvals.push_back(signer.clone());
 
-    env.events().publish_event(&MultisigApproved {
-        proposal_id,
-        approver: signer.clone(),
-        count: proposal.approvals.len(),
-        threshold: proposal.threshold,
-    });
+    env.events().publish(
+        (Symbol::new(&env, "multisig_approve"), proposal_id),
+        (signer.clone(), proposal.approvals.len(), proposal.threshold),
+    );
 
     // Auto-execute if threshold is reached.
     if proposal.approvals.len() >= proposal.threshold {

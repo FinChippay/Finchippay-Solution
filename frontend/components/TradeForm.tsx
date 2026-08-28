@@ -423,7 +423,7 @@ export default function TradeForm({
       setPathResult(null);
       setSwapPreview(null);
     } catch (err) {
-      logger.error("Swap failed:", err);
+      logger.error("Swap failed:", {}, err instanceof Error ? err : undefined);
       onError(err instanceof Error ? err.message : "Swap failed");
     } finally {
       setIsSubmitting(false);

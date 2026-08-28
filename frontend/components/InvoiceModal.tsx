@@ -18,6 +18,7 @@ export default function InvoiceModal({
   prefilledData,
 }: InvoiceModalProps) {
   const [formData, setFormData] = useState<InvoiceFormData>({
+    recipient: "",
     clientName: "",
     clientEmail: "",
     description: "",
@@ -51,13 +52,13 @@ export default function InvoiceModal({
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-    if (!formData.clientName.trim()) newErrors.clientName = "Client name is required";
-    if (!formData.clientEmail.trim()) {
+    if (!formData.clientName?.trim()) newErrors.clientName = "Client name is required";
+    if (!formData.clientEmail?.trim()) {
       newErrors.clientEmail = "Client email is required";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.clientEmail)) {
       newErrors.clientEmail = "Invalid email address";
     }
-    if (!formData.description.trim()) newErrors.description = "Description is required";
+    if (!formData.description?.trim()) newErrors.description = "Description is required";
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
       newErrors.amount = "Valid amount is required";
     }
@@ -77,6 +78,7 @@ export default function InvoiceModal({
       onCreated();
       onClose();
       setFormData({
+        recipient: "",
         clientName: "",
         clientEmail: "",
         description: "",
@@ -90,7 +92,7 @@ export default function InvoiceModal({
       });
       setErrors({});
     } catch (err) {
-      logger.error("Failed to create invoice:", err);
+      logger.error("Failed to create invoice:", {}, err instanceof Error ? err : undefined);
     } finally {
       setLoading(false);
     }

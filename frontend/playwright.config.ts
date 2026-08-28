@@ -18,6 +18,9 @@ export default defineConfig({
     : 'html',
   expect: {
     timeout: 10000,
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.01,
+    },
   },
   use: {
     baseURL: 'http://localhost:3000',
@@ -28,12 +31,17 @@ export default defineConfig({
     video: 'retain-on-failure',
     actionTimeout: 15000,
     navigationTimeout: 60000,
+    reducedMotion: 'reduce',
   },
 
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['iPhone 14'] },
     },
   ],
 

@@ -6,21 +6,22 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { getSessions, revokeSession, revokeAllSessions, SessionInfo } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 
 export default function SessionManager() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | string | null>(null);
 
-  const fetchSessions = useCallback(async () => {
-    setLoading(true);
+  const fetchSessions = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const data = await getSessions();
       setSessions(data);
     } catch (err) {
-      logger.error("Failed to load sessions:", err);
+      logger.error("Failed to load sessions:", {}, err instanceof Error ? err : undefined);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
@@ -30,19 +31,21 @@ export default function SessionManager() {
 
   const handleRevokeOne = async (id: number) => {
     setActionLoading(id);
-    const success = await revokeSession(id);
-    setActionLoading(null);
-    if (success) {
-      setSessions((prev) => prev.filter((s) => s.id !== id));
+    try {
+      const success = await revokeSession(id);
+      if (success) await fetchSessions(false);
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleRevokeAll = async () => {
     setActionLoading("all");
-    const success = await revokeAllSessions();
-    setActionLoading(null);
-    if (success) {
-      setSessions([]);
+    try {
+      const success = await revokeAllSessions();
+      if (success) await fetchSessions(false);
+    } finally {
+      setActionLoading(null);
     }
   };
 

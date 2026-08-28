@@ -1,1 +1,64 @@
-"use client"; import { useState, useEffect } from "react"; const VISIT_COUNT_KEY = "finchippay:visit-count"; const PROMPT_DISMISSED_KEY = "finchippay:install-dismissed"; function getVisitCount(): number { if (typeof window === "undefined") return 0; const count = parseInt(localStorage.getItem(VISIT_COUNT_KEY) || "0", 10); localStorage.setItem(VISIT_COUNT_KEY, String(count + 1)); return count; } function isDismissed(): boolean { if (typeof window === "undefined") return true; return localStorage.getItem(PROMPT_DISMISSED_KEY) === "1"; } function setDismissed(): void { localStorage.setItem(PROMPT_DISMISSED_KEY, "1"); } interface BeforeInstallPromptEvent extends Event { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }>; } export default function InstallPrompt() { const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null); const [showPrompt, setShowPrompt] = useState(false); useEffect(() => { const visits = getVisitCount(); if (visits < 3 || isDismissed()) return; const handler = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); setShowPrompt(true); }; window.addEventListener("beforeinstallprompt", handler); window.addEventListener("appinstalled", () => { setShowPrompt(false); }); return () => { window.removeEventListener("beforeinstallprompt", handler); }; }, []); if (!showPrompt) return null; const handleInstall = async () => { if (!deferredPrompt) return; await deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice; if (outcome === "accepted") setShowPrompt(false); setDeferredPrompt(null); }; return ( <div className="fixed bottom-20 left-4 right-4 z-50 animate-slide-up sm:left-auto sm:right-4 sm:w-96"> <div className="rounded-xl border border-stellar-500/30 bg-slate-900 p-4 shadow-2xl"> <h4 className="text-sm font-semibold text-white">Install Finchippay</h4> <p className="text-xs text-slate-400 mt-1">Faster access, offline payments, and push notifications.</p> <div className="flex gap-2 mt-3"> <button onClick={handleInstall} className="flex-1 rounded-lg bg-stellar-500 py-2 text-xs font-semibold text-white">Install</button> <button onClick={() => { setDismissed(); setShowPrompt(false); }} className="flex-1 rounded-lg border border-white/10 py-2 text-xs text-slate-300">Not Now</button> </div> </div> </div> ); }
+"use client";
+
+import { useEffect, useState } from "react";
+
+const VISIT_COUNT_KEY = "finchippay:pwa-visit-count";
+const PROMPT_DISMISSED_KEY = "finchippay:pwa-install-dismissed";
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
+/** Simple analytics – uses Plausible if available (matches lib/onboardingState.ts convention). */
+function trackInstallEvent(event: string) {
+  if (typeof window !== "undefined" && (window as unknown as { plausible?: (e: string, o?: { props?: Record<string, unknown> }) => void }).plausible) {
+    (window as unknown as { plausible: (e: string, o?: { props?: Record<string, unknown> }) => void }).plausible(`pwa_install_${event}`);
+  }
+}
+
+export default function InstallPrompt() {
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [canShow, setCanShow] = useState(false);
+
+  useEffect(() => {
+    const visits = Number.parseInt(localStorage.getItem(VISIT_COUNT_KEY) ?? "0", 10) || 0;
+    const nextVisits = visits + 1;
+    localStorage.setItem(VISIT_COUNT_KEY, String(nextVisits));
+    const eligible = nextVisits >= 3 && localStorage.getItem(PROMPT_DISMISSED_KEY) !== "1";
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event as BeforeInstallPromptEvent);
+      trackInstallEvent("available");
+    };
+    const onInstalled = () => {
+      setDeferredPrompt(null);
+      setCanShow(false);
+      trackInstallEvent("installed");
+    };
+    setCanShow(eligible);
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const dismiss = () => {
+    localStorage.setItem(PROMPT_DISMISSED_KEY, "1");
+    setCanShow(false);
+    trackInstallEvent("dismissed");
+  };
+  const install = async () => {
+    if (!deferredPrompt) return;
+    await deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    trackInstallEvent(outcome === "accepted" ? "accepted" : "dismissed-native");
+    setDeferredPrompt(null);
+    if (outcome === "accepted") setCanShow(false);
+  };
+
+  if (!canShow || !deferredPrompt) return null;
+  return <aside className="fixed bottom-20 left-4 right-4 z-50 animate-slide-up sm:left-auto sm:w-96" role="dialog" aria-label="Install Finchippay"><div className="rounded-xl border border-stellar-500/30 bg-slate-900 p-4 shadow-2xl"><h2 className="text-sm font-semibold text-white">Install Finchippay</h2><p className="mt-1 text-xs text-slate-300">Install for faster access, offline payments, and push notifications.</p><div className="mt-3 flex gap-2"><button onClick={() => void install()} className="flex-1 rounded-lg bg-stellar-500 py-2 text-xs font-semibold text-white">Install</button><button onClick={dismiss} className="flex-1 rounded-lg border border-white/10 py-2 text-xs text-slate-300">Not now</button></div></div></aside>;
+}

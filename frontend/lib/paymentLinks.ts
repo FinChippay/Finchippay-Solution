@@ -11,6 +11,20 @@
 
 const STORAGE_KEY = "finchippay.paymentLinks.v1";
 
+/**
+ * Hard cap on how long a locally stored request record may be trusted,
+ * independent of any user-chosen `validUntil` (#906). Bounds worst-case
+ * local retention of request data even for "never expire" links.
+ */
+const RECORD_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Separate, minimal store for "already redeemed" markers (#906). Keeping
+ * this apart from the full record lets `markPaymentLinkRedeemed` drop the
+ * destination/amount/memo payload while still blocking same-device reuse.
+ */
+const REDEEMED_KEY = "finchippay.paymentLinks.redeemed.v1";
+
 export type PaymentLinkStatus = "pending" | "redeemed" | "expired";
 
 export interface PaymentLinkPayload {
@@ -189,6 +203,36 @@ function writeAll(records: Record<string, PaymentLinkRecord>): void {
   }
 }
 
+/** Redeemed-id map: id -> redeemedAt (ms). No payment details stored. */
+function readRedeemed(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(REDEEMED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeRedeemed(redeemed: Record<string, number>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REDEEMED_KEY, JSON.stringify(redeemed));
+  } catch {
+    // Quota exceeded or storage disabled — silently drop. UI still works.
+  }
+}
+
+/**
+ * True once a redeemed-id marker itself has outlived RECORD_TTL_MS. By then
+ * the on-link `validUntil`/Stellar sequence numbers are the source of truth.
+ */
+function isRedeemedMarkerStale(redeemedAt: number): boolean {
+  return Date.now() - redeemedAt > RECORD_TTL_MS;
+}
+
 /**
  * Record a newly-generated link as `pending`. Idempotent: if the same payload
  * was already stored, the existing record is returned untouched.
@@ -226,6 +270,14 @@ export function getPaymentLinkRecord(
   const existing = all[id];
   if (!existing) return null;
 
+  // Reject reads of stale records regardless of validUntil (#906): a
+  // pending record older than RECORD_TTL_MS is purged, not trusted.
+  if (Date.now() - existing.createdAt > RECORD_TTL_MS) {
+    delete all[id];
+    writeAll(all);
+    return null;
+  }
+
   if (existing.status === "pending") {
     const expired =
       payload.validUntil != null && Date.now() > payload.validUntil;
@@ -240,8 +292,10 @@ export function getPaymentLinkRecord(
 
 /**
  * Mark a link as redeemed once the payer's transaction hash is known.
- * Returns true if the link transitioned to `redeemed`, false if it was
- * already redeemed or expired (and therefore cannot be reused).
+ * Clears the stored destination/amount/memo payload immediately (#906) and
+ * keeps only a small non-sensitive marker so same-device reuse is still
+ * blocked. Returns false if the link was unknown, already redeemed, or
+ * already expired.
  */
 export function markPaymentLinkRedeemed(
   payload: PaymentLinkPayload,
@@ -252,10 +306,26 @@ export function markPaymentLinkRedeemed(
   const existing = all[id];
   if (!existing) return false;
   if (existing.status !== "pending") return false;
-  existing.status = "redeemed";
-  existing.redeemedAt = Date.now();
-  existing.redeemedTxHash = txHash;
-  all[id] = existing;
+
+  delete all[id];
+  writeAll(all);
+
+  const redeemed = readRedeemed();
+  redeemed[id] = Date.now();
+  writeRedeemed(redeemed);
+  void txHash; // kept in the call signature for API/back-compat; not persisted.
+  return true;
+}
+
+/**
+ * Explicitly discard a pending request without paying it, e.g. the issuer
+ * cancels or regenerates a link (#906). No-op for unknown/non-pending ids.
+ */
+export function cancelPaymentLink(payload: PaymentLinkPayload): boolean {
+  const id = paymentLinkId(payload);
+  const all = readAll();
+  if (!all[id] || all[id].status !== "pending") return false;
+  delete all[id];
   writeAll(all);
   return true;
 }
@@ -289,21 +359,34 @@ export function canRedeemPaymentLink(
   if (payload.validUntil != null && Date.now() > payload.validUntil) {
     return { ok: false, reason: "expired" };
   }
-  const record = getPaymentLinkRecord(payload);
-  if (record?.status === "redeemed") {
-    return { ok: false, reason: "redeemed" };
+
+  const id = paymentLinkId(payload);
+  const redeemed = readRedeemed();
+  const redeemedAt = redeemed[id];
+  if (redeemedAt != null) {
+    if (!isRedeemedMarkerStale(redeemedAt)) {
+      return { ok: false, reason: "redeemed" };
+    }
+    delete redeemed[id];
+    writeRedeemed(redeemed);
   }
+
+  const record = getPaymentLinkRecord(payload);
   if (record?.status === "expired") {
     return { ok: false, reason: "expired" };
   }
   return { ok: true };
 }
 
-/** Test/dev helper — wipes the local store. */
+/**
+ * Wipe both local stores. Test/dev helper, and also called on logout
+ * (#906) so no pending or redeemed-marker data outlives the session.
+ */
 export function clearPaymentLinkStore(): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(REDEEMED_KEY);
   } catch {
     // ignore
   }

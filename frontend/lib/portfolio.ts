@@ -35,7 +35,8 @@ export interface CustomToken {
 
 export const SUPPORTED_FIAT_CURRENCIES: FiatCurrency[] = ["USD", "EUR", "GBP"];
 
-const CUSTOM_TOKENS_STORAGE_KEY = "finchippay:custom-tokens";
+export const CUSTOM_TOKENS_STORAGE_KEY = "finchippay:custom-tokens";
+export const CUSTOM_TOKENS_STORAGE_VERSION = 1;
 const FIAT_CURRENCY_STORAGE_KEY = "finchippay:fiat-currency";
 
 /** Soroban contract ID: 'C' + 55 base-32 chars (StrKey format). */
@@ -77,22 +78,66 @@ export async function getPortfolioHoldings(publicKey: string): Promise<Portfolio
 
 export function loadCustomTokens(): CustomToken[] {
   if (typeof window === "undefined") return [];
+
+  let shouldPersist = false;
   try {
     const raw = localStorage.getItem(CUSTOM_TOKENS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (t): t is CustomToken => typeof t?.contractId === "string" && isValidContractId(t.contractId)
-    );
+    const source = Array.isArray(parsed)
+      ? parsed
+      : parsed?.version === CUSTOM_TOKENS_STORAGE_VERSION && Array.isArray(parsed.tokens)
+        ? parsed.tokens
+        : [];
+    shouldPersist = !Array.isArray(parsed) && source.length === 0;
+
+    const tokens = source
+      .map(reviveCustomToken)
+      .filter((token): token is CustomToken => token !== null);
+    const deduped = [...new Map(tokens.map((token) => [token.contractId, token])).values()];
+    shouldPersist ||= !isCurrentTokenPayload(parsed, deduped);
+
+    if (shouldPersist) saveCustomTokens(deduped);
+    return deduped;
   } catch {
+    saveCustomTokens([]);
     return [];
   }
 }
 
+function reviveCustomToken(value: unknown): CustomToken | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const raw = value as Record<string, unknown>;
+  const contractId = typeof raw.contractId === "string" ? raw.contractId.trim() : "";
+  if (!isValidContractId(contractId)) return null;
+
+  const addedAt = typeof raw.addedAt === "number" ? raw.addedAt : Number(raw.addedAt);
+  return {
+    contractId,
+    addedAt: Number.isFinite(addedAt) && addedAt >= 0 ? addedAt : 0,
+  };
+}
+
+function isCurrentTokenPayload(value: unknown, tokens: CustomToken[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    payload.version === CUSTOM_TOKENS_STORAGE_VERSION &&
+    JSON.stringify(payload.tokens) === JSON.stringify(tokens)
+  );
+}
+
 function saveCustomTokens(tokens: CustomToken[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(CUSTOM_TOKENS_STORAGE_KEY, JSON.stringify(tokens));
+  try {
+    localStorage.setItem(
+      CUSTOM_TOKENS_STORAGE_KEY,
+      JSON.stringify({ version: CUSTOM_TOKENS_STORAGE_VERSION, tokens }),
+    );
+  } catch {
+    // Storage can be unavailable in private browsing modes.
+  }
 }
 
 /** Add a custom token by contract ID. Throws if the format is invalid. */

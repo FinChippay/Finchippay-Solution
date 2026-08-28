@@ -70,7 +70,9 @@
     "walletAddress": "כתובת הארנק",
     "xlmBalance": "יתרת XLM",
     "xlmReceived": "סך הכל התקבל",
-    "xlmSent": "סך הכל נשלח"
+    "xlmSent": "סך הכל נשלח",
+    "balanceReconnecting": "מתחבר מחדש…",
+    "balanceStale": "פג — הנתונים עלולים להיות מיושנים"
   },
   "home": {
     "badge": "בנוי על רשת הבדיקות של Stellar · קוד פתוח",
@@ -229,7 +231,8 @@
     "transactionHash": "גיבוב העסקה",
     "updateNicknamePrompt": "עדכון הכינוי של איש הקשר:",
     "usernameNotFound": "שם המשתמש לא נמצא",
-    "viewOnExplorer": "צפייה בסייר"
+    "viewOnExplorer": "צפייה בסייר",
+    "needsTrustline": "הוסף קו אמון עבור {asset} לפני השליחה."
   },
   "settings": {
     "active": "פעיל",
@@ -332,5 +335,9 @@
     "title": "תשלומים אחרונים",
     "tryAgain": "נסה שוב",
     "viewOnExpert": "צפייה ב-Stellar Expert"
+  },
+  "assetSelect": {
+    "noAssets": "אין נכסים זמינים.",
+    "addTrustline": "קו אמון"
   }
 }

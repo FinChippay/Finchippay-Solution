@@ -12,6 +12,7 @@
 
 const { server } = require("../config/stellar");
 const stellarService = require("./stellarService");
+const { accountCacheKey } = require("./stellarCacheKeys");
 const logger = require("../utils/logger");
 
 // Lazy-loaded to match stellarService and avoid a circular require at parse time.
@@ -68,7 +69,7 @@ async function refreshBalance(publicKey) {
 
   entry.refreshing = (async () => {
     try {
-      await getCache().del(`account:${publicKey}`);
+      await getCache().del(accountCacheKey(publicKey));
       const xlm = await stellarService.getXLMBalance(publicKey);
 
       // Still registered? The last client may have disconnected mid-fetch.

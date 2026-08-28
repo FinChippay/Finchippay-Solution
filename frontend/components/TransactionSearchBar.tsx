@@ -13,7 +13,8 @@ import {
   parseSearchQuery,
   tokenizeText,
 } from "@/lib/transactionSearch";
-import { buildIndex, saveIndexedDB, loadIndexedDB } from "@/lib/transactionSearchIndex";
+import { buildIndex, saveIndexedDB, loadIndexedDB, invalidate } from "@/lib/transactionSearchIndex";
+import { logger } from "@/lib/logger";
 
 interface TransactionSearchBarProps {
   payments: PaymentRecord[];
@@ -34,16 +35,33 @@ export default function TransactionSearchBar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Build and persist index when payments change
+  // Build and persist index when payments change.
+  // Invalidates stale entries so removed payments are un-indexed on refresh.
   useEffect(() => {
     const buildAndPersistIndex = async () => {
       try {
         setIsSearching(true);
+        const currentHashes = new Set<string>(payments.map((p) => p.hash));
+        const existing = await loadIndexedDB();
+        if (existing && existing.size > 0) {
+          const indexedHashes = new Set<string>();
+          for (const hashes of existing.values()) {
+            for (const h of hashes) {
+              indexedHashes.add(h);
+            }
+          }
+          const removedHashes = Array.from(indexedHashes).filter(
+            (h) => !currentHashes.has(h)
+          );
+          if (removedHashes.length > 0) {
+            await invalidate(removedHashes);
+          }
+        }
         const index = buildIndex(payments);
         await saveIndexedDB(payments, index);
         setIndexReady(true);
       } catch (error) {
-        logger.error("Failed to build search index:", error);
+        logger.error("Failed to build search index:", {}, error instanceof Error ? error : undefined);
       } finally {
         setIsSearching(false);
       }
@@ -81,7 +99,7 @@ export default function TransactionSearchBar({
         setSuggestions(Array.from(uniqueMemos).slice(0, 5));
         setShowSuggestions(true);
       } catch (error) {
-        logger.error("Search error:", error);
+        logger.error("Search error:", {}, error instanceof Error ? error : undefined);
       } finally {
         setIsSearching(false);
       }
