@@ -262,3 +262,105 @@ For questions or issues:
 - Check the test cases for usage examples
 - Refer to Soroban documentation: https://docs.rs/soroban-sdk/latest/soroban_sdk/
 - Stellar documentation: https://developers.stellar.org/
+
+
+---
+
+## Upgrade Runbook (WS6 — Issue #946)
+
+> **Critical:** The legacy single-key `upgrade()` function is **disabled** in all
+> builds after this patch. The only valid upgrade path is through the
+> `propose_admin_action` / `approve_admin_action` N-of-M governance flow.
+
+### Pre-Upgrade Checklist
+
+1. Build and audit the new WASM:
+   ```bash
+   cargo build --release --target wasm32v1-none \
+     --manifest-path contracts/finchippay-contract/Cargo.toml
+   WASM_HASH=$(stellar contract install \
+     --wasm target/wasm32v1-none/release/finchippay_contract.wasm \
+     --network testnet)
+   echo "WASM hash: $WASM_HASH"
+   ```
+2. Run `cargo audit` — zero advisories required before proposing upgrade.
+3. Run all tests: `cargo test --manifest-path contracts/finchippay-contract/Cargo.toml`.
+4. Run `cargo clippy -- -D warnings` — no warnings.
+
+### Step 1 — Add to Approved WASM Allowlist
+
+```bash
+stellar contract invoke --id $CONTRACT_ID --network testnet -- \
+  add_approved_wasm_hash \
+  --caller $ADMIN_ADDRESS \
+  --wasm_hash $WASM_HASH
+```
+
+### Step 2 — Propose the Upgrade Action
+
+```bash
+# Encode the 32-byte WASM hash as hex payload
+stellar contract invoke --id $CONTRACT_ID --network testnet -- \
+  propose_admin_action \
+  --proposer $SIGNER_1 \
+  --action "upgrade" \
+  --payload $WASM_HASH_BYTES \
+  --expiration_ledger $((CURRENT_LEDGER + 17280))
+```
+
+### Step 3 — Collect N-of-M Approvals
+
+Each admin signer (threshold signers required) must call:
+```bash
+stellar contract invoke --id $CONTRACT_ID --network testnet -- \
+  approve_admin_action \
+  --signer $SIGNER_N \
+  --proposal_id $PROPOSAL_ID
+```
+
+On the final approval the upgrade executes automatically.
+
+### Step 4 — Invariant Sweep (Post-Upgrade)
+
+```bash
+cargo test --manifest-path contracts/finchippay-contract/Cargo.toml
+stellar contract invoke --id $CONTRACT_ID --network testnet -- get_version
+```
+
+Wait at least `EMERGENCY_WITHDRAWAL_DELAY` (~24 h) before promoting to mainnet.
+
+### Rollback Plan
+
+There is no in-place downgrade via `upgrade()`. To roll back:
+
+1. Propose a new upgrade action pointing to the previous approved WASM hash.
+2. Collect threshold approvals.
+3. The contract reverts to the previous WASM.
+
+**Never** use a direct storage write or a compromised single key to bypass the
+governance flow — the `ApprovedWasmHashes` allowlist exists precisely to prevent
+this.
+
+### Yield-Escrow Feature Gate
+
+The yield-escrow module is disabled by default (`YieldEscrowEnabled = false`).
+To enable it once the AMM integration is live:
+
+```bash
+stellar contract invoke --id $CONTRACT_ID --network testnet -- \
+  set_yield_escrow_enabled \
+  --admin $ADMIN_ADDRESS \
+  --enabled true
+```
+
+> **Note:** `shares_received` in `YieldEscrow` records is a **placeholder** equal
+> to `amount` until the real AMM pool integration replaces the 1:1 mock. Do not
+> use `shares_received` for pricing until then.
+
+### Fee Configuration Governance
+
+Swap fee and fee-collector changes go through admin-action governance:
+
+- Action tag: `"set_swap_fee"` — payload is 16-byte LE i128 fee_bps (0–500).
+- Action tag: `"set_fee_collector"` — propose via governance then execute.
+- Fee is bounded to `MAX_SWAP_FEE_BPS = 500` (5%) — values above this revert.
