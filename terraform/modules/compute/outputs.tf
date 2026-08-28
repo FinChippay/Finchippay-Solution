@@ -1,24 +1,64 @@
-output "droplet_ids" {
-  description = "IDs of the provisioned application Droplets."
-  value       = [for d in digitalocean_droplet.app : tostring(d.id)]
+output "cluster_id" {
+  description = "ID of the ECS cluster."
+  value       = aws_ecs_cluster.main.id
 }
 
-output "droplet_ipv4_addresses" {
-  description = "Public IPv4 addresses of the application Droplets."
-  value       = [for d in digitalocean_droplet.app : d.ipv4_address]
+output "cluster_name" {
+  description = "Name of the ECS cluster."
+  value       = aws_ecs_cluster.main.name
 }
 
-output "droplet_private_ipv4_addresses" {
-  description = "Private IPv4 addresses of the application Droplets (VPC-internal)."
-  value       = [for d in digitalocean_droplet.app : d.ipv4_address_private]
+output "alb_arn" {
+  description = "ARN of the application load balancer."
+  value       = aws_lb.main.arn
 }
 
-output "ssh_key_fingerprint" {
-  description = "MD5 fingerprint of the registered SSH public key."
-  value       = digitalocean_ssh_key.app_key.fingerprint
+output "alb_dns_name" {
+  description = "DNS name of the application load balancer."
+  value       = aws_lb.main.dns_name
 }
 
-output "project_id" {
-  description = "ID of the DigitalOcean project grouping all resources."
-  value       = digitalocean_project.app.id
+output "alb_zone_id" {
+  description = "Canonical hosted zone ID of the load balancer."
+  value       = aws_lb.main.zone_id
+}
+
+output "backend_service_name" {
+  description = "Name of the backend ECS service."
+  value       = aws_ecs_service.backend.name
+}
+
+output "frontend_service_name" {
+  description = "Name of the frontend ECS service."
+  value       = aws_ecs_service.frontend.name
+}
+
+output "backend_target_group_arn" {
+  description = "ARN of the backend target group."
+  value       = aws_lb_target_group.backend.arn
+}
+
+output "frontend_target_group_arn" {
+  description = "ARN of the frontend target group."
+  value       = aws_lb_target_group.frontend.arn
+}
+
+output "backend_url" {
+  description = "Public URL of the backend API."
+  value       = local.backend_url
+}
+
+output "frontend_url" {
+  description = "Public URL of the frontend."
+  value       = local.frontend_url
+}
+
+output "backend_log_group" {
+  description = "Name of the backend CloudWatch log group."
+  value       = aws_cloudwatch_log_group.backend.name
+}
+
+output "frontend_log_group" {
+  description = "Name of the frontend CloudWatch log group."
+  value       = aws_cloudwatch_log_group.frontend.name
 }

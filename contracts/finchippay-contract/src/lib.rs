@@ -457,6 +457,7 @@ pub struct EmergencyWithdrawal {
 
 /// Maximum ledgers into the future an escrow can be created (≈ 30 days at 5 s).
 const MAX_ESCROW_LEDGERS: u32 = 518_400;
+/// Maximum duration a recipient can pause a stream (≈ 1 year at 5s/ledger).
 /// Maximum deposit amount for a single stream (1 trillion stroops).
 pub const MAX_STREAM_DEPOSIT: i128 = 1_000_000_000_000_000_000;
 /// Maximum rate per ledger for a stream (avoids overflow in elapsed * rate).
@@ -1648,9 +1649,11 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::Version)
             .unwrap_or(CONTRACT_VERSION);
+        let next_ver = current_ver.checked_add(1).expect("version overflow");
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::Version, &(current_ver + 1));
+            .set(&DataKey::Version, &next_ver);
         bump(&env, &DataKey::Version);
         env.storage()
             .persistent()
@@ -1933,13 +1936,14 @@ impl FinchippayContract {
             status: EmergencyWithdrawalStatus::Pending,
         };
 
+        let next_count = id.checked_add(1).expect("withdrawal count overflow");
         env.storage()
             .persistent()
             .set(&DataKey::EmergencyWithdrawal(id), &withdrawal);
         bump_to_floor(&env, &DataKey::EmergencyWithdrawal(id));
         env.storage()
             .persistent()
-            .set(&DataKey::EmergencyWithdrawalCount, &(id + 1));
+            .set(&DataKey::EmergencyWithdrawalCount, &next_count);
         bump(&env, &DataKey::EmergencyWithdrawalCount);
 
         env.events().publish(
@@ -2282,9 +2286,10 @@ impl FinchippayContract {
             .set(&DataKey::ReceiptRecord(from.clone(), count), &receipt);
         bump_to_floor(&env, &DataKey::ReceiptRecord(from.clone(), count));
 
+        let next_count = count.checked_add(1).expect("receipt count overflow");
         env.storage()
             .persistent()
-            .set(&DataKey::ReceiptCount(from.clone()), &(count + 1));
+            .set(&DataKey::ReceiptCount(from.clone()), &next_count);
         bump(&env, &DataKey::ReceiptCount(from.clone()));
 
         // Increment global receipt count and store index mapping
@@ -5804,33 +5809,42 @@ mod tests {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![&env, (
-                contract_id.clone(),
-                (Symbol::new(&env, "milestone_escrow_created"), id).into_val(&env),
-                (2u32).into_val(&env),
-            )]
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "milestone_escrow_created"), id).into_val(&env),
+                    (2u32).into_val(&env),
+                )
+            ]
         );
 
         client.approve_milestone(&id, &0, &agent);
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![&env, (
-                contract_id.clone(),
-                (Symbol::new(&env, "milestone_approved"), id).into_val(&env),
-                (0u32).into_val(&env),
-            )]
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "milestone_approved"), id).into_val(&env),
+                    (0u32).into_val(&env),
+                )
+            ]
         );
 
         client.claim_milestone(&id, &0, &to);
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(
             events,
-            vec![&env, (
-                contract_id.clone(),
-                (Symbol::new(&env, "milestone_claimed"), id, 0u32).into_val(&env),
-                (600i128).into_val(&env),
-            )]
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "milestone_claimed"), id, 0u32).into_val(&env),
+                    (600i128).into_val(&env),
+                )
+            ]
         );
     }
 

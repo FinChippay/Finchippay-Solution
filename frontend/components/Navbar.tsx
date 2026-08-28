@@ -212,14 +212,14 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
 
     if (!nextPublicKey) {
       if (walletError) {
-        logger.error("Wallet connection error", {}, walletError instanceof Error ? walletError : new Error(String(walletError)));
+        logger.error("Wallet connection error", {}, new Error(String(walletError)));
       }
       return;
     }
 
     const { error: authError } = await performSEP0010Auth(nextPublicKey);
     if (authError) {
-      logger.error("Auth error", {}, authError instanceof Error ? authError : new Error(String(authError)));
+      logger.error("Auth error", {}, new Error(String(authError)));
       return;
     }
 

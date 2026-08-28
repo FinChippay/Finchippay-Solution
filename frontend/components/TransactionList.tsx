@@ -237,14 +237,14 @@ function TransactionList({
       dispatchPending({ type: "REMOVE", payload: detail.pendingId });
     };
 
-    window.addEventListener("finchippay:pending-tx", onPending);
-    window.addEventListener("finchippay:resolved-tx", onResolved);
-    window.addEventListener("finchippay:failed-tx", onFailed);
+    window.addEventListener("finchippay:pending-tx", onPending as EventListener);
+    window.addEventListener("finchippay:resolved-tx", onResolved as EventListener);
+    window.addEventListener("finchippay:failed-tx", onFailed as EventListener);
 
     return () => {
-      window.removeEventListener("finchippay:pending-tx", onPending);
-      window.removeEventListener("finchippay:resolved-tx", onResolved);
-      window.removeEventListener("finchippay:failed-tx", onFailed);
+      window.removeEventListener("finchippay:pending-tx", onPending as EventListener);
+      window.removeEventListener("finchippay:resolved-tx", onResolved as EventListener);
+      window.removeEventListener("finchippay:failed-tx", onFailed as EventListener);
     };
   }, [onPaymentsChange]);
 

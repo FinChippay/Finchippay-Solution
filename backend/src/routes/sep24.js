@@ -23,6 +23,9 @@ const {
   sep24DepositWithdrawSchema,
 } = require("../validation/schemas");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
+const { verifyInboundWebhookSignature } = require("../middleware/verifyInboundWebhookSignature");
+
+const SEP24_CALLBACK_ENDPOINT = "sep24_callback";
 
 /**
  * POST /api/sep24/transactions/deposit/interactive
@@ -186,8 +189,12 @@ router.get("/transactions/:txId", (req, res) => {
 /**
  * POST /api/sep24/callback
  * Webhook endpoint for the anchor to POST transaction status updates.
+ *
+ * Requires a valid X-Signature / X-Timestamp pair (see
+ * verifyInboundWebhookSignature.js) — an unauthenticated caller must not be
+ * able to flip a transaction to "completed".
  */
-router.post("/callback", (req, res) => {
+router.post("/callback", verifyInboundWebhookSignature(SEP24_CALLBACK_ENDPOINT), (req, res) => {
   try {
     sep24Service.handleAnchorCallback(req.body);
     res.status(200).json({ received: true });

@@ -1,92 +1,148 @@
-# ─── Root module outputs ──────────────────────────────────────────────────────
+# ─── Networking ───────────────────────────────────────────────────────────────
+
+output "vpc_id" {
+  description = "ID of the VPC."
+  value       = module.networking.vpc_id
+}
+
+output "vpc_cidr_block" {
+  description = "CIDR block of the VPC."
+  value       = module.networking.vpc_cidr_block
+}
+
+output "public_subnet_ids" {
+  description = "IDs of the public subnets."
+  value       = module.networking.public_subnet_ids
+}
+
+output "private_subnet_ids" {
+  description = "IDs of the private subnets."
+  value       = module.networking.private_subnet_ids
+}
 
 # ─── Compute ──────────────────────────────────────────────────────────────────
 
-output "droplet_ids" {
-  description = "IDs of the provisioned application Droplets."
-  value       = module.compute.droplet_ids
+output "cluster_id" {
+  description = "ID of the ECS cluster."
+  value       = module.compute.cluster_id
 }
 
-output "droplet_ipv4_addresses" {
-  description = "Public IPv4 addresses of the application Droplets."
-  value       = module.compute.droplet_ipv4_addresses
+output "cluster_name" {
+  description = "Name of the ECS cluster."
+  value       = module.compute.cluster_name
 }
 
-output "vpc_id" {
-  description = "ID of the private VPC."
-  value       = digitalocean_vpc.main.id
+output "alb_dns_name" {
+  description = "DNS name of the application load balancer."
+  value       = module.compute.alb_dns_name
+}
+
+output "backend_url" {
+  description = "Public URL of the backend API."
+  value       = module.compute.backend_url
+}
+
+output "frontend_url" {
+  description = "Public URL of the frontend."
+  value       = module.compute.frontend_url
+}
+
+output "backend_log_group" {
+  description = "Name of the backend CloudWatch log group."
+  value       = module.compute.backend_log_group
+}
+
+output "frontend_log_group" {
+  description = "Name of the frontend CloudWatch log group."
+  value       = module.compute.frontend_log_group
 }
 
 # ─── Database ─────────────────────────────────────────────────────────────────
 
-output "database_cluster_id" {
-  description = "ID of the managed PostgreSQL cluster."
-  value       = module.database.cluster_id
+output "database_endpoint" {
+  description = "Hostname:port of the RDS PostgreSQL instance."
+  value       = "${module.database.endpoint}:${module.database.port}"
 }
 
 output "database_host" {
-  description = "Hostname of the managed PostgreSQL cluster."
-  value       = module.database.host
+  description = "Hostname of the RDS PostgreSQL instance."
+  value       = module.database.endpoint
 }
 
 output "database_port" {
-  description = "Port of the managed PostgreSQL cluster."
+  description = "Port of the RDS PostgreSQL instance."
   value       = module.database.port
 }
 
 output "database_name" {
   description = "Application database name."
-  value       = module.database.database_name
+  value       = module.database.db_name
 }
 
-output "database_user" {
-  description = "Application database username."
-  value       = module.database.user
+output "database_username" {
+  description = "Master database username."
+  value       = module.database.username
 }
 
 output "database_password" {
-  description = "Application database password (sensitive)."
+  description = "Master database password (sensitive)."
   value       = module.database.password
   sensitive   = true
 }
 
-output "database_url" {
+output "database_connection_url" {
   description = "Full PostgreSQL connection URL (sensitive)."
   value       = module.database.connection_url
   sensitive   = true
 }
 
-output "database_ca_cert" {
-  description = "CA certificate for validating TLS connections to the database cluster."
-  value       = module.database.ca_cert
-  sensitive   = true
+output "database_secret_arn" {
+  description = "ARN of the Secrets Manager secret holding the database credentials."
+  value       = module.database.secret_arn
 }
 
-# ─── Redis ────────────────────────────────────────────────────────────────────
+# ─── Cache ────────────────────────────────────────────────────────────────────
 
-output "redis_cluster_id" {
-  description = "ID of the managed Redis cluster."
-  value       = module.redis.cluster_id
+output "redis_endpoint" {
+  description = "Hostname:port of the primary ElastiCache Redis endpoint."
+  value       = "${module.cache.primary_endpoint_address}:${module.cache.primary_endpoint_port}"
 }
 
 output "redis_host" {
-  description = "Hostname of the managed Redis cluster."
-  value       = module.redis.host
+  description = "Hostname of the primary ElastiCache Redis endpoint."
+  value       = module.cache.primary_endpoint_address
 }
 
 output "redis_port" {
-  description = "Port of the managed Redis cluster."
-  value       = module.redis.port
+  description = "Port of the primary ElastiCache Redis endpoint."
+  value       = module.cache.primary_endpoint_port
 }
 
-output "redis_password" {
-  description = "Password for the managed Redis cluster (sensitive)."
-  value       = module.redis.password
+output "redis_auth_token" {
+  description = "Redis AUTH token (sensitive)."
+  value       = module.cache.auth_token
   sensitive   = true
 }
 
-output "redis_url" {
-  description = "Full Redis connection URL, e.g. rediss://:password@host:port (sensitive)."
-  value       = module.redis.connection_url
+output "redis_connection_url" {
+  description = "Full Redis connection URL (sensitive)."
+  value       = module.cache.connection_url
   sensitive   = true
+}
+
+# ─── DNS ──────────────────────────────────────────────────────────────────────
+
+output "hosted_zone_id" {
+  description = "ID of the Route53 hosted zone."
+  value       = var.create_dns ? module.dns[0].zone_id : ""
+}
+
+output "hosted_zone_nameservers" {
+  description = "Nameservers of the Route53 hosted zone."
+  value       = var.create_dns ? module.dns[0].nameservers : []
+}
+
+output "acm_certificate_arn" {
+  description = "ARN of the ACM certificate for the domain."
+  value       = var.create_dns ? module.dns[0].certificate_arn : ""
 }

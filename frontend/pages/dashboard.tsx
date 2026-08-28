@@ -16,19 +16,11 @@ import dynamic from "next/dynamic";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { Step } from "react-joyride";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
 import AnimatedCounter from "@/components/AnimatedCounter";
+import type { ChartMonthData, ChartDayData } from "@/components/DashboardCharts";
 import Skeleton from "@/components/Skeleton";
 import { logger } from "@/lib/logger";
 import {
@@ -70,11 +62,36 @@ const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDash
 });
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const PendingTransactions = dynamic(() => import("../components/PendingTransactions"), {
+  ssr: false,
+  loading: () => <Skeleton height="h-24" />,
+});
 const StreamingPayments = dynamic(() => import("../components/StreamingPayments"), { ssr: false });
 const PriceAlertsPanel = dynamic(() => import("../components/PriceAlertsPanel"), {
   ssr: false,
   loading: () => <Skeleton height="h-48" />,
 });
+const MonthlySpendingChart = dynamic(
+  () => import("../components/DashboardCharts").then((m) => m.MonthlySpendingChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton height="h-[350px]" />,
+  },
+);
+const ThirtyDayVolumeChart = dynamic(
+  () => import("../components/DashboardCharts").then((m) => m.ThirtyDayVolumeChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton height="h-[280px]" />,
+  },
+);
+const DashboardPortfolioWidget = dynamic(
+  () => import("../components/DashboardPortfolioWidget"),
+  {
+    ssr: false,
+    loading: () => <Skeleton height="h-64" />,
+  },
+);
 
 
 
@@ -102,8 +119,9 @@ import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
 import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
+import { cacheApiResponse, getCachedData } from "@/lib/cacheData";
 import { getJwtToken } from "@/lib/auth";
-import DashboardPortfolioWidget from "@/components/DashboardPortfolioWidget";
+import { apiClient } from "@/lib/api";
 import FeatureAnnouncement from "@/components/FeatureAnnouncement";
 
 interface DashboardProps {
@@ -117,22 +135,6 @@ interface PaymentStats {
   sentCount: number;
   receivedCount: number;
   totalTransactions: number;
-}
-
-interface ChartMonthData {
-  month: string;
-  monthIndex: number;
-  year: number;
-  sent: number;
-  received: number;
-  label: string;
-}
-
-interface ChartDayData {
-  day: string;
-  dateKey: string;
-  sent: number;
-  received: number;
 }
 
 interface CachedBalanceSnapshot {
@@ -206,11 +208,27 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
   const { t } = useTranslation("common");
   // Balance arrives over SSE, falling back to polling automatically (#157).
+  // The status field exposes a richer live / reconnecting / stale / polling
+  // view so the UI can warn when the shown number may be out of date (#641).
   const {
     xlmBalance: streamedXlmBalance,
     isLive: isBalanceLive,
+    status: balanceStatus,
     lastUpdatedAt: balanceUpdatedAt,
+    applyOptimisticDelta,
+    rollbackOptimistic,
   } = useBalanceStream(publicKey);
+  const optimisticBalanceApi = useMemo(
+    () =>
+      publicKey
+        ? {
+            applyDelta: (deltaXlm: string, key: string) =>
+              applyOptimisticDelta(deltaXlm, `dashboard:${key}`),
+            rollback: (key: string) => rollbackOptimistic(`dashboard:${key}`),
+          }
+        : null,
+    [publicKey, applyOptimisticDelta, rollbackOptimistic]
+  );
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
   // now-hidden Connect control (#252).
@@ -317,20 +335,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
     if (!publicKey) return;
-    
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+
     try {
-      const response = await fetch(
-        `${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(publicKey)}`
-      );
-      if (response.ok) {
-        const payload = await response.json();
-        if (payload?.success && payload?.data?.username) {
-          setCreatorUsername(payload.data.username);
-        }
+      const payload = await apiClient.accounts.resolveUsername(publicKey);
+      if (payload?.data?.username) {
+        setCreatorUsername(payload.data.username);
       }
     } catch (err) {
-      logger.error("Error fetching username:", err);
+      logger.error("Error fetching username", {}, err instanceof Error ? err : undefined);
     }
   }, [publicKey]);
 
@@ -377,8 +389,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         usdcBalance: usdcBal,
         reserveInfo: reserve,
       });
+      void cacheApiResponse("dashboard-data", { publicKey, xlmBalance: bal, usdcBalance: usdcBal, reserveInfo: reserve });
     } catch (err: unknown) {
-      const cached = loadBalanceSnapshot(publicKey);
+      const indexedCache = await getCachedData("dashboard-data").catch(() => null);
+      const cachedData = indexedCache?.data as (CachedBalanceSnapshot & { publicKey?: string }) | undefined;
+      const cached = cachedData?.publicKey === publicKey ? { ...cachedData, savedAt: indexedCache!.cachedAt } : loadBalanceSnapshot(publicKey);
       const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
       if (cached && isOffline) {
         setXlmBalance(cached.xlmBalance);
@@ -419,32 +434,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-
     setPaymentStatsLoading(true);
     setPaymentStatsError(null);
 
     try {
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `${apiBase}/api/v1/payments/${encodeURIComponent(publicKey)}/stats`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        throw new Error("Unable to load payment stats right now.");
-      }
-
-      const payload = await response.json();
+      const payload = await apiClient.payments.getStats(publicKey);
       const data = payload?.data;
 
       if (
-        !payload?.success ||
         !data ||
         typeof data.totalSentXLM !== "string" ||
         typeof data.totalReceivedXLM !== "string" ||
@@ -472,25 +469,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const fetchContractEventCount = useCallback(async () => {
     if (!publicKey) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     setContractEventCountLoading(true);
 
     try {
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `${apiBase}/api/events/${encodeURIComponent(publicKey)}/stats`,
-        { headers }
-      );
-
-      if (response.ok) {
-        const payload = await response.json();
-        setContractEventCount(payload?.data?.totalEvents ?? 0);
-      }
+      const payload = await apiClient.events.getStats(publicKey);
+      setContractEventCount(payload?.data?.totalEvents ?? 0);
     } catch {
       // Swallow — contract events are an enhancement; failure is non-blocking.
       setContractEventCount(0);
@@ -541,7 +524,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
       setSpendingData(months);
     } catch (err) {
-      logger.error("Failed to fetch spending history:", err);
+      logger.error("Failed to fetch spending history:", {}, err instanceof Error ? err : undefined);
     } finally {
       setSpendingLoading(false);
     }
@@ -554,7 +537,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       const history = await getRecentPaymentsForSparkline(publicKey, 10);
       setSparklineData(history.map(h => parseFloat(h.amount)));
     } catch (err) {
-      logger.error("Failed to fetch sparkline data:", err);
+      logger.error("Failed to fetch sparkline data:", {}, err instanceof Error ? err : undefined);
     } finally {
       setSparklineLoading(false);
     }
@@ -593,7 +576,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       });
       setThirtyDayData(days);
     } catch (err) {
-      logger.error("Failed to fetch 30-day volume:", err);
+      logger.error("Failed to fetch 30-day volume:", {}, err instanceof Error ? err : undefined);
     } finally {
       setThirtyDayLoading(false);
     }
@@ -603,20 +586,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!publicKey) return;
     setTopRecipientsLoading(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(
-        `${apiBase}/api/v1/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
-        { headers }
-      );
-      if (res.ok) {
-        const payload = await res.json();
-        setTopRecipients(payload?.data?.topRecipients ?? []);
-      }
+      const payload = await apiClient.analytics.getTopRecipients(publicKey);
+      const data = payload?.data as any;
+      const list = data?.topRecipients || (Array.isArray(data) ? data : []);
+      setTopRecipients(list);
     } catch (err) {
-      logger.error("Failed to fetch top recipients:", err);
+      logger.error("Failed to fetch top recipients", {}, err instanceof Error ? err : undefined);
     } finally {
       setTopRecipientsLoading(false);
     }
@@ -909,7 +884,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           badge: '/favicon.svg',
         });
       } catch (err) {
-        logger.error('Test notification failed:', err);
+        logger.error('Test notification failed:', {}, err instanceof Error ? err : undefined);
       }
     }
   };
@@ -939,7 +914,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   badge: '/favicon.svg',
                 });
               } catch (err) {
-                logger.error('showNotification failed:', err);
+                logger.error('showNotification failed:', {}, err instanceof Error ? err : undefined);
               }
             } else {
               // Page is visible — in-app bubble is less intrusive.
@@ -961,7 +936,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         setIncomingPayment(payment);
       },
       (error) => {
-        logger.error('Dashboard payment stream error:', error);
+        logger.error('Dashboard payment stream error:', {}, error instanceof Error ? error : undefined);
       }
     );
 
@@ -1200,11 +1175,23 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 sm:justify-end">
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${
-                      isBalanceLive ? "animate-pulse bg-emerald-400" : "bg-amber-400"
+                      balanceStatus === "live"
+                        ? "animate-pulse bg-emerald-400"
+                        : balanceStatus === "reconnecting"
+                        ? "animate-pulse bg-amber-400"
+                        : balanceStatus === "stale"
+                        ? "bg-red-400"
+                        : "bg-slate-400"
                     }`}
                     aria-hidden="true"
                   />
-                  {isBalanceLive ? t("dashboard.balanceLive") : t("dashboard.balancePolling")}
+                  {balanceStatus === "live"
+                    ? t("dashboard.balanceLive")
+                    : balanceStatus === "reconnecting"
+                    ? t("dashboard.balanceReconnecting")
+                    : balanceStatus === "stale"
+                    ? t("dashboard.balanceStale")
+                    : t("dashboard.balancePolling")}
                 </p>
               </div>
             ) : accountNotFound && isTestnet ? (
@@ -1370,7 +1357,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       </Link>
 
       <FeatureGate flag="streaming_payments">
-        <StreamingPayments publicKey={publicKey} />
+        <StreamingPayments publicKey={publicKey} optimisticBalanceApi={optimisticBalanceApi} />
       </FeatureGate>
 
       {/* Price Alerts — Issue #80 */}
@@ -1437,6 +1424,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               xlmBalance={xlmBalance || "0"}
               usdcBalance={usdcBalance}
               accountBalances={otherBalances}
+              optimisticBalanceApi={optimisticBalanceApi}
               onSuccess={handlePaymentSuccess}
               prefill={
                 recurringPrefill
@@ -1489,6 +1477,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </div>
         </div>
       </div>
+
+      <PendingTransactions />
 
       <BubbleNotification message={bubbleMessage} visible={showBubble} />
 
@@ -1607,109 +1597,6 @@ function PaymentStatsWidget({
         helper={t("dashboard.acrossActivity")}
       />
     </section>
-  );
-}
-
-function MonthlySpendingChart({
-  data,
-  loading,
-  onBarClick,
-  t,
-}: {
-  data: ChartMonthData[];
-  loading: boolean;
-  onBarClick: (data: ChartMonthData) => void;
-  t: (key: string) => string;
-}) {
-  if (loading && data.length === 0) {
-    return (
-      <div className="card mb-6 h-[350px] animate-pulse bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10" />
-    );
-  }
-
-  return (
-    <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6">
-        {t("dashboard.monthlySpending")}
-      </h2>
-      <div className="h-[250px] w-[calc(100%+3rem)] -mx-6 sm:w-full sm:mx-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={data}
-            onClick={(state: unknown) => {
-              const s = state as { activePayload?: Array<{ payload: ChartMonthData }> } | null;
-              if (s?.activePayload?.[0]?.payload) {
-                onBarClick(s.activePayload[0].payload);
-              }
-            }}
-
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-            <XAxis
-              dataKey="month"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--color-muted)", fontSize: 12 }}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--color-muted)", fontSize: 12 }}
-              tickFormatter={(value: number) => `${value}`}
-            />
-            <Tooltip
-              cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
-              contentStyle={{
-                backgroundColor: "#0f172a",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                borderRadius: "8px",
-              }}
-              itemStyle={{ color: "#38bdf8" }}
-            />
-            <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function ThirtyDayVolumeChart({ data, loading, t }: { data: ChartDayData[]; loading: boolean; t: (key: string) => string }) {
-  if (loading && data.length === 0) {
-    return <div className="card mb-6 h-[280px] animate-pulse bg-slate-50 dark:bg-white/[0.03] border-slate-200 dark:border-white/10" />;
-  }
-  const visibleData = data.filter((_, i) => i % 5 === 0 || i === data.length - 1);
-  return (
-    <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white mb-6">{t("dashboard.thirtyDayVolume")}</h2>
-      <div className="h-[220px] w-[calc(100%+3rem)] -mx-6 sm:w-full sm:mx-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-            <XAxis
-              dataKey="day"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-              ticks={visibleData.map((d) => d.day)}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-            />
-            <Tooltip
-              cursor={{ fill: "rgba(255,255,255,0.05)" }}
-              contentStyle={{ backgroundColor: "#0f172a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
-              itemStyle={{ color: "#38bdf8" }}
-            />
-            <Bar dataKey="sent" fill="#38bdf8" name="Sent" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="received" fill="#34d399" name="Received" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
   );
 }
 

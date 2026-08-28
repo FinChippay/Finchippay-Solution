@@ -128,7 +128,22 @@ const tipSchema = z
   .refine((data) => parseFloat(data.amount) > 0, {
     message: "amount must be a positive number",
     path: ["amount"],
-  });
+  })
+  .refine(
+    (data) => {
+      try {
+        const { normalizeAsset } = require("../utils/asset");
+        normalizeAsset(data.asset);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    },
+    {
+      message: "Non-XLM asset must be formatted as CODE:ISSUER",
+      path: ["asset"],
+    },
+  );
 
 const creatorPublicKeyParamSchema = z.object({
   creatorPublicKey: stellarAddress,
@@ -264,7 +279,7 @@ const mintWithIpfsSchema = z.object({
 
 // ─── scheduled transactions ───────────────────────────────────────────────────
 
-const SCHEDULED_FIELDS_REQUIRED = "Missing signedXDR, submitAt, or publicKey";
+const SCHEDULED_FIELDS_REQUIRED = "Missing signedXDR or submitAt";
 
 /** POST /api/scheduled-txns */
 const scheduleTransactionSchema = z.object({
@@ -277,11 +292,11 @@ const scheduleTransactionSchema = z.object({
     .refine((value) => !Number.isNaN(new Date(value).getTime()), {
       message: "submitAt must be a valid ISO 8601 date string",
     }),
-  // The scheduler only uses this as an ownership marker — the value may be a
-  // test placeholder — so we require presence, not Stellar format.
+  // Optional: if provided, must match the authenticated user's publicKey
   publicKey: z
-    .string({ required_error: SCHEDULED_FIELDS_REQUIRED })
-    .min(1, SCHEDULED_FIELDS_REQUIRED),
+    .string()
+    .min(1)
+    .optional(),
 });
 
 // ─── SEP-0024 ─────────────────────────────────────────────────────────────────

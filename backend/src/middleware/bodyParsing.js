@@ -40,12 +40,40 @@ function requireJsonContentType(req, res, next) {
 }
 
 /**
+ * express.json()'s `verify` callback — stashes the exact bytes received on
+ * `req.rawBody` before JSON parsing. Inbound webhook signature verification
+ * (verifyInboundWebhookSignature.js) needs the raw bytes: re-serializing
+ * `req.body` with JSON.stringify() is not guaranteed to reproduce the exact
+ * string the sender signed (key order, whitespace, unicode escaping can all
+ * differ), which would make a correctly-signed request fail verification.
+ */
+function rawBodySaver(req, _res, buf) {
+  req.rawBody = buf;
+}
+
+/**
+ * Build a JSON body parser with raw-body capture enabled. Exported so test
+ * apps can mount the exact same parser used in production (see
+ * bodyParsing(app) below) rather than a plain express.json() that would
+ * leave req.rawBody undefined.
+ */
+function jsonBodyParser(options = {}) {
+  return express.json({ limit: BODY_LIMIT_JSON, verify: rawBodySaver, ...options });
+}
+
+/**
  * Apply body parsing middleware with configurable size limits.
  * Mount this on the Express app before routes.
  */
 function bodyParsing(app) {
-  app.use(express.json({ limit: BODY_LIMIT_JSON }));
+  app.use(jsonBodyParser());
   app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT_URLENCODED }));
 }
 
-module.exports = { requireJsonContentType, bodyParsing, BODY_LIMIT_JSON, BODY_LIMIT_URLENCODED };
+module.exports = {
+  requireJsonContentType,
+  bodyParsing,
+  jsonBodyParser,
+  BODY_LIMIT_JSON,
+  BODY_LIMIT_URLENCODED,
+};

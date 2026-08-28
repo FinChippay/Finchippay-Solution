@@ -14,6 +14,7 @@ import TransactionTimeline from "@/components/TransactionTimeline";
 import { ArrowUpIcon, ArrowDownIcon, LedgerIcon } from "@/components/icons";
 import { server, explorerUrl, shortenAddress } from "@/lib/stellar";
 import { formatAsset, formatDate, timeAgo } from "@/utils/format";
+import { logger } from "@/lib/logger";
 
 interface TransactionDetail {
   hash: string;
@@ -67,18 +68,18 @@ function TransactionDetailPage() {
 
         type PaymentOp = import("@stellar/stellar-sdk").Horizon.HorizonApi.PaymentOperationResponse;
         const paymentOp = operations.records.find(
-          (op): op is PaymentOp => op.type === "payment",
-        );
+          (op) => op.type === "payment",
+        ) as PaymentOp | undefined;
         if (paymentOp) {
-          amount = payment.amount;
-          asset = payment.asset_type === "native" ? "XLM" : payment.asset_code;
-          from = payment.from;
-          to = payment.to;
+          amount = paymentOp.amount;
+          asset = paymentOp.asset_type === "native" ? "XLM" : paymentOp.asset_code;
+          from = paymentOp.from;
+          to = paymentOp.to;
           type = "payment";
         }
 
         const detail: TransactionDetail = {
-          hash: tx.hash,
+          hash: String(tx.hash),
           ledger: tx.ledger_attr,
           createdAt: tx.created_at,
           sourceAccount: tx.source_account,
@@ -96,7 +97,7 @@ function TransactionDetailPage() {
 
         setTransaction(detail);
       } catch (err) {
-        logger.error("Failed to fetch transaction:", err);
+        logger.error("Failed to fetch transaction:", {}, err instanceof Error ? err : undefined);
         setError("Failed to load transaction details. Please try again.");
       } finally {
         setLoading(false);

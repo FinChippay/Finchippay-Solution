@@ -117,7 +117,7 @@ export default function HighlightedTransactionRow({
                 </p>
                 <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
                   <a
-                    href={explorerUrl(`account/${counterparty}`)}
+                    href={explorerUrl(`account/${counterparty}`) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:text-stellar-500 inline-flex items-center gap-1"
@@ -166,7 +166,7 @@ export default function HighlightedTransactionRow({
               </p>
               <p className="text-xs text-slate-600 dark:text-slate-400 font-mono">
                 <a
-                  href={explorerUrl(`tx/${payment.hash}`)}
+                  href={explorerUrl(`tx/${payment.hash}`) ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-stellar-500 inline-flex items-center gap-1"

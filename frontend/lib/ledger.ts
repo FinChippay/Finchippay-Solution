@@ -50,7 +50,9 @@ export async function connectLedger(): Promise<{
   }
 
   try {
+    // @ts-expect-error - @ledgerhq packages are optional peer dependencies
     const TransportWebUSB = (await import("@ledgerhq/hw-transport-webusb")).default;
+    // @ts-expect-error - @ledgerhq packages are optional peer dependencies
     const StellarApp = (await import("@ledgerhq/hw-app-str")).default;
 
     transportInstance = await TransportWebUSB.create();

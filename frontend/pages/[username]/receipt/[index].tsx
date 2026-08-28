@@ -44,7 +44,7 @@ export default function PublicReceiptPage() {
 
         setReceipt(data);
       } catch (err: any) {
-        logger.error("Failed to load receipt:", err);
+        logger.error("Failed to load receipt:", {}, err instanceof Error ? err : undefined);
         setError(err.message || "Failed to load receipt.");
       } finally {
         setLoading(false);

@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 const promClient = require("prom-client");
 const logger = require("../utils/logger");
@@ -159,3 +159,5 @@ module.exports = {
   getMetrics,
   getContentType,
 };
+
+

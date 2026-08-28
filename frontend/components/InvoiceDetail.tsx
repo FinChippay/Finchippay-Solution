@@ -27,7 +27,7 @@ export default function InvoiceDetail({ invoice, onClose, onUpdate }: InvoiceDet
     try {
       await generateInvoicePDF(invoice);
     } catch (err) {
-      logger.error("Failed to generate PDF:", err);
+      logger.error("Failed to generate PDF:", {}, err instanceof Error ? err : undefined);
       alert("Failed to generate PDF. Please try again.");
     } finally {
       setDownloading(false);
