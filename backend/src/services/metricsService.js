@@ -112,19 +112,16 @@ const rateLimitBypassedTotal = new promClient.Counter({
   registers: [register],
 });
 
-const emailsSentTotal = new promClient.Counter({
-  name: "emails_sent_total",
-  help: "Total number of emails successfully sent.",
+const backupVerificationSuccess = new promClient.Gauge({
+  name: "backup_verification_success",
+  help: "Whether the latest backup restore-and-verify drill succeeded (1) or failed (0). Updated by each manual and scheduled verification run.",
   registers: [register],
 });
-const emailsFailedTotal = new promClient.Counter({
-  name: "emails_failed_total",
-  help: "Total number of emails that failed after exhausting retries.",
-  registers: [register],
-});
-const emailsRateLimitedTotal = new promClient.Counter({
-  name: "emails_rate_limited_total",
-  help: "Total number of emails dropped due to per-user rate limiting.",
+
+const backupVerificationDurationSeconds = new promClient.Histogram({
+  name: "backup_verification_duration_seconds",
+  help: "Duration of the automated backup restore-and-verify drill in seconds.",
+  buckets: [1, 5, 15, 30, 60, 120, 300],
   registers: [register],
 });
 
@@ -137,7 +134,7 @@ function getContentType() {
 }
 
 logger.info(
-  "Prometheus metrics registered: http_requests_total, http_request_duration_seconds, http_requests_in_flight, db_query_duration_seconds, horizon_request_duration_seconds, horizon_requests_total, webhook_deliveries_total, contract_events_indexed_total, active_users, payments_volume_total, error_count_total, active_webhook_streams, rate_limit_hits_total, rate_limit_breaches_total, rate_limit_bypassed_total",
+  "Prometheus metrics registered: http_requests_total, http_request_duration_seconds, http_requests_in_flight, db_query_duration_seconds, horizon_request_duration_seconds, horizon_requests_total, webhook_deliveries_total, contract_events_indexed_total, active_users, payments_volume_total, error_count_total, active_webhook_streams, rate_limit_hits_total, rate_limit_breaches_total, rate_limit_bypassed_total, backup_verification_success, backup_verification_duration_seconds",
 );
 
 module.exports = {
@@ -157,9 +154,8 @@ module.exports = {
   rateLimitHitsTotal,
   rateLimitBreachesTotal,
   rateLimitBypassedTotal,
-  emailsSentTotal,
-  emailsFailedTotal,
-  emailsRateLimitedTotal,
+  backupVerificationSuccess,
+  backupVerificationDurationSeconds,
   getMetrics,
   getContentType,
 };

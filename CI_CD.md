@@ -327,6 +327,42 @@ Upload SBOM bundle artifact (retained 365 days)
 - Posts automated review message
 - Only runs for bot-authored PRs (gated on `github.actor`)
 
+#### 16. Backup Restore & Verification Drill (Issue #799)
+
+A backup that exists but cannot be restored is worthless — and this is only discovered during an actual disaster. The backend runs a **weekly restore-and-verify drill** that proves the latest database backup is restorable before it is ever needed.
+
+**Where:** `backend/src/services/backupVerificationService.js` (scheduled in `backend/src/server.js` alongside the data-retention cron)
+
+**Schedule:** weekly, Sunday 04:00 UTC (default `BACKUP_VERIFY_SCHEDULE=0 4 * * 0` — after the daily 02:00 `BACKUP_SCHEDULE` dump). Disable the scheduled run with `BACKUP_VERIFY_ENABLED=false`. Backups themselves are produced by `backend/src/services/backupService.js`.
+
+**What a drill does:**
+1. Fetches the latest backup from `BACKUP_DIR`
+2. Restores it into a **throwaway database** (a temp SQLite file, or a temp Postgres database — never the live DB)
+3. Applies pending Knex migrations so backups that predate a schema change still verify
+4. Runs integrity checks on the restored copy:
+   - **Orphaned foreign keys** — `webhook_deliveries`/`webhook_events` → `webhooks`, `dead_letter_queue` → `webhook_deliveries`, `turrets_history` → `turrets_deployments`, `pending_executions`/`scheduled_txn_executions` → `scheduled_transactions`, `contact_group_membership` → `contacts`/`contact_groups`
+   - **Balance consistency** — tips must have positive `amount_stroops` and both sender/recipient addresses; scheduled-transaction amounts must be positive numbers
+   - **Table row counts** — per-table counts included in the report for drift spotting
+5. Tears the temp database down (temp file deleted / temp Postgres DB dropped)
+
+**Alerting on failure:**
+- `logger.error` with a **CRITICAL** message (failure or crash) — surfaces in Datadog/CloudWatch via the structured logs
+- Prometheus gauge `backup_verification_success` → `0` on failure, `1` on success (exposed as `finchippay_backup_verification_success`)
+- Prometheus histogram `backup_verification_duration_seconds` (exposed as `finchippay_backup_verification_duration_seconds`)
+- Outcome recorded in the `audit_log` table (`backup_verify_passed` / `backup_verify_failed`)
+
+**Manual trigger:**
+```bash
+curl -X POST https://<backend>/api/admin/backup/verify \
+  -H "Authorization: Bearer <admin JWT>" \
+  -H "Content-Type: application/json"
+```
+Requires a valid JWT from an `ADMIN_PUBLIC_KEYS` allowlisted Stellar account (same guard as `/api/admin/feature-flags`). Also exposes `GET /api/admin/backups`, `POST /api/admin/backup`, and `POST /api/admin/restore`.
+
+**Postgres note:** the drill creates and drops a temporary database, so the `DATABASE_URL` user needs the `CREATEDB` privilege in production.
+
+---
+
 #### 15. Greptile AI Review (`greptile-review.yml` + `greptile-label.yml`)
 
 Two workflows handle the Greptile integration:

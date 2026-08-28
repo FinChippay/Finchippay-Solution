@@ -171,6 +171,7 @@ function getBackupStatus() {
 }
 
 module.exports = {
+  BACKUP_DIR,
   performBackup,
   restoreBackup,
   listBackups,

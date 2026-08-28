@@ -52,6 +52,7 @@ const eventRoutes = require("./routes/events");
 const notificationRoutes = require("./routes/notifications");
 const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
+const adminBackupRoutes = require("./routes/admin/backup");
 const tokensRoutes = require("./routes/tokens");
 const pushRoutes = require("./routes/push");
 const emailRoutes = require("./routes/emails");
@@ -317,6 +318,7 @@ app.use("/api/push", pushRoutes);
 app.use("/api/emails", emailRoutes);
 app.use("/api/features", featuresRoutes);
 app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
+app.use("/api/admin", adminBackupRoutes);
 app.use("/api/v1/tokens", tokensRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
@@ -477,9 +479,11 @@ if (require.main === module) {
       .catch((err) => {
         logger.error({ err }, "Failed to load active scheduled transactions");
       });
-    // Start scheduled transaction executor and data retention cron
+    // Start scheduled transaction executor, data retention cron, and the
+    // weekly backup restore-and-verify drill (#799)
     require("./services/scheduledExecutor").start();
     require("./services/dataRetentionService").startRetentionCron();
+    require("./services/backupVerificationService").startVerificationCron();
 
     const server = app.listen(PORT, async () => {
       logger.info(
