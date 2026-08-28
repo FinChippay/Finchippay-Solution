@@ -138,6 +138,42 @@ const options = {
             data: { type: "object" },
           },
         },
+        AuthChallengeResponse: {
+          type: "object",
+          required: ["transaction", "networkPassphrase", "signingKey"],
+          description:
+            "SEP-0010 challenge plus server signing-key metadata. Clients that " +
+            "cache the server signing key can compare `signingKey` / " +
+            "`signingKeyVersion` to detect rotation before verifying the " +
+            "challenge signature.",
+          properties: {
+            transaction: {
+              type: "string",
+              description: "Base64-encoded SEP-0010 challenge transaction XDR",
+            },
+            networkPassphrase: {
+              type: "string",
+              description: "Stellar network passphrase the challenge was built for",
+              example: "Test SDF Network ; September 2015",
+            },
+            signingKey: {
+              type: "string",
+              pattern: "^G[A-Z0-9]{55}$",
+              description:
+                "Server signing public key (mirrors SIGNING_KEY in stellar.toml). " +
+                "Only the public key is exposed — never the private key.",
+              example: "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWX",
+            },
+            signingKeyVersion: {
+              type: "string",
+              description:
+                "Opaque version token for the current signing key. Changes when " +
+                "the operator rotates SERVER_PRIVATE_KEY (or sets SIGNING_KEY_VERSION). " +
+                "Clients can cache this to detect stale signing keys.",
+              example: "a1b2c3d4e5f60718",
+            },
+          },
+        },
         PaymentRecord: {
           type: "object",
           properties: {
@@ -488,6 +524,10 @@ const options = {
         get: {
           tags: ["Authentication"],
           summary: "Get SEP-0010 challenge transaction",
+          description:
+            "Returns a SEP-0010 challenge transaction plus the server's signing " +
+            "public key metadata so clients can detect key rotation and reject " +
+            "stale challenges. Mirrors the SIGNING_KEY advertised in stellar.toml.",
           parameters: [
             {
               name: "account",
@@ -499,14 +539,11 @@ const options = {
           ],
           responses: {
             200: {
-              description: "Challenge transaction XDR",
+              description: "Challenge transaction XDR and server signing-key metadata",
               content: {
                 "application/json": {
                   schema: {
-                    type: "object",
-                    properties: {
-                      transaction: { type: "string" },
-                    },
+                    $ref: "#/components/schemas/AuthChallengeResponse",
                   },
                 },
               },
