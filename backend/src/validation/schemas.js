@@ -128,7 +128,22 @@ const tipSchema = z
   .refine((data) => parseFloat(data.amount) > 0, {
     message: "amount must be a positive number",
     path: ["amount"],
-  });
+  })
+  .refine(
+    (data) => {
+      try {
+        const { normalizeAsset } = require("../utils/asset");
+        normalizeAsset(data.asset);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    },
+    {
+      message: "Non-XLM asset must be formatted as CODE:ISSUER",
+      path: ["asset"],
+    },
+  );
 
 const creatorPublicKeyParamSchema = z.object({
   creatorPublicKey: stellarAddress,
