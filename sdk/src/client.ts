@@ -39,6 +39,9 @@ import type {
   Sep24InitiateRequest,
   Sep24InteractiveResponse,
   Sep24Transaction,
+  /* SEP-0012 */
+  Sep12StatusResponse,
+  Sep12CustomerResponse,
   /* AI Parsing */
   ParsePaymentRequest,
   ParsePaymentResponse,
@@ -46,10 +49,13 @@ import type {
   ChallengeResponse,
   TokenResponse,
   AuthRequest,
+  SessionInfo,
   /* Health */
   HealthStatus,
   /* Federation */
   FederationRecord,
+  /* Events */
+  EventsStatsResponse,
   /* Generic */
   SuccessResponse,
 } from "./types";
@@ -59,8 +65,12 @@ import type {
 /** Default base URL for the Finchippay API. */
 const DEFAULT_BASE_URL = "http://localhost:4000";
 
-/** Storage key for the cached JWT token. */
-const TOKEN_KEY = "finchippay_sdk_token";
+function createCorrelationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /* ─── Client options ─── */
 
@@ -70,12 +80,18 @@ export interface FinchippayClientOptions {
   /** Optional pre-existing JWT token. If not provided, the client will look for
    *  a cached token or require explicit authentication. */
   authToken?: string;
+  /** Optional dynamic getter function for access tokens. */
+  getAuthToken?: () => string | null | Promise<string | null>;
   /** Optional custom fetch implementation (for Node.js environments, etc.). */
   fetch?: typeof fetch;
   /** Whether to automatically cache the JWT token in memory. Default true. */
   cacheToken?: boolean;
   /** API version to use (e.g. "1"). Defaults to the latest version. */
   apiVersion?: string;
+  /** Optional factory used to join SDK requests to an application trace. */
+  correlationIdFactory?: () => string;
+  /** Optional browser/session identifier propagated with every request. */
+  sessionId?: string;
 }
 
 /* ─── Client class ─── */
@@ -83,20 +99,26 @@ export interface FinchippayClientOptions {
 export class FinchippayClient {
   private baseUrl: string;
   private authToken: string | null = null;
+  private getAuthToken?: () => string | null | Promise<string | null>;
   private fetchFn: typeof fetch;
   private cacheToken: boolean;
   private apiVersion: string;
+  private correlationIdFactory: () => string;
+  private sessionId?: string;
 
   constructor(options: FinchippayClientOptions = {}) {
     this.baseUrl = (options.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.authToken = options.authToken || null;
+    this.getAuthToken = options.getAuthToken;
     this.fetchFn = options.fetch || (globalThis as any).fetch;
     this.cacheToken = options.cacheToken ?? true;
     this.apiVersion = options.apiVersion || "1";
+    this.correlationIdFactory = options.correlationIdFactory || createCorrelationId;
+    this.sessionId = options.sessionId;
 
     if (!this.fetchFn) {
       throw new Error(
-        "Fetch API is not available. Pass a custom fetch implementation via the `fetch` option, or use Node.js 18+."
+        "Fetch API is not available. Pass a custom fetch implementation via the `fetch` option, or use Node.js 18+.",
       );
     }
   }
@@ -148,7 +170,7 @@ export class FinchippayClient {
     options?: {
       body?: unknown;
       params?: Record<string, unknown>;
-    }
+    },
   ): Promise<T> {
     const versionedPath = this.versionPath(path);
     const url = new URL(`${this.baseUrl}${versionedPath}`);
@@ -167,15 +189,14 @@ export class FinchippayClient {
       "Accept-Version": this.apiVersion,
     };
 
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
+    const token = this.getAuthToken ? await this.getAuthToken() : this.authToken;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
     }
 
-    // Correlation IDs (#172) — unique per request; optional session left to
-    // the caller's fetch wrapper (frontend installs X-Session-ID globally).
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      headers["X-Request-ID"] = crypto.randomUUID();
-    }
+    // Correlation IDs (#172) — unique per request, with optional session scope.
+    headers["X-Request-ID"] = this.correlationIdFactory();
+    if (this.sessionId) headers["X-Session-ID"] = this.sessionId;
 
     const res = await this.fetchFn(url.toString(), {
       method,
@@ -184,33 +205,52 @@ export class FinchippayClient {
     });
 
     // Check for deprecation warnings
-    const apiVersionHeader = res.headers.get("X-API-Version");
-    const deprecatedHeader = res.headers.get("X-API-Deprecated");
+    const apiVersionHeader = res.headers?.get?.("X-API-Version");
+    const deprecatedHeader = res.headers?.get?.("X-API-Deprecated");
     if (process.env.NODE_ENV !== "production" && deprecatedHeader === "true") {
       console.warn(
         `[Finchippay SDK] API version ${apiVersionHeader} is deprecated. ` +
-        `Consider upgrading to the latest version.`
+          `Consider upgrading to the latest version.`,
       );
     }
 
     if (!res.ok) {
-      const errorBody = await res.text();
       let errorMessage: string;
-      try {
-        const parsed = JSON.parse(errorBody);
-        errorMessage = parsed.error || parsed.message || errorBody;
-      } catch {
-        errorMessage = errorBody || `HTTP ${res.status}`;
+      if (typeof res.text === "function") {
+        const errorBody = await res.text();
+        try {
+          const parsed = JSON.parse(errorBody);
+          errorMessage = parsed.error || parsed.message || errorBody;
+        } catch {
+          errorMessage = errorBody || `HTTP ${res.status}`;
+        }
+      } else if (typeof res.json === "function") {
+        try {
+          const parsed = await res.json();
+          errorMessage = parsed.error || parsed.message || `HTTP ${res.status}`;
+        } catch {
+          errorMessage = `HTTP ${res.status}`;
+        }
+      } else {
+        errorMessage = `HTTP ${res.status}`;
       }
       throw new ApiHttpError(res.status, errorMessage, res.headers);
     }
 
     // Some endpoints return plain text (e.g. stellar.toml)
-    const contentType = res.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
+    const contentType = res.headers?.get?.("content-type") || "";
+    if (contentType.includes("application/json") || typeof res.text !== "function") {
+      if (typeof res.json === "function") {
+        return (await res.json()) as T;
+      }
+    }
+    if (typeof res.text === "function") {
+      return (await res.text()) as unknown as T;
+    }
+    if (typeof res.json === "function") {
       return (await res.json()) as T;
     }
-    return (await res.text()) as unknown as T;
+    return res as unknown as T;
   }
 
   /* ─── SEP-0010 Authentication ─── */
@@ -226,10 +266,10 @@ export class FinchippayClient {
    * and then call `verifyChallenge(signedXDR)`.
    */
   async getChallenge(account: string): Promise<ChallengeResponse> {
-    const res = await this.request<SuccessResponse<ChallengeResponse>>("GET", "/api/auth", {
+    const res = await this.request<SuccessResponse<ChallengeResponse> | ChallengeResponse>("GET", "/api/auth", {
       params: { account },
     });
-    return res.data || res;
+    return "data" in res && res.data ? res.data : (res as ChallengeResponse);
   }
 
   /**
@@ -241,11 +281,12 @@ export class FinchippayClient {
     const res = await this.request<SuccessResponse<TokenResponse> | TokenResponse>(
       "POST",
       "/api/auth",
-      { body }
+      { body },
     );
-    const data = "data" in res ? (res as SuccessResponse<TokenResponse>).data : (res as TokenResponse);
+    const data =
+      "data" in res ? (res as SuccessResponse<TokenResponse>).data : (res as TokenResponse);
     if (this.cacheToken) {
-      this.authToken = data.token;
+      this.authToken = data.token || data.accessToken;
     }
     return data;
   }
@@ -258,14 +299,57 @@ export class FinchippayClient {
   async authenticate(account: string, signedChallengeXDR: string): Promise<string> {
     await this.getChallenge(account);
     const tokenRes = await this.verifyChallenge(signedChallengeXDR);
-    return tokenRes.token;
+    return tokenRes.token || tokenRes.accessToken;
   }
+
+  auth = {
+    /** Get SEP-0010 challenge transaction. */
+    getChallenge: (account: string): Promise<ChallengeResponse> =>
+      this.getChallenge(account),
+
+    /** Submit signed challenge to receive tokens. */
+    verifyChallenge: (signedTransactionXDR: string): Promise<TokenResponse> =>
+      this.verifyChallenge(signedTransactionXDR),
+
+    /** Rotate refresh token and access token. */
+    refresh: async (refreshToken: string): Promise<TokenResponse> => {
+      const res = await this.request<SuccessResponse<TokenResponse> | TokenResponse>(
+        "POST",
+        "/api/auth/refresh",
+        { body: { refreshToken } }
+      );
+      const data = "data" in res && res.data ? (res as SuccessResponse<TokenResponse>).data : (res as TokenResponse);
+      if (this.cacheToken && (data.accessToken || data.token)) {
+        this.authToken = data.accessToken || data.token;
+      }
+      return data;
+    },
+
+    /** Fetch active sessions for the authenticated user. */
+    getSessions: async (): Promise<SessionInfo[]> => {
+      const res = await this.request<{ success: boolean; sessions: SessionInfo[] }>(
+        "GET",
+        "/api/auth/sessions"
+      );
+      return res.sessions || [];
+    },
+
+    /** Revoke a session, refresh token, or all active sessions. */
+    revoke: (body: { sessionId?: number | string; refreshToken?: string; all?: boolean }): Promise<{ success: boolean; message?: string }> =>
+      this.request("POST", "/api/auth/revoke", { body }),
+
+    /** Logout and revoke tokens. */
+    logout: (refreshToken?: string): Promise<{ success: boolean; message?: string }> => {
+      this.clearToken();
+      return this.request("POST", "/api/auth/logout", { body: { refreshToken } });
+    },
+  };
 
   /* ─── Health ─── */
 
   async health(): Promise<HealthStatus> {
     const res = await this.request<SuccessResponse<HealthStatus> | HealthStatus>("GET", "/health");
-    return "data" in res ? (res as SuccessResponse<HealthStatus>).data : (res as HealthStatus);
+    return "data" in res && res.data ? (res as SuccessResponse<HealthStatus>).data : (res as HealthStatus);
   }
 
   /* ─── Accounts ─── */
@@ -273,15 +357,15 @@ export class FinchippayClient {
   accounts = {
     /** Get account details and balances. */
     get: (publicKey: string): Promise<SuccessResponse<AccountInfo>> =>
-      this.request("GET", `/api/accounts/${publicKey}`),
+      this.request("GET", `/api/accounts/${encodeURIComponent(publicKey)}`),
 
     /** Get native XLM balance. */
     getBalance: (publicKey: string): Promise<SuccessResponse<BalanceResponse>> =>
-      this.request("GET", `/api/accounts/${publicKey}/balance`),
+      this.request("GET", `/api/accounts/${encodeURIComponent(publicKey)}/balance`),
 
-    /** Resolve a username to a Stellar public key. */
-    resolveUsername: (username: string): Promise<SuccessResponse<ResolveUsernameResponse>> =>
-      this.request("GET", `/api/accounts/resolve/${username}`),
+    /** Resolve a username to a Stellar public key or vice versa. */
+    resolveUsername: (usernameOrPublicKey: string): Promise<SuccessResponse<ResolveUsernameResponse>> =>
+      this.request("GET", `/api/accounts/resolve/${encodeURIComponent(usernameOrPublicKey)}`),
 
     /** Register a username for an account. */
     register: (body: RegisterUsernameRequest): Promise<SuccessResponse<void>> =>
@@ -294,13 +378,15 @@ export class FinchippayClient {
     /** Fetch payment history for an account. Supports pagination. */
     getHistory: (
       publicKey: string,
-      params?: PaymentHistoryParams
+      params?: PaymentHistoryParams,
     ): Promise<SuccessResponse<PaymentRecord[]>> =>
-      this.request("GET", `/api/payments/${publicKey}`, { params: params as Record<string, unknown> }),
+      this.request("GET", `/api/payments/${publicKey}`, {
+        params: params as Record<string, unknown>,
+      }),
 
     /** Get aggregate payment statistics. */
     getStats: (publicKey: string): Promise<SuccessResponse<PaymentStats>> =>
-      this.request("GET", `/api/payments/${publicKey}/stats`),
+      this.request("GET", `/api/payments/${encodeURIComponent(publicKey)}/stats`),
   };
 
   /* ─── Analytics ─── */
@@ -308,35 +394,47 @@ export class FinchippayClient {
   analytics = {
     /** Get payment summary for an account. */
     getSummary: (publicKey: string): Promise<SuccessResponse<AnalyticsSummary>> =>
-      this.request("GET", `/api/analytics/${publicKey}/summary`),
+      this.request("GET", `/api/analytics/${encodeURIComponent(publicKey)}/summary`),
 
     /** Get top payment recipients. */
-    getTopRecipients: (publicKey: string): Promise<SuccessResponse<TopRecipient[]>> =>
-      this.request("GET", `/api/analytics/${publicKey}/top-recipients`),
+    getTopRecipients: (publicKey: string): Promise<SuccessResponse<{ topRecipients: TopRecipient[] }> | SuccessResponse<TopRecipient[]>> =>
+      this.request("GET", `/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`),
 
     /** Get payment activity by day. */
     getActivity: (publicKey: string): Promise<SuccessResponse<ActivityDay[]>> =>
-      this.request("GET", `/api/analytics/${publicKey}/activity`),
+      this.request("GET", `/api/analytics/${encodeURIComponent(publicKey)}/activity`),
   };
 
   /* ─── Tips ─── */
 
   tips = {
     /** Get tips received by a creator. */
-    getReceived: (creatorPublicKey: string): Promise<SuccessResponse<Tip[]>> =>
-      this.request("GET", `/api/tips/received/${creatorPublicKey}`),
+    getReceived: (creatorPublicKey: string, params?: { limit?: number; offset?: number }): Promise<SuccessResponse<Tip[]> | { success: boolean; tips: Tip[]; total?: number }> =>
+      this.request("GET", `/api/tips/received/${encodeURIComponent(creatorPublicKey)}`, { params: params as Record<string, unknown> }),
 
     /** Get tips sent by an account. */
-    getSent: (senderPublicKey: string): Promise<SuccessResponse<Tip[]>> =>
-      this.request("GET", `/api/tips/sent/${senderPublicKey}`),
+    getSent: (senderPublicKey: string, params?: { limit?: number; offset?: number }): Promise<SuccessResponse<Tip[]> | { success: boolean; tips: Tip[]; total?: number }> =>
+      this.request("GET", `/api/tips/sent/${encodeURIComponent(senderPublicKey)}`, { params: params as Record<string, unknown> }),
 
     /** Get tip statistics for a creator. */
-    getStats: (creatorPublicKey: string): Promise<SuccessResponse<TipStats>> =>
-      this.request("GET", `/api/tips/stats/${creatorPublicKey}`),
+    getStats: (creatorPublicKey: string): Promise<SuccessResponse<TipStats> | { success: boolean; stats: TipStats }> =>
+      this.request("GET", `/api/tips/stats/${encodeURIComponent(creatorPublicKey)}`),
 
     /** Record a new tip. */
     create: (body: CreateTipRequest): Promise<SuccessResponse<void>> =>
       this.request("POST", "/api/tips", { body }),
+  };
+
+  /* ─── Events ─── */
+
+  events = {
+    /** Get contract event stats for a participant address. */
+    getStats: (publicKey: string): Promise<SuccessResponse<EventsStatsResponse>> =>
+      this.request("GET", `/api/events/${encodeURIComponent(publicKey)}/stats`),
+
+    /** Get contract events for a participant address. */
+    getEvents: (publicKey: string, params?: { limit?: number; offset?: number }): Promise<SuccessResponse<unknown[]>> =>
+      this.request("GET", `/api/events/${encodeURIComponent(publicKey)}`, { params: params as Record<string, unknown> }),
   };
 
   /* ─── Turrets (txFunctions) ─── */
@@ -348,7 +446,7 @@ export class FinchippayClient {
 
     /** Create a txFunction signing challenge. */
     createChallenge: (
-      body: TxFunctionChallengeRequest
+      body: TxFunctionChallengeRequest,
     ): Promise<SuccessResponse<TxFunctionChallengeResponse>> =>
       this.request("POST", "/api/turrets/challenge", { body }),
 
@@ -393,15 +491,11 @@ export class FinchippayClient {
 
   sep24 = {
     /** Initiate an interactive deposit session. */
-    initiateDeposit: (
-      body: Sep24InitiateRequest
-    ): Promise<Sep24InteractiveResponse> =>
+    initiateDeposit: (body: Sep24InitiateRequest): Promise<Sep24InteractiveResponse> =>
       this.request("POST", "/api/sep24/transactions/deposit/interactive", { body }),
 
     /** Initiate an interactive withdrawal session. */
-    initiateWithdrawal: (
-      body: Sep24InitiateRequest
-    ): Promise<Sep24InteractiveResponse> =>
+    initiateWithdrawal: (body: Sep24InitiateRequest): Promise<Sep24InteractiveResponse> =>
       this.request("POST", "/api/sep24/transactions/withdraw/interactive", { body }),
 
     /** Poll transaction status by ID. */
@@ -409,27 +503,33 @@ export class FinchippayClient {
       this.request("GET", "/api/sep24/transaction", { params: { id } }),
   };
 
+  /* ─── SEP-0012 ─── */
+
+  sep12 = {
+    /** Get KYC customer status from configured anchor. */
+    getStatus: (anchorName: string): Promise<SuccessResponse<Sep12StatusResponse>> =>
+      this.request("GET", "/api/sep12/customer/status", { params: { anchorName } }),
+
+    /** Submit KYC fields to the configured anchor. */
+    putCustomer: (body: { anchorName: string; fields: Record<string, unknown> }): Promise<SuccessResponse<Sep12CustomerResponse>> =>
+      this.request("POST", "/api/sep12/customer", { body }),
+  };
+
   /* ─── AI Parsing ─── */
 
   /** Parse natural language into a payment intent. */
-  parsePayment = (
-    body: ParsePaymentRequest
-  ): Promise<ParsePaymentResponse> =>
+  parsePayment = (body: ParsePaymentRequest): Promise<ParsePaymentResponse> =>
     this.request("POST", "/api/parse-payment", { body });
 
   /* ─── Federation (SEP-0002) ─── */
 
   federation = {
     /** Resolve a stellar address to an account ID. */
-    resolve: (
-      q: string,
-      type: "name" | "id"
-    ): Promise<FederationRecord> =>
+    resolve: (q: string, type: "name" | "id"): Promise<FederationRecord> =>
       this.request("GET", "/federation", { params: { q, type } }),
 
     /** Get the stellar.toml discovery document. */
-    getStellarToml: (): Promise<string> =>
-      this.request("GET", "/.well-known/stellar.toml"),
+    getStellarToml: (): Promise<string> => this.request("GET", "/.well-known/stellar.toml"),
   };
 }
 
@@ -439,7 +539,7 @@ export class ApiHttpError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly headers?: Headers
+    public readonly headers?: Headers,
   ) {
     super(message);
     this.name = "ApiHttpError";

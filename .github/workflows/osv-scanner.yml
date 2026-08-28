@@ -1,0 +1,102 @@
+# PR-time dependency vulnerability gate. Scans every npm/pnpm/Cargo
+# lockfile in the repo against the OSV/GHSA database (the same source
+# Dependabot alerts use) and fails the build on High/Critical findings.
+name: OSV Dependency Scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# OSV-Scanner CLI release to use. Bump deliberately after checking the
+# release notes: https://github.com/google/osv-scanner/releases
+env:
+  OSV_SCANNER_VERSION: "v2.5.0"
+
+jobs:
+  osv-scan:
+    name: OSV-Scanner (High/Critical gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to a tagged release (not "latest") so a compromised or
+      # regressed upstream build can't silently change what CI trusts.
+      - name: Install OSV-Scanner
+        run: |
+          curl -sSfL -o /usr/local/bin/osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      # Every real lockfile in the repo. Each one drives an actual
+      # `npm ci`/`pnpm install --frozen-lockfile` somewhere (Docker
+      # build or CI job), so drift here means a real, installable
+      # vulnerability - not a false positive from an unused file.
+      - name: Scan lockfiles
+        id: scan
+        run: |
+          set -o pipefail
+          mkdir -p osv-results
+          LOCKFILES=(
+            "package-lock.json"
+            "frontend/package-lock.json"
+            "backend/package-lock.json"
+            "backend/pnpm-lock.yaml"
+            "Cargo.lock"
+          )
+          FOUND_HIGH_CRIT=0
+          for lock in "${LOCKFILES[@]}"; do
+            [ -f "$lock" ] || continue
+            out="osv-results/$(echo "$lock" | tr '/' '_').json"
+            echo "::group::Scanning $lock"
+            osv-scanner scan source --lockfile="$lock" \
+              --format=json --output-file="$out" || true
+            # Human-readable table for the log, and its summary line
+            # is also our severity source of truth (see below).
+            TABLE_OUT=$(osv-scanner scan source --lockfile="$lock" || true)
+            echo "$TABLE_OUT"
+            echo "::endgroup::"
+
+            # osv-scanner itself buckets each finding into Critical/
+            # High/Medium/Low/Unknown via its own CVSS parsing and
+            # prints the totals in one summary line, e.g.:
+            #   Total 1 package affected by 2 known vulnerabilities
+            #   (0 Critical, 2 High, 0 Medium, 0 Low, 0 Unknown) ...
+            # Reusing that count avoids re-parsing raw CVSS vectors
+            # ourselves, which the JSON output does not pre-compute.
+            SUMMARY=$(echo "$TABLE_OUT" | grep -oE '\([0-9]+ Critical, [0-9]+ High,' || true)
+            # The summary line is absent when a lockfile has no findings at
+            # all, so these greps exit non-zero on the common path. Guard them
+            # like SUMMARY above: the step runs under `set -e` (GitHub Actions'
+            # default shell flags), and an unguarded failing pipeline would
+            # abort the whole job even though there is nothing to fail on.
+            CRIT=$(echo "$SUMMARY" | grep -oE '^[(][0-9]+' | tr -d '(' || true)
+            HIGH=$(echo "$SUMMARY" | grep -oE '[0-9]+ High' | grep -oE '^[0-9]+' || true)
+            CRIT="${CRIT:-0}"
+            HIGH="${HIGH:-0}"
+            echo "$lock: $CRIT Critical, $HIGH High"
+            if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              FOUND_HIGH_CRIT=1
+            fi
+          done
+          echo "found_high_crit=$FOUND_HIGH_CRIT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv-scan-results
+          path: osv-results/
+          retention-days: 30
+
+      - name: Fail on High/Critical findings
+        if: steps.scan.outputs.found_high_crit == '1'
+        run: |
+          echo "::error::High/Critical severity vulnerabilities found. See the 'osv-scan-results' artifact for details, or run 'osv-scanner scan --lockfile=<path>' locally."
+          exit 1

@@ -23,10 +23,23 @@ const knex = require("../db/connection");
 const priceFeedService = require("./priceFeedService");
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
-const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
-
 const server = new Horizon.Server(HORIZON_URL);
+
+function getNetworkPassphrase() {
+  return process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+}
+
+async function getDynamicFee() {
+  try {
+    const stats = await server.feeStats();
+    const p50 = stats?.fee_charged?.p50;
+    if (p50) return String(p50);
+  } catch (err) {
+    // fallback to minimum fee if Horizon fails
+  }
+  return "100";
+}
+
 
 let runnerStarted = false;
 let runnerTimer = null;
@@ -179,9 +192,12 @@ async function createSigningChallenge({ ownerPublicKey, type, config }) {
     sourceAccount = new Account(ownerPublicKey, "0");
   }
 
+  const networkPassphrase = getNetworkPassphrase();
+  const fee = await getDynamicFee();
+
   const challengeTx = new TransactionBuilder(sourceAccount, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
+    fee,
+    networkPassphrase,
   })
     .addOperation(
       Operation.manageData({
@@ -196,14 +212,14 @@ async function createSigningChallenge({ ownerPublicKey, type, config }) {
     challengeXDR: challengeTx.toXDR(),
     deploymentHash,
     normalizedConfig,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase,
   };
 }
 
 function verifySignedChallenge({ ownerPublicKey, signedChallengeXDR }) {
   validatePublicKey(ownerPublicKey);
 
-  const tx = new Transaction(signedChallengeXDR, NETWORK_PASSPHRASE);
+  const tx = new Transaction(signedChallengeXDR, getNetworkPassphrase());
 
   if (tx.source !== ownerPublicKey) {
     const err = new Error("Signed challenge source account mismatch");

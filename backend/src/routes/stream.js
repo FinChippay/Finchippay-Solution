@@ -1,8 +1,10 @@
 "use strict";
 
 const express = require("express");
+const crypto = require("crypto");
 const balanceStreamService = require("../services/balanceStreamService");
 const stellarService = require("../services/stellarService");
+const cacheService = require("../services/cacheService");
 
 const router = express.Router();
 
@@ -25,8 +27,43 @@ function bufferEvent(publicKey, eventType, data) {
   return eventObj;
 }
 
+// Generate a single-use, short-lived stream ticket
+router.post("/:publicKey/ticket", async (req, res) => {
+  try {
+    const publicKey = req.params.publicKey;
+    // Generate a random 32-byte hex string for the ticket
+    const ticket = crypto.randomBytes(32).toString("hex");
+    
+    // Store ticket in cache for 30 seconds, associated with this publicKey
+    await cacheService.set(`stream_ticket:${ticket}`, publicKey, 30);
+    
+    res.json({ ticket });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to generate stream ticket" });
+  }
+});
+
 router.get("/:publicKey", async (req, res) => {
   const publicKey = req.params.publicKey;
+  const ticket = req.query.ticket;
+
+  if (!ticket) {
+    return res.status(401).json({ error: "Stream ticket is required" });
+  }
+
+  try {
+    const cachedKey = await cacheService.get(`stream_ticket:${ticket}`);
+    
+    // Verify the ticket exists and matches the requested public key
+    if (!cachedKey || cachedKey !== publicKey) {
+      return res.status(401).json({ error: "Invalid or expired stream ticket" });
+    }
+
+    // Invalidate the ticket immediately to ensure single-use
+    await cacheService.del(`stream_ticket:${ticket}`);
+  } catch (err) {
+    return res.status(500).json({ error: "Internal server error validating ticket" });
+  }
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");

@@ -428,21 +428,6 @@ export class FinchippayContractClient {
     ]);
   }
 
-  async rescueTokens(
-    source: string,
-    admin: string,
-    tokenAddress: string,
-    amount: bigint,
-    to: string,
-  ): Promise<Transaction> {
-    return buildAndPrepare(this.contractId, source, "rescue_tokens", [
-      scvAddress(admin),
-      scvAddress(tokenAddress),
-      scvI128(amount),
-      scvAddress(to),
-    ]);
-  }
-
   // ── Tips ────────────────────────────────────────────────────────────────
 
   async sendTip(

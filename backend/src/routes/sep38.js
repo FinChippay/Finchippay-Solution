@@ -50,4 +50,21 @@ router.get("/prices", (req, res, next) => {
   }
 });
 
+/**
+ * GET /sep38/quote/aggregated or /api/v1/sep38/quote/aggregated
+ * Returns aggregated RFQ quote across Stellar DEX order book depth.
+ */
+router.get(["/quote/aggregated", "/aggregated"], async (req, res, next) => {
+  try {
+    const sellAsset = req.query.sell_asset || req.query.sellAsset;
+    const buyAsset = req.query.buy_asset || req.query.buyAsset;
+    const sellAmount = req.query.sell_amount || req.query.sellAmount;
+
+    const aggregatedQuote = await sep38Service.getAggregatedQuote(sellAsset, buyAsset, sellAmount);
+    res.json(aggregatedQuote);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

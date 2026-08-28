@@ -12,7 +12,6 @@
 "use strict";
 
 const jwt = require("jsonwebtoken");
-const logger = require("../utils/logger");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
 /**

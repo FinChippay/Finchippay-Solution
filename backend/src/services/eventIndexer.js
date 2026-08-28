@@ -31,6 +31,13 @@ const { getRequestIdHeader } = require("../utils/correlationId");
 const { parseEvent } = require("./eventParser");
 require("dotenv").config();
 
+const noopMetric = {
+  inc: () => {},
+  set: () => {},
+};
+const contractEventsProcessedTotal = metrics.contractEventsProcessedTotal ?? noopMetric;
+const contractEventIndexerLagLedgers = metrics.contractEventIndexerLagLedgers ?? noopMetric;
+
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
@@ -38,12 +45,15 @@ const CONTRACT_ID = process.env.CONTRACT_ID || process.env.NEXT_PUBLIC_CONTRACT_
 const POLL_INTERVAL_MS = parseInt(process.env.EVENT_INDEXER_INTERVAL_MS || "30000", 10);
 const MAX_RETRIES = 3;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const EVENT_PAGE_LIMIT = 100;
+const INDEXER_STATE_NAME = "contract_events";
 
 // ─── In-memory fallback store (used when DATABASE_URL is absent) ─────────────
 
 /** @type {Array<object>} */
 const memoryStore = [];
 let memoryIdCounter = 1;
+let memoryLastProcessedTxId = null;
 
 // ─── PostgreSQL client (lazy singleton) ──────────────────────────────────────
 
@@ -189,16 +199,15 @@ async function getLatestLedger() {
  * Filters for events emitted by the configured CONTRACT_ID.
  *
  * @param {number} startLedger - inclusive lower bound
- * @param {number} [endLedger] - inclusive upper bound (defaults to startLedger)
+ * @param {number} [endLedger] - exclusive upper bound
  * @returns {Promise<Array<object>>}
  */
-async function getEvents(startLedger) {
-  const body = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "getEvents",
-    params: {
-      startLedger,
+async function getEvents(startLedger, endLedger) {
+  const events = [];
+  let cursor = null;
+
+  do {
+    const params = {
       filters: [
         {
           type: "contract",
@@ -207,13 +216,32 @@ async function getEvents(startLedger) {
         },
       ],
       pagination: {
-        limit: 100,
+        limit: EVENT_PAGE_LIMIT,
       },
-    },
-  };
+    };
 
-  const result = await fetchWithRetry(SOROBAN_RPC_URL, body);
-  return result?.result?.events ?? [];
+    if (cursor) {
+      params.pagination.cursor = cursor;
+    } else {
+      params.startLedger = startLedger;
+      if (endLedger !== undefined) {
+        params.endLedger = endLedger;
+      }
+    }
+
+    const body = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getEvents",
+      params,
+    };
+
+    const result = await fetchWithRetry(SOROBAN_RPC_URL, body);
+    events.push(...(result?.result?.events ?? []));
+    cursor = result?.result?.cursor || null;
+  } while (cursor);
+
+  return events;
 }
 
 // ─── Event parsing ────────────────────────────────────────────────────────────
@@ -228,52 +256,57 @@ async function getEvents(startLedger) {
  * Insert parsed events into the store (PostgreSQL or in-memory fallback).
  *
  * @param {Array<object>} events - parsed event rows
- * @returns {Promise<number>} number of events inserted
+ * @param {{ cursorLedger?: number, cursorTxId?: string|null }} [options]
+ * @returns {Promise<{ inserted: number, conflicts: number, errors: number }>} insert summary
  */
-async function storeEvents(events) {
-  if (events.length === 0) return 0;
+async function storeEvents(events, options = {}) {
+  if (events.length === 0) return { inserted: 0, conflicts: 0, errors: 0 };
 
   const pool = getPgPool();
 
   if (pool) {
-    // PostgreSQL path
-    let inserted = 0;
+    const summary = { inserted: 0, conflicts: 0, errors: 0 };
     const client = await pool.connect();
     try {
+      await client.query("BEGIN");
       for (const ev of events) {
-        try {
-          await client.query(
-            `INSERT INTO contract_events
-               (event_type, contract_id, ledger_sequence, emitted_at,
-                from_addr, to_addr, amount_raw, payload)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (ledger_sequence, contract_id, event_type, (payload->>'id'))
-             DO NOTHING`,
-            [
-              ev.event_type,
-              ev.contract_id,
-              ev.ledger_sequence,
-              ev.emitted_at,
-              ev.from_addr || null,
-              ev.to_addr || null,
-              ev.amount_raw || null,
-              JSON.stringify(ev.payload),
-            ],
-          );
-          inserted++;
-        } catch (err) {
-          // ON CONFLICT DO NOTHING should handle duplicates, but log
-          // unexpected errors and continue with remaining events.
-          logger.error(
-            { err, event_type: ev.event_type, ledger: ev.ledger_sequence },
-            "Failed to insert contract event",
-          );
+        const result = await client.query(
+          `INSERT INTO contract_events
+             (event_type, contract_id, ledger_sequence, emitted_at,
+              from_addr, to_addr, amount_raw, payload)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (ledger_sequence, contract_id, event_type, (payload->>'id'))
+           DO NOTHING`,
+          [
+            ev.event_type,
+            ev.contract_id,
+            ev.ledger_sequence,
+            ev.emitted_at,
+            ev.from_addr || null,
+            ev.to_addr || null,
+            ev.amount_raw || null,
+            JSON.stringify(ev.payload),
+          ],
+        );
+
+        if (result.rowCount === 1) {
+          summary.inserted++;
+        } else {
+          summary.conflicts++;
         }
       }
+      if (summary.conflicts === 0 && options.cursorLedger !== undefined) {
+        await saveCursorWithQueryable(client, options.cursorLedger, options.cursorTxId ?? null);
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      summary.errors++;
+      await client.query("ROLLBACK").catch(() => {});
+      logger.error({ err }, "Failed to store contract event batch");
     } finally {
       client.release();
     }
-    return inserted;
+    return summary;
   }
 
   // In-memory fallback
@@ -284,7 +317,7 @@ async function storeEvents(events) {
       created_at: new Date().toISOString(),
     });
   }
-  return events.length;
+  return { inserted: events.length, conflicts: 0, errors: 0 };
 }
 
 // ─── Cursor persistence ──────────────────────────────────────────────────────
@@ -294,6 +327,43 @@ async function storeEvents(events) {
  * Persisted in PostgreSQL when available, otherwise held in memory.
  */
 let lastProcessedLedger = 0;
+let lastProcessedTxId = null;
+
+async function ensureIndexerState(pool) {
+  await pool.query(
+    `INSERT INTO indexer_state (name, last_processed_ledger, last_processed_tx_id)
+     VALUES ($1, 0, NULL)
+     ON CONFLICT (name) DO NOTHING`,
+    [INDEXER_STATE_NAME],
+  );
+}
+
+async function saveCursorWithQueryable(queryable, ledger, txId = null) {
+  await queryable.query(
+    `INSERT INTO indexer_state (name, last_processed_ledger, last_processed_tx_id, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (name)
+     DO UPDATE SET
+       last_processed_ledger = EXCLUDED.last_processed_ledger,
+       last_processed_tx_id = EXCLUDED.last_processed_tx_id,
+       updated_at = NOW()`,
+    [INDEXER_STATE_NAME, ledger, txId],
+  );
+}
+
+async function saveCursor(pool, ledger, txId = null) {
+  if (!pool) {
+    lastProcessedLedger = ledger;
+    lastProcessedTxId = txId;
+    memoryLastProcessedTxId = txId;
+    return;
+  }
+
+  await saveCursorWithQueryable(pool, ledger, txId);
+
+  lastProcessedLedger = ledger;
+  lastProcessedTxId = txId;
+}
 
 /**
  * Load the last processed ledger from PostgreSQL (or return in-memory value).
@@ -303,18 +373,38 @@ async function loadCursor() {
   if (!pool) return lastProcessedLedger;
 
   try {
+    await ensureIndexerState(pool);
     const result = await pool.query(
-      `SELECT MAX(ledger_sequence) AS max_ledger FROM contract_events`,
+      `SELECT last_processed_ledger, last_processed_tx_id
+       FROM indexer_state
+       WHERE name = $1`,
+      [INDEXER_STATE_NAME],
     );
-    const max = result?.rows?.[0]?.max_ledger;
-    if (max !== null && max !== undefined) {
-      lastProcessedLedger = parseInt(max, 10);
-      logger.info({ lastProcessedLedger }, "Loaded event cursor from PostgreSQL");
+    const row = result?.rows?.[0];
+    if (row) {
+      lastProcessedLedger = parseInt(row.last_processed_ledger ?? "0", 10);
+      lastProcessedTxId = row.last_processed_tx_id ?? null;
+      logger.info({ lastProcessedLedger, lastProcessedTxId }, "Loaded event cursor from PostgreSQL");
     }
   } catch (err) {
     logger.error({ err }, "Failed to load cursor from PostgreSQL");
   }
   return lastProcessedLedger;
+}
+
+function getLastTxId(events) {
+  const latest = [...events]
+    .filter((ev) => ev.ledger_sequence !== undefined && ev.ledger_sequence !== null)
+    .sort(
+      (a, b) =>
+        Number(a.ledger_sequence) - Number(b.ledger_sequence) ||
+        String(a.payload?.pagingToken ?? a.payload?.eventId ?? "").localeCompare(
+          String(b.payload?.pagingToken ?? b.payload?.eventId ?? ""),
+        ),
+    )
+    .at(-1);
+
+  return latest?.payload?.txHash ?? latest?.payload?.pagingToken ?? latest?.payload?.eventId ?? null;
 }
 
 // ─── Polling loop ────────────────────────────────────────────────────────────
@@ -340,7 +430,7 @@ async function pollOnce() {
     // Backlog signal: how far behind the network we are right now (#272).
     // Recorded before the early return so a caught-up indexer reports 0 rather
     // than holding its last non-zero value.
-    metrics.contractEventIndexerLagLedgers.set(
+    contractEventIndexerLagLedgers.set(
       lastProcessedLedger > 0 ? Math.max(0, latestLedger - lastProcessedLedger) : 0,
     );
 
@@ -353,27 +443,38 @@ async function pollOnce() {
     // Fetch events for the full unprocessed range.
     // The RPC may paginate internally; we request up to 100 events at a time
     // and follow pagination cursors to ensure completeness.
-    const rawEvents = await getEvents(startLedger);
+    const endLedger = latestLedger + 1;
+    const rawEvents = await getEvents(startLedger, endLedger);
+    let parseFailures = 0;
+    let storeSummary = { inserted: 0, conflicts: 0, errors: 0 };
+    const parsed = [];
 
     if (rawEvents.length > 0) {
-      const parsed = [];
       for (const raw of rawEvents) {
         try {
           parsed.push(parseEvent(raw));
         } catch (parseErr) {
-          metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
+          parseFailures++;
+          contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
           logger.warn(
             { parseErr, eventId: raw.id },
             "Failed to parse individual Soroban event — skipping",
           );
         }
       }
-      const inserted = await storeEvents(parsed);
-      metrics.contractEventsProcessedTotal.inc({ outcome: "indexed" }, inserted);
+      const cursorTxId = getLastTxId(parsed);
+      const shouldAdvanceWithBatch = parseFailures === 0;
+      storeSummary = await storeEvents(
+        parsed,
+        shouldAdvanceWithBatch ? { cursorLedger: latestLedger, cursorTxId } : {},
+      );
+      contractEventsProcessedTotal.inc({ outcome: "indexed" }, storeSummary.inserted);
       logger.info(
         {
           eventCount: rawEvents.length,
-          inserted,
+          inserted: storeSummary.inserted,
+          conflicts: storeSummary.conflicts,
+          errors: storeSummary.errors,
           startLedger,
           endLedger: latestLedger,
         },
@@ -391,7 +492,26 @@ async function pollOnce() {
       }
     }
 
-    lastProcessedLedger = latestLedger;
+    if (parseFailures === 0 && storeSummary.conflicts === 0 && storeSummary.errors === 0) {
+      if (rawEvents.length === 0 || !process.env.DATABASE_URL) {
+        const pool = process.env.DATABASE_URL ? getPgPool() : null;
+        await saveCursor(pool, latestLedger, getLastTxId(parsed));
+      } else {
+        lastProcessedLedger = latestLedger;
+        lastProcessedTxId = getLastTxId(parsed);
+      }
+    } else {
+      logger.warn(
+        {
+          parseFailures,
+          conflicts: storeSummary.conflicts,
+          errors: storeSummary.errors,
+          startLedger,
+          endLedger: latestLedger,
+        },
+        "Event indexer cursor not advanced because the range was not cleanly indexed",
+      );
+    }
   } catch (err) {
     logger.error({ err }, "Event indexer poll failed");
   } finally {
@@ -502,7 +622,7 @@ async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0,
   }
 
   // In-memory fallback
-  let filtered = memoryStore.filter((ev) => {
+  const filtered = memoryStore.filter((ev) => {
     const payloadStr = JSON.stringify(ev.payload).toLowerCase();
     const match = payloadStr.includes(publicKey.toLowerCase()) && ev.event_type === eventType;
     if (!match) return false;
@@ -654,9 +774,24 @@ module.exports = {
     memoryStore.length = 0;
     memoryIdCounter = 1;
     lastProcessedLedger = 0;
+    lastProcessedTxId = null;
+    memoryLastProcessedTxId = null;
     if (pgPool) {
       pgPool.end().catch(() => {});
       pgPool = null;
     }
+  },
+  _internals: {
+    getEvents,
+    loadCursor,
+    saveCursor,
+    storeEvents,
+    pollOnce,
+    getLastTxId,
+    getCursorForTest: () => ({
+      lastProcessedLedger,
+      lastProcessedTxId,
+      memoryLastProcessedTxId,
+    }),
   },
 };

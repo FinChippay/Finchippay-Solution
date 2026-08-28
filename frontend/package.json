@@ -17,11 +17,12 @@
     "test:a11y:full": "playwright test e2e/accessibility.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
+    "test:visual": "playwright test e2e/visual-regression.spec.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
   "dependencies": {
-    "@finchippay/sdk": "*",
+    "@finchippay/sdk": "file:../sdk",
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@fortawesome/react-fontawesome": "^3.3.1",
@@ -80,7 +81,7 @@
     "jest": "^30.3.0",
     "jest-axe": "^9.0.0",
     "jest-environment-jsdom": "^30.3.0",
-    "postcss": "^8",
+    "postcss": "8.5.26",
     "storybook": "8.6.18",
     "tailwindcss": "^3.4.1",
     "ts-jest": "^29.4.6",

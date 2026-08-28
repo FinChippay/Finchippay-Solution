@@ -24,6 +24,8 @@ import {
   recordPortfolioValueSnapshot,
   loadPortfolioHistory,
   calculatePnL,
+  CUSTOM_TOKENS_STORAGE_KEY,
+  CUSTOM_TOKENS_STORAGE_VERSION,
 } from "@/lib/portfolio";
 
 const mockGetBalances = stellarModule.getBalances as jest.Mock;
@@ -101,6 +103,61 @@ describe("custom tokens (localStorage)", () => {
     const tokens = removeCustomToken(VALID_CONTRACT_ID);
     expect(tokens).toEqual([]);
     expect(loadCustomTokens()).toEqual([]);
+  });
+
+  it("does not throw for corrupted stored data and rewrites an empty envelope", () => {
+    localStorage.setItem(CUSTOM_TOKENS_STORAGE_KEY, "{not-json");
+
+    expect(loadCustomTokens()).toEqual([]);
+    expect(localStorage.getItem(CUSTOM_TOKENS_STORAGE_KEY)).toBe(
+      JSON.stringify({ version: CUSTOM_TOKENS_STORAGE_VERSION, tokens: [] }),
+    );
+  });
+
+  it("drops invalid items and rewrites the cleaned token list", () => {
+    localStorage.setItem(
+      CUSTOM_TOKENS_STORAGE_KEY,
+      JSON.stringify({
+        version: CUSTOM_TOKENS_STORAGE_VERSION,
+        tokens: [
+          { contractId: VALID_CONTRACT_ID, addedAt: 100 },
+          { contractId: "invalid", addedAt: 200 },
+          null,
+        ],
+      }),
+    );
+
+    expect(loadCustomTokens()).toEqual([{ contractId: VALID_CONTRACT_ID, addedAt: 100 }]);
+    expect(localStorage.getItem(CUSTOM_TOKENS_STORAGE_KEY)).toBe(
+      JSON.stringify({
+        version: CUSTOM_TOKENS_STORAGE_VERSION,
+        tokens: [{ contractId: VALID_CONTRACT_ID, addedAt: 100 }],
+      }),
+    );
+  });
+
+  it("normalizes the legacy array shape and known fields", () => {
+    localStorage.setItem(
+      CUSTOM_TOKENS_STORAGE_KEY,
+      JSON.stringify([{ contractId: ` ${VALID_CONTRACT_ID} `, addedAt: "123" }]),
+    );
+
+    expect(loadCustomTokens()).toEqual([{ contractId: VALID_CONTRACT_ID, addedAt: 123 }]);
+  });
+
+  it("resets unsupported schema versions without exposing their tokens", () => {
+    localStorage.setItem(
+      CUSTOM_TOKENS_STORAGE_KEY,
+      JSON.stringify({
+        version: CUSTOM_TOKENS_STORAGE_VERSION + 1,
+        tokens: [{ contractId: VALID_CONTRACT_ID, addedAt: 100 }],
+      }),
+    );
+
+    expect(loadCustomTokens()).toEqual([]);
+    expect(localStorage.getItem(CUSTOM_TOKENS_STORAGE_KEY)).toBe(
+      JSON.stringify({ version: CUSTOM_TOKENS_STORAGE_VERSION, tokens: [] }),
+    );
   });
 });
 

@@ -14,7 +14,6 @@ import {
   encrypt,
   decrypt,
   deriveKey,
-  getOrCreateSalt,
 } from "@/lib/encryption";
 
 const PUBLIC_KEY_A = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
@@ -23,8 +22,8 @@ const PUBLIC_KEY_B = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7";
 const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
 
 async function keyFor(publicKey: string) {
-  const salt = getOrCreateSalt();
-  return deriveKey(publicKey, salt);
+  // simulate a signature
+  return deriveKey(`mock-signature-for-${publicKey}`);
 }
 
 describe("encryption round-trip", () => {

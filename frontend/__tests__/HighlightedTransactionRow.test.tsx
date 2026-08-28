@@ -10,17 +10,16 @@ import { PaymentRecord } from "@/lib/stellar";
 import { SearchResult } from "@/lib/transactionSearch";
 
 // Mock the useTranslation hook
-jest.mock("next-i18next", () => ({
+jest.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
   }),
 }));
 
-// Mock the timeAgo utility
-jest.mock("@/lib/timeAgo", () => ({
-  timeAgo: jest.fn((date) => {
-    return "2 hours ago";
-  }),
+// Mock the format utility
+jest.mock("@/utils/format", () => ({
+  formatAsset: jest.fn((asset) => asset),
+  timeAgo: jest.fn(() => "2 hours ago"),
 }));
 
 // Mock framer-motion

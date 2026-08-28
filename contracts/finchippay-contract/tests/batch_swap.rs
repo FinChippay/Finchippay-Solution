@@ -35,9 +35,18 @@ fn test_estimate_batch_swap_totals() {
 
     // Build swaps: two entries for t1 and one for t2
     let mut swaps: Vec<SwapItem> = Vec::new(&env);
-    swaps.push_back(SwapItem { token: t1.clone(), amount: 100 });
-    swaps.push_back(SwapItem { token: t2.clone(), amount: 50 });
-    swaps.push_back(SwapItem { token: t1.clone(), amount: 25 });
+    swaps.push_back(SwapItem {
+        token: t1.clone(),
+        amount: 100,
+    });
+    swaps.push_back(SwapItem {
+        token: t2.clone(),
+        amount: 50,
+    });
+    swaps.push_back(SwapItem {
+        token: t1.clone(),
+        amount: 25,
+    });
 
     let totals: Vec<TokenTotal> = client.estimate_batch_swap_totals(&swaps);
 

@@ -78,7 +78,9 @@
     "walletAddress": "Wallet Address",
     "xlmBalance": "XLM Balance",
     "xlmReceived": "Total Received",
-    "xlmSent": "Total Sent"
+    "xlmSent": "Total Sent",
+    "balanceReconnecting": "Reconnecting…",
+    "balanceStale": "Stale — data may be outdated"
   },
   "home": {
     "badge": "Built on Stellar Testnet · Open Source",
@@ -240,7 +242,8 @@
     "transactionHash": "Transaction Hash",
     "updateNicknamePrompt": "Update contact nickname:",
     "usernameNotFound": "Username not found",
-    "viewOnExplorer": "View on Explorer"
+    "viewOnExplorer": "View on Explorer",
+    "needsTrustline": "Add a trustline for {asset} before sending."
   },
   "settings": {
     "active": "active",
@@ -327,6 +330,7 @@
     "loadingMore": "Loading more...",
     "needTestXlm": "Need test XLM?",
     "noTransactions": "No transactions yet",
+    "newest": "Newest",
     "offlineSnapshot": "Offline history snapshot from",
     "paymentHistory": "Payment history",
     "prefillSendForm": "Pre-fill send form with this transaction",
@@ -342,5 +346,9 @@
     "title": "Recent Payments",
     "tryAgain": "Try again",
     "viewOnExpert": "View on Stellar Expert"
+  },
+  "assetSelect": {
+    "noAssets": "No assets available.",
+    "addTrustline": "Trustline"
   }
 }

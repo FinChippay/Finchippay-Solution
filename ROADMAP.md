@@ -60,7 +60,7 @@ This document tracks what's shipped, what's in progress, and what's planned.
 - [x] Frontend eslint-disable cleanup with documented rationales
 - [x] Console.* replaced with structured logger across all components
 - [x] Contract AMM/yield escrow TODOs linked to GitHub issue tracker
-- [x] Rescue_tokens deprecated with migration path to emergency withdrawal flow
+- [x] Legacy `rescue_tokens` removed; the time-delayed emergency withdrawal flow is the sole funds-rescue path (#678)
 - [x] Stellar SDK v16 upgrade in frontend package.json
 - [x] Coverage thresholds raised to 80% lines / 70% branches
 - [ ] Third-party security audit of FinchippayContract

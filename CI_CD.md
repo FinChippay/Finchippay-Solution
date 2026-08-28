@@ -109,9 +109,9 @@ Comprehensive reference for every automated workflow in the Finchippay-Solution 
 | 10 | **Benchmark** | `benchmark.yml` | PR → main, manual | Performance regression detection |
 | 11 | **SDK Check** | `sdk-check.yml` | PR → main, push main | SDK type drift detection |
 | 12 | **Renovate** | `renovate-approve.yml` | PR from renovate/dependabot | Auto-approve dependency patches |
-| 13 | **Terraform** | `terraform-deploy.yml` | PR (terraform/**), push main, manual | Plan → PR comment → Apply (staging/production) |
+| 13 | **Terraform** | `terraform.yml` | PR (terraform/**), push main, manual | fmt → validate → Plan → PR comment → Apply (dev/staging/prod, prod gated) |
 | 14 | **Kubernetes** | `kubernetes-deploy.yml` | PR (k8s/**), push main, manual | Build 3 images → Scan → Push → Helm deploy |
-| 15 | **Greptile** | `greptile-review.yml` | PR opened/reopened, issue opened, manual | Auto-label PRs, post review context |
+| 15 | **Greptile** | `greptile-review.yml`, `greptile-label.yml` | PR → main/develop, issue opened, manual | Config validation + issue context + manual trigger; auto-labels PRs |
 
 ---
 
@@ -210,20 +210,20 @@ Generate image SBOMs → Upload artifacts
 - Supports frontend, backend, or both targets
 - Posts PR comment with final status
 
-#### 13. Terraform Deploy (`terraform-deploy.yml`)
+#### 13. Terraform (`terraform.yml`)
 
 **Triggers:** `pull_request` (terraform/** paths), `push` → main, `workflow_dispatch`
 
 | Trigger | Action | Environment |
 |---------|--------|-------------|
-| PR | `terraform fmt → init → validate → plan` → post as PR comment | staging |
-| Push to main | `terraform init → plan → apply -auto-approve` | production |
-| Manual — plan | `terraform plan` only | staging or production |
-| Manual — apply | `terraform plan → apply -auto-approve` | staging or production |
-| Manual — destroy | `terraform plan -destroy → apply` | staging or production |
+| PR | `terraform fmt → init → validate → plan` → post as PR comment | dev |
+| Push to main | `terraform init → plan → apply -auto-approve` | prod |
+| Manual — plan | `terraform plan` only | dev, staging, or prod |
+| Manual — apply | `terraform plan → apply -auto-approve` | dev, staging, or prod |
+| Manual — destroy | `terraform plan -destroy → apply` | dev, staging, or prod |
 
-**Required secrets:** `DIGITALOCEAN_TOKEN`, `DIGITALOCEAN_SPACES_KEY`, `DIGITALOCEAN_SPACES_SECRET`  
-**Optional secrets:** `TF_VAR_db_password`, `TF_VAR_redis_password`
+**Required secrets:** `AWS_ROLE_ARN` (OIDC role), `TF_STATE_BUCKET`, `TF_STATE_LOCK_TABLE`  
+**Optional secrets:** `TF_VAR_allowed_origins`
 
 **Safety:** Production apply requires the `production` GitHub Environment approval gate. Plan artifacts are uploaded and retained for 7 days.
 
@@ -327,13 +327,25 @@ Upload SBOM bundle artifact (retained 365 days)
 - Posts automated review message
 - Only runs for bot-authored PRs (gated on `github.actor`)
 
-#### 15. Greptile AI Review (`greptile-review.yml`)
+#### 15. Greptile AI Review (`greptile-review.yml` + `greptile-label.yml`)
 
-**Triggers:** `pull_request` opened/reopened, `issues` opened, `workflow_dispatch`
+Two workflows handle the Greptile integration:
 
-- **On PR:** Adds `needs-review` label → Greptile App picks it up → posts AI review with inline comments
+**`greptile-label.yml` — PR labeling (auto-review trigger)**
+
+- **Triggers:** `pull_request_target` → main/develop (types: `opened`, `ready_for_review`, `reopened`, `synchronize`)
+- Adds the `needs-review` label (creating it if missing) so the Greptile App picks up the PR for AI review
+- Posts a Greptile review context comment on open/ready/reopen (skipped on `synchronize` to avoid comment spam)
+- Uses `pull_request_target` because fork PRs get a **read-only** `GITHUB_TOKEN` on `pull_request` — the old `label-pr` job failed with `Resource not accessible by integration`. `pull_request_target` runs in the base-repo context with write permissions, so fork PRs get labeled too.
+- **Security:** API-only — never checks out or executes PR code
+- **Note:** only triggers when the workflow file is on the default branch (`main`)
+
+**`greptile-review.yml` — validation, issue context, manual trigger**
+
+- **Triggers:** `pull_request` → main/develop, `issues` opened, `workflow_dispatch`
+- **On PR:** Validates the Greptile configuration (`.greptile/config.json`, `rules.md`, `files.json`) as a status check
 - **On issue:** Posts usage instructions (`@greptileai` commands)
-- **Manual:** Can trigger review on specific PR or full-repo review
+- **Manual (`workflow_dispatch`):** Can trigger review on a specific PR or a full-repo review
 
 **Configuration:** `.greptile/config.json` (16 custom rules across security, code quality, infrastructure), `.greptile/rules.md`, `.greptile/files.json`
 
@@ -352,11 +364,10 @@ Upload SBOM bundle artifact (retained 365 days)
 | `VERCEL_ORG_ID` | `vercel-deploy` | ✅ | Vercel organization ID |
 | `VERCEL_PROJECT_ID` | `vercel-deploy` | ✅ | Vercel project ID |
 | `NEXT_PUBLIC_SENTRY_DSN` | `vercel-deploy` | ❌ | Sentry DSN for frontend error tracking |
-| `DIGITALOCEAN_TOKEN` | `terraform-deploy` | ✅ | DigitalOcean API token |
-| `DIGITALOCEAN_SPACES_KEY` | `terraform-deploy` | ✅ | DO Spaces access key (Terraform remote state) |
-| `DIGITALOCEAN_SPACES_SECRET` | `terraform-deploy` | ✅ | DO Spaces secret key (Terraform remote state) |
-| `TF_VAR_db_password` | `terraform-deploy` | ❌ | Override auto-generated DB password |
-| `TF_VAR_redis_password` | `terraform-deploy` | ❌ | Override auto-generated Redis password |
+| `AWS_ROLE_ARN` | `terraform` | ✅ | IAM role to assume via OIDC for Terraform plan/apply |
+| `TF_STATE_BUCKET` | `terraform` | ✅ | S3 bucket holding Terraform state |
+| `TF_STATE_LOCK_TABLE` | `terraform` | ✅ | DynamoDB table for Terraform state locking |
+| `TF_VAR_allowed_origins` | `terraform` | ❌ | CORS origins for the deployed app |
 | `KUBE_CONFIG` | `kubernetes-deploy` | ✅ | Base64-encoded kubeconfig |
 | `JWT_SECRET` | `kubernetes-deploy` | ❌ | JWT signing secret for backend |
 | `DB_URL` | `kubernetes-deploy` | ❌ | Database connection string |
@@ -375,7 +386,7 @@ Upload SBOM bundle artifact (retained 365 days)
 
 | Environment | Required Approvers | Used By |
 |-------------|-------------------|---------|
-| `production` | Manual approval gate | `vercel-deploy`, `terraform-deploy`, `kubernetes-deploy`, `canary-deploy` |
+| `production` | Manual approval gate | `vercel-deploy`, `terraform`, `kubernetes-deploy`, `canary-deploy` |
 | `preview` | None | `vercel-deploy` (preview) |
 | `testnet` | None | `contract-deploy` |
 
@@ -512,13 +523,13 @@ git commit -m "chore: regenerate contract bindings"
 **Symptom:** PR is opened but no Greptile review appears within minutes.
 
 **Cause:**
-- The `needs-review` label wasn't added (check `greptile-review` workflow logs)
+- The `needs-review` label wasn't added (check `greptile-label` workflow logs)
 - PR author is in the `excludeAuthors` list
 - PR branch matches `excludeBranches` pattern
 - Greptile GitHub App isn't installed or lost permissions
 
 **Fix:**
-1. Check the `greptile-review.yml` workflow run logs
+1. Check the `greptile-label.yml` workflow run logs
 2. Verify `needs-review` label exists on the PR
 3. Check `.greptile/config.json` filtering rules
 4. Comment `@greptileai` on the PR to manually trigger a re-review

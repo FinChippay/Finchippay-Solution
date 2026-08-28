@@ -18,6 +18,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { revokeAllSessions } from "@/lib/auth";
+import { clearPaymentLinkStore } from "@/lib/paymentLinks";
 import {
   connectWallet as requestWalletConnection,
   disconnectWallet as clearWalletConnection,
@@ -261,6 +263,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnectWallet = useCallback(() => {
     clearWalletConnection();
     setState(EMPTY_STATE);
+    // Best-effort logout to clear httpOnly cookies and revoke backend tokens
+    void revokeAllSessions();
+    // Bound stored payment-request lifetime (#906): don't let pending or
+    // redeemed-marker data outlive the session.
+    clearPaymentLinkStore();
     router.push("/");
   }, [router]);
 

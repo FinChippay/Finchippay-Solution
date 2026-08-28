@@ -11,6 +11,11 @@ const logger = require("../utils/logger");
 const metrics = require("./metricsService");
 const { getRequestId, getRequestIdHeader } = require("../utils/correlationId");
 const tracer = require("../config/tracing").getTracer("stellar-service");
+const {
+  accountCacheKey,
+  paymentsCacheKey,
+  paymentsCountCacheKey,
+} = require("./stellarCacheKeys");
 
 // Lazy-loaded cache service (avoids circular dependency at parse time)
 function getCache() {
@@ -145,7 +150,7 @@ async function getAccount(publicKey) {
     validatePublicKey(publicKey);
 
     const cache = getCache();
-    const cacheKey = `account:${publicKey}`;
+    const cacheKey = accountCacheKey(publicKey);
     const cached = await cache.get(cacheKey);
     if (cached) {
       metrics.horizonRequestsTotal.inc({
@@ -236,10 +241,10 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
   // Only cache the default (non-paginated) query — cursor-based pagination is dynamic.
   const shouldCache = !cursor && limit === 20;
   const cache = getCache();
-  const paymentsCacheKey = `payments:${publicKey}:${limit}`;
+  const cacheKey = paymentsCacheKey(publicKey, limit);
 
   if (shouldCache) {
-    const cached = await cache.get(paymentsCacheKey);
+    const cached = await cache.get(cacheKey);
     if (cached) {
       metrics.horizonRequestsTotal.inc({
         operation: "getPayments",
@@ -316,7 +321,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
   // Cache the result if this was the default query
   if (shouldCache) {
     try {
-      await cache.set(paymentsCacheKey, payments, PAYMENTS_CACHE_TTL_SEC);
+      await cache.set(cacheKey, payments, PAYMENTS_CACHE_TTL_SEC);
     } catch (err) {
       logger.warn({ err }, "Failed to cache payment history");
     }
@@ -350,7 +355,7 @@ async function countPaymentsApprox(publicKey, { cap = 200 } = {}) {
   validatePublicKey(publicKey);
 
   const cache = getCache();
-  const cacheKey = `payments:count:${publicKey}:${cap}`;
+  const cacheKey = paymentsCountCacheKey(publicKey, cap);
   const cached = await cache.get(cacheKey);
   if (cached !== undefined && cached !== null) {
     metrics.horizonRequestsTotal.inc({

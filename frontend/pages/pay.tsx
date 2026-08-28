@@ -3,10 +3,10 @@
  * The landing page for shareable payment links.
  * Validates expiration, handles errors, and pre-fills the payment form.
  */
+import dynamic from "next/dynamic";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
-import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import {
   canRedeemPaymentLink,
@@ -16,6 +16,10 @@ import {
 import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
 import { formatStroopsToXLM } from "@/utils/format";
+
+// SendPaymentForm pulls in @zxing QR-scanning (~500KB); load it lazily so it
+// does not ship in the pay route's first-load chunk (issue #610).
+const SendPaymentForm = dynamic(() => import("@/components/SendPaymentForm"), { ssr: false });
 
 interface PrefillData {
   destination: string;

@@ -50,13 +50,16 @@ function getSessionId() {
 /**
  * Return an object suitable for spreading into outbound request headers.
  *
- * @returns {{ "X-Request-ID"?: string, "X-Session-ID"?: string }}
+ * @returns {{ "X-Request-ID"?: string, "X-Correlation-ID"?: string, "X-Session-ID"?: string }}
  */
 function getRequestIdHeader() {
   const requestId = getRequestId();
   const sessionId = getSessionId();
   const headers = {};
-  if (requestId) headers["X-Request-ID"] = requestId;
+  if (requestId) {
+    headers["X-Request-ID"] = requestId;
+    headers["X-Correlation-ID"] = requestId;
+  }
   if (sessionId) headers["X-Session-ID"] = sessionId;
   return headers;
 }

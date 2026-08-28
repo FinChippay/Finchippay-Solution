@@ -109,4 +109,88 @@ describe("SEP-0038 RFQ API", () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe("GET /sep38/quote/aggregated", () => {
+    const orderBookService = require("../src/services/sep/orderBookService");
+
+    it("returns aggregated quote across order book depth with slippage and price impact", async () => {
+      jest.spyOn(orderBookService, "getOrderBook").mockResolvedValueOnce({
+        bids: [
+          { price: "0.9900", amount: "500.0000" },
+          { price: "0.9700", amount: "500.0000" },
+        ],
+        asks: [],
+      });
+
+      const res = await request(app).get("/sep38/quote/aggregated").query({
+        sell_asset: sep38Service.XLM_ASSET,
+        buy_asset: sep38Service.USDC_ASSET,
+        sell_amount: "1000",
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("sellAsset", sep38Service.XLM_ASSET);
+      expect(res.body).toHaveProperty("buyAsset", sep38Service.USDC_ASSET);
+      expect(res.body).toHaveProperty("sellAmount", "1000");
+      expect(res.body).toHaveProperty("buyAmount", "980.0000");
+      expect(res.body).toHaveProperty("price", "0.9800");
+      expect(res.body).toHaveProperty("topOfBookPrice", "0.9900");
+      expect(res.body).toHaveProperty("slippagePercent", "1.01");
+      expect(res.body).toHaveProperty("priceImpactPercent", "2.02");
+      expect(res.body).toHaveProperty("levelsConsumed", 2);
+    });
+
+    it("handles camelCase parameters (sellAsset, buyAsset, sellAmount)", async () => {
+      jest.spyOn(orderBookService, "getOrderBook").mockResolvedValueOnce({
+        bids: [{ price: "0.1000", amount: "1000.0000" }],
+        asks: [],
+      });
+
+      const res = await request(app).get("/sep38/quote/aggregated").query({
+        sellAsset: sep38Service.XLM_ASSET,
+        buyAsset: sep38Service.USDC_ASSET,
+        sellAmount: "100",
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("buyAmount", "10.0000");
+      expect(res.body).toHaveProperty("price", "0.1000");
+      expect(res.body).toHaveProperty("slippagePercent", "0.00");
+    });
+
+    it("returns 400 when sell_asset or buy_asset is missing", async () => {
+      const res = await request(app).get("/sep38/quote/aggregated").query({
+        sell_asset: sep38Service.XLM_ASSET,
+        sell_amount: "100",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when sell_amount is missing or non-positive", async () => {
+      const res = await request(app).get("/sep38/quote/aggregated").query({
+        sell_asset: sep38Service.XLM_ASSET,
+        buy_asset: sep38Service.USDC_ASSET,
+        sell_amount: "0",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("falls back to fixed exchange rates when order book has no liquidity for supported pair", async () => {
+      jest.spyOn(orderBookService, "getOrderBook").mockResolvedValueOnce({
+        bids: [],
+        asks: [],
+      });
+
+      const res = await request(app).get("/sep38/quote/aggregated").query({
+        sell_asset: sep38Service.XLM_ASSET,
+        buy_asset: sep38Service.USDC_ASSET,
+        sell_amount: "100",
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("buyAmount", "10.0000");
+      expect(res.body).toHaveProperty("price", "0.1000");
+      expect(res.body).toHaveProperty("slippagePercent", "0.00");
+    });
+  });
 });

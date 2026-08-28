@@ -1,5 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getFeeStats, estimateTransactionFee, getFeeForTier, formatFeeStroopsToXlm } from "../lib/fees";
+import type { Transaction } from "@stellar/stellar-sdk";
+import {
+  getFeeStats,
+  estimateAccurateFee,
+  estimateTransactionFee,
+  getFeeForTier,
+  formatFeeStroopsToXlm,
+  resetFeeStatsCache,
+} from "../lib/fees";
+import { simulateTransactionResources } from "../lib/soroban";
+
+jest.mock("../lib/soroban", () => ({ simulateTransactionResources: jest.fn() }));
+jest.mock("../lib/stellar", () => ({
+  getNetworkConfig: () => ({ horizonUrl: "https://horizon.example" }),
+}));
 
 const mockFeeStats = {
   min_accepted_fee: 100,
@@ -15,12 +28,15 @@ const mockFeeStats = {
 
 describe("fees", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+    globalThis.fetch = jest.fn();
+    resetFeeStatsCache();
   });
 
   describe("getFeeStats", () => {
     it("fetches and returns fee stats from Horizon", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      jest.mocked(globalThis.fetch).mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(mockFeeStats),
       } as Response);
@@ -35,10 +51,11 @@ describe("fees", () => {
     });
 
     it("caches fee stats for 60 seconds", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      const fetchMock = jest.mocked(globalThis.fetch).mockResolvedValue({
         ok: true,
         json: () => Promise.resolve(mockFeeStats),
       } as Response);
+      global.fetch = fetchMock;
 
       await getFeeStats();
       await getFeeStats();
@@ -47,12 +64,66 @@ describe("fees", () => {
     });
 
     it("throws on failed fetch", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      jest.mocked(globalThis.fetch).mockResolvedValueOnce({
         ok: false,
         statusText: "Not Found",
       } as Response);
 
       await expect(getFeeStats()).rejects.toThrow("Failed to fetch fee stats");
+    });
+  });
+
+  describe("estimateAccurateFee", () => {
+    const sorobanTx = {
+      operations: [{ type: "invokeHostFunction" }, { type: "payment" }],
+    } as unknown as Transaction;
+
+    beforeEach(() => {
+      jest.mocked(globalThis.fetch).mockResolvedValue({
+        ok: true,
+        json: async () => mockFeeStats,
+      } as Response);
+    });
+
+    it("combines simulated resource fee and Horizon p95 base fee", async () => {
+      jest.mocked(simulateTransactionResources).mockResolvedValue({
+        cpuInstructions: 1234,
+        readBytes: 200,
+        writeBytes: 50,
+        resourceFeeStroops: 5000,
+      });
+      const estimate = await estimateAccurateFee(sorobanTx);
+      expect(estimate.totalFeeStroops).toBe(5400);
+      expect(estimate.cpuInstructions).toBe(1234);
+      expect(estimate.simulated).toBe(true);
+    });
+
+    it("surfaces Horizon min and max fees without a multiplier", async () => {
+      jest.mocked(simulateTransactionResources).mockResolvedValue({
+        cpuInstructions: 1,
+        readBytes: 2,
+        writeBytes: 3,
+        resourceFeeStroops: 4,
+      });
+      const estimate = await estimateAccurateFee(sorobanTx);
+      expect(estimate.minBaseFeeStroops).toBe(100);
+      expect(estimate.maxBaseFeeStroops).toBe(1000);
+    });
+
+    it("uses a conservative estimate and warning when simulation fails", async () => {
+      jest.mocked(simulateTransactionResources).mockRejectedValue(new Error("offline"));
+      const estimate = await estimateAccurateFee(sorobanTx);
+      expect(estimate.totalFeeStroops).toBe(1_002_000);
+      expect(estimate.warning).toMatch(/conservative fallback/);
+      expect(estimate.simulated).toBe(false);
+    });
+
+    it("does not simulate classic transactions", async () => {
+      const classicTx = { operations: [{ type: "payment" }] } as unknown as Transaction;
+      const estimate = await estimateAccurateFee(classicTx);
+      expect(simulateTransactionResources).not.toHaveBeenCalled();
+      expect(estimate.resourceFeeStroops).toBe(0);
+      expect(estimate.totalFeeStroops).toBe(200);
     });
   });
 
