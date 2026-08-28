@@ -13,19 +13,32 @@
 Most JSON endpoints use one of these shapes:
 
 **Success (typical)**
+
 ```json
-{ "success": true, "data": { } }
+{ "success": true, "data": {} }
 ```
 
 **Success with message**
+
 ```json
-{ "success": true, "data": { }, "message": "..." }
+{ "success": true, "data": {}, "message": "..." }
 ```
 
-**Error**
+**Error (standardized — #169)**
+
+All API errors now follow a canonical shape:
+
 ```json
-{ "error": "Human-readable message" }
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable message",
+    "details": { ... }
+  }
+}
 ```
+
+> **Note:** Legacy `{ "error": "message" }` shapes are being migrated. New code should expect the canonical shape above.
 
 Some endpoints (health, federation, auth challenge, webhooks list) return a flat object without the `success` / `data` wrapper. Each route below shows the actual response shape.
 
@@ -37,19 +50,191 @@ Authorization: Bearer <token>
 
 ---
 
+## Pagination
+
+All list endpoints across the API implement standardized cursor-based pagination (#344).
+
+### Request Parameters
+
+| Parameter | Type    | Default | Max   | Description                                                                                                    |
+| --------- | ------- | ------- | ----- | -------------------------------------------------------------------------------------------------------------- |
+| `cursor`  | string  | `null`  | —     | Opaque cursor string returned in `pagination.nextCursor` from the previous page. Omit to fetch the first page. |
+| `limit`   | integer | `20`    | `100` | Number of items to return per page. Must be a positive integer.                                                |
+
+### Response Shape
+
+All paginated list endpoints return data in a standard format:
+
+```json
+{
+  "success": true,
+  "data": [
+    { ... }
+  ],
+  "pagination": {
+    "nextCursor": "eyJjcmVhdGVkX2F0IjoiMjAyNi0wMS0wMVQwMDowMDowMC4wMDBaIiwiaWQiOjQyfQ",
+    "hasMore": true,
+    "total": 120
+  }
+}
+```
+
+- `data`: Array of result items for the current page.
+- `pagination.nextCursor`: Opaque string token to pass as `?cursor=` on the subsequent request. `null` when on the last page.
+- `pagination.hasMore`: Boolean flag indicating whether additional pages exist.
+- `pagination.total`: Total number of matching items across all pages (or approximate floor count for Horizon proxies), or `null` if unknown.
+
+### Response Headers
+
+Paginated responses also emit standardized HTTP headers:
+
+- `Link`: RFC 5988 link header pointing to the next page (`<path?cursor=...&limit=...>; rel="next"`), present only when additional pages exist.
+- `X-Total-Count`: Total item count when known.
+- `Access-Control-Expose-Headers`: Exposes `Link` and `X-Total-Count` for cross-origin frontend clients.
+
+### Supported List Endpoints
+
+- `GET /api/v1/accounts/:publicKey/payments` — Account payment history
+- `GET /api/v1/payments/:publicKey` — Account payment history
+- `GET /api/v1/tips/received/:creatorPublicKey` — Tips received by a creator
+- `GET /api/v1/tips/sent/:senderPublicKey` — Tips sent by a user
+- `GET /api/v1/events/:publicKey` — Contract events for an account
+- `GET /api/v1/events/:publicKey/:eventType` — Contract events filtered by type
+- `GET /api/v1/webhooks/:publicKey` — Webhook subscriptions for an account
+- `GET /api/v1/webhooks/:publicKey/events` — Past webhook delivery events
+- `GET /api/v1/turrets` — Deployed Turret txFunctions
+- `GET /api/v1/turrets/:id/history` — Turret txFunction execution history
+- `GET /api/v1/scheduled-transactions/:publicKey` — Scheduled transactions for an account
+- `GET /api/v1/scheduled-transactions/:publicKey/pending` — Pending transaction executions
+
+---
+
+## Error Codes Reference
+
+All errors returned by the API use a machine-readable error code. The canonical registry is at `shared/errorCodes.js`.
+
+### Authentication Errors (`AUTH_*`)
+
+| Code                    | HTTP | Description                                         |
+| ----------------------- | ---- | --------------------------------------------------- |
+| `AUTH_MISSING_TOKEN`    | 401  | Authentication token is required.                   |
+| `AUTH_EXPIRED_TOKEN`    | 401  | Token has expired. Please re-authenticate.          |
+| `AUTH_INVALID_TOKEN`    | 401  | Token is invalid or malformed.                      |
+| `AUTH_MISSING_HEADER`   | 401  | Missing or invalid Authorization header.            |
+| `AUTH_FORBIDDEN`        | 403  | You do not have permission to access this resource. |
+| `AUTH_CHALLENGE_FAILED` | 401  | SEP-0010 challenge verification failed.             |
+
+### Validation Errors (`VAL_*`)
+
+| Code                          | HTTP | Description                                    |
+| ----------------------------- | ---- | ---------------------------------------------- |
+| `VAL_INVALID_PUBLIC_KEY`      | 400  | Invalid Stellar public key format.             |
+| `VAL_INVALID_AMOUNT`          | 400  | Amount must be a positive number.              |
+| `VAL_MISSING_FIELD`           | 400  | Required field is missing.                     |
+| `VAL_INVALID_JSON`            | 400  | Request body contains invalid JSON.            |
+| `VAL_BODY_TOO_LARGE`          | 413  | Request body exceeds the maximum allowed size. |
+| `VAL_CONTENT_TYPE`            | 415  | Content-Type must be application/json.         |
+| `VAL_INVALID_USERNAME`        | 400  | Username must be 3–20 alphanumeric characters. |
+| `VAL_INVALID_STELLAR_ADDRESS` | 400  | Invalid Stellar address format.                |
+| `VAL_INVALID_URL`             | 400  | Invalid URL format.                            |
+| `VAL_INVALID_DATE`            | 400  | Invalid ISO 8601 date format.                  |
+| `VAL_MEMO_TOO_LONG`           | 400  | Memo exceeds 28 bytes.                         |
+| `VAL_WEAK_SECRET`             | 400  | Secret must be at least 8 characters.          |
+| `VAL_INVALID_LIMIT`           | 400  | Limit must be a positive integer.              |
+| `VAL_INVALID_FEDERATION_TYPE` | 400  | Federation type must be 'name' or 'id'.        |
+
+### Resource Errors (`RES_*`)
+
+| Code                      | HTTP | Description                           |
+| ------------------------- | ---- | ------------------------------------- |
+| `RES_NOT_FOUND`           | 404  | The requested resource was not found. |
+| `RES_ACCOUNT_NOT_FOUND`   | 404  | Stellar account not found.            |
+| `RES_CONFLICT`            | 409  | Resource already exists.              |
+| `RES_USERNAME_CONFLICT`   | 409  | Username already registered.          |
+| `RES_PUBLIC_KEY_CONFLICT` | 409  | Public key already registered.        |
+| `RES_GONE`                | 410  | Resource no longer available.         |
+| `RES_ROUTE_NOT_FOUND`     | 404  | Route not found.                      |
+
+### Rate Limiting (`RATE_*`)
+
+| Code                     | HTTP | Description                            |
+| ------------------------ | ---- | -------------------------------------- |
+| `RATE_LIMITED_GLOBAL`    | 429  | Too many requests. Try again later.    |
+| `RATE_LIMITED_SENSITIVE` | 429  | Too many requests to sensitive routes. |
+| `RATE_LIMITED_USER`      | 429  | Too many requests from this account.   |
+
+### Contract Errors (`CONTRACT_*`)
+
+Mapped from the Soroban contract's numeric `ContractError` codes (1–29).
+
+| Code                              | HTTP | Contract Code | Description                           |
+| --------------------------------- | ---- | ------------- | ------------------------------------- |
+| `CONTRACT_ALREADY_INITIALIZED`    | 409  | 1             | Contract already initialized.         |
+| `CONTRACT_UNAUTHORIZED`           | 403  | 2             | Not authorized for this action.       |
+| `CONTRACT_NON_POSITIVE_AMOUNT`    | 400  | 3             | Amount must be strictly positive.     |
+| `CONTRACT_RELEASE_LEDGER_IN_PAST` | 400  | 4             | Release ledger must be in the future. |
+| `CONTRACT_NOT_FOUND`              | 404  | 5             | Contract resource not found.          |
+| `CONTRACT_INVALID_STATE`          | 409  | 6             | Invalid state for this operation.     |
+| `CONTRACT_OVERFLOW`               | 500  | 7             | Arithmetic overflow.                  |
+| `CONTRACT_INVALID_THRESHOLD`      | 400  | 8             | Signers/threshold mismatch.           |
+| `CONTRACT_LENGTH_MISMATCH`        | 400  | 9             | Array length mismatch.                |
+| `CONTRACT_ALREADY_SIGNED`         | 409  | 10            | Already approved this proposal.       |
+| `CONTRACT_INSUFFICIENT_FUNDS`     | 400  | 11            | Insufficient deposited funds.         |
+| `CONTRACT_PAUSED`                 | 503  | 12            | Contract is paused.                   |
+| `CONTRACT_SELF_TRANSFER`          | 400  | 13            | Cannot transfer to yourself.          |
+| `CONTRACT_BATCH_TOO_LARGE`        | 400  | 14            | Batch size exceeds maximum.           |
+| `CONTRACT_DUPLICATE_SIGNER`       | 400  | 15            | Duplicate signer detected.            |
+| `CONTRACT_PROPOSAL_EXPIRED`       | 410  | 16            | Proposal has expired.                 |
+| `CONTRACT_TRANSFER_FAILED`        | 502  | 17            | Token transfer verification failed.   |
+
+### Payment Errors (`PAY_*`)
+
+| Code                         | HTTP | Description                          |
+| ---------------------------- | ---- | ------------------------------------ |
+| `PAY_BUILD_FAILED`           | 500  | Failed to build payment transaction. |
+| `PAY_SIGN_FAILED`            | 400  | Failed to sign transaction.          |
+| `PAY_SUBMIT_FAILED`          | 502  | Failed to submit to Stellar network. |
+| `PAY_CONFIRMATION_TIMEOUT`   | 504  | Transaction confirmation timed out.  |
+| `PAY_INSUFFICIENT_BALANCE`   | 400  | Insufficient balance.                |
+| `PAY_SELF_PAYMENT`           | 400  | Cannot send to your own wallet.      |
+| `PAY_DESTINATION_NOT_FUNDED` | 400  | Destination account does not exist.  |
+| `PAY_INVALID_DESTINATION`    | 400  | Invalid payment destination.         |
+| `PAY_HORIZON_ERROR`          | 502  | Stellar Horizon returned an error.   |
+
+### Server Errors (`SRV_*`)
+
+| Code                      | HTTP | Description                                 |
+| ------------------------- | ---- | ------------------------------------------- |
+| `SRV_INTERNAL`            | 500  | Internal server error.                      |
+| `SRV_HORIZON_UNAVAILABLE` | 502  | Stellar Horizon is temporarily unavailable. |
+| `SRV_FEDERATION_FAILED`   | 502  | External federation resolution failed.      |
+| `SRV_AI_NOT_CONFIGURED`   | 501  | AI payment parsing not configured.          |
+| `SRV_METRICS_FAILED`      | 500  | Failed to collect Prometheus metrics.       |
+| `SRV_NOT_IMPLEMENTED`     | 501  | Feature not yet implemented.                |
+
+### Generic Errors (`GEN_*`)
+
+| Code                | HTTP | Description                           |
+| ------------------- | ---- | ------------------------------------- |
+| `GEN_UNKNOWN`       | 500  | An unexpected error occurred.         |
+| `GEN_NETWORK_ERROR` | 0    | Network error. Check your connection. |
+| `GEN_OFFLINE`       | 0    | You are offline.                      |
+
+---
+
 ## Rate limiting
 
-| Limiter | Window | Limit | Applies to |
-|---------|--------|-------|------------|
-| Global | 15 minutes | 100 req/IP | All routes **except** `/health` and `/api/health` |
-| Strict | 1 minute | 20 req/IP | `/api/accounts/*`, `/api/payments/*`, `/api/analytics/*`, `/api/tips/*`, `/api/turrets/*`, `/federation` |
+| Limiter | Window     | Limit      | Applies to                                                                                               |
+| ------- | ---------- | ---------- | -------------------------------------------------------------------------------------------------------- |
+| Global  | 15 minutes | 100 req/IP | All routes **except** `/health` and `/api/health`                                                        |
+| Strict  | 1 minute   | 20 req/IP  | `/api/accounts/*`, `/api/payments/*`, `/api/analytics/*`, `/api/tips/*`, `/api/turrets/*`, `/federation` |
 
 Responses include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers.
 
-| Status | Body |
-|--------|------|
-| 429 (global) | `{ "error": "Too many requests, please try again later." }` |
-| 429 (strict) | `{ "error": "Too many requests to sensitive routes, please wait 1 minute." }` |
+| Status       | Body                                                                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 429 (global) | `RATE_LIMITED_GLOBAL` — `{ "error": { "code": "RATE_LIMITED_GLOBAL", "message": "Too many requests. Please try again later." } }`                         |
+| 429 (strict) | `RATE_LIMITED_SENSITIVE` — `{ "error": { "code": "RATE_LIMITED_SENSITIVE", "message": "Too many requests to sensitive routes. Please wait 1 minute." } }` |
 
 ---
 
@@ -80,6 +265,7 @@ Responses include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset
 Liveness probe. **Not** subject to global rate limiting.
 
 **Response `200`**
+
 ```json
 {
   "status": "ok",
@@ -89,12 +275,12 @@ Liveness probe. **Not** subject to global rate limiting.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| status | string | Always `"ok"` when healthy |
-| service | string | Service identifier |
-| network | string | `STELLAR_NETWORK` env or `"testnet"` |
-| timestamp | string (ISO 8601) | Server time |
+| Field     | Type              | Description                          |
+| --------- | ----------------- | ------------------------------------ |
+| status    | string            | Always `"ok"` when healthy           |
+| service   | string            | Service identifier                   |
+| network   | string            | `STELLAR_NETWORK` env or `"testnet"` |
+| timestamp | string (ISO 8601) | Server time                          |
 
 ---
 
@@ -122,11 +308,12 @@ Issue a challenge transaction for the client to sign.
 
 **Query parameters**
 
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| account | string | yes | Stellar public key (`G` + 55 alphanumerics) |
+| Name    | Type   | Required | Description                                 |
+| ------- | ------ | -------- | ------------------------------------------- |
+| account | string | yes      | Stellar public key (`G` + 55 alphanumerics) |
 
 **Response `200`**
+
 ```json
 {
   "transaction": "<base64 XDR>",
@@ -136,10 +323,10 @@ Issue a challenge transaction for the client to sign.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Missing account query parameter" }` |
-| 400 | `{ "error": "<validation message>" }` |
+| Status | Body                                             |
+| ------ | ------------------------------------------------ |
+| 400    | `{ "error": "Missing account query parameter" }` |
+| 400    | `{ "error": "<validation message>" }`            |
 
 ---
 
@@ -149,11 +336,12 @@ Verify a signed challenge and issue a JWT (also set as `httpOnly` cookie `jwt`).
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| transaction | string | yes | Signed challenge XDR (base64) |
+| Field       | Type   | Required | Description                   |
+| ----------- | ------ | -------- | ----------------------------- |
+| transaction | string | yes      | Signed challenge XDR (base64) |
 
 **Example request**
+
 ```json
 {
   "transaction": "AAAAAgAAAAC..."
@@ -161,6 +349,7 @@ Verify a signed challenge and issue a JWT (also set as `httpOnly` cookie `jwt`).
 ```
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -170,10 +359,10 @@ Verify a signed challenge and issue a JWT (also set as `httpOnly` cookie `jwt`).
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Missing transaction in request body" }` |
-| 401 | `{ "error": "Unauthorized: <reason>" }` |
+| Status | Body                                                 |
+| ------ | ---------------------------------------------------- |
+| 400    | `{ "error": "Missing transaction in request body" }` |
+| 401    | `{ "error": "Unauthorized: <reason>" }`              |
 
 ---
 
@@ -184,6 +373,7 @@ Verify a signed challenge and issue a JWT (also set as `httpOnly` cookie `jwt`).
 SEP-0001 discovery document (TOML, not JSON).
 
 **Response `200`** (`Content-Type: application/toml`)
+
 ```toml
 # Finchippay Solution federation discovery
 FEDERATION_SERVER="http://localhost:4000/federation"
@@ -197,12 +387,13 @@ SEP-0002 federation resolver. Subject to **strict** rate limit.
 
 **Query parameters**
 
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| q | string | yes | For `type=name`: `username*domain`; for `type=id`: Stellar account ID (`G...`) |
-| type | string | yes | `"name"` or `"id"` |
+| Name | Type   | Required | Description                                                                    |
+| ---- | ------ | -------- | ------------------------------------------------------------------------------ |
+| q    | string | yes      | For `type=name`: `username*domain`; for `type=id`: Stellar account ID (`G...`) |
+| type | string | yes      | `"name"` or `"id"`                                                             |
 
 **Response `200` (type=name)**
+
 ```json
 {
   "stellar_address": "alice*stellarfinchippay.io",
@@ -211,6 +402,7 @@ SEP-0002 federation resolver. Subject to **strict** rate limit.
 ```
 
 **Response `200` (type=id)**
+
 ```json
 {
   "stellar_address": "alice*stellarfinchippay.io",
@@ -220,14 +412,14 @@ SEP-0002 federation resolver. Subject to **strict** rate limit.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Missing required parameters: q and type" }` |
-| 400 | `{ "error": "Invalid required parameters: q and type must be strings" }` |
-| 400 | `{ "error": "Invalid type parameter. Must be 'name' or 'id'" }` |
-| 400 | `{ "error": "Invalid stellar address format" }` |
-| 404 | `{ "error": "Not found" }` |
-| 404 | `{ "error": "Account ID not found" }` |
+| Status | Body                                                                     |
+| ------ | ------------------------------------------------------------------------ |
+| 400    | `{ "error": "Missing required parameters: q and type" }`                 |
+| 400    | `{ "error": "Invalid required parameters: q and type must be strings" }` |
+| 400    | `{ "error": "Invalid type parameter. Must be 'name' or 'id'" }`          |
+| 400    | `{ "error": "Invalid stellar address format" }`                          |
+| 404    | `{ "error": "Not found" }`                                               |
+| 404    | `{ "error": "Account ID not found" }`                                    |
 
 ---
 
@@ -239,11 +431,12 @@ Resolve a registered username to a public key. Subject to **strict** rate limit.
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name     | Type   | Description                                           |
+| -------- | ------ | ----------------------------------------------------- |
 | username | string | 3–20 alphanumeric characters (trimmed and lowercased) |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -256,11 +449,11 @@ Resolve a registered username to a public key. Subject to **strict** rate limit.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Username is required" }` |
-| 400 | `{ "error": "Username must be 3-20 characters long and contain only letters and numbers" }` |
-| 404 | `{ "error": "Username not found" }` |
+| Status | Body                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------- |
+| 400    | `{ "error": "Username is required" }`                                                       |
+| 400    | `{ "error": "Username must be 3-20 characters long and contain only letters and numbers" }` |
+| 404    | `{ "error": "Username not found" }`                                                         |
 
 ---
 
@@ -270,12 +463,13 @@ Register a username for a Stellar public key. Subject to **strict** rate limit.
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| username | string | yes | 3–20 alphanumeric characters |
-| publicKey | string | yes | Stellar `G...` public key (56 chars) |
+| Field     | Type   | Required | Description                          |
+| --------- | ------ | -------- | ------------------------------------ |
+| username  | string | yes      | 3–20 alphanumeric characters         |
+| publicKey | string | yes      | Stellar `G...` public key (56 chars) |
 
 **Example request**
+
 ```json
 {
   "username": "alice",
@@ -284,6 +478,7 @@ Register a username for a Stellar public key. Subject to **strict** rate limit.
 ```
 
 **Response `201`**
+
 ```json
 {
   "success": true,
@@ -297,12 +492,12 @@ Register a username for a Stellar public key. Subject to **strict** rate limit.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "success": false, "error": "Username and public key are required" }` |
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
-| 409 | `{ "error": "Username already registered" }` |
-| 409 | `{ "error": "Public key already registered to another username" }` |
+| Status | Body                                                                    |
+| ------ | ----------------------------------------------------------------------- |
+| 400    | `{ "success": false, "error": "Username and public key are required" }` |
+| 400    | `{ "error": "Invalid Stellar public key format" }`                      |
+| 409    | `{ "error": "Username already registered" }`                            |
+| 409    | `{ "error": "Public key already registered to another username" }`      |
 
 ---
 
@@ -312,17 +507,18 @@ Fetch account info and balances from Horizon. Requires JWT; caller may only acce
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name      | Type   | Description                          |
+| --------- | ------ | ------------------------------------ |
 | publicKey | string | Stellar `G...` public key (56 chars) |
 
 **Headers**
 
-| Name | Value |
-|------|-------|
+| Name          | Value          |
+| ------------- | -------------- |
 | Authorization | `Bearer <jwt>` |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -343,13 +539,13 @@ Fetch account info and balances from Horizon. Requires JWT; caller may only acce
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
-| 401 | `{ "error": "Unauthorized: missing or invalid token" }` |
-| 401 | `{ "error": "Unauthorized: invalid or expired token" }` |
-| 403 | `{ "error": "Forbidden: you may only access your own account data" }` |
-| 404 | `{ "error": "Account not found. It may not be funded yet. Use Friendbot on testnet." }` |
+| Status | Body                                                                                    |
+| ------ | --------------------------------------------------------------------------------------- |
+| 400    | `{ "error": "Invalid Stellar public key format" }`                                      |
+| 401    | `{ "error": "Unauthorized: missing or invalid token" }`                                 |
+| 401    | `{ "error": "Unauthorized: invalid or expired token" }`                                 |
+| 403    | `{ "error": "Forbidden: you may only access your own account data" }`                   |
+| 404    | `{ "error": "Account not found. It may not be funded yet. Use Friendbot on testnet." }` |
 
 ---
 
@@ -358,6 +554,7 @@ Fetch account info and balances from Horizon. Requires JWT; caller may only acce
 Fetch native XLM balance only. Same auth and rate-limit rules as `GET /api/accounts/:publicKey`.
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -380,18 +577,19 @@ Payment history from Horizon. Subject to **strict** rate limit.
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name      | Type   | Description               |
+| --------- | ------ | ------------------------- |
 | publicKey | string | Stellar `G...` public key |
 
 **Query parameters**
 
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| limit | integer | 20 | Max results (capped at 100) |
-| cursor | string | — | Horizon pagination cursor |
+| Name   | Type    | Default | Description                 |
+| ------ | ------- | ------- | --------------------------- |
+| limit  | integer | 20      | Max results (capped at 100) |
+| cursor | string  | —       | Horizon pagination cursor   |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -414,9 +612,9 @@ Payment history from Horizon. Subject to **strict** rate limit.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
+| Status | Body                                               |
+| ------ | -------------------------------------------------- |
+| 400    | `{ "error": "Invalid Stellar public key format" }` |
 
 ---
 
@@ -426,11 +624,12 @@ Aggregate payment statistics (computed from up to 100 recent payments).
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name      | Type   | Description               |
+| --------- | ------ | ------------------------- |
 | publicKey | string | Stellar `G...` public key |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -447,9 +646,9 @@ Aggregate payment statistics (computed from up to 100 recent payments).
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
+| Status | Body                                               |
+| ------ | -------------------------------------------------- |
+| 400    | `{ "error": "Invalid Stellar public key format" }` |
 
 ---
 
@@ -461,11 +660,12 @@ All analytics routes use a 5-minute in-memory cache per public key. Subject to *
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name      | Type   | Description               |
+| --------- | ------ | ------------------------- |
 | publicKey | string | Stellar `G...` public key |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -487,6 +687,7 @@ All analytics routes use a 5-minute in-memory cache per public key. Subject to *
 Top 5 recipients by total XLM sent.
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -510,6 +711,7 @@ Top 5 recipients by total XLM sent.
 Payment counts grouped by day of week (UTC).
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -525,9 +727,9 @@ Payment counts grouped by day of week (UTC).
 
 **Errors (all analytics routes)**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
+| Status | Body                                               |
+| ------ | -------------------------------------------------- |
+| 400    | `{ "error": "Invalid Stellar public key format" }` |
 
 ---
 
@@ -541,16 +743,17 @@ Record a tip after an on-chain payment.
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| senderPublicKey | string | yes | Sender `G...` key |
-| creatorPublicKey | string | yes | Creator `G...` key |
-| amount | string | yes | Positive numeric amount |
-| asset | string | no | Asset code (default `"XLM"`) |
-| memo | string | no | Optional message |
-| txHash | string | no | Stellar transaction hash |
+| Field            | Type   | Required | Description                  |
+| ---------------- | ------ | -------- | ---------------------------- |
+| senderPublicKey  | string | yes      | Sender `G...` key            |
+| creatorPublicKey | string | yes      | Creator `G...` key           |
+| amount           | string | yes      | Positive numeric amount      |
+| asset            | string | no       | Asset code (default `"XLM"`) |
+| memo             | string | no       | Optional message             |
+| txHash           | string | no       | Stellar transaction hash     |
 
 **Example request**
+
 ```json
 {
   "senderPublicKey": "GABC1234567890123456789012345678901234567890123456789012345",
@@ -563,6 +766,7 @@ Record a tip after an on-chain payment.
 ```
 
 **Response `201`**
+
 ```json
 {
   "success": true,
@@ -582,11 +786,11 @@ Record a tip after an on-chain payment.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "senderPublicKey is required, creatorPublicKey is required, ..." }` (combined validation messages) |
-| 400 | `{ "error": "Invalid sender public key format" }` |
-| 400 | `{ "error": "amount must be a positive number" }` |
+| Status | Body                                                                                                           |
+| ------ | -------------------------------------------------------------------------------------------------------------- |
+| 400    | `{ "error": "senderPublicKey is required, creatorPublicKey is required, ..." }` (combined validation messages) |
+| 400    | `{ "error": "Invalid sender public key format" }`                                                              |
+| 400    | `{ "error": "amount must be a positive number" }`                                                              |
 
 ---
 
@@ -596,18 +800,19 @@ Tips received by a creator, with embedded stats.
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name             | Type   | Description        |
+| ---------------- | ------ | ------------------ |
 | creatorPublicKey | string | Creator `G...` key |
 
 **Query parameters**
 
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| limit | integer | 50 | Page size |
-| offset | integer | 0 | Skip count |
+| Name   | Type    | Default | Description |
+| ------ | ------- | ------- | ----------- |
+| limit  | integer | 50      | Page size   |
+| offset | integer | 0       | Skip count  |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -647,6 +852,7 @@ Tips received by a creator, with embedded stats.
 Tip statistics for a creator.
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -670,12 +876,13 @@ Tips sent by a user.
 
 **Query parameters**
 
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| limit | integer | 50 | Page size |
-| offset | integer | 0 | Skip count |
+| Name   | Type    | Default | Description |
+| ------ | ------- | ------- | ----------- |
+| limit  | integer | 50      | Page size   |
+| offset | integer | 0       | Skip count  |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -702,11 +909,12 @@ List deployments.
 
 **Query parameters**
 
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| ownerPublicKey | string | no | Filter by owner `G...` key |
+| Name           | Type   | Required | Description                |
+| -------------- | ------ | -------- | -------------------------- |
+| ownerPublicKey | string | no       | Filter by owner `G...` key |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -716,7 +924,12 @@ List deployments.
       "ownerPublicKey": "GABC...",
       "type": "dca",
       "status": "active",
-      "config": { "intervalMinutes": 60, "amountQuote": 10, "quoteAssetCode": "USDC", "quoteAssetIssuer": null },
+      "config": {
+        "intervalMinutes": 60,
+        "amountQuote": 10,
+        "quoteAssetCode": "USDC",
+        "quoteAssetIssuer": null
+      },
       "deploymentHash": "abc123...",
       "createdAt": "2025-01-01T12:00:00.000Z",
       "nextRunAt": "2025-01-01T13:00:00.000Z",
@@ -731,9 +944,9 @@ List deployments.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
+| Status | Body                                               |
+| ------ | -------------------------------------------------- |
+| 400    | `{ "error": "Invalid Stellar public key format" }` |
 
 ---
 
@@ -743,13 +956,14 @@ Create a signing challenge (ManageData transaction XDR).
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| ownerPublicKey | string | yes | Owner `G...` key |
-| type | string | yes | `dca`, `stop_loss`, or `escrow_release` |
-| config | object | yes | Type-specific configuration |
+| Field          | Type   | Required | Description                             |
+| -------------- | ------ | -------- | --------------------------------------- |
+| ownerPublicKey | string | yes      | Owner `G...` key                        |
+| type           | string | yes      | `dca`, `stop_loss`, or `escrow_release` |
+| config         | object | yes      | Type-specific configuration             |
 
 **Example request (DCA)**
+
 ```json
 {
   "ownerPublicKey": "GABC1234567890123456789012345678901234567890123456789012345",
@@ -764,6 +978,7 @@ Create a signing challenge (ManageData transaction XDR).
 ```
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -783,11 +998,11 @@ Create a signing challenge (ManageData transaction XDR).
 
 **Errors**
 
-| Status | Body (examples) |
-|--------|-------------------|
-| 400 | `{ "error": "Invalid Stellar public key format" }` |
-| 400 | `{ "error": "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'." }` |
-| 400 | `{ "error": "DCA intervalMinutes must be at least 1" }` |
+| Status | Body (examples)                                                                            |
+| ------ | ------------------------------------------------------------------------------------------ |
+| 400    | `{ "error": "Invalid Stellar public key format" }`                                         |
+| 400    | `{ "error": "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'." }` |
+| 400    | `{ "error": "DCA intervalMinutes must be at least 1" }`                                    |
 
 ---
 
@@ -797,15 +1012,16 @@ Deploy a txFunction after signing the challenge.
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| ownerPublicKey | string | yes | Owner `G...` key |
-| type | string | yes | `dca`, `stop_loss`, or `escrow_release` |
-| config | object | yes | Same config used for challenge |
-| deploymentHash | string | yes | Hash from challenge response |
-| signedChallengeXDR | string | yes | Challenge XDR signed by owner |
+| Field              | Type   | Required | Description                             |
+| ------------------ | ------ | -------- | --------------------------------------- |
+| ownerPublicKey     | string | yes      | Owner `G...` key                        |
+| type               | string | yes      | `dca`, `stop_loss`, or `escrow_release` |
+| config             | object | yes      | Same config used for challenge          |
+| deploymentHash     | string | yes      | Hash from challenge response            |
+| signedChallengeXDR | string | yes      | Challenge XDR signed by owner           |
 
 **Response `201`**
+
 ```json
 {
   "success": true,
@@ -814,7 +1030,7 @@ Deploy a txFunction after signing the challenge.
     "ownerPublicKey": "GABC...",
     "type": "dca",
     "status": "active",
-    "config": { },
+    "config": {},
     "deploymentHash": "a1b2c3...",
     "createdAt": "2025-01-01T12:00:00.000Z",
     "nextRunAt": "2025-01-01T13:00:00.000Z"
@@ -824,11 +1040,11 @@ Deploy a txFunction after signing the challenge.
 
 **Errors**
 
-| Status | Body (examples) |
-|--------|-------------------|
-| 400 | `{ "error": "Configuration hash mismatch. Recreate challenge and sign again." }` |
-| 400 | `{ "error": "Asset issuer is required for non-native asset USDC" }` |
-| 401 | `{ "error": "Signed challenge was not signed by the owner account" }` |
+| Status | Body (examples)                                                                  |
+| ------ | -------------------------------------------------------------------------------- |
+| 400    | `{ "error": "Configuration hash mismatch. Recreate challenge and sign again." }` |
+| 400    | `{ "error": "Asset issuer is required for non-native asset USDC" }`              |
+| 401    | `{ "error": "Signed challenge was not signed by the owner account" }`            |
 
 ---
 
@@ -838,17 +1054,17 @@ Get a single deployment.
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| id | string (UUID) | Deployment ID |
+| Name | Type          | Description   |
+| ---- | ------------- | ------------- |
+| id   | string (UUID) | Deployment ID |
 
 **Response `200`** — `{ "success": true, "data": { ...deployment } }`
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 404 | `{ "error": "txFunction not found" }` |
+| Status | Body                                  |
+| ------ | ------------------------------------- |
+| 404    | `{ "error": "txFunction not found" }` |
 
 ---
 
@@ -857,6 +1073,7 @@ Get a single deployment.
 Execution log for a deployment (newest first).
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -875,9 +1092,9 @@ Execution log for a deployment (newest first).
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 404 | `{ "error": "txFunction not found" }` |
+| Status | Body                                  |
+| ------ | ------------------------------------- |
+| 404    | `{ "error": "txFunction not found" }` |
 
 ---
 
@@ -905,13 +1122,14 @@ Register Horizon SSE listeners that POST to your URL when payments are received.
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| publicKey | string | yes | Account to monitor |
-| url | string | yes | HTTPS endpoint to receive events |
-| secret | string | yes | HMAC secret for `X-Webhook-Signature` |
+| Field     | Type   | Required | Description                           |
+| --------- | ------ | -------- | ------------------------------------- |
+| publicKey | string | yes      | Account to monitor                    |
+| url       | string | yes      | HTTPS endpoint to receive events      |
+| secret    | string | yes      | HMAC secret for `X-Webhook-Signature` |
 
 **Example request**
+
 ```json
 {
   "publicKey": "GABC1234567890123456789012345678901234567890123456789012345",
@@ -921,6 +1139,7 @@ Register Horizon SSE listeners that POST to your URL when payments are received.
 ```
 
 **Response `201`**
+
 ```json
 {
   "success": true,
@@ -936,12 +1155,13 @@ Register Horizon SSE listeners that POST to your URL when payments are received.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "publicKey, url, and secret are required" }` |
-| 500 | `{ "error": "<message>" }` |
+| Status | Body                                                     |
+| ------ | -------------------------------------------------------- |
+| 400    | `{ "error": "publicKey, url, and secret are required" }` |
+| 500    | `{ "error": "<message>" }`                               |
 
 **Outbound webhook payload** (POST to your `url`)
+
 ```json
 {
   "event": "payment.received",
@@ -966,6 +1186,7 @@ Header: `X-Webhook-Signature` — HMAC-SHA256 hex of the JSON body using `secret
 List webhooks for an account.
 
 **Response `200`**
+
 ```json
 {
   "webhooks": [
@@ -988,11 +1209,12 @@ Delete a webhook by numeric ID.
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| id | string | Webhook ID assigned at registration |
+| Name | Type   | Description                         |
+| ---- | ------ | ----------------------------------- |
+| id   | string | Webhook ID assigned at registration |
 
 **Response `200`**
+
 ```json
 {
   "success": true,
@@ -1002,9 +1224,9 @@ Delete a webhook by numeric ID.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 404 | `{ "error": "Webhook not found" }` |
+| Status | Body                               |
+| ------ | ---------------------------------- |
+| 404    | `{ "error": "Webhook not found" }` |
 
 ---
 
@@ -1020,11 +1242,12 @@ Parse a natural language payment description into a structured payment intent.
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| input | string | yes | Natural language payment description |
+| Field | Type   | Required | Description                          |
+| ----- | ------ | -------- | ------------------------------------ |
+| input | string | yes      | Natural language payment description |
 
 **Example request**
+
 ```json
 {
   "input": "Send 50 XLM to GABC123 for design work"
@@ -1032,6 +1255,7 @@ Parse a natural language payment description into a structured payment intent.
 ```
 
 **Response `200`**
+
 ```json
 {
   "amount": "50 XLM",
@@ -1043,6 +1267,7 @@ Parse a natural language payment description into a structured payment intent.
 ```
 
 **Response `200` (ambiguous input)**
+
 ```json
 {
   "amount": "",
@@ -1055,11 +1280,11 @@ Parse a natural language payment description into a structured payment intent.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "Please provide a payment description." }` |
-| 501 | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "AI payment parsing is not configured. Set ANTHROPIC_API_KEY." }` |
-| 500 | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "Server error. Try again." }` |
+| Status | Body                                                                                                                                               |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "Please provide a payment description." }`                        |
+| 501    | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "AI payment parsing is not configured. Set ANTHROPIC_API_KEY." }` |
+| 500    | `{ "amount": "", "recipient": "", "memo": "", "isValid": false, "clarification": "Server error. Try again." }`                                     |
 
 ---
 
@@ -1073,13 +1298,14 @@ Schedule a transaction for future submission.
 
 **Request body (JSON)**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| signedXDR | string | yes | Signed transaction XDR (base64) |
-| submitAt | string | yes | ISO 8601 timestamp when the transaction should be submitted |
-| publicKey | string | yes | Stellar public key that owns this transaction |
+| Field     | Type   | Required | Description                                                 |
+| --------- | ------ | -------- | ----------------------------------------------------------- |
+| signedXDR | string | yes      | Signed transaction XDR (base64)                             |
+| submitAt  | string | yes      | ISO 8601 timestamp when the transaction should be submitted |
+| publicKey | string | yes      | Stellar public key that owns this transaction               |
 
 **Example request**
+
 ```json
 {
   "signedXDR": "AAAAAgAAAAC...",
@@ -1089,6 +1315,7 @@ Schedule a transaction for future submission.
 ```
 
 **Response `201`**
+
 ```json
 {
   "message": "Transaction scheduled successfully",
@@ -1100,10 +1327,10 @@ Schedule a transaction for future submission.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 400 | `{ "error": "Missing signedXDR, submitAt, or publicKey" }` |
-| 400 | `{ "error": "submitAt must be a valid ISO 8601 date string" }` |
+| Status | Body                                                           |
+| ------ | -------------------------------------------------------------- |
+| 400    | `{ "error": "Missing signedXDR, submitAt, or publicKey" }`     |
+| 400    | `{ "error": "submitAt must be a valid ISO 8601 date string" }` |
 
 ---
 
@@ -1113,11 +1340,12 @@ List all pending scheduled transactions for a public key (sorted by earliest fir
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
+| Name      | Type   | Description               |
+| --------- | ------ | ------------------------- |
 | publicKey | string | Stellar `G...` public key |
 
 **Response `200`**
+
 ```json
 [
   {
@@ -1138,11 +1366,12 @@ Cancel a scheduled transaction by its ID.
 
 **Path parameters**
 
-| Name | Type | Description |
-|------|------|-------------|
-| id | string | Transaction ID assigned at scheduling |
+| Name | Type   | Description                           |
+| ---- | ------ | ------------------------------------- |
+| id   | string | Transaction ID assigned at scheduling |
 
 **Response `200`**
+
 ```json
 {
   "message": "Transaction 1 cancelled successfully."
@@ -1151,23 +1380,36 @@ Cancel a scheduled transaction by its ID.
 
 **Errors**
 
-| Status | Body |
-|--------|------|
-| 404 | `{ "error": "Transaction 1 not found or not pending." }` |
+| Status | Body                                                     |
+| ------ | -------------------------------------------------------- |
+| 404    | `{ "error": "Transaction 1 not found or not pending." }` |
 
 ---
 
 ## Global errors
 
-These apply across routes unless noted otherwise.
+All errors now follow the standardized shape (see [Error Codes Reference](#error-codes-reference)).
 
-| HTTP status | When | Example body |
-|-------------|------|--------------|
-| 400 | Invalid JSON body | `{ "error": "Invalid JSON body" }` |
-| 404 | Unknown route | `{ "error": "Route not found" }` |
-| 429 | Rate limit (global) | `{ "error": "Too many requests, please try again later." }` |
-| 429 | Rate limit (strict) | `{ "error": "Too many requests to sensitive routes, please wait 1 minute." }` |
-| 500 | Unhandled server error | `{ "error": "Internal Server Error" }` or `{ "error": "<message>" }` |
+| HTTP status | Error Code               | When                                     |
+| ----------- | ------------------------ | ---------------------------------------- |
+| 400         | `VAL_INVALID_JSON`       | Invalid JSON body                        |
+| 404         | `RES_ROUTE_NOT_FOUND`    | Unknown route                            |
+| 415         | `VAL_CONTENT_TYPE`       | Missing `Content-Type: application/json` |
+| 413         | `VAL_BODY_TOO_LARGE`     | Request body exceeds size limit          |
+| 429         | `RATE_LIMITED_GLOBAL`    | Global rate limit exceeded               |
+| 429         | `RATE_LIMITED_SENSITIVE` | Strict rate limit exceeded               |
+| 500         | `SRV_INTERNAL`           | Unhandled server error                   |
+
+**Example standardized error response:**
+
+```json
+{
+  "error": {
+    "code": "RATE_LIMITED_GLOBAL",
+    "message": "Too many requests. Please try again later."
+  }
+}
+```
 
 **CORS:** Requests from origins not listed in `ALLOWED_ORIGINS` are rejected by the CORS middleware.
 
@@ -1177,9 +1419,31 @@ These apply across routes unless noted otherwise.
 
 When `TURRETS_PORT` is set (default `4100`), a separate process exposes:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `http://localhost:4100/health` | Sidecar health |
-| * | `http://localhost:4100/tx-functions/*` | Same txFunction routes as `/api/turrets/*` on the main server |
+| Method | Path                                   | Description                                                   |
+| ------ | -------------------------------------- | ------------------------------------------------------------- |
+| GET    | `http://localhost:4100/health`         | Sidecar health                                                |
+| *      | `http://localhost:4100/tx-functions/*` | Same txFunction routes as `/api/turrets/*` on the main server |
 
 The main API on port **4000** mounts turrets at `/api/turrets`; prefer that URL for application integration.
+
+## SEP Compliance Verification
+
+To verify SEP endpoint compliance:
+
+```bash
+# SEP-0001 (stellar.toml)
+curl -s https://your-domain.com/.well-known/stellar.toml | grep -E 'FEDERATION|TRANSFER|WEB_AUTH'
+
+# SEP-0002 (Federation)
+curl -s 'https://your-domain.com/api/v1/federation?q=alice*finchippay.com&type=name'
+
+# SEP-0010 (Web Auth)
+curl -s https://your-domain.com/api/v1/auth -H 'Content-Type: application/json' \
+  -d '{"publicKey":"G...","homeDomain":"finchippay.com"}'
+
+# SEP-0038 (RFQ)
+curl -s 'https://your-domain.com/api/v1/sep38/price?asset_code=USDC&amount=100'
+```
+
+All SEP endpoints return `application/json` with proper CORS headers. Error
+responses follow the shared error code format from `shared/errorCodes.js`.

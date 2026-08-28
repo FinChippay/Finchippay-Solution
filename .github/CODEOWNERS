@@ -1,0 +1,27 @@
+# Code Owners - Automatic Review Assignment
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owners (reviewed on all PRs)
+* @finchippay/core-maintainers
+
+# Contract changes require security review
+contracts/** @finchippay/core-maintainers @finchippay/security-reviewers
+
+# Backend changes
+backend/src/** @finchippay/core-maintainers
+
+# Frontend changes
+frontend/src/** @finchippay/core-maintainers
+frontend/components/** @finchippay/core-maintainers
+frontend/pages/** @finchippay/core-maintainers
+
+# CI/CD changes
+.github/workflows/** @finchippay/core-maintainers
+
+# Infrastructure changes
+terraform/** @finchippay/core-maintainers
+kubernetes/** @finchippay/core-maintainers
+
+# Documentation
+docs/** @finchippay/core-maintainers
+*.md @finchippay/core-maintainers

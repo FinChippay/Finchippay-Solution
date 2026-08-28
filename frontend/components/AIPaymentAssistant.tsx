@@ -1,17 +1,15 @@
 /**
+
  * components/AIPaymentAssistant.tsx
  * AI-powered payment assistant that parses natural language payment requests
  */
 
 import React, { useState, useRef, useEffect } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { apiClient, type ParsePaymentResponse as PaymentIntent } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
-interface PaymentIntent {
-  amount: string;
-  recipient: string;
-  memo: string;
-  isValid: boolean;
-  clarification: string;
-}
+export type { PaymentIntent };
 
 interface AIPaymentAssistantProps {
   isOpen: boolean;
@@ -29,13 +27,11 @@ export default function AIPaymentAssistant({
   const [parsedIntent, setParsedIntent] = useState<PaymentIntent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Focus input when opened
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isOpen]);
+  const panelRef = useFocusTrap<HTMLDivElement>({
+    active: isOpen,
+    onEscape: onClose,
+    initialFocusRef: inputRef,
+  });
 
   // Reset state when closed
   useEffect(() => {
@@ -55,24 +51,11 @@ export default function AIPaymentAssistant({
     setParsedIntent(null);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-      const response = await fetch(`${apiUrl}/api/parse-payment`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ input: input.trim() }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to parse payment intent");
-      }
-
-      const intent: PaymentIntent = await response.json();
+      const intent = await apiClient.parsePayment({ input: input.trim() });
       setParsedIntent(intent);
     } catch (err) {
       setError("Failed to parse your request. Please try again.");
-      console.error("Payment parsing error:", err);
+      logger.error("Payment parsing error", {}, err instanceof Error ? err : undefined);
     } finally {
       setIsLoading(false);
     }
@@ -86,9 +69,7 @@ export default function AIPaymentAssistant({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       handleSubmit(e);
     }
   };
@@ -96,12 +77,17 @@ export default function AIPaymentAssistant({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-assistant-title"
-        className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl animate-slide-up"
+        className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl animate-slide-up outline-none"
       >
         <div className="flex items-center justify-between mb-4">
           <h3 id="ai-assistant-title" className="font-display text-lg font-semibold text-white flex items-center gap-2">

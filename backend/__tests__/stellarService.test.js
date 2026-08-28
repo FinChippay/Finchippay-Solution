@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * __tests__/stellarService.test.js
  * Unit tests for Stellar service with mocked Horizon SDK.
@@ -15,10 +16,17 @@ const mockPayments = jest.fn();
 
 jest.mock("@stellar/stellar-sdk", () => {
   mockPaymentsCursor.mockImplementation(() => ({ call: mockPaymentsCall }));
-  mockPaymentsOrder.mockImplementation(() => ({ cursor: mockPaymentsCursor, call: mockPaymentsCall }));
+  mockPaymentsOrder.mockImplementation(() => ({
+    cursor: mockPaymentsCursor,
+    call: mockPaymentsCall,
+  }));
   mockPaymentsLimit.mockImplementation(() => ({ order: mockPaymentsOrder }));
-  mockPaymentsForAccount.mockImplementation(() => ({ limit: mockPaymentsLimit }));
-  mockPayments.mockImplementation(() => ({ forAccount: mockPaymentsForAccount }));
+  mockPaymentsForAccount.mockImplementation(() => ({
+    limit: mockPaymentsLimit,
+  }));
+  mockPayments.mockImplementation(() => ({
+    forAccount: mockPaymentsForAccount,
+  }));
 
   return {
     Horizon: {
@@ -37,12 +45,24 @@ describe("stellarService", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    stellarService.clearAccountCache();
+    // Clear the LRU fallback in cacheService (replaces old clearAccountCache)
+    try {
+      require("../src/services/cacheService").clearLRU();
+    } catch {
+      // cacheService may not be loaded in some test environments; ignore
+    }
     mockPaymentsCursor.mockImplementation(() => ({ call: mockPaymentsCall }));
-    mockPaymentsOrder.mockImplementation(() => ({ cursor: mockPaymentsCursor, call: mockPaymentsCall }));
+    mockPaymentsOrder.mockImplementation(() => ({
+      cursor: mockPaymentsCursor,
+      call: mockPaymentsCall,
+    }));
     mockPaymentsLimit.mockImplementation(() => ({ order: mockPaymentsOrder }));
-    mockPaymentsForAccount.mockImplementation(() => ({ limit: mockPaymentsLimit }));
-    mockPayments.mockImplementation(() => ({ forAccount: mockPaymentsForAccount }));
+    mockPaymentsForAccount.mockImplementation(() => ({
+      limit: mockPaymentsLimit,
+    }));
+    mockPayments.mockImplementation(() => ({
+      forAccount: mockPaymentsForAccount,
+    }));
   });
 
   describe("validatePublicKey", () => {
@@ -52,14 +72,14 @@ describe("stellarService", () => {
 
     it("throws on an empty public key", () => {
       expect(() => stellarService.validatePublicKey("")).toThrow(
-        "Invalid Stellar public key format"
+        "Invalid Stellar public key format",
       );
     });
 
     it("throws on an invalid prefix", () => {
       const invalidPrefix = `S${validPublicKey.slice(1)}`;
       expect(() => stellarService.validatePublicKey(invalidPrefix)).toThrow(
-        "Invalid Stellar public key format"
+        "Invalid Stellar public key format",
       );
     });
   });
@@ -70,7 +90,11 @@ describe("stellarService", () => {
         sequence: "12345",
         subentry_count: 2,
         balances: [
-          { asset_type: "credit_alphanum4", asset_code: "USDC", balance: "10.50" },
+          {
+            asset_type: "credit_alphanum4",
+            asset_code: "USDC",
+            balance: "10.50",
+          },
           { asset_type: "native", balance: "42.1234567" },
         ],
       });
@@ -85,7 +109,13 @@ describe("stellarService", () => {
       mockLoadAccount.mockResolvedValue({
         sequence: "12345",
         subentry_count: 2,
-        balances: [{ asset_type: "credit_alphanum4", asset_code: "USDC", balance: "10.50" }],
+        balances: [
+          {
+            asset_type: "credit_alphanum4",
+            asset_code: "USDC",
+            balance: "10.50",
+          },
+        ],
       });
 
       const balance = await stellarService.getXLMBalance(validPublicKey);
@@ -100,7 +130,7 @@ describe("stellarService", () => {
         status: 404,
       });
       await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toThrow(
-        "Account not found. It may not be funded yet. Use Friendbot on testnet."
+        "Account not found. It may not be funded yet. Use Friendbot on testnet.",
       );
     });
   });
@@ -152,7 +182,9 @@ describe("stellarService", () => {
         ],
       });
 
-      const result = await stellarService.getPayments(validPublicKey, { limit: 10 });
+      const result = await stellarService.getPayments(validPublicKey, {
+        limit: 10,
+      });
 
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
@@ -187,7 +219,10 @@ describe("stellarService", () => {
     it("correctly forwards cursor parameter to Horizon query", async () => {
       mockPaymentsCall.mockResolvedValue({ records: [] });
 
-      await stellarService.getPayments(validPublicKey, { limit: 5, cursor: "12345" });
+      await stellarService.getPayments(validPublicKey, {
+        limit: 5,
+        cursor: "12345",
+      });
 
       expect(mockPaymentsCursor).toHaveBeenCalledWith("12345");
     });
@@ -211,7 +246,10 @@ describe("stellarService", () => {
     it("handles both cursor and limit together", async () => {
       mockPaymentsCall.mockResolvedValue({ records: [] });
 
-      await stellarService.getPayments(validPublicKey, { limit: 30, cursor: "next-cursor-token" });
+      await stellarService.getPayments(validPublicKey, {
+        limit: 30,
+        cursor: "next-cursor-token",
+      });
 
       expect(mockPaymentsLimit).toHaveBeenCalledWith(30);
       expect(mockPaymentsCursor).toHaveBeenCalledWith("next-cursor-token");
@@ -219,7 +257,7 @@ describe("stellarService", () => {
 
     it("throws on invalid public key before any Horizon call", async () => {
       await expect(stellarService.getPayments("invalid-key")).rejects.toThrow(
-        "Invalid Stellar public key format"
+        "Invalid Stellar public key format",
       );
       expect(mockPayments).not.toHaveBeenCalled();
     });
@@ -259,7 +297,12 @@ describe("stellarService", () => {
         subentry_count: 3,
         balances: [
           { asset_type: "native", balance: "100.5000000" },
-          { asset_type: "credit_alphanum4", asset_code: "USDC", asset_issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC", balance: "50.0000000" },
+          {
+            asset_type: "credit_alphanum4",
+            asset_code: "USDC",
+            asset_issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC",
+            balance: "50.0000000",
+          },
         ],
       });
 

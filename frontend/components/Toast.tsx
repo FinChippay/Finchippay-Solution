@@ -3,10 +3,12 @@
  * Global toast notification system — top-right slide-in, stacking, auto-dismiss.
  */
 
-import { useEffect, useState } from "react";
 import clsx from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState } from "react";
 import { CheckIcon, AlertCircleIcon } from "@/components/icons";
 import { useToastContext, type ToastItem } from "@/lib/ToastContext";
+import { sanitizeMessage } from "@/lib/handleError";
 
 // ─── Individual toast item ────────────────────────────────────────────────────
 
@@ -25,28 +27,54 @@ export default function Toast({
   onRetry,
   duration = 4000,
 }: ToastProps) {
-  const [visible, setVisible] = useState(true);
+  const [startX, setStartX] = useState(0);
+  const [currentX, setCurrentX] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setVisible(false);
-      if (onClose) setTimeout(onClose, 300);
+      if (onClose) onClose();
     }, duration);
     return () => clearTimeout(timer);
   }, [duration, onClose]);
 
+  const handleTouchStart = (e: React.TouchEvent) => setStartX(e.touches[0].clientX);
+  const handleTouchMove = (e: React.TouchEvent) => setCurrentX(e.touches[0].clientX);
+  const handleTouchEnd = () => {
+    if (currentX > 0 && currentX - startX > 50) {
+      onClose?.();
+    }
+    setStartX(0);
+    setCurrentX(0);
+  };
+
+  const deltaX = currentX > startX ? currentX - startX : 0;
+
+  // Error toasts are frequently populated straight from `err.message` at the
+  // call site; sanitize so internal details never render in production.
+  const displayMessage = type === "error" ? sanitizeMessage(message) : message;
+
   return (
-    <div
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: 100 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, transition: { duration: 0.2 } }}
       role="status"
       aria-live="polite"
       aria-atomic="true"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{
+        transform: deltaX > 0 ? `translateX(${deltaX}px)` : undefined,
+        transition: currentX > 0 ? "none" : undefined,
+      }}
       className={clsx(
         "flex items-start gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white",
-        "border shadow-xl transition-all duration-300",
-        visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4",
+        "border shadow-xl",
         type === "success" && "bg-emerald-600 border-emerald-500",
         type === "error" && "bg-red-600 border-red-500",
-        type === "info" && "bg-slate-800 border-white/10"
+        type === "info" && "bg-slate-800 border-white/10",
       )}
     >
       <div className="flex-shrink-0 mt-0.5">
@@ -54,7 +82,7 @@ export default function Toast({
         {type === "error" && <AlertCircleIcon className="w-4 h-4" />}
       </div>
 
-      <span className="flex-1 leading-snug">{message}</span>
+      <span className="flex-1 leading-snug">{displayMessage}</span>
 
       <div className="flex items-center gap-2 flex-shrink-0">
         {type === "error" && onRetry && (
@@ -69,16 +97,23 @@ export default function Toast({
           </button>
         )}
         <button
-          onClick={() => { setVisible(false); setTimeout(() => onClose?.(), 300); }}
+          onClick={() => {
+            onClose?.();
+          }}
           className="text-white/60 hover:text-white transition-colors"
           aria-label="Dismiss notification"
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
           </svg>
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -107,11 +142,13 @@ export function ToastContainer() {
       aria-label="Notifications"
       className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)] pointer-events-none"
     >
-      {toasts.map((t) => (
-        <div key={t.id} className="pointer-events-auto animate-slide-up">
-          <ToastItemWrapper toast={t} />
-        </div>
-      ))}
+      <AnimatePresence mode="popLayout">
+        {toasts.map((t) => (
+          <div key={t.id} className="pointer-events-auto">
+            <ToastItemWrapper toast={t} />
+          </div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

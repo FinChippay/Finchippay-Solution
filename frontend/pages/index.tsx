@@ -9,6 +9,7 @@ import { useRouter } from "next/router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import WalletConnect from "@/components/WalletConnect";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useWallet } from "@/lib/useWallet";
 
 const FEATURE_KEYS = [
@@ -29,6 +30,10 @@ export default function Home() {
   const router = useRouter();
   const { t } = useTranslation("common");
   const [showConnect, setShowConnect] = useState(false);
+  const connectPanelRef = useFocusTrap<HTMLDivElement>({
+    active: showConnect,
+    onEscape: () => setShowConnect(false),
+  });
 
   const handleWalletConnect = (_publicKey: string) => {
     setShowConnect(false);
@@ -40,7 +45,7 @@ export default function Home() {
       <Head>
         <title>Home | Finchippay-Solution</title>
         <meta name="description" content="Experience lightning-fast payments on the Stellar network. Send funds globally with streaming, escrow, multi-sig, and batch payments — non-custodial and secure." />
-        <link rel="canonical" href="https://finchippay.vercel.app/" />
+        
       </Head>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-stellar-500/5 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-20 right-0 w-[300px] h-[300px] bg-stellar-600/5 rounded-full blur-2xl pointer-events-none" />
@@ -85,17 +90,17 @@ export default function Home() {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-20">
         <div className="text-center mb-20 animate-fade-in">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-400 text-xs font-medium mb-8">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-700 dark:text-stellar-400 text-xs font-medium mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-stellar-400 animate-pulse" />
             {t("home.badge")}
           </div>
 
-          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-white leading-tight mb-6">
+          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-slate-950 dark:text-white leading-tight mb-6">
             {t("home.title")}{" "}
             <span className="text-gradient">{t("home.titleHighlight")}</span>
           </h1>
 
-          <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
+          <p className="text-slate-600 dark:text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
             {t("home.subtitle")}
           </p>
 
@@ -114,7 +119,7 @@ export default function Home() {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="View Finchippay-Solution source code on GitHub"
-              className="btn-secondary text-base px-8 py-3.5 flex items-center gap-2"
+              className="btn-secondary text-stellar-700 dark:text-stellar-400 text-base px-8 py-3.5 flex items-center gap-2"
             >
               <GithubIcon className="w-4 h-4" />
               {t("home.viewOnGitHub")}
@@ -135,7 +140,7 @@ export default function Home() {
                 <div className="font-display text-3xl font-bold text-gradient mb-1">
                   {stat.prefix || ""}{formatValue()}{stat.suffix || ""}
                 </div>
-                <div className="text-slate-400 text-sm">{t(`home.stats.${stat.key}` as any)}</div>
+                <div className="text-slate-400 text-sm">{String(t(`home.stats.${stat.key}`))}</div>
               </div>
             );
           })}
@@ -145,10 +150,10 @@ export default function Home() {
           {FEATURE_KEYS.map((f) => (
             <div key={f.key} className="card hover:border-stellar-500/30 transition-colors group cursor-default">
               <div className="text-2xl mb-3">{f.icon}</div>
-              <h3 className="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors">
-                {t(`home.features.${f.key}.title` as any)}
+              <h3 className="font-display font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-stellar-700 dark:group-hover:text-stellar-300 transition-colors">
+                {String(t(`home.features.${f.key}.title`))}
               </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">{t(`home.features.${f.key}.desc` as any)}</p>
+              <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{String(t(`home.features.${f.key}.desc`))}</p>
             </div>
           ))}
         </div>
@@ -156,25 +161,25 @@ export default function Home() {
         <section className="mb-24">
           <div className="max-w-3xl mx-auto">
             <div className="text-center mb-8">
-              <h2 className="font-display text-3xl sm:text-4xl font-bold text-white mb-3">{t("home.faq.heading")}</h2>
-              <p className="text-slate-400 text-sm sm:text-base">
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white mb-3">{t("home.faq.heading")}</h2>
+              <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">
                 {t("home.faq.subheading")}
               </p>
             </div>
 
             <div className="space-y-4">
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
                   <span>{t("home.faq.whatIsStellar")}</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
                     {t("home.faq.whatIsStellarAnswer")}
                   </p>
                   <p>
                     Read the official{" "}
-                    <a href="https://developers.stellar.org/docs/learn/overview" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
+                    <a href="https://developers.stellar.org/docs/learn/overview" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
                       {t("home.faq.readOverview")}
                     </a>
                     .
@@ -183,17 +188,17 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
                   <span>{t("home.faq.whatIsXlm")}</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
                     {t("home.faq.whatIsXlmAnswer")}
                   </p>
                   <p>
                     See the official{" "}
-                    <a href="https://developers.stellar.org/docs/tokens" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
+                    <a href="https://developers.stellar.org/docs/tokens" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
                       {t("home.faq.tokenDocs")}
                     </a>
                     .
@@ -202,17 +207,17 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
                   <span>{t("home.faq.howFast")}</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
                     {t("home.faq.howFastAnswer")}
                   </p>
                   <p>
                     Read about transaction flow in the{" "}
-                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
+                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
                       {t("home.faq.transactionDocs")}
                     </a>
                     .
@@ -221,17 +226,17 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
                   <span>{t("home.faq.howMuch")}</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
                     {t("home.faq.howMuchAnswer")}
                   </p>
                   <p>
                     See the official{" "}
-                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
+                    <a href="https://developers.stellar.org/docs/learn/fundamentals/transactions" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
                       {t("home.faq.feeDocs")}
                     </a>
                     .
@@ -240,21 +245,21 @@ export default function Home() {
               </details>
 
               <details className="card cursor-default group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold">
                   <span>{t("home.faq.isItSafe")}</span>
-                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
+                  <span className="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
-                <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
+                <div className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3">
                   <p>
                     {t("home.faq.isItSafeAnswer")}
                   </p>
                   <p>
                     Learn more about account security and the network in the{" "}
-                    <a href="https://developers.stellar.org/docs/learn/fundamentals/accounts" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
+                    <a href="https://developers.stellar.org/docs/learn/fundamentals/accounts" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
                       {t("home.faq.accountDocs")}
                     </a>
                     {" "}and{" "}
-                    <a href="https://developers.stellar.org/docs/networks" target="_blank" rel="noopener noreferrer" className="text-stellar-400 hover:text-stellar-300 underline underline-offset-4">
+                    <a href="https://developers.stellar.org/docs/networks" target="_blank" rel="noopener noreferrer" className="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4">
                       {t("home.faq.networkDocs")}
                     </a>
                     .
@@ -266,8 +271,18 @@ export default function Home() {
         </section>
 
         {showConnect && !publicKey && (
-          <div className="fixed inset-0 z-50 bg-cosmos-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-md">
+          <div
+            className="fixed inset-0 z-50 bg-cosmos-900/90 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowConnect(false); }}
+          >
+            <div
+              ref={connectPanelRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("home.connectWallet") || "Connect wallet"}
+              className="w-full max-w-md outline-none"
+            >
               <WalletConnect onConnectSuccess={handleWalletConnect} />
               <button onClick={() => setShowConnect(false)} className="mt-4 w-full text-center text-sm text-slate-400 hover:text-slate-300 transition-colors cursor-pointer">
                 {t("home.cancel")}
@@ -276,12 +291,16 @@ export default function Home() {
           </div>
         )}
 
-        <div className="text-center pt-12 border-t border-white/5">
-          <p className="text-slate-600 text-sm">
+        <div className="text-center pt-12 border-t border-slate-200 dark:border-white/5">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             {t("home.footer")}{" "}
-            <a href="https://github.com/FinChippay/Finchippay-Solution" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-400 transition-colors cursor-pointer">
+            <a href="https://github.com/FinChippay/Finchippay-Solution" target="_blank" rel="noopener noreferrer" className="hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors cursor-pointer">
               {t("home.footerContribute")}
             </a>
+            {" · "}
+            <Link href="/accessibility" className="hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors cursor-pointer">
+              Accessibility
+            </Link>
           </p>
         </div>
       </div>

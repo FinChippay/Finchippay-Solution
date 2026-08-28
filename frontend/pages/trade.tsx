@@ -1,3 +1,5 @@
+import { Asset } from "@stellar/stellar-sdk";
+import { format } from "date-fns";
 import Head from "next/head";
 /**
  * pages/trade.tsx
@@ -5,7 +7,11 @@ import Head from "next/head";
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Asset } from "@stellar/stellar-sdk";
+import Toast from "@/components/Toast";
+import TradeForm from "@/components/TradeForm";
+import WalletConnect from "@/components/WalletConnect";
+import { FeatureGate } from "@/lib/FeatureFlags";
+import { logger } from "@/lib/logger";
 import {
   fetchOrderbook,
   fetchTradeAggregations,
@@ -18,11 +24,7 @@ import {
   TradeAggregation,
   OpenOffer,
 } from "@/lib/stellar";
-import TradeForm from "@/components/TradeForm";
-import Toast from "@/components/Toast";
-import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
-import { format } from "date-fns";
 
 export default function Trade() {
   const { publicKey } = useWallet();
@@ -39,7 +41,7 @@ export default function Trade() {
       const data = await fetchOrderbook(USDC, Asset.native(), 10);
       setOrderbook(data);
     } catch (error) {
-      console.error("Failed to load orderbook:", error);
+      logger.error("Failed to load orderbook:", {}, error instanceof Error ? error : undefined);
     }
   }, []);
 
@@ -59,7 +61,7 @@ export default function Trade() {
       );
       setTradeHistory(data);
     } catch (error) {
-      console.error("Failed to load trade history:", error);
+      logger.error("Failed to load trade history:", {}, error instanceof Error ? error : undefined);
     }
   }, []);
 
@@ -70,7 +72,7 @@ export default function Trade() {
       const offers = await fetchOpenOffers(publicKey);
       setOpenOffers(offers);
     } catch (error) {
-      console.error("Failed to load open offers:", error);
+      logger.error("Failed to load open offers:", {}, error instanceof Error ? error : undefined);
     }
   }, [publicKey]);
 
@@ -101,7 +103,7 @@ export default function Trade() {
       showToast("Offer cancelled successfully!", "success");
       loadOpenOffers(); // Reload offers
     } catch (error) {
-      console.error("Failed to cancel offer:", error);
+      logger.error("Failed to cancel offer:", {}, error instanceof Error ? error : undefined);
       showToast(error instanceof Error ? error.message : "Failed to cancel offer", "error");
     } finally {
       setIsLoading(false);
@@ -132,12 +134,12 @@ export default function Trade() {
 
   if (!publicKey) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
-        <div className="mb-10 text-center">
-          <h1 className="mb-3 font-display text-3xl font-bold text-white">
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="text-center max-w-md">
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-4">
             Stellar DEX Trading
           </h1>
-          <p className="text-slate-400">
+          <p className="text-slate-600 dark:text-slate-400">
             Connect your wallet to trade XLM and USDC on the Stellar DEX.
           </p>
         </div>
@@ -152,12 +154,22 @@ export default function Trade() {
         <title>Trade | Finchippay-Solution</title>
         <meta name="description" content="Trade XLM and USDC on the Stellar decentralised exchange." />
       </Head>
+      <FeatureGate flag="trading_page" fallback={
+        <div className="text-center py-20">
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-4">
+            Trading
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            Trading is not available right now. Please check back later.
+          </p>
+        </div>
+      }>
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-white mb-2">
+        <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-2">
           Stellar DEX Trading
         </h1>
-        <p className="text-slate-400">
+        <p className="text-slate-600 dark:text-slate-400">
           Trade XLM and USDC on the Stellar decentralised exchange
         </p>
       </div>
@@ -168,8 +180,8 @@ export default function Trade() {
           onClick={() => setActiveTab("trade")}
           className={`pb-3 px-4 font-medium transition-all ${
             activeTab === "trade"
-              ? "text-stellar-400 border-b-2 border-stellar-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-stellar-700 dark:text-stellar-400 border-b-2 border-stellar-400"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           Trade
@@ -178,8 +190,8 @@ export default function Trade() {
           onClick={() => setActiveTab("orders")}
           className={`pb-3 px-4 font-medium transition-all ${
             activeTab === "orders"
-              ? "text-stellar-400 border-b-2 border-stellar-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-stellar-700 dark:text-stellar-400 border-b-2 border-stellar-400"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           Open Orders
@@ -188,8 +200,8 @@ export default function Trade() {
           onClick={() => setActiveTab("history")}
           className={`pb-3 px-4 font-medium transition-all ${
             activeTab === "history"
-              ? "text-stellar-400 border-b-2 border-stellar-400"
-              : "text-slate-400 hover:text-white"
+              ? "text-stellar-700 dark:text-stellar-400 border-b-2 border-stellar-400"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
           Trade History
@@ -215,18 +227,18 @@ export default function Trade() {
           {/* Orderbook */}
           <div>
             <div className="card">
-              <h2 className="text-xl font-semibold text-white mb-4">Orderbook (USDC/XLM)</h2>
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">Orderbook (USDC/XLM)</h2>
               
               {orderbook ? (
                 <div className="space-y-4">
                   {/* Asks (Sell Orders) */}
                   <div>
-                    <h3 className="text-sm font-medium text-slate-400 mb-2">Sell Orders</h3>
+                    <h3 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">Sell Orders</h3>
                     <div className="space-y-1">
                       {orderbook.asks.slice(0, 5).map((ask: { price: string; amount: string }, index: number) => (
                         <div key={index} className="flex justify-between text-sm">
                           <span className="text-red-400">{ask.price}</span>
-                          <span className="text-slate-300">{ask.amount}</span>
+                          <span className="text-slate-700 dark:text-slate-300">{ask.amount}</span>
                         </div>
                       ))}
                     </div>
@@ -235,8 +247,8 @@ export default function Trade() {
                   {/* Spread */}
                   <div className="py-2 border-t border-stellar-500/20">
                     <div className="flex justify-between text-sm font-medium">
-                      <span className="text-slate-400">Spread</span>
-                      <span className="text-stellar-400">
+                      <span className="text-slate-600 dark:text-slate-400">Spread</span>
+                      <span className="text-stellar-700 dark:text-stellar-400">
                         {orderbook.asks[0] && orderbook.bids[0]
                           ? (parseFloat(orderbook.asks[0].price) - parseFloat(orderbook.bids[0].price)).toFixed(7)
                           : "N/A"}
@@ -246,19 +258,19 @@ export default function Trade() {
 
                   {/* Bids (Buy Orders) */}
                   <div>
-                    <h3 className="text-sm font-medium text-slate-400 mb-2">Buy Orders</h3>
+                    <h3 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">Buy Orders</h3>
                     <div className="space-y-1">
                       {orderbook.bids.slice(0, 5).map((bid: { price: string; amount: string }, index: number) => (
                         <div key={index} className="flex justify-between text-sm">
                           <span className="text-emerald-400">{bid.price}</span>
-                          <span className="text-slate-300">{bid.amount}</span>
+                          <span className="text-slate-700 dark:text-slate-300">{bid.amount}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8 text-slate-400">
+                <div className="text-center py-8 text-slate-600 dark:text-slate-400">
                   Loading orderbook...
                 </div>
               )}
@@ -270,24 +282,24 @@ export default function Trade() {
       {/* Open Orders Tab */}
       {activeTab === "orders" && (
         <div className="card">
-          <h2 className="text-xl font-semibold text-white mb-4">Your Open Orders</h2>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">Your Open Orders</h2>
           
           {openOffers.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-stellar-500/20">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">Pair</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">Type</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Amount</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Price</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Actions</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Pair</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Type</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Amount</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Price</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {openOffers.map((offer) => (
                     <tr key={offer.id} className="border-b border-stellar-500/10">
-                      <td className="py-3 px-4 text-sm text-white">
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white">
                         {formatAsset(offer.selling)}/{formatAsset(offer.buying)}
                       </td>
                       <td className="py-3 px-4 text-sm">
@@ -299,8 +311,8 @@ export default function Trade() {
                           {offer.selling.isNative() ? "Sell" : "Buy"}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-sm text-white text-right">{offer.amount}</td>
-                      <td className="py-3 px-4 text-sm text-white text-right">{offer.price}</td>
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white text-right">{offer.amount}</td>
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white text-right">{offer.price}</td>
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={() => handleCancelOffer(offer)}
@@ -316,7 +328,7 @@ export default function Trade() {
               </table>
             </div>
           ) : (
-            <div className="text-center py-8 text-slate-400">
+            <div className="text-center py-8 text-slate-600 dark:text-slate-400">
               No open orders
             </div>
           )}
@@ -326,37 +338,37 @@ export default function Trade() {
       {/* Trade History Tab */}
       {activeTab === "history" && (
         <div className="card">
-          <h2 className="text-xl font-semibold text-white mb-4">Trade History (24h)</h2>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">Trade History (24h)</h2>
           
           {tradeHistory.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-stellar-500/20">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">Time</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Price</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Volume (USDC)</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Volume (XLM)</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Trades</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Time</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Price</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Volume (USDC)</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Volume (XLM)</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Trades</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tradeHistory.map((trade, index) => (
                     <tr key={index} className="border-b border-stellar-500/10">
-                      <td className="py-3 px-4 text-sm text-slate-400">
+                      <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-400">
                         {format(new Date(trade.timestamp), "HH:mm")}
                       </td>
-                      <td className="py-3 px-4 text-sm text-white text-right">{trade.price}</td>
-                      <td className="py-3 px-4 text-sm text-white text-right">{trade.base_volume}</td>
-                      <td className="py-3 px-4 text-sm text-white text-right">{trade.counter_volume}</td>
-                      <td className="py-3 px-4 text-sm text-white text-right">{trade.trade_count}</td>
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white text-right">{trade.price}</td>
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white text-right">{trade.base_volume}</td>
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white text-right">{trade.counter_volume}</td>
+                      <td className="py-3 px-4 text-sm text-slate-900 dark:text-white text-right">{trade.trade_count}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="text-center py-8 text-slate-400">
+            <div className="text-center py-8 text-slate-600 dark:text-slate-400">
               No trades in the last 24 hours
             </div>
           )}
@@ -371,6 +383,7 @@ export default function Trade() {
           onClose={() => setToast(null)}
         />
       )}
+      </FeatureGate>
     </div>
   );
 }

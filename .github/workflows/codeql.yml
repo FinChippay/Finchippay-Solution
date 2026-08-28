@@ -1,0 +1,85 @@
+# .github/workflows/codeql.yml
+# CodeQL security analysis for Finchippay-Solution.
+# Scans JavaScript/TypeScript and Rust code on every push to main and weekly.
+#
+# Uses built-in security-extended + security-and-quality query suites.
+# Custom query packs (.github/codeql/javascript and .github/codeql/rust)
+# are excluded from CI to avoid CodeQL version-compatibility failures.
+# Run them locally with:
+#   codeql database analyze --search-path .github/codeql/javascript <db>
+#   codeql database analyze --search-path .github/codeql/rust <db>
+
+name: CodeQL Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly scan at 2 AM UTC on Monday
+    - cron: "0 2 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain setup (for source visibility only — CodeQL uses build-mode: none) ─
+      - name: Set up Rust toolchain
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      # ── Initialize CodeQL with security-extended + security-and-quality ────
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Use built-in security suites only. Custom query packs
+          # (.github/codeql/javascript and .github/codeql/rust) are omitted
+          # from CI to avoid CodeQL version-compatibility failures.
+          # Run them locally via: codeql database analyze --search-path .github/codeql
+          queries: security-extended,security-and-quality
+
+      # ── Build step for Rust (source-only — build-mode: none) ────────────────
+      - name: Verify Rust source compiles
+        if: matrix.language == 'rust'
+        run: |
+          set -o pipefail
+          cd contracts/finchippay-contract
+          cargo check 2>&1 | tee /tmp/cargo-check.log
+          echo "::group::Check output summary (last 50 lines)"
+          tail -50 /tmp/cargo-check.log
+          echo "::endgroup::"
+        continue-on-error: true
+
+      # ── Build step for JavaScript (autobuild) ─────────────────────────────
+      - name: Autobuild
+        if: matrix.language == 'javascript-typescript'
+        uses: github/codeql-action/autobuild@v3
+
+      # ── Run CodeQL Analysis ────────────────────────────────────────────────
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

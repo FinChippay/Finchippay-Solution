@@ -1,0 +1,91 @@
+{
+  "files": [
+    {
+      "path": "docs/architecture.md",
+      "description": "High-level system architecture and component relationships"
+    },
+    {
+      "path": "docs/api.md",
+      "description": "REST API endpoint documentation and request/response schemas"
+    },
+    {
+      "path": "shared/errorCodes.js",
+      "description": "Centralized error codes used across backend and frontend for consistent error handling"
+    },
+    {
+      "path": "docs/error-codes.md",
+      "description": "Human-readable error code reference (auto-generated from shared/errorCodes.js)"
+    },
+    {
+      "path": "backend/src/swagger.js",
+      "description": "OpenAPI/Swagger specification defining all API contracts"
+    },
+    {
+      "path": "sdk/src/types.ts",
+      "description": "TypeScript type definitions auto-generated from the OpenAPI spec — single source of truth for API types",
+      "scope": ["frontend/**/*.ts", "frontend/**/*.tsx", "sdk/**/*.ts"]
+    },
+    {
+      "path": "sdk/src/client.ts",
+      "description": "Typed API client library used by the frontend — defines all API call patterns",
+      "scope": ["frontend/lib/**/*.ts", "frontend/pages/**/*.tsx"]
+    },
+    {
+      "path": "contracts/finchippay-contract/src/lib.rs",
+      "description": "Main Soroban contract entry point — defines all contract methods and state"
+    },
+    {
+      "path": "contracts/finchippay-contract/Cargo.toml",
+      "description": "Rust dependencies and contract metadata"
+    },
+    {
+      "path": "docs/rate-limiting.md",
+      "description": "Rate limiting configuration, tiers, and Redis-based implementation",
+      "scope": ["backend/src/**/*.js"]
+    },
+    {
+      "path": "docs/logging.md",
+      "description": "Structured logging standards using pino with correlation IDs",
+      "scope": ["backend/src/**/*.js"]
+    },
+    {
+      "path": "docs/deployment.md",
+      "description": "Deployment architecture covering Docker, Vercel, Kubernetes, and Terraform"
+    },
+    {
+      "path": "frontend/ACCESSIBILITY.md",
+      "description": "Accessibility standards and testing requirements for UI components",
+      "scope": ["frontend/pages/**/*.tsx", "frontend/components/**/*.tsx"]
+    },
+    {
+      "path": "frontend/PERFORMANCE.md",
+      "description": "Frontend performance budgets, Core Web Vitals targets, and optimization guidelines",
+      "scope": ["frontend/pages/**/*.tsx", "frontend/components/**/*.tsx"]
+    },
+    {
+      "path": "ENV.md",
+      "description": "Environment variable reference for all project components"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "description": "Contribution guidelines, commit conventions, and PR requirements"
+    },
+    {
+      "path": "SECURITY.md",
+      "description": "Security policy, vulnerability reporting, and compliance requirements"
+    },
+    {
+      "path": "terraform/main.tf",
+      "description": "Root Terraform module provisioning DigitalOcean infrastructure (VPC, compute, database, Redis)"
+    },
+    {
+      "path": "kubernetes/helm/finchippay/values.yaml",
+      "description": "Helm chart values for Kubernetes deployment configuration"
+    },
+    {
+      "path": "frontend/i18next-scanner.config.js",
+      "description": "i18next scanner config — defines translation key extraction patterns",
+      "scope": ["frontend/pages/**/*.tsx", "frontend/components/**/*.tsx"]
+    }
+  ]
+}

@@ -1,38 +1,111 @@
-/**
- * src/middleware/rateLimit.js
- * Dedicated rate limiters for different route sensitivity levels.
- */
-
 "use strict";
 
 const rateLimit = require("express-rate-limit");
+const { formatErrorResponse } = require("../../../shared/errorCodes");
+const logger = require("../utils/logger");
+const { createRateLimitHandler, recordRateLimitAllowed } = require("./rateLimitMetrics");
+
+let redisClient;
+let RedisStore;
+
+if (process.env.REDIS_URL) {
+  const Redis = require("ioredis");
+  RedisStore = require("rate-limit-redis").default;
+
+  redisClient = new Redis(process.env.REDIS_URL, {
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: null,
+  });
+
+  redisClient.on("error", (err) => {
+    logger.error({ err }, "Redis rate-limit client error");
+  });
+}
+
+function createRedisStore(limiterType) {
+  if (!redisClient || !RedisStore) {
+    return undefined;
+  }
+
+  return new RedisStore({
+    sendCommand: (...args) => redisClient.call(...args),
+    prefix: `rl:${limiterType}:`,
+    resetExpiryOnChange: true,
+  });
+}
 
 /**
- * Strict rate limiting — 20 requests per minute.
- * Applied to Turrets txFunctions routes.
- *
- * standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset.
- * legacyHeaders: false   → suppresses deprecated X-RateLimit-* headers.
+ * Build an express-rate-limit middleware with Prometheus and rolling stats
+ * instrumentation. The wrapper records an allowed decision only when the
+ * limiter calls next; the custom v7 handler records every blocked request.
  */
-const strictLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests to sensitive routes, please wait 1 minute." },
-});
+function createInstrumentedLimiter(options, limiterType) {
+  const type = String(limiterType || "unknown");
+  const { handler: configuredHandler, ...limiterOptions } = options;
+  const limiter = rateLimit({
+    ...limiterOptions,
+    handler: createRateLimitHandler(type, configuredHandler),
+  });
 
-/**
- * Sensitive route limiting — 10 requests per minute (#205).
- * Applied to account lookup and balance endpoints that could be used for
- * account enumeration.
- */
-const sensitiveLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests to this endpoint, please wait 1 minute." },
-});
+  const instrumentedLimiter = (req, res, next) =>
+    limiter(req, res, (err) => {
+      if (err) {
+        return next(err);
+      }
 
-module.exports = { strictLimiter, sensitiveLimiter };
+      const nextResult = next();
+      recordRateLimitAllowed(req, type);
+      return nextResult;
+    });
+
+  for (const method of ["resetKey", "getKey"]) {
+    if (typeof limiter[method] === "function") {
+      instrumentedLimiter[method] = limiter[method].bind(limiter);
+    }
+  }
+
+  return instrumentedLimiter;
+}
+
+const strictLimiter = createInstrumentedLimiter(
+  {
+    windowMs: 1 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    ...(redisClient ? { store: createRedisStore("strict") } : {}),
+  },
+  "strict",
+);
+
+const sensitiveLimiter = createInstrumentedLimiter(
+  {
+    windowMs: 1 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    ...(redisClient ? { store: createRedisStore("sensitive") } : {}),
+  },
+  "sensitive",
+);
+
+const authRefreshLimiter = createInstrumentedLimiter(
+  {
+    windowMs: 1 * 60 * 1000,
+    limit: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    ...(redisClient ? { store: createRedisStore("authRefresh") } : {}),
+  },
+  "authRefresh",
+);
+
+module.exports = {
+  createInstrumentedLimiter,
+  sensitiveLimiter,
+  strictLimiter,
+  authRefreshLimiter,
+};

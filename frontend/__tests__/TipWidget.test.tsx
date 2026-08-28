@@ -8,7 +8,7 @@ const mockUseWallet = jest.fn();
 
 jest.mock("@/components/SendPaymentForm", () => ({
   __esModule: true,
-  default: (props: any) => {
+  default: (props: Record<string, unknown>) => {
     mockSendPaymentForm(props);
 
     return (

@@ -13,41 +13,50 @@
 "use strict";
 
 const stellarService = require("../services/stellarService");
+const { setPaginationHeaders, formatPaginatedResponse } = require("../utils/paginate");
 
 /**
  * GET /api/payments/:publicKey
  * Return paginated payment history for a Stellar account.
  *
- * Query params:
+ * Query params (validated by `paymentsQuerySchema`):
  *   - `limit`  {number} 1–100 (default 20) — max records per page
  *   - `cursor` {string} Horizon paging token for cursor-based pagination
+ *
+ * Emits the standardized pagination headers (#74): an RFC 5988 `Link`
+ * (rel="next") derived from the last record's Horizon paging token, and an
+ * `X-Total-Count` carrying a bounded, approximate total — Horizon exposes no
+ * exact count, so it is a floor capped at 200 (see `countPaymentsApprox`).
  *
  * @param {import('express').Request}  req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  *
- * @returns {200} { success: true, data: PaymentRecord[] }
+ * @returns {200} { success: true, data: PaymentRecord[], pagination }
  * @returns {400} Invalid public key format or invalid `limit` parameter.
  * @returns {404} Account not found on the Stellar network.
  */
 async function getPayments(req, res, next) {
   try {
-    const { publicKey } = req.params;
+    const publicKey = req.validated?.publicKey || req.params.publicKey;
+    const limit = req.pagination?.limit || req.validated?.limit || 20;
+    const cursor = req.pagination?.rawCursor || req.validated?.cursor || req.query.cursor || null;
 
-    // Explicit limit validation — parseInt("0") or NaN must not silently pass.
-    const rawLimit = req.query.limit;
-    let limit = 20;
-    if (rawLimit !== undefined) {
-      const parsed = parseInt(rawLimit, 10);
-      if (isNaN(parsed) || !Number.isSafeInteger(parsed) || parsed < 1) {
-        return res.status(400).json({ error: "limit must be a positive integer" });
-      }
-      limit = Math.min(parsed, 100);
-    }
+    const [payments, total] = await Promise.all([
+      stellarService.getPayments(publicKey, { limit, cursor }),
+      stellarService.countPaymentsApprox(publicKey),
+    ]);
 
-    const cursor = req.query.cursor || undefined;
-    const payments = await stellarService.getPayments(publicKey, { limit, cursor });
-    res.json({ success: true, data: payments });
+    // A full page implies there may be more; the next cursor is Horizon's own
+    // paging token on the last record. A short page is treated as the last page.
+    const nextCursor =
+      payments.length === limit && payments.length > 0
+        ? payments[payments.length - 1].pagingToken
+        : null;
+
+    setPaginationHeaders(req, res, { nextCursor, total, limit });
+
+    res.json(formatPaginatedResponse(payments, nextCursor, total, { limit }));
   } catch (err) {
     next(err);
   }
@@ -71,8 +80,11 @@ async function getPayments(req, res, next) {
  */
 async function getStats(req, res, next) {
   try {
-    const { publicKey } = req.params;
-    const payments = await stellarService.getPayments(publicKey, { limit: 100 });
+    const { publicKey } = req.validated;
+
+    const payments = await stellarService.getPayments(publicKey, {
+      limit: 100,
+    });
 
     let totalSent = 0;
     let totalReceived = 0;

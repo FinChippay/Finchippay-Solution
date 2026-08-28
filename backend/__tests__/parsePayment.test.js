@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * __tests__/parsePayment.test.js
  * Unit tests for the AI payment parsing route.

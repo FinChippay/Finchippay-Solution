@@ -22,7 +22,7 @@ module.exports = {
       list: ["t", "i18next.t"],
       extensions: [".js", ".jsx", ".ts", ".tsx"],
     },
-    lngs: ["en", "es", "fr"],
+    lngs: ['en', 'es', 'fr', 'ar', 'he'],
     ns: ["common"],
     defaultLng: "en",
     defaultNs: "common",

@@ -1,0 +1,58 @@
+name: SDK Drift Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  sdk-drift:
+    if: false # Disabled: not run on PRs or push
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install root & SDK dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build SDK (compile TypeScript)
+        run: npm run build --workspace=sdk
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq build-essential python3
+          npm ci
+
+      - name: Start backend for SDK drift check
+        working-directory: backend
+        run: |
+          mkdir -p data
+          npm start &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4000/health && echo "Backend ready" && break
+            [ "$i" -eq 30 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+        env:
+          PORT: 4000
+          NODE_ENV: test
+          DB_PROVIDER: sqlite
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          JWT_SECRET: test-secret-for-sdk-check
+          ALLOWED_ORIGINS: "*"
+
+      - name: Check generated SDK types
+        run: npm run check:sdk
+        env:
+          API_URL: http://localhost:4000

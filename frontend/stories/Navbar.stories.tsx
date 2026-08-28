@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import Navbar from "@/components/Navbar";
+import Navbar from "../components/Navbar";
 
 const meta: Meta<typeof Navbar> = {
   title: "Components/Navbar",
@@ -44,4 +44,25 @@ export const TransactionsActive: Story = {
       },
     },
   },
+};
+
+export const DarkMode: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story: "Navbar component in dark mode",
+      },
+    },
+    nextjs: {
+      router: {
+        pathname: "/",
+      },
+    },
+  },
+  decorators: [
+    (Story) => {
+      document.documentElement.classList.add("dark");
+      return <Story />;
+    },
+  ],
 };

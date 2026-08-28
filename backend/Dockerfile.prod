@@ -1,13 +1,25 @@
-FROM node:20.19.5-alpine
+FROM node:22.23.2-alpine
 
 WORKDIR /app
 
 # Install dependencies
-COPY package*.json ./
+COPY --chown=node:node backend/package*.json ./
 RUN npm install --production
 
-# Copy source code
-COPY . .
+# Copy source code and shared module
+COPY --chown=node:node backend/ .
+COPY --chown=node:node shared/ ./shared/
+
+# Runtime-writable directories, owned by the non-root "node" user.
+# Mounted as named volumes in docker-compose.prod.yml (data: SQLite DB +
+# cached token metadata, backups: DB backup archives, .ipfs-cache: IPFS
+# metadata cache) so they persist across restarts even with read_only: true
+# on the container's root filesystem.
+RUN mkdir -p backups .ipfs-cache && chown node:node backups .ipfs-cache
+
+# Run as the non-root "node" user (built into the base image) rather than
+# root, per production hardening requirements.
+USER node
 
 # Expose port 4000
 EXPOSE 4000

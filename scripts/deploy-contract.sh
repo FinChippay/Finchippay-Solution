@@ -22,8 +22,10 @@ set -euo pipefail
 NETWORK="${1:-testnet}"
 IDENTITY="${2:-alice}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONTRACT_DIR="$SCRIPT_DIR/../contracts/finchippay-contract"
-WASM="$CONTRACT_DIR/target/wasm32v1-none/release/finchippay_contract.wasm"
+WORKSPACE_ROOT="$SCRIPT_DIR/.."
+CONTRACT_DIR="$WORKSPACE_ROOT/contracts/finchippay-contract"
+# Workspace builds land in workspace_root/target, not contract_dir/target
+WASM="$WORKSPACE_ROOT/target/wasm32v1-none/release/finchippay_contract.wasm"
 
 echo "╔══════════════════════════════════════════╗"
 echo "║  Finchippay-Solution — Contract Deploy   ║"
@@ -61,11 +63,44 @@ WASM_SIZE=$(du -sh "$WASM" | cut -f1)
 echo "   ✅ $WASM_SIZE  →  $WASM"
 echo ""
 
-# ─── Deploy ───────────────────────────────────────────────────────────────────
+# ─── Compute local WASM hash (cross-platform) ─────────────────────────────────
 
-echo "🚀 Uploading and deploying to $NETWORK..."
-CONTRACT_ID=$(stellar contract deploy \
+echo "🔐 Computing WASM hash (SHA-256)..."
+if command -v sha256sum &>/dev/null; then
+  WASM_HASH=$(sha256sum "$WASM" | cut -d' ' -f1)
+else
+  WASM_HASH=$(shasum -a 256 "$WASM" | cut -d' ' -f1)
+fi
+echo "   Local WASM SHA-256: $WASM_HASH"
+echo ""
+
+# ─── Install WASM on-chain → capture the on-chain hash ────────────────────────
+
+echo "📦 Installing WASM on $NETWORK..."
+WASM_HASH_ONCHAIN=$(stellar contract install \
   --wasm "$WASM" \
+  --source "$IDENTITY" \
+  --network "$NETWORK" 2>/dev/null)
+
+echo "   On-chain WASM hash: $WASM_HASH_ONCHAIN"
+
+# ─── Verify: local hash must match on-chain hash ──────────────────────────────
+
+if [[ "$WASM_HASH" == "$WASM_HASH_ONCHAIN" ]]; then
+  echo "   ✅ Local and on-chain WASM hashes match!"
+else
+  echo "   ❌ WASM hash mismatch!"
+  echo "   Local:     $WASM_HASH"
+  echo "   On-chain:  $WASM_HASH_ONCHAIN"
+  exit 1
+fi
+echo ""
+
+# ─── Deploy from installed WASM hash ──────────────────────────────────────────
+
+echo "🚀 Deploying contract from WASM hash on $NETWORK..."
+CONTRACT_ID=$(stellar contract deploy \
+  --wasm-hash "$WASM_HASH_ONCHAIN" \
   --source "$IDENTITY" \
   --network "$NETWORK")
 
@@ -122,4 +157,7 @@ echo ""
 echo "─────────────────────────────────────────────────"
 echo "  Add to your .env files:"
 echo "  NEXT_PUBLIC_CONTRACT_ID=$CONTRACT_ID"
+echo ""
+echo "  WASM SHA-256 (local):    $WASM_HASH"
+echo "  WASM SHA-256 (on-chain): $WASM_HASH_ONCHAIN"
 echo "─────────────────────────────────────────────────"

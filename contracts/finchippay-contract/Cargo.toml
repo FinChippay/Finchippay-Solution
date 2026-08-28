@@ -1,14 +1,18 @@
 [package]
 name = "finchippay-contract"
-version = "0.0.0"
+version = "3.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+testutils = ["soroban-sdk/testutils"]
 
 [dependencies]
-soroban-sdk = "27.0.0"
+soroban-sdk = "27.0.1"
 
 [dev-dependencies]
-soroban-sdk = { version = "27.0.0", features = ["testutils"] }
+soroban-sdk = { version = "27.0.1", features = ["testutils"] }
+proptest = "1"
 

@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_BACKEND_URL=http://backend:4000
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://user:password@db:5432/finchippay
+      - STELLAR_NETWORK=testnet
+      - STELLAR_HORIZON_URL=http://stellar-horizon:8000
+    depends_on:
+      - db
+      - stellar-horizon
+
+  db:
+    image: postgres:13
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=finchippay
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  stellar-horizon:
+    image: stellar/stellar-horizon:latest
+    command: serve
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@horizon-db:5432/horizon
+      - STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
+      - STELLAR_CORE_URL=http://stellar-core:11626
+      - CAPTIVE_CORE_CONFIG_PATH=/etc/stellar/stellar-core.cfg
+    depends_on:
+      - stellar-core
+      - horizon-db
+
+  horizon-db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=horizon
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - horizon_db_data:/var/lib/postgresql/data
+
+  stellar-core:
+    image: stellar/stellar-core:latest
+    command: new-db && new-hist && catchup complete && serve
+    environment:
+      - POSTGRES_URL=postgresql://user:password@core-db:5432/core
+      - STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
+      - STELLAR_CORE_PEER_PORT=11625
+      - STELLAR_CORE_HTTP_PORT=11626
+    volumes:
+      - ./stellar-core.cfg:/etc/stellar/stellar-core.cfg
+    depends_on:
+      - core-db
+
+  core-db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=core
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - core_db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
+  horizon_db_data:
+  core_db_data:

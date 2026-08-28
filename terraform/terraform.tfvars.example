@@ -1,0 +1,70 @@
+# ─── terraform.tfvars.example ────────────────────────────────────────────────
+#
+# Copy this file to terraform.tfvars and fill in the values, or pass an
+# environment-specific var file (recommended, see terraform/environments/):
+#
+#   cp environments/dev/dev.tfvars terraform.tfvars
+#
+# NEVER commit terraform.tfvars — it is listed in .gitignore.
+# For CI/CD, export secrets as TF_VAR_* environment variables instead.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Project / naming ─────────────────────────────────────────────────────────
+project_name  = "finchippay"
+environment   = "dev"   # one of: dev, staging, prod
+aws_region    = "us-east-1"
+
+# ─── Networking ───────────────────────────────────────────────────────────────
+vpc_cidr             = "10.0.0.0/16"
+availability_zones   = ["us-east-1a", "us-east-1b"]
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.11.0/24", "10.0.12.0/24"]
+
+# ─── DNS / HTTPS ──────────────────────────────────────────────────────────────
+domain_name      = "finchippay.example.com"
+create_dns       = false   # set true to provision the ACM cert + Route53 record
+create_hosted_zone = true  # set false to reuse an existing hosted zone
+hosted_zone_id   = ""      # required when create_hosted_zone = false
+
+# ─── Compute (ECS Fargate) ────────────────────────────────────────────────────
+# Point these at your container registry (ECR, Docker Hub, GHCR).
+backend_image  = "finchippay/backend:latest"
+frontend_image = "finchippay/frontend:latest"
+
+backend_cpu            = "512"
+backend_memory         = "1024"
+frontend_cpu           = "256"
+frontend_memory        = "512"
+backend_desired_count  = 1
+backend_min_capacity   = 1
+backend_max_capacity   = 4
+frontend_desired_count = 1
+frontend_min_capacity  = 1
+frontend_max_capacity  = 4
+enable_autoscaling     = false
+
+# ─── Application configuration ────────────────────────────────────────────────
+allowed_origins = "https://finchippay.example.com"
+stellar_network = "testnet"
+horizon_url     = "https://horizon-testnet.stellar.org"
+turrets_evaluation_interval_ms = "60000"
+
+# ─── Database (RDS PostgreSQL) ────────────────────────────────────────────────
+db_name                    = "finchippay"
+db_username                = "finchippay_app"
+db_engine_version          = "16.3"
+db_instance_class          = "db.t3.micro"
+db_allocated_storage       = 20
+db_max_allocated_storage   = 50
+db_multi_az                = false
+db_backup_retention_days   = 7
+db_performance_insights_enabled = false
+db_deletion_protection     = false
+
+# ─── Cache (ElastiCache Redis) ────────────────────────────────────────────────
+redis_engine_version          = "7.1"
+redis_node_type               = "cache.t3.micro"
+redis_num_cache_nodes         = 1
+redis_multi_az                = false
+redis_authentication_enabled  = true

@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * __tests__/analytics.test.js
  * Unit and integration tests for analytics endpoints.
@@ -237,10 +238,7 @@ describe("Analytics Service", () => {
       const result = await analyticsService.getActivityByDay(testPublicKey);
 
       // Jan 1, 2024 = Monday, Jan 2 = Tuesday, Jan 3 = Wednesday, Jan 4 = Thursday, Jan 10 = Wednesday
-      const totalCount = result.activityByDay.reduce(
-        (sum, day) => sum + day.transactionCount,
-        0
-      );
+      const totalCount = result.activityByDay.reduce((sum, day) => sum + day.transactionCount, 0);
       expect(totalCount).toBe(5); // Total transactions in mockPayments
     });
 

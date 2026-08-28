@@ -371,19 +371,224 @@ self.addEventListener("push", (event) => {
   );
 });
 
+// ─── Background Sync — offline transaction queue ─────────────────────────────
+//
+// When the "submit-payments" sync tag fires the SW reads every transaction
+// with status "queued" or "failed" from IndexedDB and POSTs its signed XDR to
+// Horizon.  On success the record is deleted; on failure the status is updated
+// to "failed" so the main thread can surface the error.
+//
+// The same DB_NAME / TX_STORE constants must match offlineQueue.ts.
+
+const QUEUE_DB_NAME = "finchippay-offline-queue";
+const QUEUE_DB_VERSION = 2;
+const QUEUE_TX_STORE = "transactions";
+
+/** Open (and upgrade if needed) the offline-queue IndexedDB. */
+function openQueueDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(QUEUE_DB_NAME, QUEUE_DB_VERSION);
+
+    req.onupgradeneeded = (event) => {
+      const db = req.result;
+      const oldVersion = event.oldVersion;
+
+      if (oldVersion < 1) {
+        if (!db.objectStoreNames.contains("actions")) {
+          db.createObjectStore("actions", { keyPath: "id", autoIncrement: true });
+        }
+      }
+
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains(QUEUE_TX_STORE)) {
+          const store = db.createObjectStore(QUEUE_TX_STORE, { keyPath: "id" });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("createdAt", "createdAt", { unique: false });
+        }
+      }
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Retrieve all transactions that should be submitted. */
+async function getPendingTransactions(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_TX_STORE, "readonly");
+    const req = tx.objectStore(QUEUE_TX_STORE).getAll();
+    req.onsuccess = () => {
+      const all = req.result || [];
+      resolve(all.filter((t) => t.status === "queued" || t.status === "failed"));
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Persist a changed record back to IndexedDB. */
+function putTransaction(db, record) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_TX_STORE, "readwrite");
+    tx.objectStore(QUEUE_TX_STORE).put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Remove a successfully submitted transaction from IndexedDB. */
+function deleteTransaction(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUEUE_TX_STORE, "readwrite");
+    tx.objectStore(QUEUE_TX_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Derive the Horizon base URL from the SW location (falls back to testnet). */
+function getHorizonUrl() {
+  // Production SW will be served from the app origin; fall back to testnet.
+  try {
+    const origin = self.location.origin;
+    // If the app exposes a custom horizon endpoint via an env-baked constant,
+    // it should be injected here.  For now we always use the public testnet
+    // endpoint for the SW context (offline queue is a testnet-first feature).
+    return "https://horizon-testnet.stellar.org";
+  } catch {
+    return "https://horizon-testnet.stellar.org";
+  }
+}
+
+/**
+ * Core submission loop — called by the "sync" event and also re-exported via
+ * postMessage for manual "Retry" triggers from the OfflineBanner UI.
+ */
+async function submitQueuedPayments() {
+  let db;
+  try {
+    db = await openQueueDB();
+  } catch {
+    // IndexedDB unavailable (e.g. private browsing with cookie blocking).
+    return;
+  }
+
+  const pending = await getPendingTransactions(db);
+  const horizonUrl = getHorizonUrl();
+  const results = [];
+
+  for (const record of pending) {
+    // Mark in-flight so the UI can show a spinner.
+    await putTransaction(db, { ...record, status: "submitting" });
+
+    try {
+      const body = new URLSearchParams({ tx: record.signedXDR });
+      const response = await fetch(`${horizonUrl}/transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+
+      if (!response.ok) {
+        let detail = response.statusText;
+        try {
+          const json = await response.json();
+          detail =
+            json?.extras?.result_codes?.transaction ?? json?.detail ?? detail;
+        } catch { /* ignore */ }
+        throw new Error(`Horizon ${response.status}: ${detail}`);
+      }
+
+      // ✓ Success — remove from queue.
+      await deleteTransaction(db, record.id);
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: true });
+    } catch (err) {
+      // ✗ Failure — persist error for the next retry.
+      await putTransaction(db, {
+        ...record,
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+        attempts: (record.attempts || 0) + 1,
+      });
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  db.close();
+
+  // Notify all open tabs so they can refresh the queue badge / banner.
+  const clientList = await self.clients.matchAll({ type: "window" });
+  for (const client of clientList) {
+    client.postMessage({ type: "QUEUE_PROCESSED", results });
+  }
+}
+
+self.addEventListener("sync", (event) => {
+  if (event.tag === "submit-payments") {
+    event.waitUntil(submitQueuedPayments());
+  }
+});
+
+/**
+ * Allow the main thread to trigger a manual retry via postMessage
+ * (used by the "Retry" button in OfflineBanner when BG Sync is unsupported).
+ */
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "RETRY_QUEUE") {
+    event.waitUntil(submitQueuedPayments());
+  }
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+
+  const targetUrl = event.notification.data?.url || "/dashboard";
+  let targetPath = targetUrl;
+  try {
+    targetPath = new URL(targetUrl, self.location.origin).pathname;
+  } catch {
+    targetPath = "/dashboard";
+  }
+
   event.waitUntil(
     clients
       .matchAll({ type: "window", includeUncontrolled: true })
-      .then((clientList) => {
+      .then(async (clientList) => {
+        // Prefer a window already showing the target page.
         for (const client of clientList) {
-          if ("focus" in client) return client.focus();
+          try {
+            if (
+              new URL(client.url).pathname === targetPath &&
+              "focus" in client
+            ) {
+              return client.focus();
+            }
+          } catch {
+            // Unparseable client URL — fall through to the generic handling.
+          }
         }
+
+        // Otherwise reuse an open window, but navigate it to the target first:
+        // focusing alone leaves the user on whatever page they already had
+        // open, which is not where the notification pointed.
+        for (const client of clientList) {
+          if ("focus" in client) {
+            const focused = await client.focus();
+            if ("navigate" in client) {
+              try {
+                return await client.navigate(targetUrl);
+              } catch {
+                // navigate() rejects for cross-origin or unloaded clients; a
+                // focused window still beats doing nothing.
+                return focused;
+              }
+            }
+            return focused;
+          }
+        }
+
         if (clients.openWindow) {
-          return clients.openWindow(
-            event.notification.data?.url || "/dashboard"
-          );
+          return clients.openWindow(targetUrl);
         }
       })
   );

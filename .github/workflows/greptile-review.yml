@@ -1,0 +1,164 @@
+# .github/workflows/greptile-review.yml
+# Greptile AI Code Review Integration
+#
+# This workflow works alongside the Greptile GitHub App to provide
+# automated AI-powered code reviews on every PR and issue.
+#
+# Greptile App Installation:
+#   1. Install Greptile from GitHub Marketplace:
+#      https://github.com/marketplace/greptile
+#   2. Grant access to the FinChippay/Finchippay-Solution repository
+#   3. Greptile automatically indexes the repo and reviews PRs
+#
+# What this workflow does:
+#   - Validates the Greptile configuration on every PR (status check)
+#   - Comments on new issues with review context
+#   - Allows manual trigger of Greptile review via workflow_dispatch
+#
+# PR auto-labeling (needs-review) is handled by greptile-label.yml via
+# pull_request_target so fork PRs get labeled too.
+#
+# Configuration: .greptile/config.json, .greptile/rules.md, .greptile/files.json
+
+name: Greptile AI Code Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, synchronize]
+    branches: [main, develop]
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to trigger Greptile review on"
+        required: false
+        type: number
+      full_review:
+        description: "Run a full repository review"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ─── Issue review context ──────────────────────────────────────────────
+  issue-context:
+    name: Issue Review Context
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Post Greptile context on new issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue.number;
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || '';
+
+            const body = [
+              '## 🤖 Greptile AI Context',
+              '',
+              'Greptile has indexed this repository and can provide AI-assisted code review',
+              'and context for this issue.',
+              '',
+              '**How to use Greptile on this issue:**',
+              '- Comment `@greptileai` to ask about relevant code, files, or implementation approaches',
+              '- Reference specific files or error messages for targeted analysis',
+              '- Use `@greptileai explain <file>` to get an explanation of any file',
+              '',
+              '> Greptile is configured with project-specific rules in `.greptile/config.json`.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body,
+            });
+
+  # ─── Manual Greptile review trigger ────────────────────────────────────
+  manual-review:
+    name: Manual Greptile Review
+    # Runs the Greptile config validation on every PR so the status check
+    # passes, and (via workflow_dispatch) triggers an actual Greptile review.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Greptile configuration
+        run: |
+          echo "::group::Greptile Configuration Validation"
+          if [ -f .greptile/config.json ]; then
+            python3 -c "import json; json.load(open('.greptile/config.json'))" \
+              && echo "✅ .greptile/config.json is valid JSON"
+          else
+            echo "❌ .greptile/config.json not found"
+            exit 1
+          fi
+
+          if [ -f .greptile/rules.md ]; then
+            echo "✅ .greptile/rules.md found ($(wc -l < .greptile/rules.md) lines)"
+          else
+            echo "⚠️  .greptile/rules.md not found"
+          fi
+
+          if [ -f .greptile/files.json ]; then
+            python3 -c "import json; json.load(open('.greptile/files.json'))" \
+              && echo "✅ .greptile/files.json is valid JSON"
+          else
+            echo "⚠️  .greptile/files.json not found"
+          fi
+          echo "::endgroup::"
+
+      - name: Trigger Greptile PR review
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ github.event.inputs.pr_number }};
+
+            // Comment @greptileai on the specified PR to trigger a review
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: '@greptileai review'
+            });
+
+            console.log(`✅ Triggered Greptile review on PR #${prNumber}`);
+
+      - name: Trigger full repo review
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.full_review == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Create a tracking issue for the full repo review
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Greptile Full Repository Review',
+              body: [
+                '## 🤖 Greptile Full Repository Review',
+                '',
+                'Triggered manually via workflow_dispatch.',
+                '',
+                '@greptileai review the entire repository for code quality issues,',
+                'security vulnerabilities, and adherence to project guidelines.',
+                '',
+                `Triggered by: @${context.actor}`,
+                `Date: ${new Date().toISOString()}`,
+              ].join('\n'),
+              labels: ['needs-review', 'greptile']
+            });
+
+            console.log(`✅ Created full review issue #${issue.number}`);

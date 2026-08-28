@@ -9,6 +9,7 @@
 
     // Rust / Soroban contract development
     "rust-lang.rust-analyzer",
+    "ms-azuretools.vscode-docker",
 
     // TOML (Cargo.toml)
     "tamasfe.even-better-toml"

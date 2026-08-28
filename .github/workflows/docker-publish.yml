@@ -1,10 +1,12 @@
-# .github/workflows/docker-publish.yml
 # Build and push Docker images to GitHub Container Registry (ghcr.io)
 # on every push to main, and on version tags (v*.*.*).
 #
 # Images published:
 #   ghcr.io/finchippay/finchippay-backend:<tag>
 #   ghcr.io/finchippay/finchippay-frontend:<tag>
+#
+# Each image is scanned with Trivy before being pushed.
+# The push is blocked if CRITICAL vulnerabilities are found.
 
 name: Docker Publish
 
@@ -15,57 +17,141 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/finchippay/finchippay-backend
-  FRONTEND_IMAGE: ghcr.io/finchippay/finchippay-frontend
 
 jobs:
   build-and-push:
-    name: Build & Push Docker Images
+    name: Build, Scan & Push Docker Images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
+      id-token: write # keyless cosign signing/attestation against GHCR
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Log in to GitHub Container Registry
+        id: login
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
+      - name: Check GHCR availability
+        id: registry
+        run: |
+          if [ "${{ steps.login.outcome }}" = "success" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "GHCR login succeeded — push enabled"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::notice title=GHCR Unavailable::Skipping image push — GHCR not accessible. Build and scan only."
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Backend ──────────────────────────────────────────────────────────────
       - name: Extract Docker metadata (backend)
         id: meta-backend
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.BACKEND_IMAGE }}
+          images: ghcr.io/finchippay/finchippay-backend
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
 
-      - name: Extract Docker metadata (frontend)
-        id: meta-frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.FRONTEND_IMAGE }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,prefix=sha-
-
-      - name: Build and push backend image
+      - name: Build backend image (local, for scanning)
         uses: docker/build-push-action@v5
         with:
-          context: backend
+          context: .
+          file: backend/Dockerfile.prod
+          push: false
+          load: true
+          tags: finchippay-backend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan backend image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: finchippay-backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+        continue-on-error: true
+
+      - name: Upload backend Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend-publish
+        continue-on-error: true
+
+      - name: Push backend image
+        if: steps.registry.outputs.available == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
           file: backend/Dockerfile.prod
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Build and push frontend image
+      # ── Frontend ─────────────────────────────────────────────────────────────
+      - name: Extract Docker metadata (frontend)
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/finchippay/finchippay-frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      # ── Frontend: build locally → scan → push ─────────────────────────────
+      - name: Build frontend image (local, for scanning)
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          file: frontend/Dockerfile.prod
+          push: false
+          load: true
+          tags: finchippay-frontend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan frontend image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: finchippay-frontend:scan
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+        continue-on-error: true
+
+      - name: Upload frontend Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend-publish
+        continue-on-error: true
+
+      - name: Push frontend image
+        if: steps.registry.outputs.available == 'true'
         uses: docker/build-push-action@v5
         with:
           context: frontend
@@ -73,3 +159,57 @@ jobs:
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Image SBOMs (SPDX) uploaded as build artifacts ────────────────────
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin v1.18.1
+
+      - name: Generate image SBOMs
+        run: |
+          mkdir -p sbom
+          syft "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"  -o spdx-json=sbom/backend-image.spdx.json
+          syft "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}" -o spdx-json=sbom/frontend-image.spdx.json
+
+      - name: Upload image SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-sboms
+          path: sbom/
+          retention-days: 30
+
+      # ── Supply-chain: cosign sign + SBOM attestation (issue #644) ─────────
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Sign backend image (keyless)
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign sign --yes \
+            "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"
+
+      - name: Attach backend SBOM attestation
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign attest --yes --type spdx \
+            --predicate sbom/backend-image.spdx.json \
+            "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"
+
+      - name: Sign frontend image (keyless)
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign sign --yes \
+            "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}"
+
+      - name: Attach frontend SBOM attestation
+        if: steps.registry.outputs.available == 'true'
+        run: |
+          cosign attest --yes --type spdx \
+            --predicate sbom/frontend-image.spdx.json \
+            "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}"

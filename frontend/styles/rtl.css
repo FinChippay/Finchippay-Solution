@@ -1,0 +1,156 @@
+/*
+ * Right-to-left overrides (Arabic, Hebrew, Farsi, Urdu).
+ *
+ * Direction is applied by the DirectionSync component in pages/_app.tsx, which
+ * sets `dir` on <html> from lib/useDirection.ts. Everything here keys off that
+ * attribute, so no build-time locale routing is required (the app is exported
+ * statically via `output: "export"`).
+ *
+ * Tailwind 3.4 already ships `rtl:` / `ltr:` variants for component-level work.
+ * These rules exist for the global primitives and for plain class names used
+ * outside Tailwind utilities.
+ */
+
+[dir="rtl"] {
+	direction: rtl;
+	text-align: right;
+}
+
+/* Icons and glyphs that encode a direction (arrows, chevrons, carets). */
+[dir="rtl"] .flip-rtl {
+	transform: scaleX(-1);
+}
+
+/* Auto margins used for horizontal alignment must swap sides. */
+[dir="rtl"] .ml-auto {
+	margin-left: unset;
+	margin-right: auto;
+}
+
+[dir="rtl"] .mr-auto {
+	margin-right: unset;
+	margin-left: auto;
+}
+
+/* Form controls: align the caret and text to the reading edge. */
+[dir="rtl"] input,
+[dir="rtl"] textarea,
+[dir="rtl"] select {
+	text-align: right;
+}
+
+[dir="rtl"] .modal-close {
+	right: unset;
+	left: 1rem;
+}
+
+[dir="rtl"] .navbar-logo {
+	margin-right: 0;
+	margin-left: auto;
+}
+
+[dir="rtl"] .navbar-menu {
+	order: -1;
+}
+
+[dir="rtl"] th,
+[dir="rtl"] td {
+	text-align: right;
+}
+
+/* Amount columns stay on the far edge, mirrored from the LTR layout. */
+[dir="rtl"] .tx-amount {
+	text-align: left;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Additions
+ * ---------------------------------------------------------------------------
+ */
+
+/*
+ * Values that are always Latin script must not be reordered by the RTL
+ * bidirectional algorithm. Without this, a Stellar public key or a decimal
+ * amount rendered inside an RTL paragraph can appear with its leading sign or
+ * trailing characters visually relocated.
+ */
+[dir="rtl"] .stellar-address,
+[dir="rtl"] .tx-hash,
+[dir="rtl"] .amount,
+[dir="rtl"] .tx-amount,
+[dir="rtl"] code,
+[dir="rtl"] pre,
+[dir="rtl"] kbd,
+[dir="rtl"] [data-ltr="true"] {
+	direction: ltr;
+	unicode-bidi: isolate;
+}
+
+/* Keep code blocks reading from the left even though the page is mirrored. */
+[dir="rtl"] pre,
+[dir="rtl"] code {
+	text-align: left;
+}
+
+/*
+ * Horizontal sequences that should mirror. Applied opt-in via class so that
+ * intentionally unmirrored rows (for example a logo followed by a wordmark)
+ * are left alone.
+ */
+[dir="rtl"] .flip-row {
+	flex-direction: row-reverse;
+}
+
+/* Logical padding/margin helpers for components not using Tailwind variants. */
+[dir="rtl"] .pad-inline-start {
+	padding-inline-start: 1rem;
+	padding-inline-end: 0;
+}
+
+[dir="rtl"] .pad-inline-end {
+	padding-inline-end: 1rem;
+	padding-inline-start: 0;
+}
+
+/*
+ * Leading accent borders (used on list rows and callouts) sit on the reading
+ * edge, so they need to move to the right in RTL.
+ */
+[dir="rtl"] .border-l,
+[dir="rtl"] .border-l-2,
+[dir="rtl"] .border-l-4 {
+	border-left-width: 0;
+	border-right-width: var(--rtl-accent-border, 4px);
+}
+
+[dir="rtl"] .border-r,
+[dir="rtl"] .border-r-2,
+[dir="rtl"] .border-r-4 {
+	border-right-width: 0;
+	border-left-width: var(--rtl-accent-border, 4px);
+}
+
+/* Drop-downs, tooltips and toasts anchored to an edge. */
+[dir="rtl"] .anchor-right {
+	right: unset;
+	left: 0;
+}
+
+[dir="rtl"] .anchor-left {
+	left: unset;
+	right: 0;
+}
+
+/* Progress and range fills grow from the reading edge. */
+[dir="rtl"] progress,
+[dir="rtl"] .progress-fill {
+	transform: scaleX(-1);
+}
+
+/* Lists keep their markers on the reading edge. */
+[dir="rtl"] ul,
+[dir="rtl"] ol {
+	padding-inline-start: 1.5rem;
+	padding-inline-end: 0;
+}

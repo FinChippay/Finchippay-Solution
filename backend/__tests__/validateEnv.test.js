@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * __tests__/validateEnv.test.js
  * Unit tests for startup environment validation.
@@ -10,12 +11,32 @@ const { collectErrors, parseAllowedOrigins } = require("../src/config/validateEn
 // ─── collectErrors ────────────────────────────────────────────────────────────
 
 describe("validateEnv.collectErrors", () => {
+  it("throws if JWT_SECRET is not set in production", () => {
+    expect(() => {
+      collectErrors({
+        NODE_ENV: "production",
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+      });
+    }).toThrow("FATAL: JWT_SECRET must be set in production.");
+  });
+
+  it("throws if JWT_SECRET is set to the insecure default value", () => {
+    expect(() => {
+      collectErrors({
+        JWT_SECRET: "finchippay_secret_key",
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+      });
+    }).toThrow("FATAL: JWT_SECRET is set to the insecure default value.");
+  });
+
   it("returns no errors when required vars are valid", () => {
     expect(
       collectErrors({
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -25,7 +46,7 @@ describe("validateEnv.collectErrors", () => {
       expect.arrayContaining([
         expect.stringContaining("STELLAR_NETWORK is required"),
         expect.stringContaining("HORIZON_URL is required"),
-      ])
+      ]),
     );
   });
 
@@ -37,7 +58,7 @@ describe("validateEnv.collectErrors", () => {
     expect(errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining('STELLAR_NETWORK must be "testnet" or "mainnet"'),
-      ])
+      ]),
     );
   });
 
@@ -47,8 +68,40 @@ describe("validateEnv.collectErrors", () => {
       HORIZON_URL: "not-a-url",
     });
     expect(errors).toEqual(
-      expect.arrayContaining([expect.stringContaining("HORIZON_URL must be a valid URL")])
+      expect.arrayContaining([expect.stringContaining("HORIZON_URL must be a valid URL")]),
     );
+  });
+
+  it("requires a strong rate-limit hash salt in production", () => {
+    const missingSalt = collectErrors({
+      NODE_ENV: "production",
+      STELLAR_NETWORK: "mainnet",
+      HORIZON_URL: "https://horizon.stellar.org",
+    });
+    const shortSalt = collectErrors({
+      NODE_ENV: "production",
+      STELLAR_NETWORK: "mainnet",
+      HORIZON_URL: "https://horizon.stellar.org",
+      RATE_LIMIT_IP_HASH_SALT: "too-short",
+    });
+
+    expect(missingSalt).toEqual(
+      expect.arrayContaining([expect.stringContaining("RATE_LIMIT_IP_HASH_SALT is required")]),
+    );
+    expect(shortSalt).toEqual(
+      expect.arrayContaining([expect.stringContaining("must contain at least 32 characters")]),
+    );
+  });
+
+  it("accepts a strong rate-limit hash salt in production", () => {
+    expect(
+      collectErrors({
+        NODE_ENV: "production",
+        STELLAR_NETWORK: "mainnet",
+        HORIZON_URL: "https://horizon.stellar.org",
+        RATE_LIMIT_IP_HASH_SALT: "a".repeat(32),
+      }),
+    ).toEqual([]);
   });
 
   it("returns no errors when ALLOWED_ORIGINS is absent (uses default)", () => {
@@ -57,7 +110,7 @@ describe("validateEnv.collectErrors", () => {
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
         // ALLOWED_ORIGINS intentionally omitted
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -67,7 +120,7 @@ describe("validateEnv.collectErrors", () => {
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
         ALLOWED_ORIGINS: "https://app.example.com,http://localhost:3000",
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -99,7 +152,7 @@ describe("validateEnv.collectErrors", () => {
       collectErrors({
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -109,7 +162,7 @@ describe("validateEnv.collectErrors", () => {
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
         OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318",
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -122,7 +175,7 @@ describe("validateEnv.collectErrors", () => {
     expect(errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining("OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL"),
-      ])
+      ]),
     );
   });
 
@@ -132,7 +185,41 @@ describe("validateEnv.collectErrors", () => {
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
         OTEL_EXPORTER_OTLP_ENDPOINT: "https://tempo-prod.example.com:443",
-      })
+      }),
+    ).toEqual([]);
+  });
+
+  // ─── WEBHOOK_ENCRYPTION_KEY validation ─────────────────────────────────
+
+  it("does not require WEBHOOK_ENCRYPTION_KEY in non-production", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        NODE_ENV: "development",
+      }),
+    ).toEqual([]);
+  });
+
+  it("requires WEBHOOK_ENCRYPTION_KEY in production", () => {
+    const errors = collectErrors({
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+      NODE_ENV: "production",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("WEBHOOK_ENCRYPTION_KEY is required")]),
+    );
+  });
+
+  it("passes when WEBHOOK_ENCRYPTION_KEY is set in production", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        NODE_ENV: "production",
+        WEBHOOK_ENCRYPTION_KEY: "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee",
+      }),
     ).toEqual([]);
   });
 });
@@ -166,7 +253,7 @@ describe("parseAllowedOrigins", () => {
 
   it("parses multiple valid origins separated by commas", () => {
     const { origins, warnings } = parseAllowedOrigins(
-      "https://app.example.com,http://localhost:3000"
+      "https://app.example.com,http://localhost:3000",
     );
     expect(origins).toEqual(["https://app.example.com", "http://localhost:3000"]);
     expect(warnings).toEqual([]);
@@ -174,7 +261,7 @@ describe("parseAllowedOrigins", () => {
 
   it("trims whitespace around each entry", () => {
     const { origins, warnings } = parseAllowedOrigins(
-      "  https://app.example.com , http://localhost:3000  "
+      "  https://app.example.com , http://localhost:3000  ",
     );
     expect(origins).toEqual(["https://app.example.com", "http://localhost:3000"]);
     expect(warnings).toEqual([]);

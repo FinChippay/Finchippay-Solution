@@ -1,6 +1,45 @@
 {
+  "private": true,
+  "workspaces": [
+    "sdk",
+    "frontend"
+  ],
   "scripts": {
-    "load-test": "node scripts/load-test.js"
+    "generate:sdk": "bash scripts/generate-sdk.sh",
+    "check:sdk": "bash scripts/check-sdk.sh",
+    "build:sdk": "npm run build --workspace=sdk",
+    "build": "npm run build --workspace=sdk --workspace=frontend",
+    "load-test": "node scripts/load-test.js",
+    "benchmarks:compare": "node scripts/compare-benchmarks.js benchmarks/base.json benchmarks/current.json benchmarks/summary.md",
+    "benchmarks:smoke": "npm --prefix backend test -- --runInBand --testPathPatterns=perf && (npm --prefix frontend exec -- jest --runInBand --testPathPatterns=perf || node -e \"console.log('Frontend benchmark smoke skipped; jest is unavailable in this environment.')\")",
+    "load-test:dashboard": "k6 run --out json=k6-results/dashboard-traffic.json tests/load/dashboard-traffic.js",
+    "load-test:payments": "k6 run --out json=k6-results/payment-burst.json tests/load/payment-burst.js",
+    "load-test:analytics": "k6 run --out json=k6-results/analytics-query.json tests/load/analytics-query.js",
+    "load-test:sustained": "k6 run --out json=k6-results/sustained-load.json tests/load/sustained-load.js",
+    "load-test:all": "bash tests/load/run-all.sh",
+    "docs:errors": "node scripts/generate-error-codes-doc.js",
+    "docs:errors:check": "node scripts/generate-error-codes-doc.js --check",
+    "lint": "npm run lint --workspace=frontend",
+    "type-check": "npm run type-check --workspace=sdk --workspace=frontend",
+    "test": "npm run test --workspace=frontend",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "npx prettier --write",
+      "npx eslint --fix --max-warnings 0"
+    ],
+    "*.{json,md,yaml,yml}": [
+      "npx prettier --write"
+    ],
+    "*.rs": [
+      "rustfmt --edition 2021"
+    ]
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
+    "openapi-typescript": "^7.0.0"
   },
   "dependencies": {
     "autocannon": "^8.0.0"
@@ -12,5 +51,11 @@
     "blockchain"
   ],
   "author": "Finchippay Solution Team",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "uuid": "14.0.1",
+    "image-size": "2.0.2",
+    "postcss": "8.5.26",
+    "sharp": "0.35.3"
+  }
 }

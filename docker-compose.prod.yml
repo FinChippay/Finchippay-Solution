@@ -1,42 +1,186 @@
+# docker-compose.prod.yml — Production deployment
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Secrets (see secrets/ directory and DEPLOYMENT_GUIDE.md "Production Secrets"):
+#   secrets/jwt_secret.txt               — required. Copy from jwt_secret.txt.example.
+#   secrets/database_url.txt             — required only when DB_PROVIDER=postgres.
+#                                           Compose still requires the file to exist even
+#                                           when unused — `touch secrets/database_url.txt`
+#                                           is fine for the default SQLite mode.
+#   secrets/webhook_encryption_key.txt   — required (NODE_ENV=production).
+#   secrets/rate_limit_ip_hash_salt.txt  — required (NODE_ENV=production), 32+ chars.
+#   secrets/anthropic_api_key.txt        — optional. Leave empty if AI payment parsing is unused.
+#
+# Required non-secret environment variables (set in .env or via shell):
+#   ALLOWED_ORIGINS    — comma-separated CORS origins (e.g. https://finchippay.io)
+#   DB_PROVIDER        — "sqlite" (default) or "postgres"
+#
+# Docker Content Trust — verify image signatures on pull/build:
+#   export DOCKER_CONTENT_TRUST=1
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml build
+#   Note: this only works for images with published trust data. node, nginx,
+#   and redis are Docker Official Images and are signed. jaegertracing/all-in-one
+#   is not — verify before enabling DCT project-wide, or pull it separately
+#   with DCT disabled. See DEPLOYMENT_GUIDE.md "Docker Content Trust".
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  database_url:
+    file: ./secrets/database_url.txt
+  webhook_encryption_key:
+    file: ./secrets/webhook_encryption_key.txt
+  rate_limit_ip_hash_salt:
+    file: ./secrets/rate_limit_ip_hash_salt.txt
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key.txt
+
 services:
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
     ports:
-      - "80:80"
+      - "80:8080"
     environment:
       - BACKEND_URL=http://backend:4000
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
     restart: always
+    # ─── Hardening ────────────────────────────────────────────────────────────
+    # No "user:" override needed — the nginx-unprivileged base image already
+    # runs as the non-root "nginx" user (see frontend/Dockerfile.prod).
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '256M'
+        reservations:
+          cpus: '0.1'
+          memory: '64M'
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
+      context: .
+      dockerfile: backend/Dockerfile.prod
+    ports:
+      - "4000:4000"
     environment:
       - PORT=4000
       - NODE_ENV=production
       - STELLAR_NETWORK=mainnet
       - HORIZON_URL=https://horizon.stellar.org
       - TURRETS_EVALUATION_INTERVAL_MS=60000
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - REDIS_URL=redis://redis:6379
+      # Database (defaults to SQLite if unset)
+      - DB_PROVIDER=${DB_PROVIDER:-sqlite}
+      # Secrets — resolved from /run/secrets/* at startup by
+      # backend/src/config/dockerSecrets.js. An explicit non-_FILE env var
+      # (e.g. JWT_SECRET) always takes precedence if also set.
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - DATABASE_URL_FILE=/run/secrets/database_url
+      - WEBHOOK_ENCRYPTION_KEY_FILE=/run/secrets/webhook_encryption_key
+      - RATE_LIMIT_IP_HASH_SALT_FILE=/run/secrets/rate_limit_ip_hash_salt
+      - ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic_api_key
       # Optional: set to enable distributed tracing via OTLP
       # - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      # Optional: set to enable AI payment parsing via Anthropic
-      # - ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
+    secrets:
+      - jwt_secret
+      - database_url
+      - webhook_encryption_key
+      - rate_limit_ip_hash_salt
+      - anthropic_api_key
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
     restart: always
+    # ─── Hardening ────────────────────────────────────────────────────────────
+    user: "node"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.ipfs-cache
+    volumes:
+      # Persistent — must survive restarts (SQLite DB, token-metadata cache,
+      # DB backups). Only actually written to when DB_PROVIDER=sqlite (the
+      # default) or when a scheduled backup runs.
+      - backend_data:/app/data
+      - backend_backups:/app/backups
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: '512M'
+        reservations:
+          cpus: '0.25'
+          memory: '256M'
+
+  # ─── Redis (rate limiting, caching) ────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: always
+    # ─── Hardening ────────────────────────────────────────────────────────────
+    # No "user:" override: the official redis image's entrypoint expects to
+    # start as root (it does not perform its own privilege drop like the
+    # postgres/mysql images do), so forcing a non-root UID here without
+    # verifying it against the actual image is riskier than leaving it
+    # default. Filesystem and capability hardening still apply.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '256M'
+        reservations:
+          cpus: '0.1'
+          memory: '64M'
 
   # ─── Jaeger all-in-one (production distributed tracing) ──────────────────────
 
@@ -58,7 +202,29 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
     restart: always
+    # ─── Hardening ────────────────────────────────────────────────────────────
+    # No "user:" override: same rationale as redis above — not verified
+    # against the actual jaegertracing/all-in-one image in this environment.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '512M'
+        reservations:
+          cpus: '0.1'
+          memory: '128M'
 
 volumes:
   jaeger_data:
+  redis_data:
+  backend_data:
+  backend_backups:

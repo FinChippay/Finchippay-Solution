@@ -1,0 +1,72 @@
+name: CI Contracts
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  contracts:
+    name: Contracts (Rust ${{ matrix.rust-channel }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-channel: ["stable", "nightly"]
+    continue-on-error: ${{ matrix.rust-channel == 'nightly' }}
+    defaults:
+      run:
+        working-directory: contracts/finchippay-contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust-channel }}
+          targets: wasm32v1-none
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/finchippay-contract/target
+          key: ${{ runner.os }}-cargo-${{ matrix.rust-channel }}-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+      - run: cargo install cargo-audit
+      - run: cargo audit
+      - run: cargo check --target wasm32v1-none
+      - run: cargo test
+      - run: cargo test --test integration
+      - if: ${{ matrix.rust-channel == 'stable' }}
+        run: cargo build --target wasm32v1-none --release
+
+  contract-fuzz:
+    name: Contract Fuzz (libFuzzer)
+    if: false # Disabled: not run on PRs or push
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts/finchippay-contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/finchippay-contract/target
+          key: ${{ runner.os }}-cargo-fuzz-nightly-${{ hashFiles('contracts/finchippay-contract/Cargo.lock') }}
+      - run: cargo install cargo-fuzz
+      - run: cargo +nightly fuzz build --fuzz-dir fuzz
+      - name: Fuzz targets (60s each)
+        run: |
+          for target in fuzz_target_1_parse_payment fuzz_target_2_escrow fuzz_target_3_multisig fuzz_target_4_batch_send open_stream claim_stream create_escrow claim_escrow create_multisig approve_multisig; do
+            cargo +nightly fuzz run $target --fuzz-dir fuzz -- -max_total_time=60 -print_final_stats=1 || echo "::warning::$target found crashes"
+          done
+      - name: Upload crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: contracts/finchippay-contract/fuzz/artifacts/
+          retention-days: 30

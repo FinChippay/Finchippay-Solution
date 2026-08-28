@@ -1,7 +1,13 @@
-import React, { useState, useRef } from "react";
 import clsx from "clsx";
 import { QRCodeCanvas } from "qrcode.react";
-import { buildPaymentLinkUrl, rememberPaymentLink } from "@/lib/paymentLinks";
+import React, { useState, useRef } from "react";
+import { logger } from "@/lib/logger";
+import {
+  buildPaymentLinkUrl,
+  cancelPaymentLink,
+  rememberPaymentLink,
+  type PaymentLinkPayload,
+} from "@/lib/paymentLinks";
 
 export default function PaymentRequestGenerator() {
   const [destination, setDestination] = useState("");
@@ -9,6 +15,7 @@ export default function PaymentRequestGenerator() {
   const [memo, setMemo] = useState("");
   const [expiry, setExpiry] = useState("never");
   const [generatedLink, setGeneratedLink] = useState("");
+  const [lastPayload, setLastPayload] = useState<PaymentLinkPayload | null>(null);
   const [copied, setCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -31,7 +38,17 @@ export default function PaymentRequestGenerator() {
     const url = buildPaymentLinkUrl(window.location.origin, paymentData);
     rememberPaymentLink(paymentData, url);
     setGeneratedLink(url);
+    setLastPayload(paymentData);
     setCopied(false);
+    setShowQR(false);
+  };
+
+  // Discard the stored request record (#161) instead of letting it sit
+  // unused in storage until the TTL clears it on its own.
+  const handleCancel = () => {
+    if (lastPayload) cancelPaymentLink(lastPayload);
+    setGeneratedLink("");
+    setLastPayload(null);
     setShowQR(false);
   };
 
@@ -41,7 +58,7 @@ export default function PaymentRequestGenerator() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error("Failed to copy!", err);
+      logger.error("Failed to copy!", {}, err instanceof Error ? err : undefined);
     }
   };
 
@@ -151,6 +168,13 @@ export default function PaymentRequestGenerator() {
                 {copied ? "Copied!" : "Copy"}
               </button>
             </div>
+
+            <button
+              onClick={handleCancel}
+              className="mt-2 text-[10px] text-slate-400 hover:text-red-400 underline"
+            >
+              Cancel request
+            </button>
 
             {showQR && (
               <div className="mt-4 flex flex-col items-center bg-white p-3 rounded-lg mx-auto w-fit">

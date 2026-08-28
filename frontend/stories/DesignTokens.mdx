@@ -1,0 +1,82 @@
+import { Meta } from "@storybook/blocks";
+
+<Meta title="Design System/Design Tokens" />
+
+# Design Tokens
+
+Finchippay extends Tailwind CSS with a Stellar blue scale, deep Cosmos surfaces, semantic theme variables, and three purpose-specific font families. Use the named tokens instead of introducing one-off values.
+
+## Colors
+
+### Stellar
+
+<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px" }}>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#f0f9ff" }} /><code>stellar-50 · #f0f9ff</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#e0f2fe" }} /><code>stellar-100 · #e0f2fe</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#bae6fd" }} /><code>stellar-200 · #bae6fd</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#7dd3fc" }} /><code>stellar-300 · #7dd3fc</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#38bdf8" }} /><code>stellar-400 · #38bdf8</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#0ea5e9" }} /><code>stellar-500 · #0ea5e9</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#0284c7" }} /><code>stellar-600 · #0284c7</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#0369a1" }} /><code>stellar-700 · #0369a1</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#075985" }} /><code>stellar-800 · #075985</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#0c4a6e" }} /><code>stellar-900 · #0c4a6e</code></div>
+</div>
+
+### Cosmos surfaces
+
+<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px" }}>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#142a58" }} /><code>cosmos-600 · #142a58</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#0f2040" }} /><code>cosmos-700 · #0f2040</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#0a1628" }} /><code>cosmos-800 · #0a1628</code></div>
+  <div><div style={{ height: 48, borderRadius: 8, background: "#050a1a" }} /><code>cosmos-900 · #050a1a</code></div>
+</div>
+
+### Semantic theme variables
+
+<table>
+  <thead><tr><th>Token</th><th>Dark</th><th>Light</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>--color-bg</code></td><td><code>#050a1a</code></td><td><code>#f0f6ff</code></td><td>Page background</td></tr>
+    <tr><td><code>--color-surface</code></td><td><code>#0a1628</code></td><td><code>#ffffff</code></td><td>Cards and panels</td></tr>
+    <tr><td><code>--color-border</code></td><td><code>rgba(14,165,233,.15)</code></td><td><code>rgba(14,165,233,.20)</code></td><td>Subtle borders</td></tr>
+    <tr><td><code>--color-primary</code></td><td><code>#0ea5e9</code></td><td><code>#0284c7</code></td><td>Primary action and focus</td></tr>
+    <tr><td><code>--color-text</code></td><td><code>#e2e8f0</code></td><td><code>#0f172a</code></td><td>Primary copy</td></tr>
+    <tr><td><code>--color-muted</code></td><td><code>#64748b</code></td><td><code>#475569</code></td><td>Supporting copy</td></tr>
+  </tbody>
+</table>
+
+## Spacing
+
+The interface follows Tailwind's quarter-rem base scale. These are the recurring layout tokens used by cards, forms, and page shells.
+
+<table>
+  <thead><tr><th>Utility suffix</th><th>Value</th><th>Typical use</th></tr></thead>
+  <tbody>
+    <tr><td><code>1</code></td><td><code>0.25rem / 4px</code></td><td>Icon and label micro-gaps</td></tr>
+    <tr><td><code>2</code></td><td><code>0.5rem / 8px</code></td><td>Compact controls</td></tr>
+    <tr><td><code>3</code></td><td><code>0.75rem / 12px</code></td><td>Input groups</td></tr>
+    <tr><td><code>4</code></td><td><code>1rem / 16px</code></td><td>Standard content gaps</td></tr>
+    <tr><td><code>6</code></td><td><code>1.5rem / 24px</code></td><td>Card padding</td></tr>
+    <tr><td><code>8</code></td><td><code>2rem / 32px</code></td><td>Section spacing</td></tr>
+    <tr><td><code>12</code></td><td><code>3rem / 48px</code></td><td>Large section breaks</td></tr>
+    <tr><td><code>16</code></td><td><code>4rem / 64px</code></td><td>Page-level rhythm</td></tr>
+  </tbody>
+</table>
+
+## Typography
+
+<div style={{ display: "grid", gap: "20px" }}>
+  <div>
+    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 30, fontWeight: 600 }}>Space Grotesk — Display</div>
+    <code>font-display</code> · headings, balances, and prominent status copy
+  </div>
+  <div>
+    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 18 }}>Inter — Body</div>
+    <code>font-body</code> · interface copy, labels, and controls
+  </div>
+  <div>
+    <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16 }}>GDQP2K…QHG4W37 — Mono</div>
+    <code>font-mono</code> · Stellar addresses, hashes, XDR, and numeric inputs
+  </div>
+</div>

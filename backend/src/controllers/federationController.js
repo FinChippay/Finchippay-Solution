@@ -7,45 +7,35 @@
 
 const axios = require("axios");
 const usernameService = require("../services/usernameService");
+const { stellarAddress: stellarAddressSchema } = require("../validation/schemas");
 
 /**
  * GET /federation?q=<query>&type=<type>
  * Federation endpoint per SEP-0002.
+ *
+ * Query input is validated by `federationQuerySchema` via the validate()
+ * middleware; `req.validated.q` / `req.validated.type` are guaranteed to be
+ * present strings with type ∈ {name, id} when this handler runs.
  */
 async function resolveFederation(req, res, next) {
   try {
-    const { q, type } = req.query;
-
-    if (!q || !type) {
-      return res.status(400).json({
-        error: "Missing required parameters: q and type",
-      });
-    }
-
-    if (typeof q !== "string" || typeof type !== "string") {
-      return res.status(400).json({
-        error: "Invalid required parameters: q and type must be strings",
-      });
-    }
+    const { q, type } = req.validated;
 
     if (type === "name") {
       // Resolve stellar address to account ID
       const result = await resolveStellarAddress(q, req);
       return res.json(result);
-    } else if (type === "id") {
-      // Resolve account ID to stellar address
-      const result = await resolveAccountId(q);
-      return res.json(result);
-    } else {
-      return res.status(400).json({
-        error: "Invalid type parameter. Must be 'name' or 'id'",
-      });
     }
+
+    // type === "id": resolve account ID to stellar address
+    const result = await resolveAccountId(q);
+    return res.json(result);
   } catch (err) {
     if (err.response && err.response.status === 404) {
-      return res.status(404).json({
-        error: "Not found",
-      });
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
     }
     next(err);
   }
@@ -62,6 +52,7 @@ async function resolveStellarAddress(stellarAddress, req) {
   if (parts.length !== 2) {
     const error = new Error("Invalid stellar address format");
     error.status = 400;
+    error.errorCode = "VAL_INVALID_STELLAR_ADDRESS";
     throw error;
   }
 
@@ -72,13 +63,14 @@ async function resolveStellarAddress(stellarAddress, req) {
   if (!username || !domain) {
     const error = new Error("Invalid stellar address format");
     error.status = 400;
+    error.errorCode = "VAL_INVALID_STELLAR_ADDRESS";
     throw error;
   }
 
   // Check if it's our domain
   if (isLocalFederationDomain(domain, req)) {
     // Local resolution
-    const result = usernameService.resolveUsername(username);
+    const result = await usernameService.resolveUsername(username);
     return {
       stellar_address: `${username}*${domain}`,
       account_id: result.publicKey,
@@ -96,8 +88,8 @@ async function resolveStellarAddress(stellarAddress, req) {
  */
 async function resolveAccountId(accountId) {
   // First check local usernames
-  const allUsernames = usernameService.getAllUsernames();
-  const match = allUsernames.find(user => user.publicKey === accountId);
+  const allUsernames = await usernameService.getAllUsernames();
+  const match = allUsernames.find((user) => user.publicKey === accountId);
 
   if (match) {
     const domain = getPrimaryFederationDomain();
@@ -111,6 +103,7 @@ async function resolveAccountId(accountId) {
   // per SEP-0002, reverse federation is optional
   const error = new Error("Account ID not found");
   error.status = 404;
+  error.errorCode = "RES_NOT_FOUND";
   throw error;
 }
 
@@ -137,12 +130,28 @@ async function forwardFederation(query, type) {
   // Parse TOML to find FEDERATION_SERVER
   const federationServer = parseFederationServer(tomlContent);
   if (!federationServer) {
-    throw new Error("No federation server found in stellar.toml");
+    const error = new Error("No federation server found in stellar.toml");
+    error.status = 502;
+    error.errorCode = "SRV_FEDERATION_FAILED";
+    throw error;
   }
 
   // Make request to external federation server
   const federationUrl = `${federationServer}?q=${encodeURIComponent(query)}&type=${type}`;
   const response = await axios.get(federationUrl, { timeout: 5000 });
+
+  // Validate the returned account_id format per SEP-0002
+  // Stellar public keys start with 'G' followed by 55 base32-compatible chars
+  if (
+    response.data &&
+    response.data.account_id &&
+    !stellarAddressSchema.safeParse(response.data.account_id).success
+  ) {
+    const error = new Error("Invalid Stellar address returned from federation server");
+    error.status = 502;
+    error.errorCode = "SRV_FEDERATION_FAILED";
+    throw error;
+  }
 
   return response.data;
 }
@@ -202,7 +211,7 @@ function getPrimaryFederationDomain() {
     process.env.FEDERATION_DOMAIN ||
       process.env.DOMAIN ||
       process.env.HOME_DOMAIN ||
-      "stellarfinchippay.io"
+      "stellarfinchippay.io",
   );
 }
 

@@ -1,263 +1,84 @@
-/**
- * pages/_app.tsx
- * Global app wrapper for theme, wallet, navigation, and shared overlays.
- */
-
+import "@/lib/api";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import type { AppProps } from "next/app";
-import { useState, useEffect, createContext, useContext } from "react";
 import Head from "next/head";
-import Navbar from "@/components/Navbar";
-import QuickSendModal from "@/components/QuickSendModal";
-import { ToastContainer } from "@/components/Toast";
-import { ToastProvider } from "@/lib/ToastContext";
-import { WalletProvider, useWallet } from "@/lib/useWallet";
-import OfflineBanner from "@/components/OfflineBanner";
-import {
-  getStellarURIFromURL,
-  registerProtocolHandler,
-  type URIParseResult,
-} from "@/lib/sep0007";
+import { useRouter } from "next/router";
+import { useState, useEffect } from "react";
 import { I18nextProvider } from "react-i18next";
+import InstallPrompt from "@/components/InstallPrompt";
+import MobileBottomNav from "@/components/MobileBottomNav";
+import Navbar from "@/components/Navbar";
+import OfflineBanner from "@/components/OfflineBanner";
+import OnboardingTour from "@/components/OnboardingTour";
+import QueueSyncNotifier from "@/components/QueueSyncNotifier";
+import QuickSendModal from "@/components/QuickSendModal";
+import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
+import SkipToContentLink from "@/components/SkipToContentLink";
+import { ToastContainer } from "@/components/Toast";
+import { useOnboardingTour } from "@/hooks/useOnboardingTour";
+import { FeatureFlagProvider } from "@/lib/FeatureFlags";
+import { ThemeProvider } from "@/lib/ThemeContext";
+import { ToastProvider } from "@/lib/ToastContext";
 import i18n from "@/lib/i18n";
+import { initSdkAuth } from "@/lib/sdk-instance";
+import { getStellarURIFromURL, registerProtocolHandler, type URIParseResult } from "@/lib/sep0007";
+import { getDirection, syncDocumentDirection } from "@/lib/useDirection";
+import { WalletProvider, useWallet } from "@/lib/useWallet";
 import "@/styles/globals.css";
+import "@/styles/rtl.css";
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-function InstallBanner() {
-  const [deferredPrompt, setDeferredPrompt] =
-    useState<BeforeInstallPromptEvent | null>(null);
-  const [showBanner, setShowBanner] = useState(false);
-
+function DirectionSync() {
+  const [locale, setLocale] = useState(i18n.resolvedLanguage || i18n.language || "en");
   useEffect(() => {
-    const handler = (event: Event) => {
-      event.preventDefault();
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
-      setShowBanner(true);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-    };
+    const syncDirection = (nextLocale: string) => { syncDocumentDirection(nextLocale); setLocale(nextLocale); };
+    syncDirection(i18n.resolvedLanguage || i18n.language || "en");
+    i18n.on("languageChanged", syncDirection);
+    return () => i18n.off("languageChanged", syncDirection);
   }, []);
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-
-    await deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    setDeferredPrompt(null);
-    setShowBanner(false);
-  };
-
-  if (!showBanner) return null;
-
-  return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 animate-slide-up sm:left-auto sm:right-4 sm:w-96">
-      <div className="rounded-xl border border-stellar-500/30 bg-white dark:bg-cosmos-800 p-4 shadow-2xl backdrop-blur-sm dark:shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
-            <h3 className="mb-1 text-sm font-display font-semibold text-slate-900 dark:text-white">
-              Install Finchippay
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Add to your home screen for quick access and offline support
-            </p>
-          </div>
-          <button
-            onClick={() => setShowBanner(false)}
-            className="cursor-pointer p-1 text-slate-500 transition-colors hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
-            aria-label="Dismiss"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <button onClick={handleInstall} className="btn-primary flex-1 px-4 py-2 text-xs">
-            Install App
-          </button>
-          <button
-            onClick={() => setShowBanner(false)}
-            className="btn-secondary flex-1 px-4 py-2 text-xs"
-          >
-            Not Now
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface ThemeContextType {
-  theme: "dark" | "light";
-  toggleTheme: () => void;
-}
-
-export const ThemeContext = createContext<ThemeContextType>({
-  theme: "dark",
-  toggleTheme: () => {},
-});
-
-export const useTheme = () => useContext(ThemeContext);
-
-function AppShell({
-  Component,
-  pageProps,
-  stellarURI,
-  isQuickSendOpen,
-  setIsQuickSendOpen,
-}: {
-  Component: AppProps["Component"];
-  pageProps: AppProps["pageProps"];
-  stellarURI: URIParseResult | null;
-  isQuickSendOpen: boolean;
-  setIsQuickSendOpen: (isOpen: boolean) => void;
-}) {
-  const { publicKey } = useWallet();
-
-  return (
-    <>
-      <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
-        <OfflineBanner />
-        <Navbar />
-        <main>
-          <Component {...pageProps} stellarURI={stellarURI} />
-        </main>
-        <InstallBanner />
-      </div>
-
-      {publicKey && (
-        <QuickSendModal
-          isOpen={isQuickSendOpen}
-          onClose={() => setIsQuickSendOpen(false)}
-          publicKey={publicKey}
-          xlmBalance="0"
-          usdcBalance={null}
-        />
-      )}
-    </>
-  );
+  return <span className="sr-only" data-locale={locale} data-direction={getDirection(locale)} />;
 }
 
 export default function App({ Component, pageProps }: AppProps) {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("finchippay:theme") as
-      | "dark"
-      | "light"
-      | null;
-    const preferred =
-      saved ??
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-
-    setTheme(preferred);
-    document.documentElement.classList.toggle("dark", preferred === "dark");
-  }, []);
-
-  useEffect(() => {
-    const uriResult = getStellarURIFromURL();
-    if (uriResult) {
-      setStellarURI(uriResult);
-    }
-  }, []);
-
-  useEffect(() => {
-    registerProtocolHandler();
-  }, []);
-
-  useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-
-    const registerWorker = () => {
-      navigator.serviceWorker.register("/sw.js").catch((error) => {
-        console.warn("[PWA] Service worker registration failed:", error);
-      });
-    };
-
-    if (document.readyState === "complete") {
-      registerWorker();
-      return;
-    }
-
-    window.addEventListener("load", registerWorker, { once: true });
-    return () => window.removeEventListener("load", registerWorker);
-  }, []);
-
-  const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    localStorage.setItem("finchippay:theme", nextTheme);
-  };
-
+  useEffect(() => { initSdkAuth(); }, []);
+  useEffect(() => { if ("serviceWorker" in navigator) { void navigator.serviceWorker.register("/sw.js").catch(() => {}); } }, []);
+  useEffect(() => { try { const raw = localStorage.getItem("finchippay:theme"); if (raw) { const parsed = JSON.parse(raw); if (parsed.mode === "dark" || (parsed.mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)) { document.documentElement.classList.add("dark"); } else if (parsed.mode === "light") { document.documentElement.classList.remove("dark"); } if (parsed.accent) document.documentElement.dataset.accent = parsed.accent; if (parsed.fontSize) document.documentElement.dataset.fontSize = parsed.fontSize; } } catch {} }, []);
+  useEffect(() => { const uriResult = getStellarURIFromURL(); if (uriResult) setStellarURI(uriResult); }, []);
+  useEffect(() => { registerProtocolHandler(); }, []);
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      <ToastProvider>
-      <WalletProvider>
-        <Head>
-          <title>Finchippay-Solution | Instant Stellar Payments</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <meta
-            name="description"
-            content="Send instant, low-fee payments globally using the Stellar network — streaming, escrow, multi-sig, and tips. Non-custodial, secure, and transparent."
-          />
-          <link rel="canonical" href="https://finchippay.vercel.app/" />
-          <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-          <meta property="og:type" content="website" />
-          <meta property="og:url" content="https://finchippay.vercel.app/" />
-          <meta
-            property="og:title"
-            content="Finchippay-Solution | Instant Stellar Payments"
-          />
-          <meta
-            property="og:description"
-            content="Send instant, low-fee payments globally using the Stellar network — streaming, escrow, multi-sig, and tips. Non-custodial, secure, and transparent."
-          />
-          <meta
-            property="og:image"
-            content="https://finchippay.vercel.app/og-card.png"
-          />
-          <meta name="twitter:card" content="summary_large_image" />
-          <meta
-            name="twitter:title"
-            content="Finchippay-Solution | Instant Stellar Payments"
-          />
-          <meta
-            name="twitter:description"
-            content="Send instant, low-fee payments globally using the Stellar network — streaming, escrow, multi-sig, and tips. Non-custodial, secure, and transparent."
-          />
-          <meta
-            name="twitter:image"
-            content="https://finchippay.vercel.app/og-card.png"
-          />
-        </Head>
-
-        <AppShell
-          Component={Component}
-          pageProps={pageProps}
-          stellarURI={stellarURI}
-          isQuickSendOpen={isQuickSendOpen}
-          setIsQuickSendOpen={setIsQuickSendOpen}
-        />
+      <DirectionSync />
+      <ThemeProvider><ToastProvider><WalletProvider>
+        <Head><title>Finchippay-Solution | Instant Stellar Payments</title></Head>
+        <AppShell Component={Component} pageProps={pageProps} stellarURI={stellarURI} isQuickSendOpen={isQuickSendOpen} setIsQuickSendOpen={setIsQuickSendOpen} />
+        <InstallPrompt />
+        <QueueSyncNotifier />
         <ToastContainer />
-      </WalletProvider>
-      </ToastProvider>
-    </ThemeContext.Provider>
+      </WalletProvider></ToastProvider></ThemeProvider>
     </I18nextProvider>
+  );
+}
+
+function AppShell({ Component, pageProps, stellarURI, isQuickSendOpen, setIsQuickSendOpen }: { Component: AppProps["Component"]; pageProps: AppProps["pageProps"]; stellarURI: URIParseResult | null; isQuickSendOpen: boolean; setIsQuickSendOpen: (v: boolean) => void }) {
+  const { publicKey } = useWallet();
+  return (<FeatureFlagProvider publicKey={publicKey}><AppShellInner Component={Component} pageProps={pageProps} stellarURI={stellarURI} isQuickSendOpen={isQuickSendOpen} setIsQuickSendOpen={setIsQuickSendOpen} /></FeatureFlagProvider>);
+}
+
+function AppShellInner({ Component, pageProps, stellarURI, isQuickSendOpen, setIsQuickSendOpen }: { Component: AppProps["Component"]; pageProps: AppProps["pageProps"]; stellarURI: URIParseResult | null; isQuickSendOpen: boolean; setIsQuickSendOpen: (v: boolean) => void }) {
+  const { publicKey } = useWallet();
+  const router = useRouter();
+  const tour = useOnboardingTour();
+  return (
+    <MotionConfig reducedMotion="user">
+      <SkipToContentLink />
+      <ScreenReaderAnnouncements />
+      <div className="min-h-screen bg-[var(--color-bg-primary)] bg-grid transition-colors duration-300">
+        <OfflineBanner /><Navbar onTakeTour={tour.startTour} /><OnboardingTour tour={tour} />
+        <main id="main-content" tabIndex={-1} className="pb-20 md:pb-0 focus:outline-none"><AnimatePresence mode="wait"><motion.div key={router.route} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}><Component {...pageProps} stellarURI={stellarURI} /></motion.div></AnimatePresence></main>
+        <MobileBottomNav />
+      </div>
+      {publicKey && <QuickSendModal isOpen={isQuickSendOpen} onClose={() => setIsQuickSendOpen(false)} publicKey={publicKey} xlmBalance="0" usdcBalance={null} />}
+    </MotionConfig>
   );
 }

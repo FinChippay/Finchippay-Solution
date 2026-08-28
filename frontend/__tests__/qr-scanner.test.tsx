@@ -47,7 +47,7 @@ jest.mock("@/utils/format", () => ({
 
 jest.mock("@/components/PaymentStatusModal", () => ({
   __esModule: true,
-  default: ({ isOpen, onClose }: any) => {
+  default: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
     if (!isOpen) return null;
     return (
       <div data-testid="payment-status-modal">

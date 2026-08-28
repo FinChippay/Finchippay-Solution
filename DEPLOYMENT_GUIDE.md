@@ -255,6 +255,239 @@ The `FinchippayContract` v2 includes:
 4. **Mainnet Deployment**: Deploy to production after testing
 5. **Documentation**: Create user guides and API documentation
 
+## Canary Deployment Strategy
+
+Finchippay-Solution uses a canary release strategy to minimize deployment risk.
+New versions are gradually exposed to a subset of traffic while health metrics
+are monitored. If metrics degrade, the deployment is automatically rolled back.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Canary Deployment Flow                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────────┐  │
+│  │  Deploy  │───▶│ Health Check │───▶│ Monitor (5 min)  │  │
+│  │  Staging │    │   (30 retries)│    │                  │  │
+│  └──────────┘    └──────────────┘    └───────┬──────────┘  │
+│                                               │             │
+│                              ┌────────────────┼──────────┐  │
+│                              │                │          │  │
+│                              ▼                ▼          │  │
+│                        ┌──────────┐    ┌──────────┐      │  │
+│                        │ Promote  │    │ Rollback │      │  │
+│                        │ 10→50→100│    │ Auto     │      │  │
+│                        └──────────┘    └──────────┘      │  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Two-Target Strategy
+
+| Target    | Strategy        | Mechanism                                      |
+|-----------|-----------------|------------------------------------------------|
+| Frontend  | Blue-Green      | Vercel staging alias → health check → promote   |
+| Backend   | Weighted Canary | AWS ALB listener rules: 10% → 50% → 100%       |
+
+**Frontend (Vercel):** The frontend uses a Blue-Green pattern. A new deployment
+is built and assigned a staging alias (`canary-<sha>.finchippay.vercel.app`).
+Health checks verify the staging deployment, then `vercel promote` promotes it
+to production. Production traffic is never split — the flip is atomic.
+
+**Backend (ECS/ALB):** The backend uses true weighted traffic routing. A new
+ECS task set is registered alongside the existing one, and the ALB listener
+rule is modified to shift traffic gradually:
+
+- **Stage 1:** 10% of traffic → new version (monitor 5 min)
+- **Stage 2:** 50% of traffic → new version (monitor 5 min)
+- **Stage 3:** 100% of traffic → new version (monitor 5 min)
+
+At any stage, if health thresholds are breached, traffic is immediately routed
+back to 100% on the old target group.
+
+### Health Metric Monitoring
+
+During each canary stage, `scripts/canary-monitor.js` polls the following:
+
+| Metric            | Source             | Threshold                    | Action              |
+|-------------------|--------------------|------------------------------|---------------------|
+| Error rate        | Health endpoint    | > 1% 5xx responses           | Degraded → rollback |
+| 5xx count         | Health endpoint    | > 5 per minute               | Critical → rollback |
+| Latency (p95)     | Health endpoint    | > 2× baseline p50            | Degraded → rollback |
+| Sentry error rate | Sentry API         | > 50% increase vs baseline   | Degraded → rollback |
+| Consecutive fails | Health endpoint    | ≥ 3 consecutive failures     | Critical → rollback |
+
+### Scripts
+
+| Script                        | Purpose                                                   |
+|-------------------------------|-----------------------------------------------------------|
+| `scripts/canary-deploy.sh`    | Orchestrates canary deployment for frontend or backend     |
+| `scripts/canary-monitor.js`   | Polls health metrics and Sentry during canary window       |
+| `scripts/canary-check.js`     | One-shot Sentry error rate comparison (legacy)             |
+| `scripts/rollback.sh`         | Reverts to previous stable version                        |
+
+### Triggering a Canary Deployment
+
+**Automatic:** Publishing a GitHub Release triggers the canary workflow for
+both frontend and backend.
+
+**Manual:** Run the workflow with custom parameters:
+
+1. Go to **Actions → Canary Deploy → Run workflow**
+2. Select target: `backend`, `frontend`, or `both`
+3. Set `canary_duration` (minutes per stage, default: 5)
+4. Set `canary_weight_start` (initial traffic %, backend only, default: 10)
+
+### Rollback
+
+Rollback is automatic when health metrics degrade. It can also be triggered
+manually:
+
+```bash
+# Rollback frontend (Vercel)
+bash scripts/rollback.sh frontend <commit-sha>
+
+# Rollback backend (ECS ALB)
+bash scripts/rollback.sh backend <commit-sha>
+```
+
+The rollback script:
+- **Frontend:** Removes the canary alias. Production remains on the previous
+deployment.
+- **Backend:** Immediately routes 100% ALB traffic to the old target group,
+reverts ECS service to the old task definition, and cleans up the canary
+target group and task definition.
+
+### Required GitHub Secrets
+
+| Secret                  | Used By    | Purpose                                 |
+|-------------------------|------------|-----------------------------------------|
+| `VERCEL_TOKEN`          | Frontend   | Vercel API authentication               |
+| `VERCEL_ORG_ID`         | Frontend   | Vercel organization identifier          |
+| `VERCEL_PROJECT_ID`     | Frontend   | Vercel project identifier               |
+| `AWS_ACCESS_KEY_ID`     | Backend    | AWS IAM access key                      |
+| `AWS_SECRET_ACCESS_KEY` | Backend    | AWS IAM secret key                      |
+| `AWS_REGION`            | Backend    | AWS region for ECS/ALB                  |
+| `ECS_CLUSTER`           | Backend    | ECS cluster name                        |
+| `ECS_SERVICE`           | Backend    | ECS service name                        |
+| `ALB_LISTENER_ARN`      | Backend    | ALB listener ARN for traffic routing    |
+| `SENTRY_AUTH_TOKEN`     | Monitoring | Sentry API auth token                   |
+| `SENTRY_ORG`            | Monitoring | Sentry organization slug                |
+| `SENTRY_PROJECT`        | Monitoring | Sentry project slug                     |
+
+### Local Testing
+
+```bash
+# Test canary deploy script (dry-run mode checks prereqs)
+bash scripts/canary-deploy.sh frontend
+
+# Test monitor standalone against local backend
+node scripts/canary-monitor.js \
+  --duration 1 \
+  --health-url http://localhost:4000/health \
+  --stage local-test
+
+# Test rollback script (requires Vercel/AWS credentials)
+bash scripts/rollback.sh frontend
+```
+
+### CI Workflow
+
+The canary deployment workflow (`.github/workflows/canary-deploy.yml`)
+includes:
+
+- **Environment gating:** Requires `production` environment approval
+- **Result reporting:** Posts deployment status as issue/PR comments
+- **Workflow summaries:** Results written to GitHub Actions step summary
+- **State persistence:** Saves deployment info to temp files for rollback
+
+## Docker Compose Production Hardening
+
+`docker-compose.prod.yml` runs every service non-root where the underlying
+image supports it, with resource limits, health-check gating, a read-only
+root filesystem, and secrets mounted from files rather than passed as plain
+environment variables.
+
+### Production Secrets
+
+Real secret values are never committed. `secrets/.gitignore` excludes
+everything in that directory except `.gitignore` itself and `*.example`
+templates. Before running `docker compose -f docker-compose.prod.yml up`,
+copy each template and fill in a real value:
+
+```bash
+cd secrets
+cp jwt_secret.txt.example jwt_secret.txt                     # openssl rand -hex 32
+cp webhook_encryption_key.txt.example webhook_encryption_key.txt  # openssl rand -hex 32
+cp rate_limit_ip_hash_salt.txt.example rate_limit_ip_hash_salt.txt  # openssl rand -hex 32, independent of jwt_secret
+cp database_url.txt.example database_url.txt                 # only used when DB_PROVIDER=postgres
+cp anthropic_api_key.txt.example anthropic_api_key.txt        # optional — leave empty to disable AI payment parsing
+```
+
+`database_url.txt` and `anthropic_api_key.txt` can be left empty (or
+`touch`ed) if unused — Compose requires the referenced file to exist, but the
+backend only reads it when `DB_PROVIDER=postgres` / when the AI parsing
+feature is invoked, via `backend/src/config/dockerSecrets.js`, which resolves
+any `<NAME>_FILE` environment variable (the standard `/run/secrets/<name>`
+mount) into the corresponding plain `<NAME>` variable before the rest of the
+app starts. An explicit non-`_FILE` env var always wins if both are set.
+
+Note: the compose secret names (`jwt_secret`, `database_url`,
+`webhook_encryption_key`, `rate_limit_ip_hash_salt`, `anthropic_api_key`) are
+named after the actual environment variables this backend reads (see
+`backend/.env.example` and `backend/src/config/validateEnv.js`) rather than
+a generic `db_password` / `api_keys` split — this codebase authenticates to
+Postgres via a single `DATABASE_URL` connection string, not a separate
+password field, and has exactly one external API key (Anthropic).
+
+### Non-root Execution
+
+- **backend** runs as the built-in `node` user (`user: "node"` in compose,
+  `USER node` in `backend/Dockerfile.prod`, with `COPY --chown=node:node`).
+- **frontend** serves static files via `nginxinc/nginx-unprivileged`, not the
+  stock `nginx` image — the stock image has no non-root user capable of
+  binding to a low port, so it defaults to root. `nginxinc/nginx-unprivileged`
+  is purpose-built to run as the non-root `nginx` user (uid 101) and listens
+  on 8080 internally instead of 80 (mapped to host port 80 in compose).
+- **redis** and **jaeger** are left running as their image defaults (root).
+  Neither official image documents a supported non-root UID for this exact
+  volume/entrypoint setup, and guessing one risks silently breaking the
+  container's own privilege-drop or volume-permission logic. They still get
+  the filesystem/capability hardening below (`read_only`, `cap_drop: [ALL]`,
+  `no-new-privileges`) — least-privilege in every dimension that doesn't
+  require verifying image-internal behavior we can't check in this repo.
+
+### Read-only Root Filesystem
+
+All four services set `read_only: true` with `tmpfs` mounts for paths each
+process needs to write at runtime (nginx's cache/pid/temp dirs, `/tmp`
+generally) and named volumes for anything that must survive a restart
+(`redis_data`, `jaeger_data`, and the new `backend_data` / `backend_backups`
+covering the backend's SQLite DB + token-metadata cache and DB backup
+archives — see `backend/src/services/backupService.js` and
+`backend/src/services/tokenMetadataService.js`).
+
+### Docker Content Trust
+
+Docker Content Trust is a client-side setting, not something a compose file
+can declare — it's controlled by the `DOCKER_CONTENT_TRUST` environment
+variable wherever `docker pull` / `docker build` / `docker compose` runs:
+
+```bash
+export DOCKER_CONTENT_TRUST=1
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml build
+```
+
+This only works for images with published Notary trust data. `node`,
+`nginx`/`nginxinc/nginx-unprivileged`, and `redis` are Docker Official
+Images and are signed. `jaegertracing/all-in-one` is **not** — pulling it
+with `DOCKER_CONTENT_TRUST=1` set will fail with "remote trust data does not
+exist". Either verify trust data for every image you pin before enabling
+this project-wide in CI/CD, or pull/build the jaeger image in a separate
+step with `DOCKER_CONTENT_TRUST=0`.
+
 ## Support
 
 For questions or issues:
@@ -263,104 +496,8 @@ For questions or issues:
 - Refer to Soroban documentation: https://docs.rs/soroban-sdk/latest/soroban_sdk/
 - Stellar documentation: https://developers.stellar.org/
 
-
----
-
-## Upgrade Runbook (WS6 — Issue #946)
-
-> **Critical:** The legacy single-key `upgrade()` function is **disabled** in all
-> builds after this patch. The only valid upgrade path is through the
-> `propose_admin_action` / `approve_admin_action` N-of-M governance flow.
-
-### Pre-Upgrade Checklist
-
-1. Build and audit the new WASM:
-   ```bash
-   cargo build --release --target wasm32v1-none \
-     --manifest-path contracts/finchippay-contract/Cargo.toml
-   WASM_HASH=$(stellar contract install \
-     --wasm target/wasm32v1-none/release/finchippay_contract.wasm \
-     --network testnet)
-   echo "WASM hash: $WASM_HASH"
-   ```
-2. Run `cargo audit` — zero advisories required before proposing upgrade.
-3. Run all tests: `cargo test --manifest-path contracts/finchippay-contract/Cargo.toml`.
-4. Run `cargo clippy -- -D warnings` — no warnings.
-
-### Step 1 — Add to Approved WASM Allowlist
-
-```bash
-stellar contract invoke --id $CONTRACT_ID --network testnet -- \
-  add_approved_wasm_hash \
-  --caller $ADMIN_ADDRESS \
-  --wasm_hash $WASM_HASH
-```
-
-### Step 2 — Propose the Upgrade Action
-
-```bash
-# Encode the 32-byte WASM hash as hex payload
-stellar contract invoke --id $CONTRACT_ID --network testnet -- \
-  propose_admin_action \
-  --proposer $SIGNER_1 \
-  --action "upgrade" \
-  --payload $WASM_HASH_BYTES \
-  --expiration_ledger $((CURRENT_LEDGER + 17280))
-```
-
-### Step 3 — Collect N-of-M Approvals
-
-Each admin signer (threshold signers required) must call:
-```bash
-stellar contract invoke --id $CONTRACT_ID --network testnet -- \
-  approve_admin_action \
-  --signer $SIGNER_N \
-  --proposal_id $PROPOSAL_ID
-```
-
-On the final approval the upgrade executes automatically.
-
-### Step 4 — Invariant Sweep (Post-Upgrade)
-
-```bash
-cargo test --manifest-path contracts/finchippay-contract/Cargo.toml
-stellar contract invoke --id $CONTRACT_ID --network testnet -- get_version
-```
-
-Wait at least `EMERGENCY_WITHDRAWAL_DELAY` (~24 h) before promoting to mainnet.
-
-### Rollback Plan
-
-There is no in-place downgrade via `upgrade()`. To roll back:
-
-1. Propose a new upgrade action pointing to the previous approved WASM hash.
-2. Collect threshold approvals.
-3. The contract reverts to the previous WASM.
-
-**Never** use a direct storage write or a compromised single key to bypass the
-governance flow — the `ApprovedWasmHashes` allowlist exists precisely to prevent
-this.
-
-### Yield-Escrow Feature Gate
-
-The yield-escrow module is disabled by default (`YieldEscrowEnabled = false`).
-To enable it once the AMM integration is live:
-
-```bash
-stellar contract invoke --id $CONTRACT_ID --network testnet -- \
-  set_yield_escrow_enabled \
-  --admin $ADMIN_ADDRESS \
-  --enabled true
-```
-
-> **Note:** `shares_received` in `YieldEscrow` records is a **placeholder** equal
-> to `amount` until the real AMM pool integration replaces the 1:1 mock. Do not
-> use `shares_received` for pricing until then.
-
-### Fee Configuration Governance
-
-Swap fee and fee-collector changes go through admin-action governance:
-
-- Action tag: `"set_swap_fee"` — payload is 16-byte LE i128 fee_bps (0–500).
-- Action tag: `"set_fee_collector"` — propose via governance then execute.
-- Fee is bounded to `MAX_SWAP_FEE_BPS = 500` (5%) — values above this revert.
+> **Pre-production checklist:** Before deploying to mainnet, ensure:
+> 1. All critical and high-priority issues identified in `CODE_REVIEW.md` are resolved.
+> 2. The contract has been migrated from deprecated `publish()` to `#[contractevent]`.
+> 3. `JWT_SECRET`, `WEBHOOK_ENCRYPTION_KEY`, and `RATE_LIMIT_IP_HASH_SALT` are all set to production-strength values.
+> 4. A formal third-party security audit has been completed (see `docs/audits/README.md`).

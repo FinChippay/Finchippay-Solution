@@ -1,10 +1,15 @@
+import dynamic from "next/dynamic";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
-import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
+import { logger } from "@/lib/logger";
 import { getXLMBalance } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+
+// SendPaymentForm pulls in @zxing QR-scanning (~500KB); load it lazily so it
+// does not ship in the request route's first-load chunk (issue #610).
+const SendPaymentForm = dynamic(() => import("@/components/SendPaymentForm"), { ssr: false });
 
 interface PrefillData {
   destination: string;
@@ -41,7 +46,7 @@ export default function RequestPage() {
         setPrefill(parsedData);
         setError(null);
       } catch (err) {
-        console.error("Invalid request link data", err);
+        logger.error("Invalid request link data", {}, err instanceof Error ? err : undefined);
         setError("Invalid request link. Please check the URL.");
       }
     }
@@ -57,12 +62,12 @@ export default function RequestPage() {
 
   if (error) {
     return (
-      <div className="max-w-md mx-auto mt-20 p-8 card border-red-500/30 text-center animate-fade-in bg-cosmos-900/50">
+      <div className="max-w-md mx-auto mt-20 p-8 card border-red-500/30 text-center animate-fade-in bg-white dark:bg-cosmos-900/50">
         <div className="bg-red-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-2xl text-red-500">⚠️</span>
         </div>
-        <h2 className="text-xl font-bold text-white mb-2">Request Unavailable</h2>
-        <p className="text-slate-400 mb-6">{error}</p>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Request Unavailable</h2>
+        <p className="text-slate-600 dark:text-slate-400 mb-6">{error}</p>
         <button 
           onClick={() => router.push('/dashboard')} 
           className="btn-secondary w-full py-2"
@@ -80,12 +85,12 @@ export default function RequestPage() {
         <meta name="description" content="Review and complete a Finchippay payment request." />
       </Head>
       <div className="text-center mb-10">
-        <h1 className="font-display text-3xl font-bold text-white mb-3">Complete Request</h1>
-        <p className="text-slate-400">Review the requested details and connect your wallet to pay.</p>
+        <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">Complete Request</h1>
+        <p className="text-slate-600 dark:text-slate-400">Review the requested details and connect your wallet to pay.</p>
       </div>
 
       {!publicKey ? (
-        <div className="card border-stellar-500/20 bg-cosmos-900/50">
+        <div className="card border-stellar-500/20 bg-white dark:bg-cosmos-900/50">
           <WalletConnect />
         </div>
       ) : (

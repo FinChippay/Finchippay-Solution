@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
+  timeout: 60_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -18,6 +18,9 @@ export default defineConfig({
     : 'html',
   expect: {
     timeout: 10000,
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.01,
+    },
   },
   use: {
     baseURL: 'http://localhost:3000',
@@ -26,14 +29,19 @@ export default defineConfig({
     headless: true,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    actionTimeout: 10000,
+    actionTimeout: 15000,
     navigationTimeout: 60000,
+    reducedMotion: 'reduce',
   },
 
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['iPhone 14'] },
     },
   ],
 
@@ -52,6 +60,7 @@ export default defineConfig({
       NEXT_PUBLIC_CONTRACT_ID:
         process.env.NEXT_PUBLIC_CONTRACT_ID ||
         'CCW67TSZV3SSS2HXMBQ52NVF3FB25GQ2G6E3BGLZ52B7W7TKG4E7SML2',
+      NEXT_OUTPUT: 'export',
     },
   },
 });

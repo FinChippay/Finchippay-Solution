@@ -1,213 +1,97 @@
-# Finchippay-Solution
+# Finchippay Solution
 
-> Instant, low-fee, non-custodial payments on the Stellar network — powered by Soroban smart contracts.
+> **Open-source Stellar Web3 payments platform** — send, stream, escrow, and batch payments on Stellar with a production-grade Soroban smart contract.
 
 [![CI](https://github.com/FinChippay/Finchippay-Solution/actions/workflows/ci.yml/badge.svg)](https://github.com/FinChippay/Finchippay-Solution/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Stellar](https://img.shields.io/badge/Stellar-Soroban-7B5BDE)](https://stellar.org/soroban)
 
-## Overview
+---
 
-Finchippay-Solution is a full-stack, production-grade decentralised payment platform built on [Stellar](https://stellar.org). It combines:
+## Quick Links
 
-- A **Soroban smart contract** (`FinchippayContract`) with streaming payments, N-of-M multi-sig approvals, time-locked escrow, on-chain tips, immutable receipts, and batch sends.
-- A **Next.js frontend** that lets users send payments, manage contacts, view analytics, create recurring schedules, and sign every transaction with their own Freighter wallet — private keys never leave the browser.
-- An **Express backend API** providing account data, federation (SEP-0002), SEP-0010 auth, analytics, Turrets execution, webhooks, and Swagger docs.
+- 📖 **[Documentation](./docs/)**
+- 🏛️ **[Governance Model](./GOVERNANCE.md)**
+- 🔒 **[Security Policy](./SECURITY.md)**
+- 📋 **[Contributing Guide](./CONTRIBUTING.md)**
+- 🛡️ **[Audit Framework](./docs/SECURITY_AUDIT_FRAMEWORK.md)**
 
 ## Architecture
 
-```
-flowchart LR
-    user[User browser] --> frontend[Next.js frontend]
-    frontend --> wallet[Freighter wallet]
-    wallet --> frontend
-    frontend --> backend[Express backend API]
-    backend --> horizon[Stellar Horizon]
-    frontend --> horizon
-    frontend --> soroban[Soroban RPC]
-    soroban --> contract[FinchippayContract]
-    contract --> stellar[Stellar testnet / mainnet]
-    horizon --> stellar
-    backend -. tips · usernames · analytics · webhooks .-> frontend
-    wallet -. signs XDR .-> stellar
-```
-
-| Layer | Tech | Role |
+| Layer | Tech | Path |
 |---|---|---|
-| Smart contract | Rust / Soroban SDK 20 | On-chain logic — streaming, escrow, multi-sig |
-| Frontend | Next.js 14, TypeScript, Tailwind CSS | UI, wallet integration, Freighter signing |
-| Backend | Node.js 20, Express, Pino, Swagger | Horizon proxy, federation, auth, analytics |
-| Infrastructure | Docker, nginx, GitHub Actions | CI/CD, containerised deployment |
+| **Smart Contract** | Rust + Soroban SDK | `contracts/finchippay-contract/` |
+| **Backend API** | Node.js + Express + PostgreSQL | `backend/` |
+| **Frontend** | Next.js + Tailwind CSS | `frontend/` |
+| **SDK** | TypeScript | `sdk/` |
+| **Infrastructure** | Terraform + Kubernetes + Docker | `terraform/`, `kubernetes/` |
 
-## Smart Contract Features
+## Features
 
-The `FinchippayContract` (in `contracts/finchippay-contract/`) exposes:
+- 💸 **Send payments** — XLM, USDC, and custom Stellar assets
+- 🔄 **Recurring & streaming** — Scheduled and per-ledger payment streams
+- 🔐 **Escrow** — Time-locked custody with dispute resolution
+- ✍️ **Multi-signature** — N-of-M threshold approvals
+- 📦 **Batch sends** — Up to 50 recipients in one transaction
+- 🔑 **Hardware wallet** — Ledger Nano S/X support via WebUSB
+- 📊 **Analytics** — Spending charts, top recipients, portfolio tracking
+- 🌐 **i18n** — Multi-language support
 
-| Function | Description |
-|---|---|
-| `initialize(admin)` | One-time setup; stores admin address |
-| `send_tip(token, from, to, amount)` | One-shot tip with on-chain aggregate stats |
-| `mint_receipt(from, to, amount, memo)` | Immutable payment receipt NFT |
-| `create_escrow(token, from, to, amount, release_ledger)` | Time-locked escrow |
-| `claim_escrow(id)` | Recipient claims after release ledger |
-| `cancel_escrow(id)` | Payer cancels before release ledger |
-| `open_stream(token, payer, recipient, rate_per_ledger, deposit)` | Start a streaming payment |
-| `claim_stream(stream_id, recipient)` | Drain accrued tokens from a stream |
-| `top_up_stream(stream_id, payer, amount)` | Add funds to extend a stream |
-| `close_stream(stream_id, payer)` | Early close with automatic refund |
-| `create_multisig(token, proposer, recipient, amount, threshold, signers)` | N-of-M payment proposal |
-| `approve_multisig(proposal_id, signer)` | Sign; auto-executes at threshold |
-| `cancel_multisig(proposal_id, proposer)` | Cancel and refund |
-| `batch_send(token, from, recipients[], amounts[])` | Fan-out to many recipients |
-
-### Streaming payment maths
-
-```
-elapsed   = current_ledger − start_ledger
-streamed  = rate_per_ledger × elapsed          (capped at deposited)
-claimable = min(streamed, deposited) − claimed
-```
-
-## Repository Layout
-
-```
-Finchippay-Solution/
-├── contracts/
-│   └── finchippay-contract/   # Soroban Rust contract + tests
-├── backend/
-│   ├── src/
-│   │   ├── config/            # Env validation, Horizon config
-│   │   ├── controllers/       # Route handlers
-│   │   ├── middleware/        # Auth, rate-limit, sanitisation
-│   │   ├── routes/            # Express routers
-│   │   ├── services/          # Business logic
-│   │   ├── utils/             # Logger, webhook signature
-│   │   ├── server.js          # Entry point
-│   │   └── swagger.js         # OpenAPI 3.0 spec
-│   └── __tests__/             # Jest test suite
-├── frontend/
-│   ├── components/            # React components
-│   ├── lib/                   # Stellar SDK helpers, wallet, hooks
-│   ├── pages/                 # Next.js pages
-│   ├── utils/                 # Format, validate
-│   ├── __tests__/             # Jest / React Testing Library
-│   └── e2e/                   # Playwright end-to-end tests
-├── docs/                      # API, architecture, deployment docs
-├── scripts/                   # Dev setup, deploy, load-test
-├── .github/workflows/         # CI and Docker publish
-└── docker-compose.yml         # Local full-stack environment
-```
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 20+
-- Docker + Docker Compose (optional but recommended)
-- Rust + `wasm32-unknown-unknown` target (for contract builds)
-- [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/cli) (for contract deployment)
-- [Freighter](https://freighter.app/) browser extension (for wallet signing)
-
-### Local development
+## Getting Started
 
 ```bash
-# Clone
+# Clone and install
 git clone https://github.com/FinChippay/Finchippay-Solution.git
 cd Finchippay-Solution
 
-# Start everything with Docker
-docker compose up
+# Development
+make dev        # Start all services
 
-# Or run each service manually:
-# Backend
-cd backend && cp .env.example .env && npm install && npm run dev
+# Testing
+make test       # Run all tests
 
-# Frontend (new terminal)
-cd frontend && cp .env.example .env && npm install && npm run dev
+# Build
+make build      # Build all components
 ```
 
-Frontend: http://localhost:3000  
-Backend API: http://localhost:4000  
-Swagger docs: http://localhost:4000/api/docs
-
-### Build and test the smart contract
-
-```bash
-cd contracts/finchippay-contract
-cargo test
-cargo build --release --target wasm32v1-none
-```
-
-### Deploy the contract to Stellar testnet
-
-```bash
-bash scripts/deploy-contract.sh
-```
-
-## Freighter Wallet Setup
-
-1. Install the [Freighter extension](https://freighter.app/).
-2. Create or import a **development** wallet (never use a production wallet locally).
-3. Switch Freighter to **Testnet**.
-4. Copy your public key and fund it via Friendbot:
-   ```
-   https://friendbot.stellar.org/?addr=<YOUR_PUBLIC_KEY>
-   ```
-5. Connect Freighter in the app — the dashboard detects the funded account automatically.
-
-## Environment Variables
-
-Copy `.env.example` in both `backend/` and `frontend/` and fill in the values. See [ENV.md](ENV.md) for the full reference.
-
-Key backend variables:
-
-| Variable | Description |
-|---|---|
-| `STELLAR_NETWORK` | `testnet` or `mainnet` |
-| `HORIZON_URL` | Horizon server URL |
-| `JWT_SECRET` | Secret for SEP-0010 JWT signing |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
-
-## Documentation
-
-| Doc | Description |
-|---|---|
-| [docs/api.md](docs/api.md) | Full REST API reference |
-| [docs/architecture.md](docs/architecture.md) | System design and data flows |
-| [docs/deployment.md](docs/deployment.md) | Production deployment guide |
-| [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Docker / cloud deployment |
-| [ENV.md](ENV.md) | Environment variable reference |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
+See [QUICKSTART.md](./QUICKSTART.md) for detailed setup instructions.
 
 ## Security
 
-- All private key operations occur exclusively inside Freighter — keys never touch the server.
-- Every contract entry-point calls `require_auth()` before mutating state.
-- Stellar secret keys are redacted from all log output and Sentry events.
-- Rate limiting (100 req/15 min globally, 20 req/min on sensitive routes, 10 req/min on account lookup) is applied at the Express layer.
-- Helmet enforces a strict CSP; all API responses include `X-Content-Type-Options: nosniff`.
-- Input sanitisation strips HTML/script injection from all user-supplied fields.
-- Webhook payloads are signed with HMAC-SHA256 and verified before processing.
-- **Emergency pause**: admin can freeze all contract value-transferring operations via `pause()` (circuit breaker pattern).
-- **Upgradability**: deployed contract WASM can be hot-patched by admin without state migration.
-- **Bounded inputs**: escrow timelocks, stream deposits/rates, and multi-sig amounts are capped to prevent griefing and permanent fund lock-up.
-- **Checked arithmetic**: all Soroban math uses `checked_add`/`checked_sub`/`checked_mul` — overflows panic, never silently wrap.
-- **Horizon timeout + retry**: backend Horizon requests use a 10 s timeout with exponential back-off (3 retries).
+Report vulnerabilities to `security@finchippay.dev`. See [SECURITY.md](./SECURITY.md) for our disclosure policy.
 
-## Contributing
+We maintain a [Security Audit Framework](./docs/SECURITY_AUDIT_FRAMEWORK.md) based on Stellar Smart Contract Security Guidelines and OWASP Top 10.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short:
+## Community
 
-```bash
-git checkout -b feature/your-feature
-# make changes
-git commit -m "feat: short description"
-git push origin feature/your-feature
-# open a pull request
-```
-
-Please write tests for any new behaviour and ensure `npm test` passes before opening a PR.
+- **Contributing**: See [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **Governance**: See [GOVERNANCE.md](./GOVERNANCE.md)
+- **RFCs**: Propose major changes via [docs/rfc/](./docs/rfc/)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT © Finchippay contributors
+
+## Quick Start (Local Development)
+
+```bash
+# 1. Clone and install dependencies
+git clone https://github.com/FinChippay/Finchippay-Solution.git
+cd Finchippay-Solution
+npm install && cd backend && npm install && cd ../frontend && npm install && cd ..
+
+# 2. Start development services (PostgreSQL, Redis, Horizon)
+docker compose -f docker-compose.dev.yml up -d
+
+# 3. Run migrations
+cd backend && npm run migrate && cd ..
+
+# 4. Start backend and frontend
+npm run dev
+```
+
+The app will be available at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:4000
+- **Health Check**: http://localhost:4000/api/health
+- **Swagger Docs**: http://localhost:4000/api-docs

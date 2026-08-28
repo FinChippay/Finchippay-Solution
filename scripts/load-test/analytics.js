@@ -1,0 +1,40 @@
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export const options = {
+  stages: [
+    { duration: '30s', target: 10 },
+    { duration: '1m', target: 50 },
+    { duration: '2m', target: 50 },
+    { duration: '30s', target: 0 },
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<500'],
+    http_req_failed: ['rate<0.01'],
+  },
+};
+
+const BASE = __ENV.BASE_URL || 'http://localhost:4000';
+const TEST_PUBLIC_KEY = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567890';
+
+export default function () {
+  const authHeader = 'Bearer loadtest-placeholder-token';
+  const headers = { Authorization: authHeader };
+
+  const summaryRes = http.get(`${BASE}/api/analytics/${TEST_PUBLIC_KEY}/summary`, { headers });
+  check(summaryRes, {
+    'analytics summary status 401 or 200': (r) => r.status === 401 || r.status === 200,
+  });
+
+  const recipientsRes = http.get(`${BASE}/api/analytics/${TEST_PUBLIC_KEY}/top-recipients`, { headers });
+  check(recipientsRes, {
+    'analytics recipients status 401 or 200': (r) => r.status === 401 || r.status === 200,
+  });
+
+  const activityRes = http.get(`${BASE}/api/analytics/${TEST_PUBLIC_KEY}/activity`, { headers });
+  check(activityRes, {
+    'analytics activity status 401 or 200': (r) => r.status === 401 || r.status === 200,
+  });
+
+  sleep(1);
+}

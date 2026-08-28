@@ -55,6 +55,15 @@ This document tracks what's shipped, what's in progress, and what's planned.
 - [x] Contract upgradability (`upgrade(new_wasm_hash)`) with version tracking
 - [x] Deposit/timelock upper bounds to prevent griefing and permanent lock-up
 - [x] Cumulative top-up cap enforcement in streaming payments
+- [x] Cross-dialect migrations (SQLite + PostgreSQL) (#027)
+- [x] JWT_SECRET fallback removed — hard error on missing config
+- [x] Frontend eslint-disable cleanup with documented rationales
+- [x] Console.* replaced with structured logger across all components
+- [x] Contract AMM/yield escrow TODOs linked to GitHub issue tracker
+- [x] Legacy `rescue_tokens` removed; the time-delayed emergency withdrawal flow is the sole funds-rescue path (#678)
+- [x] Stellar SDK v16 upgrade in frontend package.json
+- [x] Coverage thresholds raised to 80% lines / 70% branches
+- [ ] Third-party security audit of FinchippayContract
 - [ ] Migrate tips/username storage from in-memory to SQLite/PostgreSQL
 - [ ] Refresh token rotation for SEP-0010 sessions
 - [ ] Soroban RPC abstraction layer in the frontend
@@ -65,12 +74,18 @@ This document tracks what's shipped, what's in progress, and what's planned.
 
 ## 📋 v2.0 — Mainnet Readiness
 
+- [x] Bug bounty program details documented in SECURITY.md
+- [x] Audit preparation roadmap with auditor shortlist
+- [x] Community channels expanded (Discord planned, GitHub Discussions active)
+- [x] Benchmark regression detection added to CI pipeline
 - [ ] Formal security audit of `FinchippayContract`
 - [ ] Mainnet contract deployment + verification
+- [ ] Contract event migration: `publish()` → `#[contractevent]` macro
 - [ ] USDC and other SAC token support throughout the UI
 - [ ] Multi-network switching (testnet ↔ mainnet) per-session
 - [ ] Fiat on-ramp integration (MoneyGram, Stellar Anchor)
 - [ ] Mobile-responsive PWA improvements
+- [ ] Multi-language SDKs (Python, Go, Rust) with generated bindings
 - [ ] Push notification webhooks via web-push
 
 ---
@@ -88,3 +103,30 @@ This document tracks what's shipped, what's in progress, and what's planned.
 ---
 
 Have an idea? [Open an issue](https://github.com/FinChippay/Finchippay-Solution/issues) or see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## 📋 v1.4 — Quality & Stability (Current)
+
+- [x] Cross-dialect migration support (SQLite + PostgreSQL)
+- [x] Error code documentation drift checks in CI
+- [x] Code quality improvements (unused imports removed, logger deduplication)
+- [x] Stellar SDK Renovate updates re-enabled for automated version tracking
+- [x] Contract version in Cargo.toml aligned with on-chain CONTRACT_VERSION
+- [x] VAPID keys made optional in non-production environments
+- [x] Health test suite fixed (missing braces, ESLint globals)
+- [x] Better CONTRACT_ID error messaging with requireContractId helper
+- [x] JWT_SECRET fallback default removed — hard error when missing
+- [x] Console.* calls replaced with structured logger in ErrorBoundary, TransactionActions
+- [x] AMM integration TODOs linked to GitHub issue tracker with detailed roadmap
+- [x] Stellar SDK v16 upgrade in frontend dependencies
+- [x] Coverage thresholds raised to 80% lines / 70% branches / 75% functions
+- [x] Benchmark regression detection added to CI pipeline
+- [ ] Contract event migration: `publish()` → `#[contractevent]` macro
+- [ ] AMM/DeFi integration (yield_escrow TODOs)
+- [ ] Third-party security audit
+- [ ] Increase test coverage to 80%+ across all components
+
+---
+
+*Last updated: August 11, 2026*

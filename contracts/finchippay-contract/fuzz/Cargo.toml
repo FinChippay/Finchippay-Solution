@@ -1,0 +1,97 @@
+[package]
+name = "finchippay-contract-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone crate (cargo-fuzz style): do not inherit the root workspace.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.finchippay-contract]
+path = ".."
+features = ["testutils"]
+
+[dependencies.soroban-sdk]
+version = "27.0.1"
+features = ["testutils"]
+
+# Each [[bin]] entry corresponds to one fuzz target.
+# Run with: cargo +nightly fuzz run <name> --fuzz-dir fuzz
+
+[[bin]]
+name = "fuzz_target_1_parse_payment"
+path = "fuzz_targets/fuzz_target_1_parse_payment.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_target_2_escrow"
+path = "fuzz_targets/fuzz_target_2_escrow.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_target_3_multisig"
+path = "fuzz_targets/fuzz_target_3_multisig.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_target_4_batch_send"
+path = "fuzz_targets/fuzz_target_4_batch_send.rs"
+test = false
+doc = false
+[[bin]]
+name = "open_stream"
+path = "fuzz_targets/open_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "claim_stream"
+path = "fuzz_targets/claim_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "create_escrow"
+path = "fuzz_targets/create_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "claim_escrow"
+path = "fuzz_targets/claim_escrow.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "batch_send"
+path = "fuzz_targets/batch_send.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "create_multisig"
+path = "fuzz_targets/create_multisig.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "approve_multisig"
+path = "fuzz_targets/approve_multisig.rs"
+test = false
+doc = false
+bench = false

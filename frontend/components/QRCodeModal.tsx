@@ -3,8 +3,9 @@
  * Modal component for displaying QR code with Stellar payment URI (SEP-0007).
  */
 
-import { useState, useRef } from "react";
 import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
+import { useState, useRef, type SVGProps } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -15,7 +16,9 @@ interface QRCodeModalProps {
 
 export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCodeModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
+
   // Generate SEP-0007 URI format: web+stellar:pay?destination=G...[&amount=X]
   const generateStellarURI = () => {
     const baseURI = `web+stellar:pay?destination=${publicKey}`;
@@ -44,45 +47,58 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="card max-w-md w-full animate-slide-up">
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="qr-modal-title"
+        className="card max-w-md w-full animate-slide-up focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h3 className="font-display text-xl font-semibold text-white">
+          <h3 id="qr-modal-title" className="font-display text-xl font-semibold text-slate-900 dark:text-white">
             Receive Payment QR Code
           </h3>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+            aria-label="Close QR code dialog"
+            className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5"
           >
-            <CloseIcon className="w-5 h-5" />
+            <CloseIcon className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* QR Code Display */}
         <div className="flex flex-col items-center mb-6">
-          <div className="bg-white p-4 rounded-xl shadow-lg mb-4">
+          <div className="bg-white p-4 rounded-xl shadow-lg mb-4" role="img" aria-label={`QR code encoding Stellar payment URI for ${publicKey}`}>
             <QRCodeCanvas
               value={stellarURI}
               size={256}
               level="M"
               includeMargin={true}
               ref={canvasRef}
+              aria-hidden="true"
             />
           </div>
           
           {/* Address Display */}
           <div className="text-center mb-4">
-            <p className="text-xs text-slate-400 mb-1">Your Stellar Address</p>
-            <p className="font-mono text-sm text-slate-300 break-all">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Your Stellar Address</p>
+            <p className="font-mono text-sm text-slate-700 dark:text-slate-300 break-all">
               {publicKey}
             </p>
           </div>
 
           {/* URI Display */}
           <div className="text-center mb-6">
-            <p className="text-xs text-slate-400 mb-1">Payment URI</p>
-            <p className="font-mono text-xs text-slate-400 break-all max-w-full">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Payment URI</p>
+            <p className="font-mono text-xs text-slate-600 dark:text-slate-400 break-all max-w-full">
               {stellarURI}
             </p>
           </div>
@@ -92,22 +108,23 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
         <div className="flex gap-3">
           <button
             onClick={downloadQRCode}
-            className="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            aria-label="Download QR code as PNG"
+            className="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60"
           >
-            <DownloadIcon className="w-4 h-4" />
+            <DownloadIcon className="w-4 h-4" aria-hidden="true" />
             Download QR
           </button>
           <button
             onClick={onClose}
-            className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+            className="flex-1 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-900 dark:text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
           >
             Close
           </button>
         </div>
 
         {/* Instructions */}
-        <div className="mt-4 pt-4 border-t border-white/5">
-          <p className="text-xs text-slate-400 text-center">
+        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/5">
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">
             Scan this QR code with Freighter mobile or any Stellar wallet to receive payments.
           </p>
         </div>
@@ -118,17 +135,17 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
 
 // ─── Icons ─────────────────────────────────────────────────────────────────────
 
-function CloseIcon({ className }: { className?: string }) {
+function CloseIcon({ className, ...rest }: SVGProps<SVGSVGElement>) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...rest}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }
 
-function DownloadIcon({ className }: { className?: string }) {
+function DownloadIcon({ className, ...rest }: SVGProps<SVGSVGElement>) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...rest}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   );

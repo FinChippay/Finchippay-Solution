@@ -1,0 +1,342 @@
+# .github/workflows/kubernetes-deploy.yml
+# Kubernetes Deployment Pipeline for Finchippay-Solution
+#
+# Builds, scans, and pushes Docker images, then deploys to Kubernetes
+# using Helm. Supports canary rollouts with configurable traffic weight.
+#
+# Triggers:
+#   - push to main: full build → scan → push → deploy
+#   - version tags (v*.*.*): production deployment
+#   - workflow_dispatch: manual deploy with environment selection
+#
+# Required GitHub Secrets:
+#   KUBE_CONFIG            — base64-encoded kubeconfig for the target cluster
+#   GITHUB_TOKEN           — auto-provided, used for ghcr.io auth
+#
+# Optional GitHub Secrets:
+#   JWT_SECRET             — JWT signing secret for backend
+#   DB_URL                 — Database connection string for backend
+#   STELLAR_DEPLOYER_SECRET — Stellar secret key (for production)
+
+name: Kubernetes Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "issues/**"
+      - "pr-descriptions/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "kubernetes/**"
+      - "docker-compose*.yml"
+      - "backend/Dockerfile*"
+      - "frontend/Dockerfile*"
+      - "nginx/**"
+      - ".github/workflows/kubernetes-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      canary_weight:
+        description: "Canary traffic weight percentage (0-100)"
+        required: false
+        type: number
+        default: 100
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/finchippay/finchippay-backend
+  FRONTEND_IMAGE: ghcr.io/finchippay/finchippay-frontend
+  NGINX_IMAGE: ghcr.io/finchippay/finchippay-nginx
+  HELM_RELEASE: finchippay
+  HELM_CHART: kubernetes/helm/finchippay
+
+jobs:
+  # ─── Build, Scan & Push Images ─────────────────────────────────────────────
+  build-and-push:
+    name: Build, Scan & Push Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - name: backend
+            context: .
+            dockerfile: backend/Dockerfile.prod
+            image: ghcr.io/finchippay/finchippay-backend
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile.prod
+            image: ghcr.io/finchippay/finchippay-frontend
+          - name: nginx
+            context: nginx
+            dockerfile: nginx/Dockerfile
+            image: ghcr.io/finchippay/finchippay-nginx
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        id: login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Check GHCR availability
+        id: registry
+        run: |
+          if [ "${{ steps.login.outcome }}" = "success" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "GHCR login succeeded — push enabled"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::notice title=GHCR Unavailable::Skipping image push — GHCR not accessible. Build and scan only."
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.component.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build image (local, for scanning)
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          push: false
+          load: true
+          tags: ${{ matrix.component.name }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image with Trivy
+        id: scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.component.name }}:scan
+          format: sarif
+          output: trivy-${{ matrix.component.name }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.component.name }}.sarif
+          category: trivy-${{ matrix.component.name }}-k8s
+        continue-on-error: true
+
+      - name: Push image
+        if: steps.registry.outputs.available == 'true' && github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Lint Kubernetes Manifests ────────────────────────────────────────────
+  k8s-lint:
+    name: Lint Kubernetes Manifests
+    runs-on: ubuntu-latest
+    needs: []
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubeconform
+        run: |
+          KUBECONFORM_VERSION="v0.6.6"
+          curl -sSfL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate Kubernetes manifests
+        run: |
+          find kubernetes -name "*.yaml" -not -path "*/helm/*" -print0 \
+            | xargs -0 kubeconform -strict -ignore-missing-schemas -summary
+        continue-on-error: true
+
+      - name: Lint Helm chart
+        run: |
+          helm lint ${{ env.HELM_CHART }}
+
+  # ─── Helm Template Check (on PR) ──────────────────────────────────────────
+  helm-template:
+    name: Helm Template Check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: []
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Helm template validation
+        run: |
+          helm template finchippay-pr ${{ env.HELM_CHART }} \
+            --set frontend.image.tag=pr-check \
+            --set backend.image.tag=pr-check \
+            --set environment=staging \
+            --debug \
+            | tee rendered-manifests.yaml
+
+      - name: Validate rendered manifests with kubeconform
+        run: |
+          KUBECONFORM_VERSION="v0.6.6"
+          curl -sSfL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kubeconform
+          kubeconform -strict -ignore-missing-schemas -summary rendered-manifests.yaml || true
+
+  # ─── Deploy to Kubernetes ─────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Kubernetes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    continue-on-error: true
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: https://finchippay.io
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster access
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create/update secrets
+        run: |
+          kubectl create secret generic finchippay-secrets \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=DB_URL="${{ secrets.DB_URL }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Helm
+        run: |
+          ENV="${{ github.event.inputs.environment || 'production' }}"
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+
+          echo "::group::Helm upgrade install"
+          helm upgrade --install ${{ env.HELM_RELEASE }} ${{ env.HELM_CHART }} \
+            --namespace finchippay \
+            --create-namespace \
+            --set environment="${ENV}" \
+            --set frontend.image.tag="${SHA_TAG}" \
+            --set backend.image.tag="${SHA_TAG}" \
+            --set nginx.image.tag="${SHA_TAG}" \
+            --set replicaCount=1 \
+            --timeout 10m \
+            --wait \
+            --atomic
+          echo "::endgroup::"
+
+      - name: Verify deployment
+        run: |
+          echo "::group::Deployment Status"
+          kubectl rollout status deployment/finchippay-backend -n finchippay --timeout=5m
+          kubectl rollout status deployment/finchippay-frontend -n finchippay --timeout=5m
+          kubectl rollout status deployment/finchippay-nginx -n finchippay --timeout=5m
+          echo "::endgroup::"
+
+          echo "::group::Pod Status"
+          kubectl get pods -n finchippay -o wide
+          echo "::endgroup::"
+
+      - name: Post deployment summary
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          DEPLOY_STATUS: ${{ job.status }}
+          SHA: ${{ github.sha }}
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'production' }}
+        with:
+          script: |
+            const status = process.env.DEPLOY_STATUS === 'success' ? '✅ Success' : '❌ Failed';
+            const sha = process.env.SHA.substring(0, 7);
+            const env = process.env.ENVIRONMENT;
+            const workflowUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            const body = [
+              `## 🚀 Kubernetes Deploy — ${status}`,
+              '',
+              `| Field | Value |`,
+              `|-------|-------|`,
+              `| **Environment** | \`${env}\` |`,
+              `| **Commit** | [\`${sha}\`](${workflowUrl}) |`,
+              `| **Registry** | \`${process.env.REGISTRY}\` |`,
+              '',
+              `> Deployed via [kubernetes-deploy workflow](${workflowUrl}).`,
+            ].join('\n');
+
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+            });
+
+            if (prs.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs[0].number,
+                body,
+              });
+              core.notice(`Posted deployment comment on PR #${prs[0].number}`);
+            }

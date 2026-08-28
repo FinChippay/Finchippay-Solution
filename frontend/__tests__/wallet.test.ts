@@ -11,6 +11,28 @@ jest.mock("@/lib/stellar", () => ({
   getNetworkPassphrase: jest.fn(() => "Test SDF Network ; September 2015"),
 }));
 
+// Mock the auth module to prevent localStorage side effects
+jest.mock("@/lib/auth", () => ({
+  setJwtToken: jest.fn(),
+  clearJwtToken: jest.fn(),
+  getJwtToken: jest.fn(() => null),
+  // sdk-instance.ts wraps fetch with withAuth at import time; return the fetch
+  // fn unchanged so importing wallet.ts doesn't throw.
+  withAuth: jest.fn((fetchFn) => fetchFn),
+}));
+
+// Mock the SDK client boundary. wallet.ts drives the SEP-0010 flow through the
+// shared `sdk` instance (getChallenge/verifyChallenge/setToken), so we stub it
+// rather than the underlying fetch.
+jest.mock("@/lib/sdk-instance", () => ({
+  sdk: {
+    getChallenge: jest.fn(),
+    verifyChallenge: jest.fn(),
+    setToken: jest.fn(),
+  },
+  initSdkAuth: jest.fn(),
+}));
+
 // Mock fetch
 global.fetch = jest.fn();
 
@@ -302,6 +324,16 @@ describe("wallet.ts", () => {
 
       expect(getJwtToken()).toBeNull();
     });
+
+    it("disconnectWallet clears localStorage auth token", () => {
+      const { clearJwtToken } = require("@/lib/auth");
+      setJwtToken("test-token");
+
+      disconnectWallet();
+
+      expect(clearJwtToken).toHaveBeenCalled();
+    });
+
   });
 
   describe("performSEP0010Auth", () => {
@@ -309,32 +341,41 @@ describe("wallet.ts", () => {
       const challengeXDR = "challenge-xdr-123";
       const jwtToken = "jwt-token-456";
 
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ transaction: challengeXDR }),
-      });
-
-      mockSignTransaction.mockResolvedValue({
-        signedTxXdr: mockSignedXDR,
-      });
-
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ token: jwtToken }),
+      mockGetChallenge.mockResolvedValue({ transaction: challengeXDR });
+      mockSignTransaction.mockResolvedValue({ signedTxXdr: mockSignedXDR });
+      mockVerifyChallenge.mockResolvedValue({
+        accessToken: jwtToken,
+        refreshToken: "refresh-789",
       });
 
       const result = await performSEP0010Auth(mockPublicKey);
 
+      expect(mockGetChallenge).toHaveBeenCalledWith(mockPublicKey);
+      expect(mockVerifyChallenge).toHaveBeenCalledWith(mockSignedXDR);
       expect(result.token).toBe(jwtToken);
       expect(result.error).toBeNull();
       expect(getJwtToken()).toBe(jwtToken);
     });
 
-    it("returns error when challenge fetch fails", async () => {
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: false,
-        json: async () => ({ error: "Challenge not available" }),
+    it("persists JWT token to localStorage on successful auth", async () => {
+      const challengeXDR = "challenge-xdr-123";
+      const jwtToken = "jwt-token-456";
+      const { setJwtToken: authSetJwtToken } = require("@/lib/auth");
+
+      mockGetChallenge.mockResolvedValue({ transaction: challengeXDR });
+      mockSignTransaction.mockResolvedValue({ signedTxXdr: mockSignedXDR });
+      mockVerifyChallenge.mockResolvedValue({
+        accessToken: jwtToken,
+        refreshToken: "refresh-789",
       });
+
+      await performSEP0010Auth(mockPublicKey);
+
+      expect(authSetJwtToken).toHaveBeenCalledWith(jwtToken);
+    });
+
+    it("returns error when the challenge request fails", async () => {
+      mockGetChallenge.mockRejectedValue(new Error("Challenge not available"));
 
       const result = await performSEP0010Auth(mockPublicKey);
 
@@ -345,11 +386,7 @@ describe("wallet.ts", () => {
     it("returns error when signing fails", async () => {
       const challengeXDR = "challenge-xdr-123";
 
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ transaction: challengeXDR }),
-      });
-
+      mockGetChallenge.mockResolvedValue({ transaction: challengeXDR });
       mockSignTransaction.mockRejectedValue(new Error("User declined signing"));
 
       const result = await performSEP0010Auth(mockPublicKey);

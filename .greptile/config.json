@@ -1,0 +1,139 @@
+{
+  "strictness": 2,
+  "commentTypes": ["syntax", "logic", "security", "performance", "style", "info"],
+  "fileChangeLimit": 50,
+  "triggerOnUpdates": true,
+  "statusCheck": true,
+
+  "filtering": {
+    "labels": ["needs-review", "breaking-change"],
+    "disabledLabels": ["skip-review", "wip", "draft"],
+    "excludeAuthors": ["dependabot[bot]", "renovate[bot]"],
+    "includeBranches": ["main", "develop", "staging"],
+    "excludeBranches": ["experimental-*", "wip-*"],
+    "ignorePatterns": [
+      "**/*.min.js",
+      "**/*.generated.*",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.next/**",
+      "**/target/**",
+      "**/package-lock.json",
+      "**/pnpm-lock.yaml",
+      "**/Cargo.lock",
+      "*.snap",
+      "**/coverage/**",
+      "**/playwright-report/**",
+      "**/.vercel/**"
+    ]
+  },
+
+  "autoApprove": {
+    "enabled": false
+  },
+
+  "context": {
+    "repos": []
+  },
+
+  "rules": [
+    {
+      "id": "no-hardcoded-secrets",
+      "rule": "Never hardcode API keys, tokens, secrets, or private keys. Use environment variables (process.env) or GitHub Secrets. Flag any string matching patterns like 'sk-...', 'S...' (Stellar secret keys), JWT secrets, or DigitalOcean tokens.",
+      "scope": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs", "**/*.json"],
+      "severity": "critical"
+    },
+    {
+      "id": "stellar-key-safety",
+      "rule": "Stellar secret keys (starting with 'S') must NEVER appear in source code, comments, or test fixtures. Use environment variables only. Test fixtures should use clearly documented test-only keys.",
+      "scope": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.rs"],
+      "severity": "critical"
+    },
+    {
+      "id": "no-console-production",
+      "rule": "Avoid console.log, console.error in production code paths. Use structured logging (pino for backend, Sentry for error tracking). console methods are acceptable only in scripts/, CLI tools, and explicit debug utilities.",
+      "scope": ["backend/src/**/*.js", "frontend/pages/**/*.tsx", "frontend/lib/**/*.ts"],
+      "severity": "medium"
+    },
+    {
+      "id": "error-handling",
+      "rule": "All async operations must have proper error handling with try/catch or .catch(). Use shared/errorCodes.js for consistent error responses. Never swallow errors silently.",
+      "scope": ["backend/src/**/*.js", "frontend/lib/**/*.ts", "frontend/pages/**/*.tsx"],
+      "severity": "high"
+    },
+    {
+      "id": "input-validation",
+      "rule": "All user inputs must be validated before processing. Use Zod schemas for runtime validation. Sanitize inputs to prevent injection attacks (SQL injection, XSS, path traversal).",
+      "scope": ["backend/src/**/*.js"],
+      "severity": "high"
+    },
+    {
+      "id": "rate-limiting",
+      "rule": "API endpoints handling payments, auth, or sensitive operations must implement rate limiting. Use the express-rate-limit middleware with Redis store. Check existing patterns in the codebase.",
+      "scope": ["backend/src/**/*.js"],
+      "severity": "high"
+    },
+    {
+      "id": "soroban-safety",
+      "rule": "Soroban/Rust contracts must use checked arithmetic (checked_add, checked_mul, etc.), avoid unbounded loops, and use ContractError instead of raw panic!. All public contract methods must validate inputs and check authorization.",
+      "scope": ["contracts/finchippay-contract/src/**/*.rs"],
+      "severity": "critical"
+    },
+    {
+      "id": "sql-injection-prevention",
+      "rule": "Use parameterized queries with Knex.js. Never concatenate user input into raw SQL strings. All database queries must go through the Knex query builder or use bindings.",
+      "scope": ["backend/src/**/*.js"],
+      "severity": "critical"
+    },
+    {
+      "id": "type-safety",
+      "rule": "TypeScript code must use proper types. Avoid 'any' unless absolutely necessary with a comment explaining why. Use interfaces/types for all function parameters and return values. Leverage the @finchippay/sdk types for API interactions.",
+      "scope": ["frontend/**/*.ts", "frontend/**/*.tsx", "sdk/**/*.ts"],
+      "severity": "medium"
+    },
+    {
+      "id": "accessibility",
+      "rule": "UI components must meet WCAG 2.1 AA standards. Use semantic HTML, proper ARIA attributes, keyboard navigation support, and sufficient color contrast. Run axe-core checks.",
+      "scope": ["frontend/pages/**/*.tsx", "frontend/components/**/*.tsx"],
+      "severity": "high"
+    },
+    {
+      "id": "i18n-compliance",
+      "rule": "All user-facing strings must use the i18next translation framework (useTranslation hook, t() function). Never hardcode English strings in UI components. Check i18n:check passes.",
+      "scope": ["frontend/pages/**/*.tsx", "frontend/components/**/*.tsx"],
+      "severity": "medium"
+    },
+    {
+      "id": "terraform-best-practices",
+      "rule": "Terraform resources must use variables (no hardcoded values), have proper tags (project + env), use consistent naming with the local.name_prefix convention, and include descriptions for all variables and outputs.",
+      "scope": ["terraform/**/*.tf"],
+      "severity": "medium"
+    },
+    {
+      "id": "kubernetes-security",
+      "rule": "Kubernetes manifests must set resource requests/limits, use non-root users, avoid privileged containers, use readOnlyRootFilesystem where possible, and reference secrets via secretKeyRef (never inline).",
+      "scope": ["kubernetes/**/*.yaml", "kubernetes/**/*.yml"],
+      "severity": "high"
+    },
+    {
+      "id": "test-coverage",
+      "rule": "New features must include unit tests. Bug fixes must include regression tests. Use Jest for JS/TS, cargo test for Rust. Test files should be in __tests__/ or co-located as *.test.{ts,js,rs}.",
+      "scope": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.rs"],
+      "severity": "medium"
+    },
+    {
+      "id": "docker-best-practices",
+      "rule": "Dockerfiles must use multi-stage builds, pin base image versions, minimize layers, use .dockerignore, and never include secrets in build args. HEALTHCHECK should be included.",
+      "scope": ["**/Dockerfile*"],
+      "severity": "medium"
+    },
+    {
+      "id": "ci-workflow-integrity",
+      "rule": "CI workflows must use pinned action versions (e.g., actions/checkout@v4 not @main), define proper permissions, avoid shell injection in run steps, and use secrets contexts (never hardcoded tokens).",
+      "scope": [".github/workflows/**/*.yml"],
+      "severity": "high"
+    }
+  ],
+
+  "disabledRules": []
+}

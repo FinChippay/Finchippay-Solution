@@ -5,6 +5,7 @@
  *  1. Dashboard shows 'Connect wallet' prompt when no Freighter extension is present.
  *  2. After mock-connecting Freighter, wallet address and balance are displayed.
  *  3. Navigating to /transactions after connect shows the transaction list.
+ *  4. Disconnecting the wallet clears the JWT and redirects to landing page.
  */
 import { test as base, expect } from '@playwright/test';
 import { test as authenticatedTest } from './fixtures';
@@ -89,5 +90,35 @@ authenticatedTest(
     await expect(
       page.getByText('Connect your wallet to view your payments'),
     ).not.toBeVisible();
+  },
+);
+
+// ── Scenario 4: Disconnect clears JWT and redirects ──────────────────────────
+
+authenticatedTest(
+  'disconnect wallet clears JWT token and redirects to landing page',
+  async ({ page }) => {
+    // Connect wallet first.
+    await page.goto('/dashboard');
+    await page.getByRole('button', { name: /Connect Freighter Wallet/i }).click();
+
+    // Wait for wallet to be connected.
+    await expect(
+      page.locator('p.label').filter({ hasText: 'Wallet Address' }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Click the disconnect button in the navbar.
+    await page.getByRole('button', { name: /Show disconnect confirmation/i }).click();
+
+    // Click the Confirm button in the disconnect dialog.
+    await page.getByRole('button', { name: /Confirm/i }).click();
+
+    // Verify user is redirected to the landing page.
+    await expect(page).toHaveURL('/');
+
+    // Verify the landing page shows the connect button (wallet is disconnected).
+    await expect(
+      page.getByRole('button', { name: /Connect Wallet/i }),
+    ).toBeVisible({ timeout: 10_000 });
   },
 );

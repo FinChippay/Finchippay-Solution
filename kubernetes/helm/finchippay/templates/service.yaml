@@ -1,0 +1,16 @@
+{{- range $name, $cfg := .Values }}
+{{- if kindIs "map" $cfg }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finchippay-{{ $name }}
+spec:
+  selector:
+    app: finchippay-{{ $name }}
+  ports:
+    - port: {{ $cfg.service.port }}
+      targetPort: {{ $cfg.service.port }}
+      type: {{ $cfg.service.type }}
+{{- end }}
+{{- end }}

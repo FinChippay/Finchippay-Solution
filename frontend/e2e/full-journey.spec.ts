@@ -20,7 +20,7 @@ function mockAccountResponse(balance: string) {
 // Drives the wallet connection flow and waits for the authenticated dashboard.
 // The fixture mocks window.freighter + all backend APIs, so clicking the button
 // completes synchronously from the app's perspective.
-async function connectWallet(page: any) {
+async function connectWallet(page: import('@playwright/test').Page) {
   await page.goto('/dashboard');
 
   const walletAddress = page.getByText('Wallet Address');

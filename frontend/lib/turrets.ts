@@ -3,6 +3,25 @@
  * Frontend API helpers for Turrets txFunctions.
  */
 
+import { apiFetch } from "./api";
+
+const API_URL =
+  (typeof window !== "undefined"
+    ? process.env.NEXT_PUBLIC_API_URL
+    : process.env.NEXT_PUBLIC_API_URL) || "http://localhost:4000";
+
+function getBaseUrl(): string {
+  return API_URL.replace(/\/+$/, "");
+}
+
+function authHeaders(token?: string | null): Record<string, string> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) {
+    h.Authorization = `Bearer ${token}`;
+  }
+  return h;
+}
+
 export type TurretsType = "dca" | "stop_loss";
 
 export interface TurretsDeployment {
@@ -29,30 +48,17 @@ export interface TurretsExecutionHistory {
   createdAt: string;
 }
 
-function apiBase() {
-  return process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-}
-
-async function parseJson(res: Response) {
-  const json = await res.json().catch(() => null);
-  if (!res.ok || !json?.success) {
-    throw new Error(json?.error || "Turrets API request failed");
-  }
-  return json.data;
-}
-
 export async function createTurretsChallenge(params: {
   ownerPublicKey: string;
   type: TurretsType;
   config: Record<string, unknown>;
 }) {
-  const res = await fetch(`${apiBase()}/api/turrets/challenge`, {
+  const res = await apiFetch(`${getBaseUrl()}/api/turrets/challenge`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify(params),
   });
-
-  return parseJson(res) as Promise<{
+  return res.json() as Promise<{
     challengeXDR: string;
     deploymentHash: string;
     normalizedConfig: Record<string, unknown>;
@@ -67,40 +73,40 @@ export async function deployTurretsFunction(params: {
   deploymentHash: string;
   signedChallengeXDR: string;
 }) {
-  const res = await fetch(`${apiBase()}/api/turrets/deploy`, {
+  const res = await apiFetch(`${getBaseUrl()}/api/turrets/deploy`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify(params),
   });
-
-  return parseJson(res) as Promise<TurretsDeployment>;
+  return res.json() as Promise<TurretsDeployment>;
 }
 
 export async function listTurretsFunctions(ownerPublicKey: string) {
-  const res = await fetch(
-    `${apiBase()}/api/turrets?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`
+  const res = await apiFetch(
+    `${getBaseUrl()}/api/turrets/list?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`,
+    { headers: authHeaders() }
   );
-
-  return parseJson(res) as Promise<TurretsDeployment[]>;
+  return res.json() as Promise<TurretsDeployment[]>;
 }
 
 export async function getTurretsHistory(id: string) {
-  const res = await fetch(`${apiBase()}/api/turrets/${encodeURIComponent(id)}/history`);
-  return parseJson(res) as Promise<TurretsExecutionHistory[]>;
+  const res = await apiFetch(
+    `${getBaseUrl()}/api/turrets/history/${encodeURIComponent(id)}`,
+    { headers: authHeaders() }
+  );
+  return res.json() as Promise<TurretsExecutionHistory[]>;
 }
 
 export async function pauseTurretsFunction(id: string) {
-  const res = await fetch(`${apiBase()}/api/turrets/${encodeURIComponent(id)}/pause`, {
+  await apiFetch(`${getBaseUrl()}/api/turrets/pause/${encodeURIComponent(id)}`, {
     method: "POST",
+    headers: authHeaders(),
   });
-
-  return parseJson(res) as Promise<TurretsDeployment>;
 }
 
 export async function resumeTurretsFunction(id: string) {
-  const res = await fetch(`${apiBase()}/api/turrets/${encodeURIComponent(id)}/resume`, {
+  await apiFetch(`${getBaseUrl()}/api/turrets/resume/${encodeURIComponent(id)}`, {
     method: "POST",
+    headers: authHeaders(),
   });
-
-  return parseJson(res) as Promise<TurretsDeployment>;
 }

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import SendPaymentForm from "@/components/SendPaymentForm";
+import SendPaymentForm from "../components/SendPaymentForm";
 
 const meta: Meta<typeof SendPaymentForm> = {
   title: "Components/SendPaymentForm",

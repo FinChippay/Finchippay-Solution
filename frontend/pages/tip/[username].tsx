@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import TipWidget from "@/components/TipWidget";
+import { apiClient } from "@/lib/api";
 
 interface ResolvedAccount {
   username: string;
@@ -36,33 +37,16 @@ export default function TipPage() {
     }
 
     let isActive = true;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
     setResolveState({
       status: "loading",
       message: `Looking up @${routeUsername}...`,
     });
 
-    fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(routeUsername)}`)
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-
-        if (response.status === 404) {
-          throw new ResolveError(
-            "not-found",
-            payload?.error || `@${routeUsername} does not have a public tip page yet.`
-          );
-        }
-
-        if (!response.ok) {
-          throw new ResolveError(
-            "error",
-            payload?.error || "We could not load this tip page right now."
-          );
-        }
-
+    apiClient.accounts.resolveUsername(routeUsername)
+      .then((payload) => {
         const account = payload?.data;
-        if (!payload?.success || !account?.publicKey || !account?.username) {
+        if (!account?.publicKey || !account?.username) {
           throw new ResolveError("error", "The tip page response was incomplete.");
         }
 
@@ -80,6 +64,14 @@ export default function TipPage() {
 
         if (error instanceof ResolveError) {
           setResolveState({ status: error.kind, message: error.message });
+          return;
+        }
+
+        if (error && typeof error === "object" && "status" in error && (error as any).status === 404) {
+          setResolveState({
+            status: "not-found",
+            message: (error as any).message || `@${routeUsername} does not have a public tip page yet.`,
+          });
           return;
         }
 

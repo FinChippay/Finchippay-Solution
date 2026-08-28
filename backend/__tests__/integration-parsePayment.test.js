@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * __tests__/integration-parsePayment.test.js
  * Integration tests for the /api/parse-payment endpoint using nock.
@@ -59,9 +60,7 @@ describe("POST /api/parse-payment (integration)", () => {
   });
 
   it("returns 400 when input is missing from request body", async () => {
-    const res = await request(app)
-      .post("/api/parse-payment")
-      .send({});
+    const res = await request(app).post("/api/parse-payment").send({});
 
     expect(res.status).toBe(400);
     expect(res.body.clarification).toBe("Please provide a payment description.");

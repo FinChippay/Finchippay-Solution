@@ -225,3 +225,28 @@ Consider adding:
 - App shortcuts in manifest for quick send / request
 - Share target API for receiving payments via Android share sheet
 - Periodic background sync for fetching account balances
+
+## Offline Queue
+
+When the user is offline, payment submissions are queued in IndexedDB via
+`offlineQueue.ts`. The queue automatically replays when connectivity is
+restored, preserving transaction order and preventing duplicates.
+
+### Queue States
+
+- **queued**: Payment is stored locally, waiting for connectivity
+- **sending**: Payment is being submitted to the network
+- **sent**: Successfully submitted; transaction hash recorded
+- **failed**: Submission failed after max retries; user must manually retry
+
+### Conflict Resolution
+
+If a queued payment conflicts with a newer on-chain state (e.g., insufficient
+balance), the queue marks the payment as failed and notifies the user. No
+payment is silently dropped.
+
+### Service Worker
+
+The service worker (`public/sw.js`) caches the app shell (HTML, CSS, JS) and
+API responses for critical routes. The cache is versioned and purged on new
+deployments via the `CACHE_VERSION` constant.

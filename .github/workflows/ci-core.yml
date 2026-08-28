@@ -1,0 +1,83 @@
+name: CI Core
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
+    if: false # Disabled: not run on PRs or push
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+    continue-on-error: ${{ matrix.node-version != '22' }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npm run lint
+      - run: npm run i18n:check
+      - run: npm run type-check
+      - run: npm test
+      - run: npm run build-storybook
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+          NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_CONTRACT_ID: CCW67TSZV3SSS2HXMBQ52NVF3FB25GQ2G6E3BGLZ52B7W7TKG4E7SML2
+
+  backend:
+    name: Backend (Node ${{ matrix.node-version }})
+    if: false # Disabled: not run on PRs or push
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+    continue-on-error: ${{ matrix.node-version != '22' }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run migrate
+        env:
+          NODE_ENV: test
+      - run: npm run migrate:status
+        env:
+          NODE_ENV: test
+      - name: Check error code docs
+        working-directory: .
+        run: npm run docs:errors:check
+        env:
+          NODE_ENV: test
+      - run: npm run test:unit
+        env:
+          NODE_ENV: test
+      - run: npm run test:integration
+        env:
+          ANTHROPIC_API_KEY: test-key-for-ci
+          NODE_ENV: test

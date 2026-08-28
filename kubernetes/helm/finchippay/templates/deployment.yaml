@@ -1,0 +1,27 @@
+{{- range $name, $cfg := .Values }}
+{{- if kindIs "map" $cfg }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finchippay-{{ $name }}
+  labels:
+    app: finchippay-{{ $name }}
+spec:
+  replicas: {{ $cfg.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: finchippay-{{ $name }}
+  template:
+    metadata:
+      labels:
+        app: finchippay-{{ $name }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: "{{ $cfg.image.repository }}:{{ $cfg.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ $cfg.service.port }}
+{{- end }}
+{{- end }}

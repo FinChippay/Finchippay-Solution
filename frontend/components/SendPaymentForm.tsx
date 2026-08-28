@@ -1,3 +1,21 @@
+import { Transaction } from "@stellar/stellar-sdk";
+import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
+import clsx from "clsx";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import ContactPicker from "@/components/ContactPicker";
+import { withErrorBoundary } from "@/components/ErrorBoundary";
+import FeeEstimator from "@/components/FeeEstimator";
+import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
+import PaymentStatusModal, {
+  type PaymentFlowStatus,
+  type PaymentStepId,
+  type PaymentStepTiming,
+} from "@/components/PaymentStatusModal";
+import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
+import QuickAddPanel from "@/components/QuickAddPanel";
+import BatchSummary from "@/components/BatchSummary";
+import { logger } from "@/lib/logger";
 /**
  * components/SendPaymentForm.tsx
  * Form for sending XLM payments to any Stellar address.
@@ -6,14 +24,15 @@
  * FinChippay/Finchippay-Solution
  */
 
-import { withErrorBoundary } from "@/components/ErrorBoundary";
-import PaymentStatusModal, {
-  type PaymentFlowStatus,
-  type PaymentStepId,
-  type PaymentStepTiming,
-} from "@/components/PaymentStatusModal";
-import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { parseStellarURI } from "@/lib/sep0007";
+import { getKnownAssets, buildAddTrustlineTx, type AssetInfo } from "@/lib/assetDiscovery";
+import { fetchPrices } from "@/lib/priceAlerts";
+import { useToastContext } from "@/lib/ToastContext";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { queueTransaction } from "@/lib/offlineQueue";
+import AssetSelect, { type AssetSelectOption } from "@/components/AssetSelect";
+import { formatUSD } from "@/utils/format";
+
 import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
@@ -25,20 +44,12 @@ import {
   resolveFederationAddress,
   server,
   STELLAR_BASE_FEE_XLM,
-  STELLAR_MEMO_TEXT_MAX_BYTES,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
 } from "@/lib/stellar";
-import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import {
-  type AddressBookContact,
-  loadAddressBookContacts,
-  saveAddressBookContacts,
-  subscribeToAddressBookContacts,
-  upsertAddressBookContact,
-} from "@/lib/addressBook";
+import { useContacts } from "@/hooks/useContacts";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import {
   SendIcon,
@@ -49,10 +60,6 @@ import {
   QrCodeIcon,
   ReceiptIcon,
 } from "@/components/icons";
-import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { useToastContext } from "@/lib/ToastContext";
 
 interface SendPaymentFormProps {
   publicKey: string;
@@ -82,6 +89,15 @@ interface SendPaymentFormProps {
     amount: string;
     memo?: string;
   } | null;
+  /** Optional hook into the balance stream for optimistic send deltas. */
+  optimisticBalanceApi?: OptimisticBalanceApi | null;
+}
+
+export interface OptimisticBalanceApi {
+  /** Apply an optimistic XLM delta; call rollback(key) on failure. */
+  applyDelta(deltaXlm: string, key: string): void;
+  /** Remove a pending optimistic delta by key. */
+  rollback(key: string): void;
 }
 
 type Status = PaymentFlowStatus;
@@ -90,6 +106,19 @@ type AssetType = "XLM" | "USDC" | "CUSTOM";
 interface CustomAsset {
   code: string;
   issuer: string;
+}
+
+interface PendingTransaction {
+  id: string;
+  type: "sent";
+  amount: string;
+  asset: string;
+  from: string;
+  to: string;
+  memo?: string;
+  createdAt: string;
+  transactionHash: string;
+  isPending: boolean;
 }
 
 const ESTIMATED_NETWORK_FEE = `${STELLAR_BASE_FEE_XLM} XLM`;
@@ -123,6 +152,7 @@ function SendPaymentForm({
   hideAmountField = false,
   hideMemoField = false,
   accountBalances = [],
+  optimisticBalanceApi,
 }: SendPaymentFormProps) {
   const { t } = useTranslation("common");
   const { addToast } = useToastContext();
@@ -130,6 +160,9 @@ function SendPaymentForm({
   const resolvedSuccessTitle = successTitle || t("sendPayment.successTitle");
   const resolvedSuccessMessage = successMessage || t("sendPayment.successMessage");
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
+  const [knownAssets, setKnownAssets] = useState<AssetInfo[]>([]);
+  const [assetPrices, setAssetPrices] = useState<Record<string, number>>({});
+  const [addingTrustline, setAddingTrustline] = useState(false);
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
@@ -153,17 +186,85 @@ function SendPaymentForm({
   const [mintingReceipt, setMintingReceipt] = useState(false);
   const [receiptMinted, setReceiptMinted] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [autoMintReceipt, setAutoMintReceipt] = useState(false);
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const scannerPanelRef = useFocusTrap<HTMLDivElement>({
+    active: isScannerOpen,
+    onEscape: () => closeScanner(),
+  });
   const [destAccountWarning, setDestAccountWarning] = useState<string | null>(null);
   const [isCheckingDest, setIsCheckingDest] = useState(false);
+  const [selectedFeeStroops, setSelectedFeeStroops] = useState<number>(100);
+  const [selectedFeeTier, setSelectedFeeTier] = useState<"economy" | "standard" | "fast">("standard");
+  const [previewTx, setPreviewTx] = useState<Transaction | null>(null);
+  const [isBuilderMode, setIsBuilderMode] = useState(false);
+  const [builderRecipients, setBuilderRecipients] = useState<BuilderRecipient[]>([]);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [batchMessage, setBatchMessage] = useState<string | null>(null);
+
+  const canSubmitBuilderBatch =
+    !isBatchProcessing &&
+    builderRecipients.some(
+      (r) => isValidStellarAddress(r.address) && parseFloat(r.amount) > 0 && r.address !== publicKey
+    );
+
+  const handleSendBuilderBatch = async () => {
+    setBatchMessage(null);
+    setIsBatchProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const r of builderRecipients) {
+      const amt = parseFloat(r.amount);
+      if (!isValidStellarAddress(r.address) || !Number.isFinite(amt) || amt <= 0 || r.address === publicKey) {
+        continue;
+      }
+      try {
+        const tx = await buildPaymentTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: r.address,
+          amount: amt.toFixed(7),
+          memo: r.memo?.trim() || undefined,
+        });
+        const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
+        if (signError || !signedXDR) {
+          failCount++;
+          continue;
+        }
+        const result = await submitTransaction(signedXDR);
+        if (result?.hash) {
+          successCount++;
+          optimisticBalanceApi?.applyDelta(`-${amt.toFixed(7)}`, `send:${result.hash}`);
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsBatchProcessing(false);
+    if (failCount === 0 && successCount > 0) {
+      setBatchMessage(`Batch payment complete: ${successCount} payment${successCount > 1 ? "s" : ""} sent successfully.`);
+      onSuccess?.();
+    } else if (successCount > 0) {
+      setBatchMessage(`Batch completed: ${successCount} succeeded, ${failCount} failed.`);
+      onSuccess?.();
+    } else {
+      setBatchMessage("Batch payment failed. Please check recipient addresses and amounts.");
+    }
+  };
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  // Tracks the tx hash whose optimistic delta is currently applied, so a later
+  // failure in the send flow can roll it back.
+  const optimisticAppliedHashRef = useRef<string | null>(null);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -254,8 +355,7 @@ function SendPaymentForm({
       controls?.stop();
       scannerControlsRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isScannerOpen]);
+  }, [isScannerOpen, videoRef]);
 
   const openScanner = () => {
     setIsScannerOpen(true);
@@ -286,19 +386,14 @@ function SendPaymentForm({
     }
   });
 
-  const [contacts, setContacts] = useState<AddressBookContact[]>(loadAddressBookContacts);
+  const { contacts, add: addContact, remove: removeContact } = useContacts();
   const [isContactsDropdownOpen, setIsContactsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => subscribeToAddressBookContacts(setContacts), []);
-
-  const saveContacts = (items: AddressBookContact[]) => {
-    setContacts(items);
-    saveAddressBookContacts(items);
-  };
+  const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
 
   const deleteContactByAddress = (address: string) => {
-    saveContacts(contacts.filter((contact) => contact.address !== address));
+    const existing = contacts.find((contact) => contact.publicKey === address);
+    if (existing?.id !== undefined) void removeContact(existing.id);
   };
 
   useEffect(() => {
@@ -374,6 +469,35 @@ function SendPaymentForm({
     setResolvedPaymentDestination(null);
   }, [prefill]);
 
+  // Debounced federation address resolution on keystroke (#98)
+  useEffect(() => {
+    const trimmed = destination.trim();
+    if (!trimmed || isValidStellarAddress(trimmed)) {
+      setResolvedPaymentDestination(null);
+      setDestinationResolutionError(null);
+      return;
+    }
+    if (!isValidFederationAddress(trimmed) && !trimmed.includes('*')) {
+      setResolvedPaymentDestination(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsResolvingDestination(true);
+      setDestinationResolutionError(null);
+      try {
+        const resolved = await resolveFederationAddress(trimmed);
+        setResolvedPaymentDestination(resolved);
+      } catch (err: unknown) {
+        setDestinationResolutionError(
+          err instanceof Error ? err.message : 'Failed to resolve address'
+        );
+      } finally {
+        setIsResolvingDestination(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [destination]);
+
   // Pre-validate destination account existence on the Stellar network (#294)
   useEffect(() => {
     if (!isValidStellarAddress(destination)) {
@@ -402,6 +526,51 @@ function SendPaymentForm({
     return () => { cancelled = true; };
   }, [destination, selectedAsset]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!publicKey) return;
+
+    getKnownAssets(publicKey, accountBalances)
+      .then((assets) => {
+        if (!cancelled) setKnownAssets(assets);
+      })
+      .catch(() => {
+        // Catalogue unavailable — fall back to XLM-only selection.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, accountBalances]);
+
+  // Fiat estimate where a price feed is available (graceful fallback).
+  useEffect(() => {
+    let cancelled = false;
+    const assetsToFetch: string[] = ["XLM", "USDC"];
+    if (Array.isArray(accountBalances)) {
+      accountBalances.forEach((b) => {
+        if (b.code && !assetsToFetch.includes(b.code)) assetsToFetch.push(b.code);
+      });
+    }
+    if (knownAssets.length > 0) {
+      knownAssets.forEach((a) => {
+        if (!assetsToFetch.includes(a.code)) assetsToFetch.push(a.code);
+      });
+    }
+
+    fetchPrices(assetsToFetch)
+      .then((prices) => {
+        if (!cancelled) setAssetPrices(prices);
+      })
+      .catch(() => {
+        // Price feed unavailable — hide fiat estimates gracefully.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, knownAssets, accountBalances]);
+
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
   const customBal = accountBalances.find((b) => b.code === selectedAsset)
@@ -416,9 +585,91 @@ function SendPaymentForm({
       ? usdcBal
       : customBal;
 
+  // Trustline gating (#565): a non-native asset is only sendable when the
+  // connected account holds a trustline to it. We derive this from the known
+  // catalogue (which merges the account's trusted balances) plus the explicit
+  // balances passed by the caller.
+  const selectedAssetInfo = knownAssets.find((a) => a.code === selectedAsset);
+  const selectedTrusted =
+    selectedAsset === "XLM" ||
+    selectedAsset === "USDC" ||
+    Boolean(selectedAssetInfo?.isTrusted) ||
+    Boolean(accountBalances.find((b) => b.code === selectedAsset));
+  const needsTrustline = selectedAsset !== "XLM" && !selectedTrusted;
+  const selectedIssuer = selectedAssetInfo?.issuer ?? "";
+
+  const handleAddTrustline = async (code: string, issuer: string) => {
+    if (!issuer || addingTrustline) return;
+    setAddingTrustline(true);
+    try {
+      const xdr = await buildAddTrustlineTx(publicKey, code, issuer);
+      const { error: signError } = await signTransactionWithWallet(xdr);
+      if (signError) throw new Error(signError);
+      addToast(`Trustline added for ${code}. You can now send ${code}.`, "success");
+      const updated = await getKnownAssets(publicKey, accountBalances);
+      setKnownAssets(updated);
+      setSelectedAsset(code as AssetType);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to add trustline";
+      addToast(message, "error");
+    } finally {
+      setAddingTrustline(false);
+    }
+  };
+
   const amountNum = parseFloat(amount);
   const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
   const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
+
+  // Build the asset selector options from the static prop set, the known
+  // catalogue, and the caller-supplied trusted balances (#565).
+  const assetSelectOptions = useMemo<AssetSelectOption[]>(() => {
+    const seen = new Set<string>();
+    const options: AssetSelectOption[] = [];
+
+    assetOptions.forEach((a) => {
+      if (seen.has(a)) return;
+      seen.add(a);
+      if (a === "XLM") {
+        options.push({ code: "XLM", displayName: "XLM", isTrusted: true, balance: xlmBalance });
+      } else if (a === "USDC") {
+        options.push({
+          code: "USDC",
+          displayName: "USDC",
+          isTrusted: Boolean(usdcBalance),
+          balance: usdcBalance ?? undefined,
+        });
+      }
+    });
+
+    knownAssets.forEach((asset) => {
+      if (seen.has(asset.code)) return;
+      seen.add(asset.code);
+      options.push({
+        code: asset.code,
+        displayName: asset.code,
+        issuer: asset.issuer,
+        issuerHint: asset.domain ? asset.domain : undefined,
+        isTrusted: asset.isTrusted,
+        balance: asset.balance,
+      });
+    });
+
+    accountBalances.forEach((b) => {
+      if (seen.has(b.code)) return;
+      seen.add(b.code);
+      options.push({
+        code: b.code,
+        displayName: b.code,
+        issuer: b.issuer,
+        isTrusted: true,
+        balance: b.balance,
+      });
+    });
+
+    return options;
+  }, [assetOptions, knownAssets, accountBalances, xlmBalance, usdcBalance]);
+
   const trimmedDestination = destination.trim();
   const isValidDest = trimmedDestination.length > 0 && isValidStellarAddress(trimmedDestination);
   const isFederationDestination =
@@ -444,8 +695,75 @@ function SendPaymentForm({
     !destinationResolutionError &&
     isValidAmt &&
     status === "idle" &&
+    !needsTrustline &&
     trimmedDestination !== publicKey &&
     isMemoValid;
+
+  useEffect(() => {
+    let active = true;
+    const updatePreview = async () => {
+      const paymentDestination = isValidDest
+        ? trimmedDestination
+        : resolvedPaymentDestination;
+
+      if (!paymentDestination || paymentDestination === publicKey || !isValidAmt || !isMemoValid) {
+        setPreviewTx(null);
+        return;
+      }
+
+      try {
+        const customAssetEntry = accountBalances.find((b) => b.code === selectedAsset);
+        const assetParam: "XLM" | "USDC" | { code: string; issuer: string } =
+          selectedAsset === "XLM"
+            ? "XLM"
+            : selectedAsset === "USDC"
+            ? "USDC"
+            : customAssetEntry
+            ? { code: customAssetEntry.code, issuer: customAssetEntry.issuer }
+            : "XLM";
+
+        const tx = isTipOnChain
+          ? await buildSorobanTipTransaction({
+              fromPublicKey: publicKey,
+              toPublicKey: paymentDestination,
+              amount: amountNum.toFixed(7),
+            })
+          : await buildPaymentTransaction({
+              fromPublicKey: publicKey,
+              toPublicKey: paymentDestination,
+              amount: amountNum.toFixed(7),
+              memo: memo.trim() || undefined,
+              asset: assetParam,
+            });
+
+        if (active) {
+          setPreviewTx(tx);
+        }
+      } catch (e) {
+        if (active) {
+          setPreviewTx(null);
+        }
+      }
+    };
+
+    updatePreview();
+    return () => {
+      active = false;
+    };
+  }, [
+    trimmedDestination,
+    isValidDest,
+    resolvedPaymentDestination,
+    publicKey,
+    amountNum,
+    isValidAmt,
+    isMemoValid,
+    memo,
+    selectedAsset,
+    isTipOnChain,
+    selectedFeeStroops,
+    accountBalances,
+  ]);
 
   const resolveUsername = async (username: string): Promise<string> => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -454,7 +772,7 @@ function SendPaymentForm({
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-    const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
+    const response = await fetch(`${apiBase}/api/v1/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
@@ -499,8 +817,8 @@ function SendPaymentForm({
     const query = destination.trim().toLowerCase();
     if (!query) return true;
     return (
-      contact.nickname.toLowerCase().includes(query) ||
-      contact.address.toLowerCase().includes(query)
+      contact.name.toLowerCase().includes(query) ||
+      contact.publicKey.toLowerCase().includes(query)
     );
   });
 
@@ -556,8 +874,8 @@ function SendPaymentForm({
     setStatus("idle");
   };
 
-  const mintNftReceipt = async () => {
-    if (!txHash) return;
+  const mintNftReceipt = async (forceMint = false) => {
+    if (!forceMint && !txHash) return;
     setMintingReceipt(true);
     setReceiptError(null);
     try {
@@ -583,6 +901,7 @@ function SendPaymentForm({
     if (!canSubmit) return;
     startTracker();
     let activeStep: PaymentStepId = "building";
+    let pendingId: string | null = null;
     try {
       markStepStarted("building");
       setStatus("building");
@@ -624,24 +943,86 @@ function SendPaymentForm({
       if (signError || !signedXDR) throw new Error(signError || "Signing failed");
       markStepCompleted("signing");
 
+      pendingId = "pending-" + Date.now();
+      const pendingTx = {
+        id: pendingId,
+        type: "sent" as const,
+        amount: amountNum.toFixed(7),
+        asset: typeof assetParam === "string" ? assetParam : assetParam.code,
+        from: publicKey,
+        to: paymentDestination,
+        memo: memo.trim() || undefined,
+        createdAt: new Date().toISOString(),
+        transactionHash: pendingId,
+        isPending: true,
+      };
+      
+      const prevPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]");
+      sessionStorage.setItem("finchippay:pending-txs", JSON.stringify([pendingTx, ...prevPending]));
+      window.dispatchEvent(new CustomEvent("finchippay:pending-tx", { detail: pendingTx }));
+
       activeStep = "submitting";
       markStepStarted("submitting");
       setStatus("submitting");
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await queueTransaction(signedXDR, { destination: paymentDestination, amount: amountNum.toFixed(7), asset: typeof assetParam === "string" ? assetParam : assetParam.code });
+        const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: PendingTransaction) => t.id !== pendingId);
+        sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+        window.dispatchEvent(new CustomEvent("finchippay:failed-tx", { detail: { pendingId } }));
+        markStepCompleted("submitting");
+        setIsStatusModalOpen(false);
+        setStatus("idle");
+        saveRecipient(trimmedDestination);
+        addToast("You're offline. Your signed payment has been queued and will send when you're back online.", "info");
+        onSuccess?.();
+        return;
+      }
       const result = await submitTransaction(signedXDR);
       setTxHash(result.hash);
-      markStepCompleted("submitting");
+
+      // The transaction has landed — apply the optimistic balance delta so the
+      // UI reflects the spend immediately instead of waiting for the next
+      // stream/poll round. Only XLM moves the XLM balance; custom assets and
+      // USDC are tracked separately.
+      if (assetParam === "XLM" && optimisticBalanceApi && result?.hash) {
+        optimisticAppliedHashRef.current = result.hash;
+        optimisticBalanceApi.applyDelta(`-${amountNum.toFixed(7)}`, `send:${result.hash}`);
+      }
 
       activeStep = "confirming";
       markStepStarted("confirming");
       setStatus("confirming");
       await waitForTransactionConfirmation(result.hash);
       markStepCompleted("confirming");
+      
+      const resolvedTx = { ...pendingTx, transactionHash: result.hash, isPending: false };
+      const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: PendingTransaction) => t.id !== pendingId);
+      sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+      window.dispatchEvent(new CustomEvent("finchippay:resolved-tx", { detail: { pendingId, resolvedTx } }));
+      markStepCompleted("submitting");
 
       setStatus("success");
       saveRecipient(trimmedDestination);
       addToast(`Payment sent! Tx: ${result.hash.slice(0, 8)}…`, "success");
+      
+      if (autoMintReceipt) {
+        // Run in background without awaiting, so UI doesn't block
+        mintNftReceipt(true).catch((err) => { logger.error('Receipt mint failed:', {}, err instanceof Error ? err : undefined); });
+      }
+
       onSuccess?.(result.hash);
     } catch (err: unknown) {
+      // If the optimistic delta was applied but a later step failed, roll it
+      // back so a failed send cannot leave a phantom balance reduction.
+      if (optimisticBalanceApi && optimisticAppliedHashRef.current) {
+        optimisticBalanceApi.rollback(`send:${optimisticAppliedHashRef.current}`);
+        optimisticAppliedHashRef.current = null;
+      }
+      if (pendingId) {
+        const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: PendingTransaction) => t.id !== pendingId);
+        sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+        window.dispatchEvent(new CustomEvent("finchippay:failed-tx", { detail: { pendingId } }));
+      }
       const message = err instanceof Error ? err.message : "An unexpected error occurred";
       setError(message);
       markStepFailed(activeStep, message);
@@ -692,17 +1073,17 @@ function SendPaymentForm({
              <div key={i} className="confetti-piece" style={{ left: `${i * 10}%`, animationDelay: `${i * 0.2}s` }} />
           ))}
         </div>
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-400">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-700 dark:text-stellar-400">
           <CheckIcon className="h-8 w-8" />
         </div>
-        <h2 className="mb-2 font-display text-2xl font-bold text-white">{resolvedSuccessTitle}</h2>
-        <p className="mb-6 text-slate-400">{resolvedSuccessMessage}</p>
+        <h2 className="mb-2 font-display text-2xl font-bold text-slate-900 dark:text-white">{resolvedSuccessTitle}</h2>
+        <p className="mb-6 text-slate-600 dark:text-slate-400">{resolvedSuccessMessage}</p>
 
-        <div className="mb-8 rounded-xl border border-white/5 bg-white/5 p-4">
+        <div className="mb-8 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/5 p-4">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">{t("sendPayment.transactionHash")}</p>
           <div className="flex items-center justify-center gap-2">
-            <code className="text-xs text-stellar-300">{truncatedHash}</code>
-            <button onClick={handleCopy} className="text-slate-500 hover:text-white transition-colors">
+            <code className="text-xs text-stellar-700 dark:text-stellar-300">{truncatedHash}</code>
+            <button onClick={handleCopy} className="text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
               {copied ? <CheckIcon className="h-3.5 w-3.5 text-green-400" /> : <CopyIcon className="h-3.5 w-3.5" />}
             </button>
           </div>
@@ -742,7 +1123,7 @@ function SendPaymentForm({
             <p className="text-xs text-red-400 text-center">{receiptError}</p>
           )}
 
-          <button onClick={() => setStatus("idle")} className="text-sm text-slate-400 hover:text-white transition-colors">
+          <button onClick={() => setStatus("idle")} className="text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             {t("sendPayment.sendAnother")}
           </button>
         </div>
@@ -753,84 +1134,141 @@ function SendPaymentForm({
   return (
     <>
       <div className="card animate-fade-in">
-      <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
-        <SendIcon className="w-5 h-5 text-stellar-400" />
-        {resolvedTitle}
-      </h2>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <SendIcon className="w-5 h-5 text-stellar-700 dark:text-stellar-400" />
+          {isBuilderMode ? "Payment Builder" : resolvedTitle}
+        </h2>
+        <button
+          type="button"
+          onClick={() => setIsBuilderMode(!isBuilderMode)}
+          className="px-3 py-1.5 rounded-full text-xs font-medium border border-stellar-500/30 bg-stellar-500/10 text-stellar-700 dark:text-stellar-300 hover:bg-stellar-500/20 transition-all"
+          aria-label={isBuilderMode ? "Switch to standard form" : "Switch to payment builder"}
+        >
+          {isBuilderMode ? "Switch to standard form" : "Switch to payment builder"}
+        </button>
+      </div>
 
+      {isBuilderMode ? (
+        <div className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+            <div className="space-y-4">
+              <PaymentBuilder
+                publicKey={publicKey}
+                onRecipientsChange={setBuilderRecipients}
+              />
+            </div>
+            <div className="space-y-4">
+              <QuickAddPanel
+                xlmBalance={xlmBalance}
+                usdcBalance={usdcBalance}
+              />
+              <BatchSummary
+                recipients={builderRecipients.map((r) => ({
+                  token: { code: r.token.code, issuer: r.token.issuer },
+                  amount: r.amount,
+                  address: r.address,
+                }))}
+              />
+            </div>
+          </div>
+
+          {batchMessage && (
+            <div className="rounded-2xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">
+              {batchMessage}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-2">
+            <button
+              type="button"
+              onClick={handleSendBuilderBatch}
+              disabled={isBatchProcessing || !canSubmitBuilderBatch}
+              className="btn-primary py-2.5 px-6 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isBatchProcessing ? "Sending batch..." : "Send batch payments"}
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="space-y-5">
         {!hideAssetSelector && (
-          <div className="flex flex-wrap gap-2">
-            {assetOptions.map((a) => (
-              <button
-                key={a}
-                type="button"
-                onClick={() => { setSelectedAsset(a); setAmount(""); }}
-                disabled={a === "USDC" && !usdcBalance}
-                className={clsx(
-                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                  selectedAsset === a
-                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                    : "text-slate-400 border-white/10 hover:border-white/20",
-                  a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
-                )}
-              >
-                {a}
-              </button>
-            ))}
-            {accountBalances.map((b) => (
-              <button
-                key={b.code}
-                type="button"
-                onClick={() => { setSelectedAsset(b.code as AssetType); setAmount(""); }}
-                className={clsx(
-                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                  selectedAsset === b.code
-                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                    : "text-slate-400 border-white/10 hover:border-white/20"
-                )}
-              >
-                {b.code}
-              </button>
-            ))}
+          <AssetSelect
+            options={assetSelectOptions}
+            selectedCode={selectedAsset}
+            onSelect={(code) => { setSelectedAsset(code as AssetType); setAmount(""); }}
+            onAddTrustline={handleAddTrustline}
+            disabled={status !== "idle"}
+            prices={assetPrices}
+          />
+        )}
+
+        {needsTrustline && selectedIssuer && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm text-amber-300">
+            <span>
+              {t("sendPayment.needsTrustline") ?? `Add a trustline for ${selectedAsset} before sending.`}
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleAddTrustline(selectedAsset, selectedIssuer)}
+              disabled={addingTrustline || status !== "idle"}
+              className="shrink-0 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-semibold hover:bg-amber-500/30 disabled:opacity-50"
+            >
+              {addingTrustline ? "Adding..." : `Add ${selectedAsset} trustline`}
+            </button>
           </div>
         )}
 
         {!hideDestinationField && (
           <div className="relative" ref={dropdownRef}>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("sendPayment.destination")}</label>
+              <label className="label mb-0 rtl:text-right">{t("sendPayment.destination")}</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsContactsDropdownOpen(!isContactsDropdownOpen)}
-                  className="text-xs text-stellar-400 hover:text-stellar-300"
+                  className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
                 >
                   {isContactsDropdownOpen ? t("sendPayment.close") : t("sendPayment.contacts")}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsContactPickerOpen(true)}
+                  className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  title={t("sendPayment.selectContact")}
+                >
+                  {t("sendPayment.select") ?? "Select"}
                 </button>
                 {isValidDest && (
                   <button
                     type="button"
-                    onClick={() => {
-                      const existing = contacts.find((contact) => contact.address === destination);
+                    onClick={async () => {
+                      const existing = contacts.find((contact) => contact.publicKey === destination);
                       if (existing) deleteContactByAddress(destination);
                       else {
                         const nickname = prompt("Nickname for this contact:", destination.slice(0, 8));
-                        if (nickname) setContacts(upsertAddressBookContact({ nickname, address: destination }));
+                        if (nickname) {
+                          try {
+                            await addContact({ name: nickname, publicKey: destination });
+                          } catch (err) {
+                            addToast(err instanceof Error ? err.message : "Failed to save contact", "error");
+                          }
+                        }
                       }
                     }}
-                    className="text-stellar-400 hover:text-stellar-300"
-                    title={contacts.some((contact) => contact.address === destination) ? t("sendPayment.removeContact") : t("sendPayment.saveContact")}
-                    aria-label={contacts.some((contact) => contact.address === destination) ? "Remove address from contacts" : "Save address as contact"}
+                    className="text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
+                    title={contacts.some((contact) => contact.publicKey === destination) ? t("sendPayment.removeContact") : t("sendPayment.saveContact")}
+                    aria-label={contacts.some((contact) => contact.publicKey === destination) ? "Remove address from contacts" : "Save address as contact"}
                   >
-                    <StarIcon className="h-5 w-5" filled={contacts.some((contact) => contact.address === destination)} />
+                    <StarIcon className="h-5 w-5" filled={contacts.some((contact) => contact.publicKey === destination)} />
                   </button>
                 )}
                 {isScannerSupported && status === "idle" && (
                   <button
                     type="button"
                     onClick={openScanner}
-                    className="md:hidden text-slate-400 hover:text-white"
+                    className="md:hidden text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     title="Scan QR Code"
                     aria-label="Scan QR code to fill destination address"
                   >
@@ -854,7 +1292,7 @@ function SendPaymentForm({
               onFocus={() => setIsContactsDropdownOpen(true)}
               placeholder="G..., alice*domain.com, or @username"
               className={clsx(
-                "input-field font-mono text-sm",
+                "input-field font-mono text-sm rtl:text-left",
                 destination &&
                   !isValidDest &&
                   !isFederationDestination &&
@@ -868,25 +1306,29 @@ function SendPaymentForm({
               <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
             )}
 
+            {scannerError && !isScannerOpen && (
+              <p className="mt-2 text-xs text-red-400">{scannerError}</p>
+            )}
+
             {/* Destination account existence warning (#294) */}
             {isCheckingDest && isValidDest && (
-              <p className="mt-1 text-xs text-slate-400">{t("sendPayment.checkingAccount")}</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{t("sendPayment.checkingAccount")}</p>
             )}
             {!isCheckingDest && destAccountWarning && (
               <p className="mt-1 text-xs text-amber-400">{destAccountWarning}</p>
             )}
 
             {isContactsDropdownOpen && contactMatches.length > 0 && (
-              <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
+              <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-1 shadow-2xl">
                 {contactMatches.map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => handleSelectContact(item.address)}
-                    className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-white/5"
+                    onClick={() => handleSelectContact(item.publicKey)}
+                    className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left rtl:items-end rtl:text-right hover:bg-slate-50 dark:hover:bg-white/5"
                   >
-                    <span className="text-sm font-medium text-slate-200">{item.nickname}</span>
-                    <span className="text-xs text-slate-400">{shortenAddress(item.address, 8)}</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-200">{item.name}</span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400">{shortenAddress(item.publicKey, 8)}</span>
                   </button>
                 ))}
               </div>
@@ -897,8 +1339,8 @@ function SendPaymentForm({
         {!hideAmountField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("sendPayment.amount")} ({selectedAsset})</label>
-              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
+              <label className="label mb-0 rtl:text-right">{t("sendPayment.amount")} ({selectedAsset})</label>
+              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300" disabled={status !== "idle"}>
                 {t("sendPayment.max")}: {formatXLM(maxSend)}
               </button>
             </div>
@@ -913,14 +1355,30 @@ function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
+            {(() => {
+              const price = assetPrices[selectedAsset];
+              if (
+                price === undefined ||
+                price <= 0 ||
+                !Number.isFinite(amountNum) ||
+                amountNum <= 0
+              ) {
+                return null;
+              }
+              return (
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  {formatUSD(amountNum * price)}
+                </p>
+              );
+            })()}
           </div>
         )}
 
         {!hideMemoField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("sendPayment.memo")}</label>
-              <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-400")}>
+              <label className="label mb-0 rtl:text-right">{t("sendPayment.memo")}</label>
+              <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-600 dark:text-slate-400")}>
                 {memoBytes}/28 {t("sendPayment.bytes")}
               </span>
             </div>
@@ -938,10 +1396,39 @@ function SendPaymentForm({
           </div>
         )}
 
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4">
+          <input
+            type="checkbox"
+            id="autoMintReceipt"
+            checked={autoMintReceipt}
+            onChange={(e) => setAutoMintReceipt(e.target.checked)}
+            disabled={status !== "idle"}
+            className="h-5 w-5 rounded border-slate-300 text-stellar-600 focus:ring-stellar-500"
+          />
+          <div className="flex flex-col">
+            <label htmlFor="autoMintReceipt" className="text-sm font-medium text-slate-900 dark:text-white cursor-pointer">
+              {t("sendPayment.mintNftReceipt")}
+            </label>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Generate a shareable on-chain receipt for this transaction.
+            </span>
+          </div>
+        </div>
+
+        <FeeEstimator
+          transaction={previewTx}
+          amount={amount}
+          asset={selectedAsset}
+          onFeeSelected={(fee, tier) => {
+            setSelectedFeeStroops(fee);
+            setSelectedFeeTier(tier);
+          }}
+        />
+
         <button
           onClick={openConfirmation}
           disabled={!canSubmit || status !== "idle"}
-          className="btn-primary w-full flex items-center justify-center gap-2"
+          className="btn-primary w-full min-h-[44px] flex items-center justify-center gap-2"
         >
           {status === "idle" ? `${t("sendPayment.send")} ${amount || ""} ${selectedAsset}` : t("sendPayment.processing")}
         </button>
@@ -957,8 +1444,9 @@ function SendPaymentForm({
             </span>
           </div>
         )}
+          </div>
+        )}
       </div>
-    </div>
 
       <SendConfirmationModal
         isOpen={isConfirmOpen}
@@ -966,19 +1454,23 @@ function SendPaymentForm({
         amount={amountNum}
         asset={selectedAsset}
         memo={memo}
-        estimatedFee={ESTIMATED_NETWORK_FEE}
+        estimatedFee={
+          previewTx
+            ? `${(parseInt(previewTx.fee, 10) / 10_000_000).toFixed(7)} XLM`
+            : `${(selectedFeeStroops / 10_000_000).toFixed(7)} XLM`
+        }
         isTipOnChain={isTipOnChain}
-        t={t as any}
+        t={t}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
       />
 
       {isScannerOpen && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="QR code scanner">
-          <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-white/10 shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-              <h3 className="font-display text-sm font-semibold text-white">Scan QR Code</h3>
-              <button onClick={closeScanner} className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5" aria-label="Close scanner">
+          <div ref={scannerPanelRef} tabIndex={-1} className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden outline-none">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/5">
+              <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">Scan QR Code</h3>
+              <button onClick={closeScanner} className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5" aria-label="Close scanner">
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -992,7 +1484,7 @@ function SendPaymentForm({
               <div className="px-4 py-3 text-sm text-red-400 text-center">{scannerError}</div>
             )}
             <div className="px-4 py-3 text-center">
-              <p className="text-xs text-slate-400">Point your camera at a Stellar QR code</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">Point your camera at a Stellar QR code</p>
             </div>
           </div>
         </div>
@@ -1008,6 +1500,18 @@ function SendPaymentForm({
         timeoutSeconds={60}
         onClose={closeStatusModal}
       />
+
+      {isContactPickerOpen && (
+        <ContactPicker
+          isOpen={isContactPickerOpen}
+          onClose={() => setIsContactPickerOpen(false)}
+          onSelect={(publicKey: string, name: string, memo?: string) => {
+            setDestination(publicKey);
+            if (memo) setMemo(memo);
+            setIsContactPickerOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1026,42 +1530,43 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, isTipOnChain, onCancel, onConfirm, t }: SendConfirmationModalProps) {
+  const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onCancel });
   if (!isOpen) return null;
   const shortened = shortenAddress(destination, 8);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-payment-title">
-      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
-        <h3 id="confirm-payment-title" className="text-xl font-bold text-white mb-4">{t("sendPayment.confirmPayment")}</h3>
+      <div ref={panelRef} tabIndex={-1} className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 border border-slate-200 dark:border-white/10 shadow-2xl outline-none">
+        <h3 id="confirm-payment-title" className="text-xl font-bold text-slate-900 dark:text-white mb-4">{t("sendPayment.confirmPayment")}</h3>
         <div className="space-y-4">
           <div>
-            <p className="text-xs text-slate-400 uppercase font-bold">{t("sendPayment.to")}</p>
-            <p className="text-base font-semibold text-white">{shortened}</p>
-            <p className="text-xs font-mono text-slate-400 break-all mt-0.5">{destination}</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold">{t("sendPayment.to")}</p>
+            <p className="text-base font-semibold text-slate-900 dark:text-white">{shortened}</p>
+            <p className="text-xs font-mono text-slate-600 dark:text-slate-400 break-all mt-0.5">{destination}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-slate-500 uppercase font-bold">{t("sendPayment.amount")}</p>
-              <p className="text-lg font-bold text-white">{amount} {asset}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{amount} {asset}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase font-bold">{t("sendPayment.estimatedFee")}</p>
-              <p className="text-sm text-slate-300">{estimatedFee}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold">{t("sendPayment.estimatedFee")}</p>
+              <p className="text-sm text-slate-700 dark:text-slate-300">{estimatedFee}</p>
             </div>
           </div>
           {memo && (
             <div>
-              <p className="text-xs text-slate-400 uppercase font-bold">{t("sendPayment.memo")}</p>
-              <p className="text-sm text-slate-200">{memo}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold">{t("sendPayment.memo")}</p>
+              <p className="text-sm text-slate-800 dark:text-slate-200">{memo}</p>
             </div>
           )}
         </div>
         <div className="mt-8 flex gap-3">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">{t("nav.cancel")}</button>
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-slate-200 dark:border-white/10 py-3 text-sm font-semibold text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-white/5 transition-all">{t("nav.cancel")}</button>
           <button onClick={onConfirm} className="flex-1 btn-primary py-3">{t("sendPayment.confirmAndSign")}</button>
         </div>
       </div>
     </div>
-  );
+  )
 }
-
+ 
 export default withErrorBoundary(SendPaymentForm, "SendPaymentForm");

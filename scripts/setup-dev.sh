@@ -16,14 +16,36 @@ echo "  ✨ Finchippay Solution — Dev Setup"
 echo "  ─────────────────────────────────"
 echo ""
 
+# Helper function to check for commands
+check_command() {
+  local cmd_name="$1"
+  local install_instructions="$2"
+  if ! command -v "$cmd_name" &> /dev/null; then
+    echo "❌ $cmd_name not found. $install_instructions"
+    exit 1
+  fi
+  echo "✅ $cmd_name found."
+}
+
 # ─── Check Node.js ───────────────────────────────────────────────────────────
-if ! command -v node &> /dev/null; then
-  echo "❌ Node.js not found. Install from https://nodejs.org (v18+)"
+check_command "node" "Install from https://nodejs.org (v20+)"
+NODE_MAJOR_VER=$(node -v | cut -d '.' -f 1 | sed 's/v//')
+if [[ "$NODE_MAJOR_VER" -lt 20 ]]; then
+  echo "❌ Node.js version is $NODE_MAJOR_VER. Please install Node.js v20 or higher from https://nodejs.org"
   exit 1
 fi
+echo "✅ Node.js v$NODE_MAJOR_VER (20+) found."
 
-NODE_VER=$(node --version)
-echo "✅ Node.js $NODE_VER"
+# ─── Check Docker ────────────────────────────────────────────────────────────
+check_command "docker" "Install Docker Desktop from https://www.docker.com/products/docker-desktop/"
+if ! docker info &> /dev/null; then
+  echo "❌ Docker is not running. Please start Docker Desktop."
+  exit 1
+fi
+echo "✅ Docker is running."
+
+# ─── Check Stellar CLI ───────────────────────────────────────────────────────
+check_command "stellar" "Install Stellar CLI from https://developers.stellar.org/docs/getting-started/setup-local-development#install-the-stellar-cli"
 
 # ─── Frontend setup ──────────────────────────────────────────────────────────
 echo ""
@@ -51,6 +73,24 @@ else
   echo "   backend/.env already exists — skipping"
 fi
 
+# ─── Docker Compose Dev Environment ──────────────────────────────────────────
+echo ""
+echo "🐳 Bringing up Docker Compose development environment..."
+cd "$ROOT"
+docker compose -f docker-compose.dev.yml up -d --build || { echo "❌ Docker Compose failed to start."; exit 1; }
+echo "✅ Docker Compose environment started."
+
+# ─── Run Tests ───────────────────────────────────────────────────────────────
+echo ""
+echo "🧪 Running tests to verify environment..."
+cd "$ROOT/frontend"
+npm test || { echo "❌ Frontend tests failed."; exit 1; }
+echo "✅ Frontend tests passed."
+
+cd "$ROOT/backend"
+npm test || { echo "❌ Backend tests failed."; exit 1; }
+echo "✅ Backend tests passed."
+
 # ─── Rust check (optional) ───────────────────────────────────────────────────
 echo ""
 if command -v cargo &> /dev/null; then
@@ -72,32 +112,12 @@ fi
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "  ─────────────────────────────────────"
-echo "  ✅ Setup complete!"
+echo "  ✅ Setup complete! Your development environment is ready."
 echo ""
-echo "  Start development (choose one):"
+echo "  To stop the Docker services, run:"
+echo "      docker compose -f docker-compose.dev.yml down"
 echo ""
-echo "  Option A — Docker (recommended, zero config):"
-echo "      docker compose up"
-echo "      → Frontend: http://localhost:3000"
-echo "      → Backend:  http://localhost:4000"
-echo "      Hot-reload is enabled for both services."
-echo ""
-echo "  Option B — Manual:"
-echo "    Terminal 1 (frontend):"
-echo "      cd frontend && npm run dev"
-echo "      → http://localhost:3000"
-echo ""
-echo "    Terminal 2 (backend):"
-echo "      cd backend && npm run dev"
-echo "      → http://localhost:4000"
-echo ""
-echo "  Production build (Docker):"
-echo "      docker compose -f docker-compose.prod.yml up --build"
-echo ""
-echo "  Get testnet XLM:"
-echo "    https://friendbot.stellar.org"
-echo ""
-echo "  Freighter wallet:"
+echo "  Freighter wallet (install if not already):"
 echo "    https://freighter.app"
 echo "  ─────────────────────────────────────"
 echo ""

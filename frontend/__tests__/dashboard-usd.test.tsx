@@ -19,6 +19,7 @@ jest.mock("@/components/QRCodeModal", () => () => null);
 jest.mock("@/components/BatchPaymentForm", () => () => <div>Batch Payment</div>);
 jest.mock("@/components/MultiSigFlow", () => () => <div>Multi Sig</div>);
 jest.mock("@/components/CreatorTipsDashboard", () => () => <div>Creator Tips</div>);
+jest.mock("@/components/StreamingPayments", () => () => <div>Streaming Payments</div>);
 jest.mock("@/components/OnboardingTour", () => () => null);
 jest.mock("@/components/AIPaymentAssistant", () => () => null);
 jest.mock("@/components/ExternalPaymentBanner", () => () => null);
@@ -58,7 +59,7 @@ function mockDashboardFetch(
       return coinGeckoResponse;
     }
 
-    if (url.includes("/api/payments/")) {
+    if (url.includes("/api/v1/payments/")) {
       return Promise.resolve({
         ok: true,
         json: async () => ({
@@ -75,7 +76,7 @@ function mockDashboardFetch(
       } as Response);
     }
 
-    if (url.includes("/api/accounts/resolve/")) {
+    if (url.includes("/api/v1/accounts/resolve/")) {
       return Promise.resolve({
         ok: true,
         json: async () => ({ success: true, data: {} }),

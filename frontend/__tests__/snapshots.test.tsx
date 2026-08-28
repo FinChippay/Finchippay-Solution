@@ -104,12 +104,24 @@ jest.mock("@/lib/wallet", () => ({
 
 jest.mock("@/lib/useWallet", () => ({
   useWallet: () => ({
+    accounts: [],
+    activeAccount: null,
+    activeAccountIndex: 0,
     publicKey: null,
+    isWalletReady: true,
+    setActiveAccount: jest.fn(),
+    addAccount: jest.fn(),
+    removeAccount: jest.fn(),
+    setAccountLabel: jest.fn(),
     connectWallet: jest.fn(),
     disconnectWallet: jest.fn(),
     xlmBalance: "0.0000000",
     usdcBalance: null,
   }),
+  getAccountDisplayName: (
+    account: { label?: string },
+    index: number
+  ) => account.label || `Account ${index + 1}`,
   WalletProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -127,6 +139,13 @@ jest.mock("@/utils/format", () => ({
   exportToCSV: jest.fn(),
   exportToJSON: jest.fn(),
   formatDate: jest.fn(() => "2026-01-01"),
+}));
+
+jest.mock("@/utils/export", () => ({
+  generateCSV: jest.fn(() => "mock,csv,content\n"),
+  downloadCSV: jest.fn(),
+  generatePDF: jest.fn(() => new Blob(["mock pdf"], { type: "application/pdf" })),
+  downloadPDF: jest.fn(),
 }));
 
 // ─── Component imports ────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * __tests__/validatePublicKey.property.test.js
  *
@@ -55,7 +56,7 @@ describe("validatePublicKey — property-based tests", () => {
           return true;
         }
       }),
-      { numRuns: 2000 }
+      { numRuns: 2000 },
     );
   });
 
@@ -68,7 +69,7 @@ describe("validatePublicKey — property-based tests", () => {
       fc.property(validStellarKey, (key) => {
         expect(() => validatePublicKey(key)).not.toThrow();
       }),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   });
 
@@ -91,16 +92,14 @@ describe("validatePublicKey — property-based tests", () => {
         })
         .filter((s) => !s.startsWith("G")),
       // Contains lowercase letters
-      fc.string({ minLength: 56, maxLength: 56 }).filter((s) =>
-        /[a-z]/.test(s)
-      )
+      fc.string({ minLength: 56, maxLength: 56 }).filter((s) => /[a-z]/.test(s)),
     );
 
     fc.assert(
       fc.property(invalidKey, (input) => {
         expect(() => validatePublicKey(input)).toThrow();
       }),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   });
 
@@ -131,9 +130,9 @@ describe("validatePublicKey — property-based tests", () => {
           } catch (err) {
             expect(err.status).toBe(400);
           }
-        }
+        },
       ),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   });
 });

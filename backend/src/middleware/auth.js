@@ -12,16 +12,24 @@
 "use strict";
 
 const jwt = require("jsonwebtoken");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 
-const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
-
-// Warn loudly in development if the default secret is in use.
-if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
-  console.warn(
-    "⚠️  JWT_SECRET is not set — using insecure default. " +
-      "Generate a production secret: openssl rand -hex 32"
-  );
-}
+/**
+ * JWT signing secret — MUST be configured in all non-test environments.
+ *
+ * In production this is enforced by validateEnv.js which exits the process.
+ * In development we throw early so the developer sees a clear error rather
+ * than silently accepting the insecure default.
+ *
+ * Generate with:  openssl rand -hex 32
+ */
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  (process.env.NODE_ENV === "test"
+    ? "test-jwt-secret-for-unit-tests-only"
+    : (() => {
+        throw new Error("JWT_SECRET is not set. Generate one: openssl rand -hex 32");
+      })());
 
 /**
  * Verify the Bearer JWT from the Authorization header.
@@ -36,30 +44,71 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "test") {
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({
-      error: "Unauthorized: missing or invalid Authorization header. Expected 'Bearer <token>'.",
-    });
+    return res
+      .status(ERROR_CODES.AUTH_MISSING_HEADER.httpStatus)
+      .json(formatErrorResponse("AUTH_MISSING_HEADER"));
   }
 
   const token = authHeader.split(" ")[1];
   if (!token || token.length < 10) {
-    return res.status(401).json({ error: "Unauthorized: token is missing or too short." });
+    return res
+      .status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus)
+      .json(formatErrorResponse("AUTH_INVALID_TOKEN"));
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded.publicKey || !/^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
-      return res.status(401).json({ error: "Unauthorized: token payload is malformed." });
+      return res.status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus).json(
+        formatErrorResponse("AUTH_INVALID_TOKEN", {
+          reason: "Token payload is malformed.",
+        }),
+      );
     }
-    req.user = decoded; // { publicKey: "G...", iat, exp }
+    req.user = {
+      ...decoded,
+      sub: decoded.publicKey, // Add sub for userRateLimit middleware
+    }; // { publicKey: "G...", sub, iat, exp }
     next();
   } catch (err) {
-    const message =
-      err.name === "TokenExpiredError"
-        ? "Unauthorized: token has expired. Re-authenticate via SEP-0010."
-        : "Unauthorized: invalid or malformed token.";
-    return res.status(401).json({ error: message });
+    if (err.name === "TokenExpiredError") {
+      // Emits the legacy TOKEN_EXPIRED code rather than AUTH_EXPIRED_TOKEN:
+      // it is documented and asserted by existing consumers. It is registered
+      // in the catalogue as a deprecated alias so it still resolves and still
+      // carries a correlation ID (#270).
+      return res
+        .status(ERROR_CODES.TOKEN_EXPIRED.httpStatus)
+        .json(formatErrorResponse("TOKEN_EXPIRED", { expiredAt: err.expiredAt }));
+    }
+    const errorCode = "AUTH_INVALID_TOKEN";
+    return res
+      .status(ERROR_CODES[errorCode].httpStatus)
+      .json(formatErrorResponse(errorCode, { reason: err.message }));
   }
 }
 
-module.exports = { verifyJWT, JWT_SECRET };
+/**
+ * Restrict an authenticated route to explicitly configured Stellar accounts.
+ *
+ * ADMIN_PUBLIC_KEYS is read per request so deployments can rotate the
+ * comma-separated allowlist without embedding authorization data in tokens.
+ * An empty allowlist fails closed.
+ */
+function requireAdmin(req, res, next) {
+  const adminPublicKeys = new Set(
+    String(process.env.ADMIN_PUBLIC_KEYS || "")
+      .split(",")
+      .map((publicKey) => publicKey.trim())
+      .filter(Boolean),
+  );
+
+  if (!req.user?.publicKey || !adminPublicKeys.has(req.user.publicKey)) {
+    return res
+      .status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus)
+      .json(formatErrorResponse("AUTH_FORBIDDEN"));
+  }
+
+  return next();
+}
+
+module.exports = { verifyJWT, requireAdmin, JWT_SECRET };

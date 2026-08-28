@@ -1,0 +1,211 @@
+# docs/prometheus-alerts.yml
+# Prometheus alerting rules for Finchippay Solution (#272).
+#
+# Loaded by docs/prometheus.yml via `rule_files`. Mount alongside the scrape
+# config in the Prometheus container:
+#
+#   volumes:
+#     - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+#     - ./docs/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+#
+# Validate before deploying:
+#
+#   promtool check rules docs/prometheus-alerts.yml
+#
+# Every rule carries a `runbook` annotation pointing at the matching section of
+# docs/monitoring-runbook.md — an alert that fires without telling the operator
+# what to do is only half an alert.
+#
+# Notes on the expressions:
+#   * `clamp_min(..., 0.001)` guards the denominator. Without it a ratio over a
+#     silent period evaluates to 0/0 = NaN, and a rule comparing NaN never
+#     fires — the alert would go quiet exactly when traffic stops.
+#   * Rates use a 5m window rather than $__rate_interval (a Grafana-only
+#     variable) so the rules evaluate identically in Prometheus.
+
+groups:
+  # ── API health ─────────────────────────────────────────────────────────────
+  - name: finchippay-api
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        # 5xx as a share of all requests. Ratio rather than absolute count, so
+        # the threshold means the same thing at 10 req/s and at 1000 req/s.
+        expr: |
+          sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_requests_total[5m])), 0.001)
+            > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: backend
+          component: api
+        annotations:
+          summary: "API 5xx error rate above 5%"
+          description: >-
+            {{ $value | humanizePercentage }} of requests are returning 5xx
+            (threshold 5%, sustained for 5 minutes).
+          runbook: "docs/monitoring-runbook.md#higherrorrate"
+
+      - alert: HighErrorRateByEndpoint
+        # Same threshold scoped per route, so one broken endpoint is visible
+        # even when it is too small a share of traffic to move the global rate.
+        # Warning-only: the critical page is HighErrorRate above.
+        expr: |
+          sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (route)
+            /
+          clamp_min(sum(rate(http_requests_total[5m])) by (route), 0.001)
+            > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+          component: api
+        annotations:
+          summary: "5xx error rate above 5% on {{ $labels.route }}"
+          description: >-
+            {{ $labels.route }} is returning {{ $value | humanizePercentage }}
+            5xx responses (threshold 5%, sustained for 10 minutes).
+          runbook: "docs/monitoring-runbook.md#higherrorrate"
+
+      - alert: HighLatency
+        # p95 across all routes. Uses the histogram buckets rather than an
+        # average so a slow minority of requests is not hidden by a fast bulk.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          component: api
+        annotations:
+          summary: "API p95 latency above 1s"
+          description: >-
+            p95 request duration is {{ $value | humanizeDuration }}
+            (threshold 1s, sustained for 5 minutes).
+          runbook: "docs/monitoring-runbook.md#highlatency"
+
+      - alert: BackendDown
+        # Not in the issue's list, but every other rule in this file is silent
+        # when the target is unreachable: no scrape means no samples, and no
+        # samples means no ratio to compare. This is the rule that fires when
+        # the backend is fully down rather than merely degraded.
+        expr: up{job="finchippay-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: backend
+          component: api
+        annotations:
+          summary: "Backend is not responding to scrapes"
+          description: >-
+            Prometheus has been unable to scrape {{ $labels.instance }} for
+            2 minutes.
+          runbook: "docs/monitoring-runbook.md#backenddown"
+
+  # ── Rate limiting ──────────────────────────────────────────────────────────
+  - name: finchippay-rate-limiting
+    interval: 30s
+    rules:
+      - alert: RateLimitHigh
+        # Absolute count, not a rate: the issue's threshold is "100 hits in
+        # 5 min", and increase() over 5m is exactly that quantity.
+        expr: sum(increase(rate_limit_hits_total[5m])) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          component: rate-limiter
+        annotations:
+          summary: "Over 100 rate limit rejections in 5 minutes"
+          description: >-
+            {{ $value | printf "%.0f" }} requests were rejected by rate limiters
+            in the last 5 minutes (threshold 100).
+          runbook: "docs/monitoring-runbook.md#ratelimithigh"
+
+  # ── Webhooks ───────────────────────────────────────────────────────────────
+  - name: finchippay-webhooks
+    interval: 30s
+    rules:
+      - alert: WebhookDeliveryFailure
+        # Counts both `failed` (receiver rejected) and `error` (never reached
+        # the receiver): from a merchant's point of view the webhook did not
+        # arrive either way.
+        expr: |
+          sum(rate(webhook_deliveries_total{outcome=~"failed|error"}[10m]))
+            /
+          clamp_min(sum(rate(webhook_deliveries_total[10m])), 0.001)
+            > 0.2
+        for: 10m
+        labels:
+          severity: critical
+          service: backend
+          component: webhooks
+        annotations:
+          summary: "Webhook delivery failure rate above 20%"
+          description: >-
+            {{ $value | humanizePercentage }} of webhook deliveries are failing
+            (threshold 20%, sustained for 10 minutes).
+          runbook: "docs/monitoring-runbook.md#webhookdeliveryfailure"
+
+      - alert: WebhookDeliverySlow
+        # A receiver that is slow but not yet failing. Left as a warning: it
+        # degrades throughput and often precedes WebhookDeliveryFailure.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(webhook_delivery_duration_seconds_bucket[10m])) by (le)
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+          component: webhooks
+        annotations:
+          summary: "Webhook delivery p95 above 10s"
+          description: >-
+            p95 webhook delivery is taking {{ $value | humanizeDuration }}
+            (threshold 10s, sustained for 10 minutes).
+          runbook: "docs/monitoring-runbook.md#webhookdeliveryslow"
+
+  # ── Contract event indexer ─────────────────────────────────────────────────
+  - name: finchippay-contract-indexer
+    interval: 30s
+    rules:
+      - alert: ContractEventBacklog
+        # The silent degradation named in the issue's problem statement: the
+        # API keeps serving, but on-chain data quietly goes stale.
+        expr: contract_event_indexer_lag_ledgers > 1000
+        for: 10m
+        labels:
+          severity: critical
+          service: backend
+          component: event-indexer
+        annotations:
+          summary: "Contract event indexer is more than 1000 ledgers behind"
+          description: >-
+            The indexer is {{ $value | printf "%.0f" }} ledgers behind the
+            network (threshold 1000, sustained for 10 minutes). On-chain data
+            served by the API is stale.
+          runbook: "docs/monitoring-runbook.md#contracteventbacklog"
+
+      - alert: ContractEventParseFailures
+        # A steady stream of unparseable events usually means the contract
+        # emitted a shape this indexer build does not know about.
+        expr: |
+          sum(rate(contract_events_processed_total{outcome="parse_failed"}[15m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          service: backend
+          component: event-indexer
+        annotations:
+          summary: "Contract events are failing to parse"
+          description: >-
+            The indexer is skipping {{ $value | printf "%.2f" }} events/s it
+            cannot decode, sustained for 15 minutes.
+          runbook: "docs/monitoring-runbook.md#contracteventparsefailures"
