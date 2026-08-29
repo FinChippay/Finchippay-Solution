@@ -845,7 +845,7 @@ fn test_approve_multisig_event_reports_actual_count() {
         &env,
         [(
             contract_id.clone(),
-            (Symbol::new(&env, "multisig_approve"), pid).into_val(&env),
+            (Symbol::new(&env, "multisig_approved"), pid).into_val(&env),
             (s1, 1u32, 2u32).into_val(&env),
         )],
     );
@@ -1276,14 +1276,7 @@ fn test_create_vesting_rejects_current_or_past_end_ledger() {
         )
         .is_err());
     assert!(client
-        .try_create_vesting(
-            &token_id,
-            &funder,
-            &beneficiary,
-            &5_000,
-            &cliff,
-            &past_end,
-        )
+        .try_create_vesting(&token_id, &funder, &beneficiary, &5_000, &cliff, &past_end,)
         .is_err());
 }
 

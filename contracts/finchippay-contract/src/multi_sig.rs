@@ -3,8 +3,9 @@
 //! N-of-M threshold approval payment proposals with auto-execution,
 //! expiration, and cancellation. Extracted from the main FinchippayContract impl.
 
-use soroban_sdk::{Address, Env, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
+use crate::events::Events;
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_token_client, increase_locked_balance,
     require_initialized, require_not_paused, require_transfer_succeeded, ContractError, DataKey,
@@ -105,7 +106,7 @@ pub fn create_multisig(
     bump(&env, &DataKey::MultiSigCount);
 
     env.events().publish(
-        (Symbol::new(&env, "multisig_create"), id),
+        (Events::multisig_created(&env), id),
         (proposer, recipient, amount, threshold),
     );
     id
@@ -149,7 +150,7 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
     proposal.approvals.push_back(signer.clone());
 
     env.events().publish(
-        (Symbol::new(&env, "multisig_approve"), proposal_id),
+        (Events::multisig_approved(&env), proposal_id),
         (signer.clone(), proposal.approvals.len(), proposal.threshold),
     );
 
@@ -168,7 +169,7 @@ pub fn approve_multisig(env: Env, proposal_id: u32, signer: Address) {
         let token = get_token_client(&env, &proposal.token);
         contract_transfer_out(&env, &token, &proposal.recipient, &proposal.amount);
         env.events().publish(
-            (Symbol::new(&env, "multisig_executed"), proposal_id),
+            (Events::multisig_executed(&env), proposal_id),
             (proposal.recipient.clone(), proposal.amount),
         );
     } else {
@@ -214,7 +215,7 @@ pub fn timeout_multisig(env: Env, proposal_id: u32) {
     contract_transfer_out(&env, &token, &proposal.proposer, &proposal.amount);
 
     env.events().publish(
-        (Symbol::new(&env, "multisig_timeout"), proposal_id),
+        (Events::multisig_timeout(&env), proposal_id),
         (proposal.proposer.clone(), proposal.amount),
     );
 }
@@ -251,7 +252,7 @@ pub fn cancel_multisig(env: Env, proposal_id: u32, proposer: Address) {
     contract_transfer_out(&env, &token, &proposer, &proposal.amount);
 
     env.events().publish(
-        (Symbol::new(&env, "multisig_cancelled"),),
+        (Events::multisig_cancelled(&env),),
         (proposal_id, proposer, proposal.amount),
     );
 }

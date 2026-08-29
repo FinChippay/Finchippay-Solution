@@ -46,6 +46,8 @@
 pub mod airdrop;
 pub mod batch_send;
 pub mod escrow;
+pub mod events;
+pub mod layout;
 pub mod multi_sig;
 pub mod storage;
 pub mod streams;
@@ -56,6 +58,8 @@ use soroban_sdk::{
     TryIntoVal, Val, Vec,
 };
 
+use crate::events::Events;
+use crate::layout::{LayoutManifest, MIGRATION_REGISTRY};
 use crate::storage::{MIN_TTL_LEDGERS, TTL_CLASS_COUNT};
 // Bring all TTL primitives (bump, bump_to_floor, ttl_class_*, etc.) into scope
 // so the FinchippayContract impl methods can call them without storage:: prefix.
@@ -502,10 +506,23 @@ const STORAGE_LAYOUT_VERSION: u32 = 3;
 /// A group of persistent keys that `bump_all_ttls` can enumerate and sweep as a
 /// unit, and that `get_min_ttl` reports a guaranteed remaining lifetime for.
 ///
-/// Only groups reachable from an on-chain counter are listed. Tip records,
-/// locked balances, and cached contract balances are keyed by an arbitrary
-/// address with no global registry, so they cannot be enumerated on-chain; they
-/// rely on the per-operation bumps in the functions that touch them instead.
+/// Only groups reachable from an on-chain counter are listed. Airdrop keys
+/// (`Airdrop(id)`, `AirdropCount`, and the claimed markers) ARE swept via
+/// `TtlClass::Airdrop`.
+///
+/// ### Tip-record retention policy (explicit decision)
+///
+/// `TipTotal`/`TipCount`/`TipRecord` are keyed by an arbitrary recipient
+/// address with **no on-chain registry**, so they cannot be enumerated on-chain
+/// and are therefore **not** a sweep class. Their TTL is kept alive by the
+/// per-access `bump`/`bump_to_floor` in `send_tip`/`batch_send`/`batch_send_multi`
+/// and the read views, which is what the README documents. This is an explicit
+/// "keep-alive rather than sweep" retention decision: no silent expiry for
+/// active recipients, and cold keys age out only if never read again (no action
+/// taken for them).
+///
+/// Locked balances and cached contract balances are likewise keyed by address
+/// with no registry and rely on per-operation bumps.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum TtlClass {
@@ -525,6 +542,10 @@ pub enum TtlClass {
     Emergency,
     /// Yield escrow counter and per-id escrows (AMM/DeFi pool integration).
     YieldEscrow,
+    /// Airdrop counter and per-id airdrops. Added so unclaimed airdrop pools
+    /// (whose funds are locked, see `airdrop.rs`) are swept with the rest and
+    /// cannot silently expire, stranding token allocations.
+    Airdrop,
 }
 
 // ─── Admin multi-sig proposal type ────────────────────────────────────────────
@@ -1163,6 +1184,10 @@ impl FinchippayContract {
             .persistent()
             .set(&DataKey::StorageLayoutVersion, &STORAGE_LAYOUT_VERSION);
         bump_to_floor(&env, &DataKey::StorageLayoutVersion);
+        // The layout manifest (airdrop/vesting/multi-sig/etc.) freezes the
+        // serialization of persistent structs; validating it here fails fast if
+        // a registered layout drifts from the manifest (see src/layout.rs).
+        crate::layout::validate_layout_manifest(STORAGE_LAYOUT_VERSION);
         // The three keys just written are the only ones the Config class holds
         // at this point, and all are at the TTL floor, so the guarantee that
         // `get_min_ttl` reports for the class already holds.
@@ -1610,6 +1635,22 @@ impl FinchippayContract {
         ver
     }
 
+    /// Return the frozen storage-layout manifest: the on-chain structs whose
+    /// serialization is part of the upgrade contract (see `src/layout.rs`),
+    /// plus the `(layout_name, version)` migration registry. Read-only; used by
+    /// audits and the layout-manifest regression test.
+    pub fn get_storage_layout_manifest(env: Env) -> Vec<(Symbol, u32)> {
+        // Touch the storage-layout version key so the view keeps its TTL alive,
+        // and sanity-check the frozen manifest so it can never silently empty.
+        Self::get_storage_layout_version(env.clone());
+        LayoutManifest::validate();
+        let mut out = Vec::new(&env);
+        for (name, version) in MIGRATION_REGISTRY {
+            out.push_back((Symbol::new(&env, name), *version));
+        }
+        out
+    }
+
     /// Validate that the new layout version is compatible with the current one.
     ///
     /// The new layout version must be >= the current version to prevent
@@ -1650,10 +1691,9 @@ impl FinchippayContract {
             .get(&DataKey::Version)
             .unwrap_or(CONTRACT_VERSION);
         let next_ver = current_ver.checked_add(1).expect("version overflow");
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::Version, &next_ver);
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        env.storage().persistent().set(&DataKey::Version, &next_ver);
         bump(&env, &DataKey::Version);
         env.storage()
             .persistent()
@@ -2186,9 +2226,10 @@ impl FinchippayContract {
             .set(&DataKey::TipTotal(to.clone()), &new_total);
         bump(&env, &DataKey::TipTotal(to.clone()));
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::TipCount(to.clone()), &(count + 1));
+        env.storage().persistent().set(
+            &DataKey::TipCount(to.clone()),
+            &(count.checked_add(1).expect("tip count overflow")),
+        );
         bump(&env, &DataKey::TipCount(to.clone()));
 
         let record = TipRecord {
@@ -2196,15 +2237,20 @@ impl FinchippayContract {
             to: to.clone(),
             amount,
             ledger: env.ledger().sequence(),
-            memo,
+            memo: memo.clone(),
         };
         env.storage()
             .persistent()
             .set(&DataKey::TipRecord(to.clone(), count), &record);
         bump_to_floor(&env, &DataKey::TipRecord(to.clone(), count));
 
-        env.events()
-            .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), amount);
+        // Canonical single-tip event (see events.rs catalog): one topic
+        // (`tip_sent`), one payload shape (`(amount, memo)`), identical to the
+        // per-recipient events emitted by `batch_send`/`batch_send_multi`.
+        env.events().publish(
+            (Events::tip_sent(&env), from.clone(), to.clone()),
+            (amount, memo.clone()),
+        );
         assert_invariants(&env, Symbol::new(&env, "all"));
     }
 
@@ -2833,6 +2879,51 @@ impl FinchippayContract {
 
     pub fn get_claimable_vesting(env: Env, id: u32) -> i128 {
         batch_send::get_claimable_vesting(env, id)
+    }
+
+    // ─── Airdrop ────────────────────────────────────────────────────────────
+
+    /// Airdrop: the funder deposits `total_amount` of `token` and publishes a
+    /// Merkle `root` over `(recipient, amount)` leaves. Claimants redeem their
+    /// allocation with a branch proof. Funds are locked (CEI + LockedBalance
+    /// parity), see `airdrop.rs`.
+    pub fn create_airdrop(
+        env: Env,
+        token: Address,
+        funder: Address,
+        merkle_root: BytesN<32>,
+        total_amount: i128,
+        expiration_ledger: u32,
+    ) -> u32 {
+        airdrop::create_airdrop(
+            &env,
+            token,
+            funder,
+            merkle_root,
+            total_amount,
+            expiration_ledger,
+        )
+    }
+
+    /// Airdrop claim: `recipient` presents the branch `proof` + `index` for
+    /// `amount`. Checks-effects-interactions guarantees no double-claim even
+    /// against a hostile token (re-entrancy guard held for the whole call).
+    pub fn claim_airdrop(
+        env: Env,
+        airdrop_id: u32,
+        recipient: Address,
+        amount: i128,
+        proof: Vec<BytesN<32>>,
+        index: u32,
+    ) {
+        airdrop::claim_airdrop(&env, airdrop_id, recipient, amount, proof, index)
+    }
+
+    /// Airdrop cancel: the funder reclaims the unclaimed remainder after the
+    /// expiration ledger has passed. The cancelled state is committed and the
+    /// locked balance released before the refund transfer.
+    pub fn cancel_airdrop(env: Env, airdrop_id: u32, funder: Address) {
+        airdrop::cancel_airdrop(&env, airdrop_id, funder)
     }
 
     // ─── Swap / DEX ─────────────────────────────────────────────────────────
@@ -4694,12 +4785,12 @@ mod tests {
                 &env,
                 (
                     contract_id.clone(),
-                    (Symbol::new(&env, "tip"), from.clone(), to1.clone()).into_val(&env),
+                    (Symbol::new(&env, "tip_sent"), from.clone(), to1.clone()).into_val(&env),
                     (300i128, Symbol::new(&env, "m1")).into_val(&env),
                 ),
                 (
                     contract_id.clone(),
-                    (Symbol::new(&env, "tip"), from.clone(), to2.clone()).into_val(&env),
+                    (Symbol::new(&env, "tip_sent"), from.clone(), to2.clone()).into_val(&env),
                     (200i128, Symbol::new(&env, "m2")).into_val(&env),
                 ),
                 (

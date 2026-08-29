@@ -41,7 +41,6 @@ jobs:
 
   contract-fuzz:
     name: Contract Fuzz (libFuzzer)
-    if: false # Disabled: not run on PRs or push
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,7 +61,7 @@ jobs:
       - run: cargo +nightly fuzz build --fuzz-dir fuzz
       - name: Fuzz targets (60s each)
         run: |
-          for target in fuzz_target_1_parse_payment fuzz_target_2_escrow fuzz_target_3_multisig fuzz_target_4_batch_send open_stream claim_stream create_escrow claim_escrow create_multisig approve_multisig; do
+          for target in fuzz_target_1_parse_payment fuzz_target_2_escrow fuzz_target_3_multisig fuzz_target_4_batch_send open_stream claim_stream create_escrow claim_escrow create_multisig approve_multisig airdrop; do
             cargo +nightly fuzz run $target --fuzz-dir fuzz -- -max_total_time=60 -print_final_stats=1 || echo "::warning::$target found crashes"
           done
       - name: Upload crash artifacts
