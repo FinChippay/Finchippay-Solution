@@ -188,9 +188,12 @@ app.use(requireJsonContentType);
 // JSON body size limits (#81, #353) — configurable via env vars.
 // Apply standard body parsing with env-configured limits.
 const { bodyParsing } = require("./middleware/bodyParsing");
-bodyParsing(app);
-// /api/turrets gets a larger limit for txFunction payloads.
+// /api/turrets gets a larger limit for txFunction payloads (#81). Mounted
+// BEFORE the global parser so the override actually applies: express parses
+// the body with the first matching middleware, so mounting the global parser
+// first would silently shadow the 512kb limit.
 app.use("/api/turrets", express.json({ limit: "512kb" }));
+bodyParsing(app);
 
 // JSON body parsing error handler — uses standardized error codes
 app.use((err, req, res, next) => {
