@@ -9,9 +9,48 @@
 const request = require("supertest");
 const nock = require("nock");
 
-jest.mock("../src/middleware/auth", () => ({
-  verifyJWT: (_req, _res, next) => next(),
-  requireAdmin: (_req, _res, next) => next(),
+// The full server transitively loads @stellar/stellar-sdk whose nested ESM
+// deps cannot be parsed by babel-jest; stub it so the app boots under Jest.
+jest.mock("@stellar/stellar-sdk", () => {
+  function MockAsset() {
+    return { contractId: () => "Ccontractid" };
+  }
+  MockAsset.native = () => ({ contractId: () => "Ccontractid" });
+  return {
+    Horizon: { Server: class {} },
+    Networks: { TESTNET: "testnet", PUBLIC: "public" },
+    TransactionBuilder: { fromXDR: jest.fn() },
+    Asset: MockAsset,
+    Memo: {},
+    Operation: {},
+    Keypair: {},
+    Account: class {},
+  };
+});
+
+jest.mock("../src/middleware/auth", () => {
+  const owner = "GDVGJWU37M4BTDGHPL4TIE7RKIQ2LHDRNTVCGC7CGGVQXIFN2H6VQ5DE";
+  return {
+    verifyJWT: (req, _res, next) => {
+      req.user = { publicKey: owner };
+      next();
+    },
+    requireAdmin: (_req, _res, next) => next(),
+  };
+});
+
+jest.mock("../src/services/webhookService", () => ({
+  registerWebhook: jest.fn(),
+  getWebhooksByPublicKey: jest.fn(),
+  deleteWebhook: jest.fn(),
+  getWebhookById: jest.fn(),
+  getEvents: jest.fn(),
+  replayEvents: jest.fn(),
+  getEventStats: jest.fn(),
+  getDeadDeliveries: jest.fn(),
+  retryDeadDeliveries: jest.fn(),
+  getDeliveries: jest.fn(),
+  getDeliveryById: jest.fn(),
 }));
 
 jest.mock("../src/services/tipsService", () => ({
@@ -25,10 +64,9 @@ jest.mock("../src/services/turretsService", () => ({
   createSigningChallenge: jest.fn(),
   deployTxFunction: jest.fn(),
   listDeployments: jest.fn(),
-  getDeploymentById: jest.fn(),
-  getDeploymentHistory: jest.fn(),
-  pauseDeployment: jest.fn(),
-  resumeDeployment: jest.fn(),
+  getDeployment: jest.fn(),
+  getExecutionHistory: jest.fn(),
+  setDeploymentStatus: jest.fn(),
 }));
 
 jest.mock("../src/services/analyticsService", () => ({
@@ -37,26 +75,15 @@ jest.mock("../src/services/analyticsService", () => ({
   getActivityByDay: jest.fn(),
 }));
 
-jest.mock("../src/services/webhookSubscriptionService", () => ({
-  registerWebhook: jest.fn(),
-  getWebhooksByPublicKey: jest.fn(),
-  getEvents: jest.fn(),
-  replayEvents: jest.fn(),
-  getEventStats: jest.fn(),
-  getDeadDeliveries: jest.fn(),
-  retryDeadDeliveries: jest.fn(),
-  deleteWebhook: jest.fn(),
-}));
-
-const app = require("../src/app");
+const app = require("../src/server");
 
 const tipsService = require("../src/services/tipsService");
 const turretsService = require("../src/services/turretsService");
 const analyticsService = require("../src/services/analyticsService");
-const webhookService = require("../src/services/webhookSubscriptionService");
+const webhookService = require("../src/services/webhookService");
 
-const VALID_KEY = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
-const VALID_KEY_2 = "GBUQWP3BOUZX34ULNQG23RQ6F4BWFIYGJ2DN5ZKQYTROZXNUAAOXWS7";
+const VALID_KEY = "GDVGJWU37M4BTDGHPL4TIE7RKIQ2LHDRNTVCGC7CGGVQXIFN2H6VQ5DE";
+const VALID_KEY_2 = "GBM62QEBFTRLEG5XEVS5N5JATIPR4J4YU5NFYUYOA4JX6B2UBXOZ3HTV";
 const VALID_URL = "https://example.com/webhooks/callback";
 
 function validTip(o) {
@@ -74,7 +101,7 @@ function validTip(o) {
 function validTurretDeploy(o) {
   return {
     ownerPublicKey: VALID_KEY,
-    type: "swap",
+    type: "dca",
     config: {},
     deploymentHash: "0xdead",
     signedChallengeXDR: "AAAA...",
@@ -83,7 +110,13 @@ function validTurretDeploy(o) {
 }
 
 function validWebhook(o) {
-  return { publicKey: VALID_KEY, url: VALID_URL, secret: "whsec_test", topics: ["payment"], ...o };
+  return {
+    publicKey: VALID_KEY,
+    url: VALID_URL,
+    secret: "whsec_test",
+    topics: ["payment.received"],
+    ...o,
+  };
 }
 
 afterAll(() => nock.cleanAll());
@@ -99,7 +132,7 @@ describe("POST /api/tips", () => {
     const res = await request(app).post("/api/tips").send(validTip());
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
-    expect(res.body.tip.id).toBe(1);
+    expect(res.body.data.id).toBe(1);
   });
   it("rejects empty body (400)", async () => {
     const res = await request(app).post("/api/tips").send({});
@@ -109,7 +142,8 @@ describe("POST /api/tips", () => {
 
 describe("GET /api/tips/received/:key", () => {
   it("returns received tips (200)", async () => {
-    tipsService.getTipsReceived.mockResolvedValue({ data: [{ id: 1 }], total: 1 });
+    tipsService.getTipsReceived.mockResolvedValue({ tips: [{ id: 1 }], total: 1 });
+    tipsService.getTipsStats.mockResolvedValue({ totalTips: 1 });
     const res = await request(app).get(`/api/tips/received/${VALID_KEY}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
@@ -135,7 +169,7 @@ describe("POST /api/turrets/challenge", () => {
     turretsService.createSigningChallenge.mockResolvedValue({ challengeXDR: "AAAA" });
     const res = await request(app)
       .post("/api/turrets/challenge")
-      .send({ ownerPublicKey: VALID_KEY, type: "swap", config: {} });
+      .send({ ownerPublicKey: VALID_KEY, type: "dca", config: {} });
     expect(res.status).toBe(200);
     expect(res.body.data.challengeXDR).toBe("AAAA");
   });
@@ -161,7 +195,7 @@ describe("GET /api/turrets", () => {
 
 describe("GET /api/turrets/:id", () => {
   it("returns deployment by id (200)", async () => {
-    turretsService.getDeploymentById.mockResolvedValue({ id: "d1" });
+    turretsService.getDeployment.mockResolvedValue({ id: "d1" });
     const res = await request(app).get("/api/turrets/d1");
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe("d1");
@@ -170,7 +204,8 @@ describe("GET /api/turrets/:id", () => {
 
 describe("GET /api/turrets/:id/history", () => {
   it("returns history (200)", async () => {
-    turretsService.getDeploymentHistory.mockResolvedValue([{ event: "deployed" }]);
+    turretsService.getDeployment.mockResolvedValue({ id: "d1" });
+    turretsService.getExecutionHistory.mockResolvedValue([{ event: "deployed" }]);
     const res = await request(app).get("/api/turrets/d1/history");
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
@@ -238,6 +273,10 @@ describe("GET /api/webhooks/:publicKey", () => {
 
 describe("DELETE /api/webhooks/:id", () => {
   it("deletes webhook (200)", async () => {
+    webhookService.getWebhookById.mockResolvedValue({
+      id: "wh-1",
+      publicKey: VALID_KEY,
+    });
     webhookService.deleteWebhook.mockResolvedValue(true);
     const res = await request(app).delete("/api/webhooks/wh-1");
     expect(res.status).toBe(200);
