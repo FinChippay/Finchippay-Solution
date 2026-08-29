@@ -57,7 +57,10 @@ function verifyJWT(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    // Pin the algorithm explicitly: jsonwebtoken defaults permit various
+    // asymmetric/confusion vectors when the same secret is reused. Explicitly
+    // requiring HS256 prevents algorithm-confusion attacks (WS7).
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
     if (!decoded.publicKey || !/^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
       return res.status(ERROR_CODES.AUTH_INVALID_TOKEN.httpStatus).json(
         formatErrorResponse("AUTH_INVALID_TOKEN", {
