@@ -1,0 +1,7 @@
+{
+  "send_tip": 5000000,
+  "create_escrow": 8000000,
+  "open_stream": 7000000,
+  "propose_multi_sig": 6000000,
+  "batch_send": 15000000
+}
