@@ -59,12 +59,15 @@ async function purgeOldData() {
     purged.tips = 0;
   }
 
-  try {
-    purged.auditLog = await db("audit_log").where("created_at", "<", cutoff).del();
-  } catch (err) {
-    logger.error({ err }, "Failed to purge audit_log");
-    purged.auditLog = 0;
-  }
+  // The audit_log table is intentionally EXEMPT from this PII retention purge.
+  // Audit records (who performed which funds-adjacent operation) must be
+  // retained immutably and separately from retention-purged PII so operators
+  // can always reconstruct accountability (WS5). Self-purging the audit trail
+  // on the same schedule that rotates webhook_deliveries/tips would make the
+  // trail useless exactly when it is needed most. If a bounded window is ever
+  // required it must be a dedicated, longer-lived archive/cold-storage job —
+  // never this PII purge.
+  purged.auditLog = 0;
 
   try {
     purged.emailEvents = await db("email_events").where("timestamp", "<", trackingCutoff).del();

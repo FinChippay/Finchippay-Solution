@@ -2,7 +2,7 @@
 "use strict";
 
 jest.mock("@stellar/stellar-sdk", () => ({
-  Horizon: { Server: class {} }
+  Horizon: { Server: class {} },
 }));
 
 const express = require("express");
@@ -35,10 +35,11 @@ describe("dataRetentionService.purgeOldData", () => {
   });
 
   it("purges records older than DATA_RETENTION_DAYS from each in-scope table", async () => {
+    const auditChain = makeQueryChain(2);
     db.mockImplementation((table) => {
       if (table === "webhook_deliveries") return makeQueryChain(3);
       if (table === "tips") return makeQueryChain(5);
-      if (table === "audit_log") return makeQueryChain(2);
+      if (table === "audit_log") return auditChain;
       if (table === "email_events") return makeQueryChain(4);
       return makeQueryChain(0);
     });
@@ -47,9 +48,22 @@ describe("dataRetentionService.purgeOldData", () => {
 
     expect(result.purged.webhookDeliveries).toBe(3);
     expect(result.purged.tips).toBe(5);
-    expect(result.purged.auditLog).toBe(2);
+    expect(result.purged.auditLog).toBe(0);
     expect(result.purged.emailEvents).toBe(4);
     expect(result.retentionDays).toBe(30);
+  });
+
+  it("never deletes audit_log rows (WS5: the audit trail is exempt from the PII purge)", async () => {
+    const auditChain = makeQueryChain(50);
+    db.mockImplementation((table) => {
+      if (table === "audit_log") return auditChain;
+      return makeQueryChain(0);
+    });
+
+    const result = await dataRetentionService.purgeOldData();
+
+    expect(result.purged.auditLog).toBe(0);
+    expect(auditChain.del).not.toHaveBeenCalled();
   });
 
   it("uses the default 365-day retention period when DATA_RETENTION_DAYS is unset", () => {
@@ -89,7 +103,7 @@ describe("dataRetentionService.purgeOldData", () => {
 
     expect(result.purged.webhookDeliveries).toBe(0);
     expect(result.purged.tips).toBe(1);
-    expect(result.purged.auditLog).toBe(1);
+    expect(result.purged.auditLog).toBe(0); // audit_log is exempt even if other tables fail
   });
 });
 
