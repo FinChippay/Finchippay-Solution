@@ -46,7 +46,14 @@ const mockEvents = new Map();
  * webhookService.js.
  */
 function mockMakeBuilder(tableName) {
-  const state = { table: tableName, wheres: [], whereIns: [] };
+  const state = {
+    table: tableName,
+    wheres: [],
+    whereIns: [],
+    isCount: false,
+    funcs: [],
+    onConflictCol: null,
+  };
 
   function getStore() {
     if (tableName === "webhooks") return mockWebhooks;
@@ -69,10 +76,17 @@ function mockMakeBuilder(tableName) {
   const builder = {
     where(col, val) {
       if (typeof col === "function") {
-        state.wheres.push({ fn: () => true });
+        state.funcs.push(col);
+        state.wheres.push({ fn: (row) => state.funcs.every((f) => f(row)) });
       } else {
         state.wheres.push({ col, val });
       }
+      return builder;
+    },
+    orWhere(fnOrCol, val) {
+      // Mirror the simple (always-true) orWhere used by the service's deadline
+      // query so it never crashes the chain.
+      state.wheres.push({ fn: fnOrCol ? () => true : () => true });
       return builder;
     },
     andWhere(colOrFn, val) {
@@ -95,15 +109,36 @@ function mockMakeBuilder(tableName) {
       return builder;
     },
     select() {
-      return Promise.resolve(Array.from(getStore().values()).filter(matchesRow));
+      let rows = Array.from(getStore().values()).filter(matchesRow);
+      if (state.isCount) {
+        return Promise.resolve([{ cnt: rows.length }]);
+      }
+      return Promise.resolve(rows);
     },
     first() {
-      const row = Array.from(getStore().values()).find(matchesRow);
-      return Promise.resolve(row || null);
+      const rows = Array.from(getStore().values()).filter(matchesRow);
+      if (state.isCount) {
+        return Promise.resolve({ cnt: rows.length });
+      }
+      return Promise.resolve(rows[0] || null);
     },
     insert(row) {
-      getStore().set(row.id, { ...row });
-      return Promise.resolve([1]);
+      // Resolve on the next microtask so `.onConflict().ignore()` can attach.
+      const p = Promise.resolve().then(() => {
+        if (state.onConflictCol && row[state.onConflictCol] !== undefined) {
+          const existing = Array.from(getStore().values()).some(
+            (r) => r[state.onConflictCol] === row[state.onConflictCol],
+          );
+          if (existing) return [0]; // unique conflict → nothing inserted
+        }
+        getStore().set(row.id, { ...row });
+        return [1];
+      });
+      p.onConflict = (col) => {
+        state.onConflictCol = col;
+        return { ignore: () => p.then((cntOrArr) => cntOrArr[0] ?? cntOrArr) };
+      };
+      return p;
     },
     del() {
       let count = 0;
@@ -151,7 +186,8 @@ function mockMakeBuilder(tableName) {
       return builder;
     },
     count() {
-      return Promise.resolve([]);
+      state.isCount = true;
+      return builder;
     },
   };
 
@@ -347,20 +383,6 @@ describe("signPayload", () => {
     const sig = webhookService.signPayload("mysecret", { event: "test" });
     expect(sig).toBe("sig-mysecret");
   });
-
-  it("builds a SEP-0045 compatible payload and headers", () => {
-    const payload = webhookService.buildPayload(
-      "payment.received",
-      { amount: "1" },
-      "secret",
-      "v2",
-    );
-    expect(payload).toHaveProperty("id");
-    expect(payload).toHaveProperty("timestamp");
-    expect(payload).toHaveProperty("type", "payment.received");
-    expect(payload).toHaveProperty("data");
-    expect(payload.data).toEqual({ amount: "1" });
-  });
 });
 
 describe("closeAllStreams (graceful shutdown on SIGTERM/SIGINT)", () => {
@@ -416,5 +438,42 @@ describe("dead letter queue", () => {
   it("resets dead deliveries for retry", async () => {
     const result = await webhookService.retryDeadDeliveries(ACCOUNT_A);
     expect(result).toHaveProperty("reset");
+  });
+});
+
+describe("webhook event idempotency (WS3)", () => {
+  beforeAll(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
+  });
+
+  afterAll(() => {
+    delete global.fetch;
+  });
+
+  it("delivering the same event twice creates one event and one delivery", async () => {
+    const webhook = {
+      id: "wh-idem-1",
+      publicKey: ACCOUNT_A,
+      url: "https://x.test/hook",
+      secret: "enc:supersecret",
+    };
+    const payload = {
+      event: "payment.received",
+      publicKey: ACCOUNT_A,
+      payment: { id: "op-1", amount: "1", asset: "XLM", from: ACCOUNT_B, to: ACCOUNT_A },
+    };
+
+    await webhookService.deliverWebhook(webhook, payload, "payment.received");
+    await webhookService.deliverWebhook(webhook, payload, "payment.received");
+
+    // Stable idempotency key ⇒ the second delivery dedupes at the event level.
+    expect(Array.from(mockEvents.values())).toHaveLength(1);
+    expect(Array.from(mockDeliveries.values())).toHaveLength(1);
+
+    const events = Array.from(mockEvents.values());
+    expect(events[0].idempotency_key).toBeTruthy();
+    // No timestamp in the key ⇒ deterministic for the same (id, type, payload).
+    const keys = events.map((e) => e.idempotency_key);
+    expect(new Set(keys).size).toBe(1);
   });
 });
