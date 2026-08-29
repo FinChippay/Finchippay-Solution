@@ -203,6 +203,16 @@ function collectErrors(env) {
     );
   }
 
+  // WEBHOOK_SECRET_KEY is required in production so stored webhook secret
+  // hashes are stable across restarts (webhookService fails closed when it is
+  // unset). Reflect that here so the misconfiguration is surfaced at boot with
+  // the rest of the environment checks (WS7).
+  if (env.NODE_ENV === "production" && !env.WEBHOOK_SECRET_KEY?.trim()) {
+    errors.push(
+      "WEBHOOK_SECRET_KEY is required in production — generate one with: openssl rand -hex 32",
+    );
+  }
+
   // BODY_LIMIT_JSON is optional (default: "1mb").
   if (env.BODY_LIMIT_JSON) {
     const val = String(env.BODY_LIMIT_JSON).trim();
