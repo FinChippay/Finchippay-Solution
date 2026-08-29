@@ -296,8 +296,44 @@ async function submitPendingExecution(id, signedXDR) {
     throw err;
   }
 
+  // Decode the signed XDR up front so we can validate ownership before we
+  // commit any state transition (WS2).
+  let tx;
   try {
-    const tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
+    tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
+  } catch (err) {
+    const wrapped = new Error(`Invalid signed XDR: ${err.message}`);
+    wrapped.status = 400;
+    throw wrapped;
+  }
+
+  // The submitted transaction must originate from the pending execution's
+  // owner. Without this an attacker who learns a pending_executions.id could
+  // submit an unrelated transaction and have it attributed to the victim's
+  // schedule (WS2).
+  const source = tx.source;
+  if (source !== pending.owner_pk) {
+    const err = new Error("Signed XDR source account must match the pending execution owner");
+    err.status = 403;
+    throw err;
+  }
+
+  // Atomically claim the pending execution. Only the caller that flips the
+  // row from "awaiting_signature" wins the right to submit to Horizon; a
+  // concurrent submit (retry + cron, or two rapid POSTs) that lost the race
+  // gets a 409 here and never double-submits (WS3).
+  const claimed = await knex("pending_executions")
+    .where("id", id)
+    .where("status", "awaiting_signature")
+    .update({ status: "submitting" });
+  if (claimed === 0) {
+    const current = await knex("pending_executions").where("id", id).first();
+    const err = new Error(`Pending execution is already ${current ? current.status : "resolved"}`);
+    err.status = 409;
+    throw err;
+  }
+
+  try {
     const result = await server.submitTransaction(tx);
     await knex("pending_executions").where("id", id).update({
       status: "submitted",
@@ -306,7 +342,9 @@ async function submitPendingExecution(id, signedXDR) {
     });
     return { status: "submitted", hash: result.hash };
   } catch (err) {
-    await knex("pending_executions").where("id", id).update({
+    // Only mark failed if we still own the claim — a newer state (e.g. a
+    // re-submission) must not be clobbered.
+    await knex("pending_executions").where("id", id).where("status", "submitting").update({
       status: "failed",
       error: err.message,
       resolved_at: new Date().toISOString(),

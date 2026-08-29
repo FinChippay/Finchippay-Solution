@@ -34,10 +34,42 @@ var BATCH_THRESHOLD = parseInt(process.env.EMAIL_BATCH_THRESHOLD || "3", 10);
 var BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 var UNSUBSCRIBE_EMAIL = process.env.EMAIL_UNSUBSCRIBE_ADDRESS || "unsubscribe@finchippay.io";
 var RATE_LIMIT_PER_HOUR = parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || "10", 10);
+var STALE_PROCESSING_MS = parseInt(process.env.EMAIL_STALE_PROCESSING_MS || "600000", 10);
+
+/**
+ * Canonical set of notification event types a caller may subscribe to.
+ * Covers both the legacy email-template naming scheme (keys of
+ * EVENT_TEMPLATE_MAP) and the unified notification-preferences scheme.
+ * Used to reject unknown/malformed `events` payloads before they are
+ * persisted (WS2).
+ */
+var KNOWN_EVENT_TYPES = new Set([
+  "payment_received",
+  "payment_sent",
+  "escrow_released",
+  "stream_depleted",
+  "stream_claimed",
+  "scheduled_txn_executed",
+  "price_alert",
+  "security_alert",
+  "multisig_executed",
+  "tip_received",
+  "incoming_payment",
+  "outgoing_payment",
+  "escrow_release",
+  "stream_claim",
+  "multi_sig_approval",
+  "scheduled_payment",
+  "contract_event",
+]);
 
 async function isRateLimited(toAddress) {
   var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  var row = await knex("email_send_queue").where("to_address", toAddress).where("created_at", ">=", oneHourAgo).count("id as cnt").first();
+  var row = await knex("email_send_queue")
+    .where("to_address", toAddress)
+    .where("created_at", ">=", oneHourAgo)
+    .count("id as cnt")
+    .first();
   var count = parseInt((row && row.cnt) || "0", 10);
   return count >= RATE_LIMIT_PER_HOUR;
 }
@@ -79,7 +111,10 @@ function initTransport() {
     logger.info({ type: "notification_transport_ready" }, "SMTP transport initialized");
     return true;
   } catch (err) {
-    logger.error({ type: "notification_transport_error", error: err.message }, "Failed to init SMTP");
+    logger.error(
+      { type: "notification_transport_error", error: err.message },
+      "Failed to init SMTP",
+    );
     return false;
   }
 }
@@ -219,7 +254,10 @@ async function queueEmail(to, templateType, data, opts) {
   try {
     unsubToken = await ensureUnsubscribeToken(to, "all");
   } catch (err) {
-    logger.debug({ type: "unsubscribe_token_precreate_failed", error: err.message }, "Unsubscribe token pre-create failed");
+    logger.debug(
+      { type: "unsubscribe_token_precreate_failed", error: err.message },
+      "Unsubscribe token pre-create failed",
+    );
   }
 
   const unsubscribeUrl = unsubToken
@@ -259,10 +297,20 @@ async function queueEmail(to, templateType, data, opts) {
  * @returns {Promise<{ processed: number, failed: number }>}
  */
 async function processEmailQueue() {
-  var now = new Date().toISOString();
+  var now = new Date();
+  var nowISO = now.toISOString();
+  // Pick up due "pending" rows AND orphaned "processing" rows (a worker that
+  // claimed a row but died before settling it). Orphan recovery prevents a crash
+  // from permanently stranding a queued email, while the claim below prevents
+  // two live workers from sending the same row twice (WS3).
+  var staleCutoff = new Date(now.getTime() - STALE_PROCESSING_MS).toISOString();
   var pending = await knex("email_send_queue")
-    .where("status", "pending")
-    .where("next_attempt_at", "<=", now)
+    .where(function () {
+      this.where({ status: "pending" }).andWhere("next_attempt_at", "<=", nowISO);
+    })
+    .orWhere(function () {
+      this.where({ status: "processing" }).andWhere("updated_at", "<", staleCutoff);
+    })
     .orderBy("next_attempt_at", "asc")
     .limit(50)
     .select();
@@ -274,6 +322,17 @@ async function processEmailQueue() {
     var item = pending[i];
     var attempts = (item.attempts || 0) + 1;
     var maxAttempts = item.max_attempts || 3;
+
+    // Atomically claim this row. Only the worker that flips "pending" ->
+    // "processing" proceeds; concurrent workers that selected the same row get
+    // 0 affected rows and skip it, so an email is never double-sent.
+    if (item.status === "pending") {
+      var claimed = await knex("email_send_queue")
+        .where("id", item.id)
+        .where("status", "pending")
+        .update({ status: "processing", updated_at: nowISO });
+      if (!claimed) continue;
+    }
 
     // Check suppression again at send time
     var suppressed = await emailTrackingService.isSuppressed(item.to_address);
@@ -427,17 +486,39 @@ async function registerEmail(publicKey, email, options) {
     "multisig_executed",
     "tip_received",
   ];
+
+  // Reject unknown event types instead of silently persisting arbitrary
+  // strings that would never fire a notification (WS2).
+  if (!Array.isArray(events)) {
+    var notArr = new Error("events must be an array of notification event types");
+    notArr.status = 400;
+    throw notArr;
+  }
+  var invalid = events.filter(function (e) {
+    return typeof e !== "string" || !KNOWN_EVENT_TYPES.has(e);
+  });
+  if (invalid.length > 0) {
+    var err = new Error(
+      "Unknown notification event type(s): " +
+        invalid.join(", ") +
+        ". Allowed types: " +
+        Array.from(KNOWN_EVENT_TYPES).join(", "),
+    );
+    err.status = 400;
+    throw err;
+  }
+
   var existing = await knex("notification_email_preferences")
     .where("public_key", publicKey)
     .first();
-    
+
   let consentOpenTracking = false;
   if (options.consentOpenTracking !== undefined) {
     consentOpenTracking = options.consentOpenTracking;
   } else if (existing && existing.consent_open_tracking !== undefined) {
     consentOpenTracking = existing.consent_open_tracking;
   }
-  
+
   if (existing) {
     await knex("notification_email_preferences")
       .where("public_key", publicKey)
@@ -574,7 +655,13 @@ async function notifySubscribers(eventType, data) {
           "digest",
           {
             count: recentCount + 1,
-            events: [{ label: eventType, timestamp: payload.timestamp, summary: `${payload.amount || ""} ${payload.asset || ""}`.trim() }],
+            events: [
+              {
+                label: eventType,
+                timestamp: payload.timestamp,
+                summary: `${payload.amount || ""} ${payload.asset || ""}`.trim(),
+              },
+            ],
           },
           { publicKey: row.public_key },
         );
@@ -610,6 +697,3 @@ module.exports = {
   EVENT_TEMPLATE_MAP,
   EVENT_SUBJECTS,
 };
-
-
-
