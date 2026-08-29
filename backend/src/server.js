@@ -33,6 +33,7 @@ const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
+const apiKeysRoutes = require("./routes/apiKeys");
 const paymentRoutes = require("./routes/payments");
 const receiptsRoutes = require("./routes/receipts");
 const analyticsRoutes = require("./routes/analytics");
@@ -224,6 +225,7 @@ app.use(
     allowedHeaders: [
       "Content-Type",
       "Authorization",
+      "X-API-Key",
       "X-Request-ID",
       "X-Correlation-ID",
       "X-Session-ID",
@@ -297,6 +299,7 @@ for (const { path, router } of apiRouteMounts) {
 }
 
 app.use("/api/auth", authRoutes);
+app.use("/api/keys", apiKeysRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/receipts", receiptsRoutes);
@@ -501,9 +504,7 @@ if (require.main === module) {
       // logs again — so an operator can capture it and configure it on the
       // anchor's side. Use inboundWebhookSecretService.rotateSecret() to
       // change it afterwards.
-      const newSep24Secret = await inboundWebhookSecretService.ensureSecretExists(
-        "sep24_callback",
-      );
+      const newSep24Secret = await inboundWebhookSecretService.ensureSecretExists("sep24_callback");
       if (newSep24Secret) {
         logger.warn(
           { endpoint: "sep24_callback", secretId: newSep24Secret.id },

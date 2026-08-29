@@ -46,6 +46,15 @@ const options = {
       },
     ],
     components: {
+      securitySchemes: {
+        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+        apiKeyAuth: {
+          type: "apiKey",
+          in: "header",
+          name: "X-API-Key",
+          description: "Long-lived scoped API key. The raw key is shown only once when created.",
+        },
+      },
       parameters: {
         PaginationLimit: {
           name: "limit",
@@ -1591,6 +1600,58 @@ const options = {
             },
             404: { description: "Deployment not found" },
             429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/keys": {
+        post: {
+          tags: ["API Keys"],
+          summary: "Create a scoped API key",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["scopes"],
+                  properties: {
+                    scopes: {
+                      type: "array",
+                      items: { type: "string", enum: ["read", "payments:send", "admin"] },
+                      minItems: 1,
+                    },
+                    publicKeys: {
+                      type: "array",
+                      items: { type: "string", pattern: "^G[A-Z2-7]{55}$" },
+                      description: "Allowed account public keys for payment-scoped access.",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: "Created. The plaintext API key is returned only once." },
+            400: { description: "Invalid scope" },
+          },
+        },
+        get: {
+          tags: ["API Keys"],
+          summary: "List redacted API keys",
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Redacted API key metadata" } },
+        },
+      },
+      "/api/keys/{id}": {
+        delete: {
+          tags: ["API Keys"],
+          summary: "Revoke an API key",
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+          responses: {
+            200: { description: "API key revoked" },
+            404: { description: "API key not found" },
           },
         },
       },

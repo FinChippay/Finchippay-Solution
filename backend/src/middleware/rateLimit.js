@@ -67,6 +67,19 @@ function createInstrumentedLimiter(options, limiterType) {
   return instrumentedLimiter;
 }
 
+const apiKeyLimiter = createInstrumentedLimiter(
+  {
+    windowMs: 1 * 60 * 1000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.apiKey?.keyHash || req.ip,
+    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+    ...(redisClient ? { store: createRedisStore("apiKey") } : {}),
+  },
+  "apiKey",
+);
+
 const strictLimiter = createInstrumentedLimiter(
   {
     windowMs: 1 * 60 * 1000,
@@ -108,4 +121,5 @@ module.exports = {
   sensitiveLimiter,
   strictLimiter,
   authRefreshLimiter,
+  apiKeyLimiter,
 };
