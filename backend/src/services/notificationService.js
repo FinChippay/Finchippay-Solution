@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/services/notificationService.js
  *
  * Pluggable email notification service that sends templated alerts for
@@ -430,12 +430,21 @@ async function registerEmail(publicKey, email, options) {
   var existing = await knex("notification_email_preferences")
     .where("public_key", publicKey)
     .first();
+    
+  let consentOpenTracking = false;
+  if (options.consentOpenTracking !== undefined) {
+    consentOpenTracking = options.consentOpenTracking;
+  } else if (existing && existing.consent_open_tracking !== undefined) {
+    consentOpenTracking = existing.consent_open_tracking;
+  }
+  
   if (existing) {
     await knex("notification_email_preferences")
       .where("public_key", publicKey)
       .update({
         email: email,
         events: JSON.stringify(events),
+        consent_open_tracking: consentOpenTracking,
         updated_at: new Date().toISOString(),
       });
   } else {
@@ -443,6 +452,7 @@ async function registerEmail(publicKey, email, options) {
       public_key: publicKey,
       email: email,
       events: JSON.stringify(events),
+      consent_open_tracking: consentOpenTracking,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -457,6 +467,7 @@ async function registerEmail(publicKey, email, options) {
     email: saved.email,
     events: JSON.parse(saved.events || "[]"),
     emailVerified: saved.email_verified || false,
+    consentOpenTracking: !!saved.consent_open_tracking,
     createdAt: saved.created_at,
     updatedAt: saved.updated_at,
   };
@@ -470,6 +481,7 @@ async function getEmailPreference(publicKey) {
     email: row.email,
     events: JSON.parse(row.events || "[]"),
     emailVerified: row.email_verified || false,
+    consentOpenTracking: !!row.consent_open_tracking,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

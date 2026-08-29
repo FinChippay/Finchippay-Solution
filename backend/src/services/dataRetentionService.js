@@ -31,9 +31,16 @@ async function writeAuditLog(action, details, targetPublicKey = null) {
   }
 }
 
+function getTrackingRetentionDays() {
+  const parsed = parseInt(process.env.TRACKING_RETENTION_DAYS, 10);
+  return Number.isNaN(parsed) || parsed < 1 ? 90 : parsed;
+}
+
 async function purgeOldData() {
   const retentionDays = getRetentionDays();
+  const trackingRetentionDays = getTrackingRetentionDays();
   const cutoff = cutoffDate(retentionDays);
+  const trackingCutoff = cutoffDate(trackingRetentionDays);
   const purged = {};
 
   try {
@@ -57,6 +64,13 @@ async function purgeOldData() {
   } catch (err) {
     logger.error({ err }, "Failed to purge audit_log");
     purged.auditLog = 0;
+  }
+
+  try {
+    purged.emailEvents = await db("email_events").where("timestamp", "<", trackingCutoff).del();
+  } catch (err) {
+    logger.error({ err }, "Failed to purge email_events");
+    purged.emailEvents = 0;
   }
 
   try {

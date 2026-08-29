@@ -40,8 +40,8 @@ const notificationLimiter = rateLimit({
  */
 router.post("/email", notificationLimiter, validate(registerEmailSchema), async (req, res, next) => {
   try {
-    const { publicKey, email, events } = req.validated;
-    const preference = await notificationService.registerEmail(publicKey, email, { events });
+    const { publicKey, email, events, consentOpenTracking } = req.validated;
+    const preference = await notificationService.registerEmail(publicKey, email, { events, consentOpenTracking });
     return res.status(201).json({ success: true, preference });
   } catch (err) {
     next(err);
@@ -62,7 +62,7 @@ router.put(
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
-      const { email, events } = req.validated;
+      const { email, events, consentOpenTracking } = req.validated;
 
       // Fetch existing preference
       const existing = await notificationService.getEmailPreference(publicKey);
@@ -78,9 +78,12 @@ router.put(
       const preference = await notificationService.registerEmail(
         publicKey,
         email || existing.email,
-        { events: events || existing.events },
+        {
+          events: events || existing.events,
+          consentOpenTracking: consentOpenTracking !== undefined ? consentOpenTracking : existing.consentOpenTracking
+        }
       );
-      return res.json({ success: true, preference });
+      return res.status(200).json({ success: true, preference });
     } catch (err) {
       next(err);
     }

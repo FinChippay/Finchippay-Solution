@@ -118,10 +118,49 @@ describe("emailTrackingService", () => {
   });
 
   describe("handleOpen()", () => {
-    it("records an 'opened' event", async () => {
+    it("records an 'opened' event when consent is granted", async () => {
+      const knex = require("../src/db/connection");
+      
+      const queueChain = {
+        where: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        first: jest.fn().mockResolvedValue({ to_address: "test@example.com" }),
+      };
+      
+      const prefChain = {
+        where: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        first: jest.fn().mockResolvedValue({ consent_open_tracking: true }),
+      };
+      
+      knex.mockReturnValueOnce(queueChain).mockReturnValueOnce(prefChain);
+
       const recordSpy = jest.spyOn(emailTracking, "recordEvent").mockResolvedValue();
       await emailTracking.handleOpen("eid1", { userAgent: "Mozilla", ip: "1.2.3.4" });
       expect(recordSpy).toHaveBeenCalledWith("eid1", "opened", expect.objectContaining({ userAgent: "Mozilla" }));
+      recordSpy.mockRestore();
+    });
+
+    it("does not record 'opened' event when consent is missing/false", async () => {
+      const knex = require("../src/db/connection");
+      
+      const queueChain = {
+        where: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        first: jest.fn().mockResolvedValue({ to_address: "test@example.com" }),
+      };
+      
+      const prefChain = {
+        where: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        first: jest.fn().mockResolvedValue({ consent_open_tracking: false }),
+      };
+      
+      knex.mockReturnValueOnce(queueChain).mockReturnValueOnce(prefChain);
+
+      const recordSpy = jest.spyOn(emailTracking, "recordEvent").mockResolvedValue();
+      await emailTracking.handleOpen("eid1", { userAgent: "Mozilla", ip: "1.2.3.4" });
+      expect(recordSpy).not.toHaveBeenCalled();
       recordSpy.mockRestore();
     });
   });
@@ -165,7 +204,6 @@ describe("emailTrackingService", () => {
       };
 
       knex
-        .mockReturnValueOnce({ insert: jest.fn().mockResolvedValue([1]) }) // recordEvent email_events
         .mockReturnValueOnce(countChain) // count query
         .mockReturnValueOnce(insertChain); // insert unsubscribe
 

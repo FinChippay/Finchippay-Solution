@@ -452,12 +452,14 @@ const registerEmailSchema = z.object({
     .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format"),
   email: z.string({ required_error: "email is required" }).email("Invalid email address format"),
   events: z.array(z.enum(NOTIF_EVENT_TYPES)).optional().default(NOTIF_EVENT_TYPES),
+  consentOpenTracking: z.boolean().optional().default(false),
 });
 
 /** PUT /api/notifications/email/:publicKey */
 const updateEmailSchema = z.object({
   email: z.string().email("Invalid email address format").optional(),
   events: z.array(z.enum(NOTIF_EVENT_TYPES)).optional(),
+  consentOpenTracking: z.boolean().optional(),
 });
 
 const emailEventsQuerySchema = z.object({
