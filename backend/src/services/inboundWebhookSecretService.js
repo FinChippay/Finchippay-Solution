@@ -113,9 +113,7 @@ async function rotateSecret(endpoint, { graceSeconds = 0 } = {}) {
         .whereIn("id", ids)
         .update({ rotated_at: now.toISOString(), expires_at: expiresAt });
     } else {
-      await knex(TABLE)
-        .whereIn("id", ids)
-        .update({ active: false, rotated_at: now.toISOString() });
+      await knex(TABLE).whereIn("id", ids).update({ active: false, rotated_at: now.toISOString() });
     }
   }
 

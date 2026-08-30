@@ -45,7 +45,9 @@ class PathBasedSampler {
       rate = HEALTH_CHECK_SAMPLE_RATE;
     }
     const sampled = Math.random() < rate;
-    return { decision: sampled ? SamplingDecision.RECORD_AND_SAMPLED : SamplingDecision.NOT_RECORD };
+    return {
+      decision: sampled ? SamplingDecision.RECORD_AND_SAMPLED : SamplingDecision.NOT_RECORD,
+    };
   }
   toString() {
     return "PathBasedSampler";

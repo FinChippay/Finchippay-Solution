@@ -58,7 +58,9 @@ describe("dockerSecrets.loadDockerSecrets", () => {
   it("throws a descriptive error when the referenced file does not exist", () => {
     const env = { DATABASE_URL_FILE: "/nonexistent/path/does-not-exist.txt" };
 
-    expect(() => loadDockerSecrets(env)).toThrow(/Failed to read DATABASE_URL from DATABASE_URL_FILE/);
+    expect(() => loadDockerSecrets(env)).toThrow(
+      /Failed to read DATABASE_URL from DATABASE_URL_FILE/,
+    );
   });
 
   it("resolves multiple secrets independently", () => {

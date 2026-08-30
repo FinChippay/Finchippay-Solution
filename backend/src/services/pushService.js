@@ -202,9 +202,7 @@ async function addSubscription(publicKey, subscription) {
 
   const [{ count }] = await knex(TABLE).where({ public_key: publicKey }).count("* as count");
   if (Number(count) >= MAX_DEVICES_PER_ACCOUNT) {
-    throw pushValidationError(
-      `Maximum of ${MAX_DEVICES_PER_ACCOUNT} devices per account`,
-    );
+    throw pushValidationError(`Maximum of ${MAX_DEVICES_PER_ACCOUNT} devices per account`);
   }
 
   await knex(TABLE).insert({
@@ -258,9 +256,7 @@ async function registerDeviceToken(publicKey, token, provider) {
 
   const [{ count }] = await knex(TOKENS_TABLE).where({ public_key: publicKey }).count("* as count");
   if (Number(count) >= MAX_DEVICES_PER_ACCOUNT) {
-    throw pushValidationError(
-      `Maximum of ${MAX_DEVICES_PER_ACCOUNT} devices per account`,
-    );
+    throw pushValidationError(`Maximum of ${MAX_DEVICES_PER_ACCOUNT} devices per account`);
   }
 
   await knex(TOKENS_TABLE).insert({
@@ -292,7 +288,9 @@ async function removeDeviceToken(publicKey, token) {
   if (!publicKey) throw new Error("publicKey is required");
   if (!token) throw new Error("token is required");
 
-  const removed = await knex(TOKENS_TABLE).where({ public_key: publicKey, token: token.trim() }).del();
+  const removed = await knex(TOKENS_TABLE)
+    .where({ public_key: publicKey, token: token.trim() })
+    .del();
   return { removed };
 }
 

@@ -293,10 +293,7 @@ const scheduleTransactionSchema = z.object({
       message: "submitAt must be a valid ISO 8601 date string",
     }),
   // Optional: if provided, must match the authenticated user's publicKey
-  publicKey: z
-    .string()
-    .min(1)
-    .optional(),
+  publicKey: z.string().min(1).optional(),
 });
 
 // ─── SEP-0024 ─────────────────────────────────────────────────────────────────

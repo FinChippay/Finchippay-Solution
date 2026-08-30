@@ -39,9 +39,10 @@ fn advance_ledger(env: &Env, to: u32) {
     env.ledger().with_mut(|l| l.sequence_number = to);
 }
 
-fn hash_leaf(env: &Env, recipient: &Address, amount: i128) -> BytesN<32> {
+fn hash_leaf(env: &Env, id: u32, recipient: &Address, amount: i128) -> BytesN<32> {
     let mut data = Bytes::new(env);
     data.append(&recipient.clone().to_xdr(env));
+    data.append(&Bytes::from_slice(env, &id.to_be_bytes()));
     data.append(&Bytes::from_slice(env, &amount.to_be_bytes()));
     env.crypto().sha256(&data).into()
 }
@@ -60,7 +61,7 @@ fn test_create_airdrop_increases_locked_balance() {
 
     let recipient = Address::generate(&env);
     let amount = 1_000;
-    let leaf = hash_leaf(&env, &recipient, amount);
+    let leaf = hash_leaf(&env, 0, &recipient, amount);
     let expiration = env.ledger().sequence() + 100;
     let total_amount = 1_000;
 
@@ -90,7 +91,7 @@ fn test_claim_airdrop_decreases_locked_balance() {
 
     let recipient = Address::generate(&env);
     let amount = 1_000;
-    let leaf = hash_leaf(&env, &recipient, amount);
+    let leaf = hash_leaf(&env, 0, &recipient, amount);
     let expiration = env.ledger().sequence() + 100;
 
     let total_amount = 1_000;
@@ -136,7 +137,7 @@ fn test_cancel_airdrop_decreases_locked_balance() {
 
     let recipient = Address::generate(&env);
     let amount = 1_000;
-    let leaf = hash_leaf(&env, &recipient, amount);
+    let leaf = hash_leaf(&env, 0, &recipient, amount);
     let expiration = env.ledger().sequence() + 100;
 
     let total_amount = 1_000;
@@ -176,7 +177,7 @@ fn test_rescue_tokens_cannot_sweep_unclaimed_airdrop() {
 
     let recipient = Address::generate(&env);
     let amount = 1_000;
-    let leaf = hash_leaf(&env, &recipient, amount);
+    let leaf = hash_leaf(&env, 0, &recipient, amount);
     let expiration = env.ledger().sequence() + 100;
 
     let total_amount = 1_000;

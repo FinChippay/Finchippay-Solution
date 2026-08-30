@@ -178,8 +178,10 @@ describe("featureFlagsService", () => {
 describe("Feature flags HTTP endpoints", () => {
   let app;
   let featureFlagsService;
-  const JWT_SECRET = process.env.JWT_SECRET || "finchippay_secret_key";
-  const TEST_PUBLIC_KEY = "GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW";
+  // Use the same secret the app's auth middleware resolves in test env so
+  // tokens verify (the middleware refuses the production default secret).
+  const { JWT_SECRET } = require("../src/middleware/auth");
+  const TEST_PUBLIC_KEY = `G${String("A").repeat(55)}`;
 
   function makeToken(publicKey = TEST_PUBLIC_KEY) {
     return jwt.sign({ publicKey }, JWT_SECRET, { expiresIn: "1h" });

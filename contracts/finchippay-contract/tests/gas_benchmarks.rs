@@ -93,7 +93,7 @@ fn run_gas_benchmarks() {
         current_measurements.insert("open_stream".to_string(), cpu_after.saturating_sub(cpu_before));
     }
 
-    // 4. propose_multi_sig
+    // 4. create_multisig
     {
         let env = Env::default();
         let (_, client) = deploy(&env);
@@ -106,13 +106,14 @@ fn run_gas_benchmarks() {
         let mut signers = Vec::new(&env);
         signers.push_back(Address::generate(&env));
         signers.push_back(Address::generate(&env));
+        let expiry = env.ledger().sequence() + 1000;
 
         env.budget().reset_unlimited();
         let cpu_before = env.budget().cpu_instruction_cost();
-        client.propose_multi_sig(&token_id, &proposer, &to, &1000, &signers, &2);
+        client.create_multisig(&token_id, &proposer, &to, &1000, &2, &signers, &expiry);
         let cpu_after = env.budget().cpu_instruction_cost();
         
-        current_measurements.insert("propose_multi_sig".to_string(), cpu_after.saturating_sub(cpu_before));
+        current_measurements.insert("create_multisig".to_string(), cpu_after.saturating_sub(cpu_before));
     }
 
     // 5. batch_send

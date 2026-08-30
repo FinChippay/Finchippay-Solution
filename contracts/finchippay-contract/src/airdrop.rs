@@ -257,11 +257,6 @@ pub fn claim_airdrop(
     let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
     token_client.transfer(&env.current_contract_address(), &recipient, &amount);
 
-    decrease_locked_balance(env, &airdrop.token, amount);
-
-    let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
-    token_client.transfer(&env.current_contract_address(), &recipient, &amount);
-
     env.events().publish(
         (Events::airdrop_claimed(env), airdrop_id),
         (recipient, amount),
@@ -308,12 +303,6 @@ pub fn cancel_airdrop(env: &Env, airdrop_id: u32, funder: Address) {
     decrease_locked_balance(env, &airdrop.token, unclaimed);
 
     if unclaimed > 0 {
-        let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
-        token_client.transfer(&env.current_contract_address(), &funder, &unclaimed);
-    }
-
-    if unclaimed > 0 {
-        decrease_locked_balance(env, &airdrop.token, unclaimed);
         let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
         token_client.transfer(&env.current_contract_address(), &funder, &unclaimed);
     }

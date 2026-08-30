@@ -57,8 +57,7 @@ function app() {
   return server;
 }
 
-const auth = (publicKey) =>
-  `Bearer ${jwt.sign({ publicKey }, JWT_SECRET)}`;
+const auth = (publicKey) => `Bearer ${jwt.sign({ publicKey }, JWT_SECRET)}`;
 
 describe("POST /api/push/subscribe rate limiting", () => {
   it("returns 429 after exceeding sensitiveLimiter", async () => {

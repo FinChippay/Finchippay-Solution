@@ -128,6 +128,30 @@ const emailsRateLimitedTotal = new promClient.Counter({
   registers: [register],
 });
 
+// Metrics referenced by docs/grafana-dashboard.json and
+// docs/prometheus-alerts.yml (#272). The alert rules fire on these names, so
+// the service must register them for the dashboards to light up.
+const webhookDeliveryDurationSeconds = new promClient.Histogram({
+  name: "webhook_delivery_duration_seconds",
+  help: "Duration of webhook delivery attempts in seconds, labeled by outcome.",
+  labelNames: ["outcome"],
+  buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60],
+  registers: [register],
+});
+
+const contractEventsProcessedTotal = new promClient.Counter({
+  name: "contract_events_processed_total",
+  help: "Total number of contract events processed by the indexer, labeled by outcome.",
+  labelNames: ["outcome"],
+  registers: [register],
+});
+
+const contractEventIndexerLagLedgers = new promClient.Gauge({
+  name: "contract_event_indexer_lag_ledgers",
+  help: "Number of ledgers the contract event indexer is behind the network tip.",
+  registers: [register],
+});
+
 async function getMetrics() {
   return register.metrics();
 }
@@ -142,6 +166,9 @@ logger.info(
 
 module.exports = {
   register,
+  webhookDeliveryDurationSeconds,
+  contractEventsProcessedTotal,
+  contractEventIndexerLagLedgers,
   httpRequestsTotal,
   httpRequestDurationSeconds,
   httpRequestsInFlight,
@@ -163,5 +190,3 @@ module.exports = {
   getMetrics,
   getContentType,
 };
-
-

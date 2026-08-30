@@ -6,6 +6,7 @@
 "use strict";
 
 const turretsService = require("../services/turretsService");
+const turretsDeploymentService = require("../services/turretsDeploymentService");
 const priceFeedService = require("../services/priceFeedService");
 const {
   paginateInMemory,
@@ -193,14 +194,37 @@ async function resume(req, res, next) {
 /** GET /api/turrets/health — service-level health check for the turrets subsystem. */
 async function health(req, res, next) {
   try {
-    const priceFeed = await priceFeedService.getHealth();
-    const activeDeployments = await turretsService.countDeploymentsByStatus("active");
-    res.status(priceFeed.status === "ok" ? 200 : 503).json({
-      success: priceFeed.status === "ok",
-      service: "turrets",
-      status: priceFeed.status,
-      activeDeployments,
-      priceFeed,
+    // Snapshot the in-memory provider state (see priceFeedService.getPriceFeedStatus
+    // docs). The endpoint never 5xxes on a total provider outage: it surfaces
+    // status "degraded" so operators still see deployment counts and the
+    // per-provider error breakdown without taking the subsystem out of rotation.
+    const priceFeed = await priceFeedService.getPriceFeedStatus();
+    const status = Object.values(priceFeed.providers || {}).some((p) => p.status === "ok")
+      ? "ok"
+      : "degraded";
+
+    // Attach the freshest price snapshot when a provider is healthy; null
+    // otherwise (the degraded path never probes, so no network is attempted).
+    let activePrice = null;
+    if (status === "ok") {
+      try {
+        activePrice = await priceFeedService.getXLMPrice();
+      } catch (err) {
+        activePrice = null;
+      }
+    }
+
+    const deployments = await turretsDeploymentService.getDeploymentCounts();
+
+    res.status(200).json({
+      success: status === "ok",
+      data: {
+        status,
+        priceFeed: { ...priceFeed, activePrice },
+        deployments,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (err) {
     next(err);

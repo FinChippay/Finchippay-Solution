@@ -36,16 +36,42 @@ var BATCH_THRESHOLD = parseInt(process.env.EMAIL_BATCH_THRESHOLD || "3", 10);
 var BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 var UNSUBSCRIBE_EMAIL = process.env.EMAIL_UNSUBSCRIBE_ADDRESS || "unsubscribe@finchippay.io";
 var RATE_LIMIT_PER_HOUR = parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || "10", 10);
-var QUEUE_BATCH_SIZE = parseInt(process.env.EMAIL_QUEUE_BATCH_SIZE || "50", 10);
-// How long a claimed ("processing") row is allowed to sit before another
-// worker treats it as abandoned (crashed worker) and reclaims it.
-var QUEUE_LOCK_TIMEOUT_MS = parseInt(process.env.EMAIL_QUEUE_LOCK_TIMEOUT_MS || "300000", 10);
-// Stable per-process id so claimed rows can be traced back to their worker.
-var WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
+var STALE_PROCESSING_MS = parseInt(process.env.EMAIL_STALE_PROCESSING_MS || "600000", 10);
+
+/**
+ * Canonical set of notification event types a caller may subscribe to.
+ * Covers both the legacy email-template naming scheme (keys of
+ * EVENT_TEMPLATE_MAP) and the unified notification-preferences scheme.
+ * Used to reject unknown/malformed `events` payloads before they are
+ * persisted (WS2).
+ */
+var KNOWN_EVENT_TYPES = new Set([
+  "payment_received",
+  "payment_sent",
+  "escrow_released",
+  "stream_depleted",
+  "stream_claimed",
+  "scheduled_txn_executed",
+  "price_alert",
+  "security_alert",
+  "multisig_executed",
+  "tip_received",
+  "incoming_payment",
+  "outgoing_payment",
+  "escrow_release",
+  "stream_claim",
+  "multi_sig_approval",
+  "scheduled_payment",
+  "contract_event",
+]);
 
 async function isRateLimited(toAddress) {
   var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  var row = await knex("email_send_queue").where("to_address", toAddress).where("created_at", ">=", oneHourAgo).count("id as cnt").first();
+  var row = await knex("email_send_queue")
+    .where("to_address", toAddress)
+    .where("created_at", ">=", oneHourAgo)
+    .count("id as cnt")
+    .first();
   var count = parseInt((row && row.cnt) || "0", 10);
   return count >= RATE_LIMIT_PER_HOUR;
 }
@@ -87,7 +113,10 @@ function initTransport() {
     logger.info({ type: "notification_transport_ready" }, "SMTP transport initialized");
     return true;
   } catch (err) {
-    logger.error({ type: "notification_transport_error", error: err.message }, "Failed to init SMTP");
+    logger.error(
+      { type: "notification_transport_error", error: err.message },
+      "Failed to init SMTP",
+    );
     return false;
   }
 }
@@ -227,7 +256,10 @@ async function queueEmail(to, templateType, data, opts) {
   try {
     unsubToken = await ensureUnsubscribeToken(to, "all");
   } catch (err) {
-    logger.debug({ type: "unsubscribe_token_precreate_failed", error: err.message }, "Unsubscribe token pre-create failed");
+    logger.debug(
+      { type: "unsubscribe_token_precreate_failed", error: err.message },
+      "Unsubscribe token pre-create failed",
+    );
   }
 
   const unsubscribeUrl = unsubToken
@@ -325,7 +357,23 @@ async function claimQueuedEmails(limit) {
  * @returns {Promise<{ processed: number, failed: number }>}
  */
 async function processEmailQueue() {
-  var pending = await claimQueuedEmails(QUEUE_BATCH_SIZE);
+  var now = new Date();
+  var nowISO = now.toISOString();
+  // Pick up due "pending" rows AND orphaned "processing" rows (a worker that
+  // claimed a row but died before settling it). Orphan recovery prevents a crash
+  // from permanently stranding a queued email, while the claim below prevents
+  // two live workers from sending the same row twice (WS3).
+  var staleCutoff = new Date(now.getTime() - STALE_PROCESSING_MS).toISOString();
+  var pending = await knex("email_send_queue")
+    .where(function () {
+      this.where({ status: "pending" }).andWhere("next_attempt_at", "<=", nowISO);
+    })
+    .orWhere(function () {
+      this.where({ status: "processing" }).andWhere("updated_at", "<", staleCutoff);
+    })
+    .orderBy("next_attempt_at", "asc")
+    .limit(50)
+    .select();
 
   var processed = 0;
   var failed = 0;
@@ -334,6 +382,17 @@ async function processEmailQueue() {
     var item = pending[i];
     var attempts = (item.attempts || 0) + 1;
     var maxAttempts = item.max_attempts || 3;
+
+    // Atomically claim this row. Only the worker that flips "pending" ->
+    // "processing" proceeds; concurrent workers that selected the same row get
+    // 0 affected rows and skip it, so an email is never double-sent.
+    if (item.status === "pending") {
+      var claimed = await knex("email_send_queue")
+        .where("id", item.id)
+        .where("status", "pending")
+        .update({ status: "processing", updated_at: nowISO });
+      if (!claimed) continue;
+    }
 
     // Check suppression again at send time
     var suppressed = await emailTrackingService.isSuppressed(item.to_address);
@@ -470,22 +529,6 @@ async function sendEventNotification(to, eventType, data) {
 
 // â”€â”€â”€ Batch / digest logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/**
- * Count events queued in the last hour for a specific recipient.
- * @param {string} toAddress
- * @returns {Promise<number>}
- */
-async function recentEventCount(toAddress) {
-  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  var row = await knex("email_send_queue")
-    .where("to_address", toAddress)
-    .where("created_at", ">=", oneHourAgo)
-    .whereIn("status", ["pending", "sent"])
-    .count("id as cnt")
-    .first();
-  return parseInt((row && row.cnt) || "0", 10);
-}
-
 // â”€â”€â”€ Email Preference Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function registerEmail(publicKey, email, options) {
@@ -497,17 +540,39 @@ async function registerEmail(publicKey, email, options) {
     "multisig_executed",
     "tip_received",
   ];
+
+  // Reject unknown event types instead of silently persisting arbitrary
+  // strings that would never fire a notification (WS2).
+  if (!Array.isArray(events)) {
+    var notArr = new Error("events must be an array of notification event types");
+    notArr.status = 400;
+    throw notArr;
+  }
+  var invalid = events.filter(function (e) {
+    return typeof e !== "string" || !KNOWN_EVENT_TYPES.has(e);
+  });
+  if (invalid.length > 0) {
+    var err = new Error(
+      "Unknown notification event type(s): " +
+        invalid.join(", ") +
+        ". Allowed types: " +
+        Array.from(KNOWN_EVENT_TYPES).join(", "),
+    );
+    err.status = 400;
+    throw err;
+  }
+
   var existing = await knex("notification_email_preferences")
     .where("public_key", publicKey)
     .first();
-    
+
   let consentOpenTracking = false;
   if (options.consentOpenTracking !== undefined) {
     consentOpenTracking = options.consentOpenTracking;
   } else if (existing && existing.consent_open_tracking !== undefined) {
     consentOpenTracking = existing.consent_open_tracking;
   }
-  
+
   if (existing) {
     await knex("notification_email_preferences")
       .where("public_key", publicKey)
@@ -586,6 +651,61 @@ async function notifySubscribers(eventType, data) {
   // Fetch all notification_email_preferences
   var allRows = await knex("notification_email_preferences").select();
 
+  // ── N+1 reduction (WS4) ───────────────────────────────────────────────────
+  // The naive loop issued one SELECT per subscriber for the master toggle,
+  // one for the recent-queue count, and one for the pending-digest probe.
+  // Prefetch all three datasets with three queries total, then resolve them
+  // from Maps so the per-subscriber work is pure CPU.
+
+  // 1) Master toggles for every candidate subscriber (one query, IN-list).
+  var candidateKeys = allRows.map(function (r) {
+    return r.public_key;
+  });
+  var prefRows = candidateKeys.length
+    ? await knex("notification_preferences")
+        .whereIn("public_key", candidateKeys)
+        .select("public_key", "email_enabled")
+    : [];
+  var emailEnabledByKey = new Map();
+  for (var p = 0; p < prefRows.length; p++) {
+    emailEnabledByKey.set(prefRows[p].public_key, prefRows[p].email_enabled);
+  }
+
+  // 2) Recent queue counts for all candidate emails (one grouped query).
+  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  var candidateEmails = allRows.map(function (r) {
+    return r.email;
+  });
+  var recentRows = candidateEmails.length
+    ? await knex("email_send_queue")
+        .whereIn("to_address", candidateEmails)
+        .where("created_at", ">=", oneHourAgo)
+        .whereIn("status", ["pending", "sent"])
+        .groupBy("to_address")
+        .select("to_address")
+        .count("id as cnt")
+    : [];
+  var recentCountByEmail = new Map();
+  for (var q = 0; q < recentRows.length; q++) {
+    recentCountByEmail.set(recentRows[q].to_address, parseInt(recentRows[q].cnt, 10));
+  }
+
+  // 3) Existing pending digests (one query, IN-list) so the digest probe never
+  //    issues a SELECT per batched subscriber.
+  var pendingDigestRows = candidateEmails.length
+    ? await knex("email_send_queue")
+        .whereIn("to_address", candidateEmails)
+        .where("template_type", "digest")
+        .where("status", "pending")
+        .select("to_address")
+    : [];
+  var hasPendingDigest = new Set(
+    pendingDigestRows.map(function (r) {
+      return r.to_address;
+    }),
+  );
+  // ───────────────────────────────────────────────────────────────────────────
+
   var sent = 0;
   var failed = 0;
   var batched = 0;
@@ -609,12 +729,10 @@ async function notifySubscribers(eventType, data) {
       continue;
     }
 
-    // Check notification_preferences.email_enabled (master toggle)
-    var pref = await knex("notification_preferences")
-      .where("public_key", row.public_key)
-      .select("email_enabled")
-      .first();
-    if (pref && pref.email_enabled === false) continue;
+    // Check notification_preferences.email_enabled (master toggle) — resolved
+    // from the prefetched map instead of a per-row SELECT (WS4).
+    var prefEnabled = emailEnabledByKey.get(row.public_key);
+    if (prefEnabled === false) continue;
 
     var templateType = EVENT_TEMPLATE_MAP[eventType];
     if (!templateType) continue;
@@ -630,24 +748,26 @@ async function notifySubscribers(eventType, data) {
     };
 
     // Batch check: if > BATCH_THRESHOLD events queued in the last hour, defer to digest
-    var recentCount = await recentEventCount(row.email);
+    var recentCount = recentCountByEmail.get(row.email) || 0;
     if (recentCount >= BATCH_THRESHOLD) {
       // Queue a daily digest instead (only queue one pending digest if none exists)
-      var pendingDigest = await knex("email_send_queue")
-        .where("to_address", row.email)
-        .where("template_type", "digest")
-        .where("status", "pending")
-        .first();
-      if (!pendingDigest) {
+      if (!hasPendingDigest.has(row.email)) {
         await queueEmail(
           row.email,
           "digest",
           {
             count: recentCount + 1,
-            events: [{ label: eventType, timestamp: payload.timestamp, summary: `${payload.amount || ""} ${payload.asset || ""}`.trim() }],
+            events: [
+              {
+                label: eventType,
+                timestamp: payload.timestamp,
+                summary: `${payload.amount || ""} ${payload.asset || ""}`.trim(),
+              },
+            ],
           },
           { publicKey: row.public_key },
         );
+        hasPendingDigest.add(row.email);
       }
       batched++;
       continue;
@@ -681,6 +801,3 @@ module.exports = {
   EVENT_TEMPLATE_MAP,
   EVENT_SUBJECTS,
 };
-
-
-

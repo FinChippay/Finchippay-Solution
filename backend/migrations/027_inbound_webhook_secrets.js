@@ -22,12 +22,18 @@ exports.up = function (knex) {
   return knex.schema.createTable("inbound_webhook_secrets", (table) => {
     table.string("id").primary();
     table.string("endpoint").notNullable().comment("e.g. 'sep24_callback'");
-    table.text("secret_encrypted").notNullable().comment("AES-256-GCM ciphertext — never plaintext");
+    table
+      .text("secret_encrypted")
+      .notNullable()
+      .comment("AES-256-GCM ciphertext — never plaintext");
     table.string("secret_hash").notNullable().comment("keyed HMAC-SHA256 fingerprint");
     table.boolean("active").notNullable().defaultTo(true);
     table.timestamp("created_at").defaultTo(knex.fn.now());
     table.timestamp("rotated_at").nullable().comment("set when superseded by a newer secret");
-    table.timestamp("expires_at").nullable().comment("grace-period cutoff during rotation; null = no expiry while active");
+    table
+      .timestamp("expires_at")
+      .nullable()
+      .comment("grace-period cutoff during rotation; null = no expiry while active");
     table.index("endpoint");
     table.index(["endpoint", "active"]);
   });

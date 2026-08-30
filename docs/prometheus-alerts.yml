@@ -136,7 +136,7 @@ groups:
         # the receiver): from a merchant's point of view the webhook did not
         # arrive either way.
         expr: |
-          sum(rate(webhook_deliveries_total{outcome=~"failed|error"}[10m]))
+          sum(rate(webhook_deliveries_total{status=~"failed|error"}[10m]))
             /
           clamp_min(sum(rate(webhook_deliveries_total[10m])), 0.001)
             > 0.2
