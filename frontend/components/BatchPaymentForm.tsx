@@ -1,9 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useEffect, useState } from "react";
+import AssetSelect, { type AssetSelectOption } from "@/components/AssetSelect";
 import BatchSummary from "@/components/BatchSummary";
 import CSVUpload from "@/components/CSVUpload";
 import PaymentBuilder, { type BuilderRecipient } from "@/components/PaymentBuilder";
 import QuickAddPanel from "@/components/QuickAddPanel";
 import { useContacts } from "@/hooks/useContacts";
+import { useToastContext } from "@/lib/ToastContext";
+import { getKnownAssets, type AssetInfo } from "@/lib/assetDiscovery";
+import { fetchPrices } from "@/lib/priceAlerts";
 import {
   buildPaymentTransaction,
   isValidStellarAddress,
@@ -46,6 +50,8 @@ interface BatchPaymentFormProps {
   publicKey: string;
   xlmBalance: string;
   usdcBalance?: string | null;
+  /** Balances for assets beyond XLM/USDC held by the connected account. */
+  accountBalances?: Array<{ code: string; issuer: string; balance: string }>;
   onBatchSuccess?: () => void;
   services?: {
     buildPaymentTransaction?: typeof buildPaymentTransaction;
@@ -67,6 +73,7 @@ export default function BatchPaymentForm({
   publicKey,
   xlmBalance,
   usdcBalance,
+  accountBalances = [],
   onBatchSuccess,
   services,
 }: BatchPaymentFormProps) {
@@ -80,6 +87,60 @@ export default function BatchPaymentForm({
   const [distributionMode, setDistributionMode] = useState<"per-recipient" | "total">("per-recipient");
   const [groupTotalAmount, setGroupTotalAmount] = useState("");
   const [showCSVUpload, setShowCSVUpload] = useState(false);
+  const { addToast } = useToastContext();
+
+  // ── SAC / known-asset catalogue for the per-row token picker (#805) ──
+  const [knownAssets, setKnownAssets] = useState<AssetInfo[]>([]);
+  const [assetPrices, setAssetPrices] = useState<Record<string, number>>({});
+  const [addingTrustline, setAddingTrustline] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!publicKey) return;
+    getKnownAssets(publicKey, accountBalances.map((b) => ({ code: b.code, issuer: b.issuer, balance: b.balance })))
+      .then((assets) => {
+        if (!cancelled) {
+          setKnownAssets(assets);
+          // Migrate any row pinned to a legacy token that is now in the known
+          // catalogue so the full asset metadata (issuer) is carried with it.
+          setRecipients((current) =>
+            current.map((r) => {
+              if (r.token.type === "custom" && r.token.code !== "XLM" && !r.token.issuer) {
+                const match = assets.find((a) => a.code === r.token.code);
+                if (match) {
+                  return { ...r, token: { ...r.token, issuer: match.issuer } };
+                }
+              }
+              return r;
+            })
+          );
+        }
+      })
+      .catch(() => {
+        // Catalogue unavailable — fall back to the static XLM/USDC pair.
+      });
+    return () => { cancelled = true; };
+  }, [publicKey, accountBalances]);
+
+  // Fiat estimates (graceful fallback when the feed is unavailable).
+  useEffect(() => {
+    let cancelled = false;
+    const assetsToFetch: string[] = ["XLM", "USDC"];
+    accountBalances.forEach((b) => {
+      if (b.code && !assetsToFetch.includes(b.code)) assetsToFetch.push(b.code);
+    });
+    knownAssets.forEach((a) => {
+      if (!assetsToFetch.includes(a.code)) assetsToFetch.push(a.code);
+    });
+    fetchPrices(assetsToFetch)
+      .then((prices) => {
+        if (!cancelled) setAssetPrices(prices);
+      })
+      .catch(() => {
+        // Price feed unavailable — fiat estimates hide gracefully.
+      });
+    return () => { cancelled = true; };
+  }, [publicKey, knownAssets, accountBalances]);
 
   const handleCSVImport = (rows: Array<{ recipient?: string; amount?: string; asset?: string; memo?: string; isValid?: boolean }>) => {
     const validRows = rows.filter((r) => r.isValid !== false && r.recipient && r.amount);
@@ -100,6 +161,91 @@ export default function BatchPaymentForm({
   const xlmBalanceValue = parseFloat(xlmBalance || "0");
   const availableXLM = Math.max(0, xlmBalanceValue - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM);
 
+  // Build the per-row token options from the static XLM/USDC pair plus the
+  // known SAC catalogue and the account's trusted balances (#805).
+  const tokenSelectOptions = useMemo<AssetSelectOption[]>(() => {
+    const seen = new Set<string>();
+    const options: AssetSelectOption[] = [];
+
+    AVAILABLE_TOKENS.forEach((t) => {
+      if (seen.has(t.code)) return;
+      seen.add(t.code);
+      if (t.code === "XLM") {
+        options.push({ code: "XLM", displayName: "XLM", isTrusted: true, balance: xlmBalance });
+      } else if (t.code === "USDC") {
+        options.push({
+          code: "USDC",
+          displayName: "USDC",
+          issuer: t.issuer,
+          isTrusted: Boolean(usdcBalance),
+          balance: usdcBalance ?? undefined,
+          issuerHint: "Stellar",
+        });
+      }
+    });
+
+    knownAssets.forEach((asset) => {
+      if (seen.has(asset.code)) return;
+      seen.add(asset.code);
+      options.push({
+        code: asset.code,
+        displayName: asset.code,
+        issuer: asset.issuer,
+        issuerHint: asset.domain ? asset.domain : undefined,
+        isTrusted: asset.isTrusted,
+        balance: asset.balance,
+      });
+    });
+
+    accountBalances.forEach((b) => {
+      if (seen.has(b.code)) return;
+      seen.add(b.code);
+      options.push({
+        code: b.code,
+        displayName: b.code,
+        issuer: b.issuer,
+        isTrusted: true,
+        balance: b.balance,
+      });
+    });
+
+    return options;
+  }, [knownAssets, accountBalances, xlmBalance, usdcBalance]);
+
+  const handleAddTrustline = async (code: string, issuer: string) => {
+    if (!issuer || addingTrustline) return;
+    setAddingTrustline(true);
+    try {
+      const { buildAddTrustlineTx } = await import("@/lib/assetDiscovery");
+      const xdr = await buildAddTrustlineTx(publicKey, code, issuer);
+      const { error: signError } = await signTransactionWithWallet(xdr);
+      if (signError) throw new Error(signError);
+      addToast(`Trustline added for ${code}. You can now send ${code}.`, "success");
+      const updated = await getKnownAssets(publicKey, accountBalances.map((b) => ({ code: b.code, issuer: b.issuer, balance: b.balance })));
+      setKnownAssets(updated);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to add trustline";
+      addToast(message, "error");
+    } finally {
+      setAddingTrustline(false);
+    }
+  };
+
+  const handleSelectToken = (id: string, code: string, issuer?: string) => {
+    setRecipients((current) =>
+      current.map((r) => {
+        if (r.id !== id) return r;
+        const known = knownAssets.find((a) => a.code === code);
+        if (code === "XLM") return { ...r, token: { code, type: "XLM" } };
+        if (code === "USDC") return { ...r, token: { code, issuer: issuer || AVAILABLE_TOKENS[1].issuer, type: "USDC" } };
+        return {
+          ...r,
+          token: { code, issuer: issuer || known?.issuer, type: "custom" },
+        };
+      })
+    );
+  };
+
   const totalByToken = useMemo(() => {
     const totals: Record<string, number> = {};
     recipients.forEach((recipient) => {
@@ -112,7 +258,6 @@ export default function BatchPaymentForm({
     return totals;
   }, [recipients]);
 
-  const totalXLM = totalByToken["XLM"] || 0;
   const hasFailed = recipients.some((recipient) => recipient.status === "failed");
   const _hasPending = recipients.some((recipient) => recipient.status === "pending");
   const canSubmit =
@@ -120,7 +265,27 @@ export default function BatchPaymentForm({
     recipients.some(
       (r) => isValidStellarAddress(r.address) && parseFloat(r.amount) > 0 && r.address !== publicKey
     );
-  const exceedsBalance = totalXLM > availableXLM;
+  // Per-token available balance map: XLM uses the spendable (post-reserve)
+  // amount, USDC uses the usdcBalance prop, catalogue/account assets use the
+  // balance reported by the known-assets fetch or the accounts prop.
+  const balanceByToken = useMemo(() => {
+    const map: Record<string, number> = { XLM: availableXLM };
+    if (usdcBalance) map["USDC"] = parseFloat(usdcBalance);
+    knownAssets.forEach((a) => {
+      if (a.balance !== undefined && a.balance !== null && a.balance !== "") {
+        map[a.code] = parseFloat(a.balance);
+      }
+    });
+    accountBalances.forEach((b) => {
+      map[b.code] = parseFloat(b.balance ?? "0");
+    });
+    return map;
+  }, [availableXLM, usdcBalance, knownAssets, accountBalances]);
+  const exceededTokens = Object.entries(totalByToken).filter(([code, amount]) => {
+    const available = balanceByToken[code] ?? 0;
+    return amount > available;
+  });
+  const exceedsBalance = exceededTokens.length > 0;
 
   const updateRecipient = (id: string, update: Partial<BatchRecipient>) => {
     setRecipients((current) =>
@@ -183,6 +348,7 @@ export default function BatchPaymentForm({
     if (!isValidStellarAddress(recipient.address)) return "Invalid Stellar address.";
     if (!Number.isFinite(amount) || amount <= 0) return "Amount must be greater than 0.";
     if (recipient.address === publicKey) return "Recipient address cannot be the same as your wallet.";
+    if (recipient.token.type !== "XLM" && !recipient.token.issuer) return "Resolve the asset issuer before sending.";
     return null;
   };
 
@@ -205,11 +371,20 @@ export default function BatchPaymentForm({
       recipient.error = undefined;
       setRecipients([...nextRecipients]);
       try {
+        const assetParam: "XLM" | "USDC" | { code: string; issuer: string } =
+          recipient.token.code === "XLM"
+            ? "XLM"
+            : recipient.token.code === "USDC"
+            ? "USDC"
+            : recipient.token.issuer
+            ? { code: recipient.token.code, issuer: recipient.token.issuer }
+            : "XLM";
         const tx = await (services?.buildPaymentTransaction ?? buildPaymentTransaction)({
           fromPublicKey: publicKey,
           toPublicKey: recipient.address,
           amount: parseFloat(recipient.amount).toFixed(7),
           memo: recipient.memo.trim() || undefined,
+          asset: assetParam,
         });
         const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
         if (signError || !signedXDR) {
@@ -325,22 +500,23 @@ export default function BatchPaymentForm({
           <div key={recipient.id} className="rounded-3xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-col gap-3">
               <div className="grid gap-3 sm:grid-cols-3">
-                <label className="block">
+                <div>
                   <span className="label">Token</span>
-                  <select
-                    value={recipient.token.code}
-                    onChange={(event) => {
-                      const selectedToken = AVAILABLE_TOKENS.find((t) => t.code === event.target.value);
-                      if (selectedToken) updateRecipient(recipient.id, { token: selectedToken });
-                    }}
+                  <AssetSelect
+                    options={tokenSelectOptions}
+                    selectedCode={recipient.token.code}
+                    onSelect={(code, issuer) => handleSelectToken(recipient.id, code, issuer)}
+                    onAddTrustline={handleAddTrustline}
                     disabled={isProcessing}
-                    className="input-field w-full"
-                  >
-                    {AVAILABLE_TOKENS.map((token) => (
-                      <option key={token.code} value={token.code}>{token.code}</option>
-                    ))}
-                  </select>
-                </label>
+                    className="mt-1"
+                    prices={assetPrices}
+                  />
+                  {recipient.token.type !== "XLM" && !recipient.token.issuer && (
+                    <p className="mt-1 text-xs text-amber-500">
+                      Select an asset from the catalogue to resolve its issuer before sending.
+                    </p>
+                  )}
+                </div>
                 <label className="block">
                   <span className="label">Recipient address</span>
                   <input
@@ -481,7 +657,12 @@ export default function BatchPaymentForm({
 
         {exceedsBalance ? (
           <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-100">
-            Total exceeds your available XLM balance after reserve.
+            {exceededTokens.map(([code]) => (
+              <div key={code}>
+                Insufficient {code} balance. Total {totalByToken[code].toFixed(7)} {code} exceeds available{' '}
+                {balanceByToken[code]?.toFixed(7) ?? "0"} {code}.
+              </div>
+            ))}
           </div>
         ) : null}
 

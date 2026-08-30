@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Frontend (Next.js) — Debug",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 9229,
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Backend (Express) — Debug",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 9229,
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/backend/.env"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Frontend + Backend",
+      "configurations": ["Frontend (Next.js) — Debug", "Backend (Express) — Debug"]
+    }
+  ]
+}

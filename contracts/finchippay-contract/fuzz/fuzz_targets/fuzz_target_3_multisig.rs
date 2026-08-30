@@ -3,7 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env, Symbol, Vec,
+    Address, Env, Vec,
 };
 
 /// Fuzz multi-sig proposal creation and approval logic.
@@ -76,31 +76,30 @@ fuzz_target!(|data: &[u8]| {
     // Ensure proposer is not in the recipient position
     // (self-transfer check)
 
-    let memo = Symbol::new(&env, "msig_fuzz");
+    // Authorize everything up front (mint included) so setup never panics.
+    env.mock_all_auths();
 
     // Mint tokens to proposer
     let sac_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     sac_client.mint(&proposer, &(amount * 100));
 
-    env.mock_all_auths();
-
     // --- Create multi-sig proposal ---
     let current_ledger = env.ledger().sequence();
     let expiry = current_ledger + expiry_offset;
 
-    let proposal_id = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.create_multisig(
-            &token_id,
-            &proposer,
-            &recipient,
-            &amount,
-            &threshold,
-            &signers,
-            &expiry,
-        )
-    })) {
-        Ok(id) => id,
-        Err(_) => return, // Invalid params → skip
+    // try_ client methods return contract errors/panics as results instead of
+    // aborting the fuzzer (libFuzzer aborts on any Rust panic).
+    let proposal_id = match client.try_create_multisig(
+        &token_id,
+        &proposer,
+        &recipient,
+        &amount,
+        &threshold,
+        &signers,
+        &expiry,
+    ) {
+        Ok(Ok(id)) => id,
+        _ => return, // Invalid params → skip
     };
 
     // Verify proposal was created correctly
@@ -121,11 +120,7 @@ fuzz_target!(|data: &[u8]| {
         let mut approved_count = 0u32;
         for i in 0..signers.len() {
             let signer = signers.get(i).unwrap();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.approve_multisig(&proposal_id, &signer);
-            }));
-
-            if result.is_ok() {
+            if matches!(client.try_approve_multisig(&proposal_id, &signer), Ok(Ok(()))) {
                 approved_count += 1;
             }
 
@@ -139,36 +134,41 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
+    // The duplicate/invalid-signer paths only apply while the proposal is still
+    // pending — once threshold approvals execute it, further approvals panic.
+    let pending = matches!(
+        client.get_multisig(&proposal_id).status,
+        finchippay_contract::MultiSigStatus::Pending
+    );
+
     // --- Attempt duplicate approval ---
-    if approve_duplicate {
+    if approve_duplicate && pending {
         if signers.len() > 0 {
             let first_signer = signers.get(0).unwrap();
             // First approval (may have already been done above)
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.approve_multisig(&proposal_id, &first_signer);
-            }));
-            // Second approval with same signer — should panic or be ignored
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.approve_multisig(&proposal_id, &first_signer);
-            }));
-            // Duplicate should panic ("already approved") unless proposal already executed
+            let _ = client.try_approve_multisig(&proposal_id, &first_signer);
+            // Second approval with same signer — should be rejected as an error
+            let result = client.try_approve_multisig(&proposal_id, &first_signer);
+            // Duplicate should error ("already approved") unless proposal already executed.
+            // The contract panics on duplicate approval, so try_ surfaces it as Err(_).
             let p = client.get_multisig(&proposal_id);
             if matches!(p.status, finchippay_contract::MultiSigStatus::Pending) {
-                // If still pending, duplicate should have panicked
-                assert!(result.is_err(), "duplicate approval should panic on pending proposal");
+                assert!(
+                    result.is_err(),
+                    "duplicate approval should error on pending proposal"
+                );
             }
         }
     }
 
     // --- Attempt invalid signer ---
-    if approve_invalid {
+    if approve_invalid && pending {
         let invalid_signer = Address::generate(&env);
         // Ensure it's not already a valid signer
         let is_valid = signers.iter().any(|s| s == invalid_signer);
         if !is_valid {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.approve_multisig(&proposal_id, &invalid_signer);
-            }));
+            // The contract panics for non-authorised signers, surfaced as Err(_).
+            let result = client.try_approve_multisig(&proposal_id, &invalid_signer);
             assert!(result.is_err(), "invalid signer should be rejected");
         }
     }
@@ -177,10 +177,7 @@ fuzz_target!(|data: &[u8]| {
     if should_cancel {
         let p = client.get_multisig(&proposal_id);
         if matches!(p.status, finchippay_contract::MultiSigStatus::Pending) {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.cancel_multisig(&proposal_id);
-            }));
-            if result.is_ok() {
+            if client.try_cancel_multisig(&proposal_id, &proposer).ok().and_then(|r| r.ok()).is_some() {
                 let p = client.get_multisig(&proposal_id);
                 assert!(matches!(
                     p.status,
@@ -197,15 +194,14 @@ fuzz_target!(|data: &[u8]| {
 
         let p = client.get_multisig(&proposal_id);
         if matches!(p.status, finchippay_contract::MultiSigStatus::Pending) {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.timeout_multisig(&proposal_id);
+            if client.try_timeout_multisig(&proposal_id).ok().and_then(|r| r.ok()).is_some() {
                 let p_after = client.get_multisig(&proposal_id);
                 // After timeout, status should be Cancelled
                 assert!(matches!(
                     p_after.status,
                     finchippay_contract::MultiSigStatus::Cancelled
                 ), "timed-out proposal should be Cancelled");
-            }));
+            }
         }
     }
 });

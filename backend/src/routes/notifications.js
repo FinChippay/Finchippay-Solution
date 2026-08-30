@@ -10,12 +10,15 @@ const rateLimit = require("express-rate-limit");
 const router = express.Router();
 const knex = require("../db/connection");
 const notificationService = require("../services/notificationService");
+const pushService = require("../services/pushService");
+const { sensitiveLimiter } = require("../middleware/rateLimit");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const {
   registerEmailSchema,
   updateEmailSchema,
   publicKeyParamSchema,
+  registerDeviceTokenSchema,
 } = require("../validation/schemas");
 const logger = require("../utils/logger");
 
@@ -37,8 +40,8 @@ const notificationLimiter = rateLimit({
  */
 router.post("/email", notificationLimiter, validate(registerEmailSchema), async (req, res, next) => {
   try {
-    const { publicKey, email, events } = req.validated;
-    const preference = await notificationService.registerEmail(publicKey, email, { events });
+    const { publicKey, email, events, consentOpenTracking } = req.validated;
+    const preference = await notificationService.registerEmail(publicKey, email, { events, consentOpenTracking });
     return res.status(201).json({ success: true, preference });
   } catch (err) {
     next(err);
@@ -59,7 +62,7 @@ router.put(
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
-      const { email, events } = req.validated;
+      const { email, events, consentOpenTracking } = req.validated;
 
       // Fetch existing preference
       const existing = await notificationService.getEmailPreference(publicKey);
@@ -75,9 +78,12 @@ router.put(
       const preference = await notificationService.registerEmail(
         publicKey,
         email || existing.email,
-        { events: events || existing.events },
+        {
+          events: events || existing.events,
+          consentOpenTracking: consentOpenTracking !== undefined ? consentOpenTracking : existing.consentOpenTracking
+        }
       );
-      return res.json({ success: true, preference });
+      return res.status(200).json({ success: true, preference });
     } catch (err) {
       next(err);
     }
@@ -404,6 +410,38 @@ router.delete(
         message: "Notification history cleared",
       });
     } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /api/notifications/:publicKey/device-token
+ * Register a native mobile push device token (FCM or APNs) for an account.
+ *
+ * Body: { token: string, provider?: "fcm" | "apns" }
+ */
+router.post(
+  "/:publicKey/device-token",
+  sensitiveLimiter,
+  validate(publicKeyParamSchema, "params"),
+  validate(registerDeviceTokenSchema),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const { token, provider } = req.validated;
+
+      const result = await pushService.registerDeviceToken(publicKey, token, provider);
+
+      return res.status(result.created ? 201 : 200).json({
+        success: true,
+        data: result,
+        message: result.created ? "Device token registered" : "Device token updated",
+      });
+    } catch (err) {
+      if (err.status === 400) {
+        return res.status(400).json({ error: err.message });
+      }
       next(err);
     }
   },

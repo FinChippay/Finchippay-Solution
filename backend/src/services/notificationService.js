@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/services/notificationService.js
  *
  * Pluggable email notification service that sends templated alerts for
@@ -20,6 +20,8 @@
 
 "use strict";
 
+var crypto = require("crypto");
+var os = require("os");
 var nodemailer = require("nodemailer");
 var logger = require("../utils/logger");
 var knex = require("../db/connection");
@@ -34,6 +36,12 @@ var BATCH_THRESHOLD = parseInt(process.env.EMAIL_BATCH_THRESHOLD || "3", 10);
 var BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 var UNSUBSCRIBE_EMAIL = process.env.EMAIL_UNSUBSCRIBE_ADDRESS || "unsubscribe@finchippay.io";
 var RATE_LIMIT_PER_HOUR = parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || "10", 10);
+var QUEUE_BATCH_SIZE = parseInt(process.env.EMAIL_QUEUE_BATCH_SIZE || "50", 10);
+// How long a claimed ("processing") row is allowed to sit before another
+// worker treats it as abandoned (crashed worker) and reclaims it.
+var QUEUE_LOCK_TIMEOUT_MS = parseInt(process.env.EMAIL_QUEUE_LOCK_TIMEOUT_MS || "300000", 10);
+// Stable per-process id so claimed rows can be traced back to their worker.
+var WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 
 async function isRateLimited(toAddress) {
   var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -253,19 +261,71 @@ async function queueEmail(to, templateType, data, opts) {
 }
 
 /**
+ * Restrict a query to rows eligible to be claimed right now: due,
+ * still-pending rows, plus "processing" rows whose lock has gone stale
+ * (crash recovery). Shared by the claim subquery and the outer UPDATE so
+ * the two stay in lockstep.
+ *
+ * @param {import("knex").QueryBuilder} qb
+ * @param {string} now         ISO timestamp
+ * @param {string} staleBefore ISO timestamp; processing rows locked before this are stale
+ */
+function applyClaimEligibility(qb, now, staleBefore) {
+  qb.where("next_attempt_at", "<=", now).where(function (outer) {
+    outer.where("status", "pending").orWhere(function (stale) {
+      stale.where("status", "processing").where("locked_at", "<", staleBefore);
+    });
+  });
+}
+
+/**
+ * Atomically claim up to `limit` due email_send_queue rows for this worker.
+ *
+ * Uses a single UPDATE ... WHERE id IN (SELECT ... LIMIT n) ... RETURNING *
+ * statement so the row selection and the ownership flip happen as one
+ * database operation: two workers (or two overlapping runs of this worker)
+ * racing on the same rows can never both win the claim. The outer UPDATE
+ * repeats the eligibility check (not just the id list) so that if a second
+ * worker's statement has to wait on a row lock, it re-validates against the
+ * committed value once unblocked and simply claims nothing for that row.
+ *
+ * @param {number} limit
+ * @returns {Promise<Array<object>>} claimed rows, now status="processing"
+ */
+async function claimQueuedEmails(limit) {
+  var now = new Date().toISOString();
+  var staleBefore = new Date(Date.now() - QUEUE_LOCK_TIMEOUT_MS).toISOString();
+
+  var idsSubquery = knex("email_send_queue")
+    .select("id")
+    .modify(applyClaimEligibility, now, staleBefore)
+    .orderBy("next_attempt_at", "asc")
+    .limit(limit);
+
+  var claimed = await knex("email_send_queue")
+    .modify(applyClaimEligibility, now, staleBefore)
+    .whereIn("id", idsSubquery)
+    .update(
+      {
+        status: "processing",
+        locked_by: WORKER_ID,
+        locked_at: now,
+        updated_at: now,
+      },
+      ["*"],
+    );
+
+  return claimed || [];
+}
+
+/**
  * Process pending items from email_send_queue with exponential backoff retries.
  * Called by the executor worker.
  *
  * @returns {Promise<{ processed: number, failed: number }>}
  */
 async function processEmailQueue() {
-  var now = new Date().toISOString();
-  var pending = await knex("email_send_queue")
-    .where("status", "pending")
-    .where("next_attempt_at", "<=", now)
-    .orderBy("next_attempt_at", "asc")
-    .limit(50)
-    .select();
+  var pending = await claimQueuedEmails(QUEUE_BATCH_SIZE);
 
   var processed = 0;
   var failed = 0;
@@ -280,6 +340,8 @@ async function processEmailQueue() {
     if (suppressed) {
       await knex("email_send_queue").where("id", item.id).update({
         status: "cancelled",
+        locked_by: null,
+        locked_at: null,
         updated_at: new Date().toISOString(),
       });
       continue;
@@ -296,6 +358,8 @@ async function processEmailQueue() {
       await knex("email_send_queue").where("id", item.id).update({
         status: "sent",
         attempts: attempts,
+        locked_by: null,
+        locked_at: null,
         updated_at: new Date().toISOString(),
       });
       processed++;
@@ -307,16 +371,22 @@ async function processEmailQueue() {
           status: "failed",
           attempts: attempts,
           last_error: result.error,
+          locked_by: null,
+          locked_at: null,
           updated_at: new Date().toISOString(),
         });
       } else {
-        // Exponential backoff: 2^attempts minutes
+        // Exponential backoff: 2^attempts minutes. Release the claim by
+        // going back to "pending" so the row is eligible for a future run.
         var backoffMs = Math.pow(2, attempts) * 60 * 1000;
         var nextAttempt = new Date(Date.now() + backoffMs).toISOString();
         await knex("email_send_queue").where("id", item.id).update({
+          status: "pending",
           attempts: attempts,
           last_error: result.error,
           next_attempt_at: nextAttempt,
+          locked_by: null,
+          locked_at: null,
           updated_at: new Date().toISOString(),
         });
       }
@@ -430,12 +500,21 @@ async function registerEmail(publicKey, email, options) {
   var existing = await knex("notification_email_preferences")
     .where("public_key", publicKey)
     .first();
+    
+  let consentOpenTracking = false;
+  if (options.consentOpenTracking !== undefined) {
+    consentOpenTracking = options.consentOpenTracking;
+  } else if (existing && existing.consent_open_tracking !== undefined) {
+    consentOpenTracking = existing.consent_open_tracking;
+  }
+  
   if (existing) {
     await knex("notification_email_preferences")
       .where("public_key", publicKey)
       .update({
         email: email,
         events: JSON.stringify(events),
+        consent_open_tracking: consentOpenTracking,
         updated_at: new Date().toISOString(),
       });
   } else {
@@ -443,6 +522,7 @@ async function registerEmail(publicKey, email, options) {
       public_key: publicKey,
       email: email,
       events: JSON.stringify(events),
+      consent_open_tracking: consentOpenTracking,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -457,6 +537,7 @@ async function registerEmail(publicKey, email, options) {
     email: saved.email,
     events: JSON.parse(saved.events || "[]"),
     emailVerified: saved.email_verified || false,
+    consentOpenTracking: !!saved.consent_open_tracking,
     createdAt: saved.created_at,
     updatedAt: saved.updated_at,
   };
@@ -470,6 +551,7 @@ async function getEmailPreference(publicKey) {
     email: row.email,
     events: JSON.parse(row.events || "[]"),
     emailVerified: row.email_verified || false,
+    consentOpenTracking: !!row.consent_open_tracking,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -593,6 +675,7 @@ module.exports = {
   notifySubscribers,
   queueEmail,
   processEmailQueue,
+  claimQueuedEmails,
   ensureUnsubscribeToken,
   buildUnsubscribeHeaders,
   EVENT_TEMPLATE_MAP,

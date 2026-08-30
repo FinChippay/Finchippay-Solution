@@ -6,13 +6,20 @@
  * table. Extracts participant addresses (from/to), amounts, and maps event
  * types to known schemas for FinchippayContract.
  *
- * Event types emitted by the contract:
+ * Event types emitted by the contract (canonical catalog in
+ * contracts/finchippay-contract/src/events.rs — keep these in sync):
  *   init, admin_transfer, paused, unpaused, pauser_set, upgraded,
- *   rescue_tokens, tip, receipt, escrow_create, escrow_claim_partial,
- *   escrow_claim, escrow_cancelled, stream_open, stream_claim,
- *   stream_topped_up, stream_close, stream_reject, stream_transfer,
- *   multisig_create, multisig_approve, multisig_executed,
- *   multisig_timeout, multisig_cancelled
+ *   rescue_tokens, tip_sent, batch_sent, receipt, escrow_create,
+ *   escrow_claim_partial, escrow_claim, escrow_cancelled, stream_open,
+ *   stream_claim, stream_topped_up, stream_close, stream_reject,
+ *   stream_transfer, multisig_created, multisig_approved,
+ *   multisig_executed, multisig_timeout, multisig_cancelled,
+ *   airdrop_created, airdrop_claimed, airdrop_cancelled,
+ *   vesting_created, vesting_claimed, vesting_revoked
+ *
+ * NOTE: the tip family uses exactly ONE topic — `tip_sent` — with payload
+ * `(amount, memo)`, identical for `send_tip`, `batch_send` and
+ * `batch_send_multi`. There is no bare `tip` topic any longer.
  */
 
 "use strict";
@@ -23,7 +30,7 @@
  * from_addr / to_addr on the row.
  */
 const EVENT_PARTICIPANT_MAP = {
-  tip: { from: "from", to: "to" },
+  tip_sent: { from: "from", to: "to" },
   receipt: { from: "from", to: "to" },
   escrow_create: { from: "from", to: "to" },
   escrow_claim: { from: "from", to: "to" },
@@ -35,12 +42,17 @@ const EVENT_PARTICIPANT_MAP = {
   stream_close: { from: "stream_id", to: null },
   stream_reject: { from: "stream_id", to: null },
   stream_transfer: { from: "from", to: "to" },
-  multisig_create: { from: "proposer", to: null },
-  multisig_approve: { from: "signer", to: null },
+  multisig_created: { from: "proposer", to: null },
+  multisig_approved: { from: "signer", to: null },
   multisig_executed: { from: "proposer", to: "recipient" },
   multisig_timeout: { from: null, to: null },
   multisig_cancelled: { from: null, to: null },
-  vesting_claim: { from: "vesting_id", to: "beneficiary" },
+  airdrop_created: { from: "funder", to: null },
+  airdrop_claimed: { from: null, to: "recipient" },
+  airdrop_cancelled: { from: "funder", to: null },
+  vesting_created: { from: "funder", to: "beneficiary" },
+  vesting_claimed: { from: "vesting_id", to: "beneficiary" },
+  vesting_revoked: { from: "funder", to: null },
   admin_transfer: { from: "old_admin", to: "new_admin" },
   rescue_tokens: { from: "admin", to: "to" },
 };
