@@ -32,7 +32,22 @@ module.exports = async function globalSetup() {
   }
 
   const config = require("./knexfile").test;
-  const knex = require("knex")(config);
+  let knex;
+  try {
+    const BetterSqlite3 = require("better-sqlite3");
+    const probe = new BetterSqlite3(":memory:");
+    probe.close();
+    knex = require("knex")(config);
+  } catch (error) {
+    if (
+      error.message.includes("Could not locate the bindings file") ||
+      error.message.includes("better_sqlite3")
+    ) {
+      process.env.JEST_DB_UNAVAILABLE = "true";
+      return;
+    }
+    throw error;
+  }
   try {
     await knex.migrate.latest();
   } finally {

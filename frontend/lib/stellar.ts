@@ -1977,16 +1977,25 @@ export async function buildCreateEscrowTransaction({
   toPublicKey,
   amount,
   releaseLedger,
+  asset = "XLM",
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   releaseLedger: number;
+  asset?: "XLM" | "USDC" | { code: string; issuer: string };
 }): Promise<Transaction> {
   if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
   const sourceAccount = await server.loadAccount(fromPublicKey);
   const contract = new Contract(CONTRACT_ID);
-  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+    let assetContractId: string;
+  if (asset === "XLM") {
+    assetContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+  } else if (asset === "USDC") {
+    assetContractId = new Asset("USDC", USDC_ISSUER).contractId(NETWORK_PASSPHRASE);
+  } else {
+    assetContractId = new Asset(asset.code, asset.issuer).contractId(NETWORK_PASSPHRASE);
+  }
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 
   const tx = new TransactionBuilder(sourceAccount, {
@@ -1996,7 +2005,7 @@ export async function buildCreateEscrowTransaction({
     .addOperation(
       contract.call(
         "create_escrow",
-        nativeToScVal(xlmContractId, { type: "address" }),
+        nativeToScVal(assetContractId, { type: "address" }),
         nativeToScVal(fromPublicKey, { type: "address" }),
         nativeToScVal(toPublicKey, { type: "address" }),
         nativeToScVal(stroops, { type: "i128" }),

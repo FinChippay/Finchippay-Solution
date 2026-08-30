@@ -24,14 +24,12 @@ const NETWORK_PASSPHRASE =
 
 const activeCronJobs = new Map();
 
+const { normalizeAsset } = require("../utils/asset");
+
 function toAsset(assetStr) {
-  if (!assetStr || assetStr === "XLM") return Asset.native();
-  const [code, issuer] = assetStr.split(":");
-  if (!code || !issuer) {
-    const err = new Error("Non-XLM asset must be formatted as CODE:ISSUER");
-    err.status = 400;
-    throw err;
-  }
+  const normalized = normalizeAsset(assetStr);
+  if (normalized === "XLM") return Asset.native();
+  const [code, issuer] = normalized.split(":");
   return new Asset(code, issuer);
 }
 
@@ -171,7 +169,7 @@ async function executeSchedule(scheduleId) {
 }
 
 async function createSchedule(body) {
-  const {
+  let {
     ownerPk,
     recipient,
     amount,
@@ -181,6 +179,8 @@ async function createSchedule(body) {
     cronExpression,
     startDate,
   } = body;
+
+  asset = normalizeAsset(asset);
 
   if (!ownerPk || !recipient || !amount || !frequency || !startDate) {
     const err = new Error("ownerPk, recipient, amount, frequency, and startDate are required");
@@ -225,6 +225,10 @@ async function updateSchedule(id, updates) {
     const err = new Error("Scheduled transaction not found");
     err.status = 404;
     throw err;
+  }
+
+  if (updates.asset) {
+    updates.asset = normalizeAsset(updates.asset);
   }
 
   const merged = { ...existing, ...updates };

@@ -46,6 +46,15 @@ const options = {
       },
     ],
     components: {
+      securitySchemes: {
+        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+        apiKeyAuth: {
+          type: "apiKey",
+          in: "header",
+          name: "X-API-Key",
+          description: "Long-lived scoped API key. The raw key is shown only once when created.",
+        },
+      },
       parameters: {
         PaginationLimit: {
           name: "limit",
@@ -138,6 +147,42 @@ const options = {
             data: { type: "object" },
           },
         },
+        AuthChallengeResponse: {
+          type: "object",
+          required: ["transaction", "networkPassphrase", "signingKey"],
+          description:
+            "SEP-0010 challenge plus server signing-key metadata. Clients that " +
+            "cache the server signing key can compare `signingKey` / " +
+            "`signingKeyVersion` to detect rotation before verifying the " +
+            "challenge signature.",
+          properties: {
+            transaction: {
+              type: "string",
+              description: "Base64-encoded SEP-0010 challenge transaction XDR",
+            },
+            networkPassphrase: {
+              type: "string",
+              description: "Stellar network passphrase the challenge was built for",
+              example: "Test SDF Network ; September 2015",
+            },
+            signingKey: {
+              type: "string",
+              pattern: "^G[A-Z0-9]{55}$",
+              description:
+                "Server signing public key (mirrors SIGNING_KEY in stellar.toml). " +
+                "Only the public key is exposed — never the private key.",
+              example: "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWX",
+            },
+            signingKeyVersion: {
+              type: "string",
+              description:
+                "Opaque version token for the current signing key. Changes when " +
+                "the operator rotates SERVER_PRIVATE_KEY (or sets SIGNING_KEY_VERSION). " +
+                "Clients can cache this to detect stale signing keys.",
+              example: "a1b2c3d4e5f60718",
+            },
+          },
+        },
         PaymentRecord: {
           type: "object",
           properties: {
@@ -148,7 +193,7 @@ const options = {
               description: "Direction relative to the queried account",
             },
             amount: { type: "string", description: "Amount sent/received" },
-            asset: { type: "string", description: "Asset code (e.g. XLM)" },
+            asset: { type: "string", description: "Asset code (e.g. XLM, or CODE:ISSUER for non-native assets)" },
             from: { type: "string", description: "Sender public key" },
             to: { type: "string", description: "Recipient public key" },
             memo: { type: "string", description: "Optional memo text" },
@@ -488,6 +533,10 @@ const options = {
         get: {
           tags: ["Authentication"],
           summary: "Get SEP-0010 challenge transaction",
+          description:
+            "Returns a SEP-0010 challenge transaction plus the server's signing " +
+            "public key metadata so clients can detect key rotation and reject " +
+            "stale challenges. Mirrors the SIGNING_KEY advertised in stellar.toml.",
           parameters: [
             {
               name: "account",
@@ -499,14 +548,11 @@ const options = {
           ],
           responses: {
             200: {
-              description: "Challenge transaction XDR",
+              description: "Challenge transaction XDR and server signing-key metadata",
               content: {
                 "application/json": {
                   schema: {
-                    type: "object",
-                    properties: {
-                      transaction: { type: "string" },
-                    },
+                    $ref: "#/components/schemas/AuthChallengeResponse",
                   },
                 },
               },
@@ -1175,6 +1221,7 @@ const options = {
                     from: { type: "string" },
                     to: { type: "string" },
                     amount: { type: "string" },
+                    asset: { type: "string", description: "Asset code (e.g. XLM, or CODE:ISSUER for non-native assets)" },
                     memo: { type: "string" },
                     transactionHash: { type: "string" },
                   },
@@ -1553,6 +1600,58 @@ const options = {
             },
             404: { description: "Deployment not found" },
             429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/keys": {
+        post: {
+          tags: ["API Keys"],
+          summary: "Create a scoped API key",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["scopes"],
+                  properties: {
+                    scopes: {
+                      type: "array",
+                      items: { type: "string", enum: ["read", "payments:send", "admin"] },
+                      minItems: 1,
+                    },
+                    publicKeys: {
+                      type: "array",
+                      items: { type: "string", pattern: "^G[A-Z2-7]{55}$" },
+                      description: "Allowed account public keys for payment-scoped access.",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: "Created. The plaintext API key is returned only once." },
+            400: { description: "Invalid scope" },
+          },
+        },
+        get: {
+          tags: ["API Keys"],
+          summary: "List redacted API keys",
+          security: [{ bearerAuth: [] }],
+          responses: { 200: { description: "Redacted API key metadata" } },
+        },
+      },
+      "/api/keys/{id}": {
+        delete: {
+          tags: ["API Keys"],
+          summary: "Revoke an API key",
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+          responses: {
+            200: { description: "API key revoked" },
+            404: { description: "API key not found" },
           },
         },
       },

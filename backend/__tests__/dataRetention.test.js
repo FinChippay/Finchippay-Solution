@@ -1,6 +1,10 @@
 /* eslint-env jest */
 "use strict";
 
+jest.mock("@stellar/stellar-sdk", () => ({
+  Horizon: { Server: class {} }
+}));
+
 const express = require("express");
 const request = require("supertest");
 
@@ -35,6 +39,7 @@ describe("dataRetentionService.purgeOldData", () => {
       if (table === "webhook_deliveries") return makeQueryChain(3);
       if (table === "tips") return makeQueryChain(5);
       if (table === "audit_log") return makeQueryChain(2);
+      if (table === "email_events") return makeQueryChain(4);
       return makeQueryChain(0);
     });
 
@@ -43,6 +48,7 @@ describe("dataRetentionService.purgeOldData", () => {
     expect(result.purged.webhookDeliveries).toBe(3);
     expect(result.purged.tips).toBe(5);
     expect(result.purged.auditLog).toBe(2);
+    expect(result.purged.emailEvents).toBe(4);
     expect(result.retentionDays).toBe(30);
   });
 
