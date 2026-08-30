@@ -170,36 +170,101 @@ function mockMakeBuilder(tableName) {
       // Joins for dead-delivery and event queries. Resolves webhook_events
       // rows joined with webhooks (so WS4 keyset tests can exercise the real
       // query chain), handling the `w.` / `e.` column prefixes.
+      //
+      // `where(fn)` / `andWhere(fn)` / `orWhere(fn)` callback forms are
+      // evaluated per-row via `runWhereCallback` so the real keyset predicate
+      // built by `applyKnexKeyset` (an OR-of-ANDs seek comparison) actually
+      // filters rows instead of being treated as a no-op.
+      const stripAlias = (col) => col.split(".").pop();
+      function evalComparison(col, op, val, row) {
+        const rowVal = row[stripAlias(col)];
+        if (op === "=") return rowVal === val;
+        if (op === "<") return rowVal < val;
+        if (op === ">") return rowVal > val;
+        if (op === "<=") return rowVal <= val;
+        if (op === ">=") return rowVal >= val;
+        return true;
+      }
+      // Builds a `(row) => boolean` matcher from a knex-style where callback
+      // by giving it a `this` that records AND/OR clauses, then evaluating
+      // them against each row.
+      function runWhereCallback(fn) {
+        const clauses = [];
+        const ctx = {
+          andWhere(colOrFn, opOrVal, maybeVal) {
+            if (typeof colOrFn === "function") {
+              clauses.push({ and: true, test: runWhereCallback(colOrFn) });
+            } else if (maybeVal === undefined) {
+              clauses.push({ and: true, col: colOrFn, op: "=", val: opOrVal });
+            } else {
+              clauses.push({ and: true, col: colOrFn, op: opOrVal, val: maybeVal });
+            }
+            return ctx;
+          },
+          orWhere(colOrFn, opOrVal, maybeVal) {
+            if (typeof colOrFn === "function") {
+              clauses.push({ and: false, test: runWhereCallback(colOrFn) });
+            } else if (maybeVal === undefined) {
+              clauses.push({ and: false, col: colOrFn, op: "=", val: opOrVal });
+            } else {
+              clauses.push({ and: false, col: colOrFn, op: opOrVal, val: maybeVal });
+            }
+            return ctx;
+          },
+        };
+        ctx.where = ctx.andWhere;
+        fn.call(ctx);
+        return (row) => {
+          const ands = clauses.filter((c) => c.and);
+          const ors = clauses.filter((c) => !c.and);
+          const evalClause = (c) => (c.test ? c.test(row) : evalComparison(c.col, c.op, c.val, row));
+          const andOk = ands.every(evalClause);
+          const orOk = ors.length === 0 || ors.some(evalClause);
+          return andOk && orOk;
+        };
+      }
       const resolveJoined = () => {
         const webhookRows = Array.from(mockWebhooks.values());
-        return Array.from(mockEvents.values()).filter((ev) => {
+        let rows = Array.from(mockEvents.values()).filter((ev) => {
           const wh = webhookRows.find((w) => w.id === ev.webhook_id);
           if (!wh) return false;
-          return state.wheres.every(({ col, val }) => {
+          return state.wheres.every(({ col, val, fn }) => {
+            if (fn) return fn(ev);
             if (col === "w.public_key") return wh.public_key === val;
             if (col === "w.id") return wh.id === val;
-            return ev[col] === val;
+            return evalComparison(col, "=", val, ev);
           });
         });
+        if (state.orderByCols) {
+          const cols = state.orderByCols;
+          rows = [...rows].sort((a, b) => {
+            for (const { column, order } of cols) {
+              const key = stripAlias(column);
+              if (a[key] === b[key]) continue;
+              const cmp = a[key] < b[key] ? -1 : 1;
+              return order === "desc" ? -cmp : cmp;
+            }
+            return 0;
+          });
+        }
+        return rows;
       };
       const joined = {
-        where(col, val) {
-          if (typeof col === "function") {
-            state.wheres.push({ fn: (row) => true });
-          } else {
-            state.wheres.push({ col, val });
-          }
-          return joined;
-        },
-        andWhere(colOrFn, val) {
+        where(colOrFn, opOrVal, maybeVal) {
           if (typeof colOrFn === "function") {
-            state.wheres.push({ fn: () => true });
+            state.wheres.push({ fn: runWhereCallback(colOrFn) });
+          } else if (maybeVal === undefined) {
+            state.wheres.push({ col: colOrFn, val: opOrVal });
           } else {
-            state.wheres.push({ col: colOrFn, val });
+            state.wheres.push({ fn: (row) => evalComparison(colOrFn, opOrVal, maybeVal, row) });
           }
           return joined;
         },
-        orderBy() {
+        andWhere(colOrFn, opOrVal, maybeVal) {
+          return joined.where(colOrFn, opOrVal, maybeVal);
+        },
+        orderBy(cols) {
+          state.orderByCols = Array.isArray(cols) ? cols : [cols];
           return joined;
         },
         limit(n) {
@@ -630,5 +695,46 @@ describe("webhook events keyset pagination (WS4)", () => {
     const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10, cursor: "not-json!!!" });
     expect(Array.isArray(events)).toBe(true);
     expect(events).toHaveLength(1);
+  });
+
+  // Acceptance criteria: paginating with equal `created_at` values across
+  // rows must not skip or repeat any row. The `id` tiebreaker in the
+  // keyset comparison is what makes this deterministic (WS4).
+  it("paginates equal-timestamp rows across two pages with no overlap and no gap", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    const sameTimestamp = "2026-08-25T10:00:00.000Z";
+    const seededIds = Array.from({ length: 5 }, (_, i) =>
+      seedEvent(wh.id, sameTimestamp, `ev-${i}`),
+    );
+
+    const pageSize = 2;
+    const pageOne = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize });
+    const firstPageRows = pageOne.slice(0, pageSize);
+    expect(firstPageRows).toHaveLength(pageSize);
+
+    const lastRow = firstPageRows[firstPageRows.length - 1];
+    const cursor = Buffer.from(
+      JSON.stringify({ created_at: lastRow.created_at, id: lastRow.id }),
+    ).toString("base64url");
+    const pageTwo = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize, cursor });
+    const secondPageRows = pageTwo.slice(0, pageSize);
+    expect(secondPageRows).toHaveLength(pageSize);
+
+    const pageThreeCursorRow = secondPageRows[secondPageRows.length - 1];
+    const cursor2 = Buffer.from(
+      JSON.stringify({ created_at: pageThreeCursorRow.created_at, id: pageThreeCursorRow.id }),
+    ).toString("base64url");
+    const pageThree = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize, cursor: cursor2 });
+    const thirdPageRows = pageThree.slice(0, pageSize);
+
+    const seenIds = [...firstPageRows, ...secondPageRows, ...thirdPageRows].map((r) => r.id);
+    // No overlap: every id appears exactly once across all pages.
+    expect(new Set(seenIds).size).toBe(seenIds.length);
+    // No gap: every seeded event was eventually returned.
+    expect(new Set(seenIds)).toEqual(new Set(seededIds));
   });
 });
