@@ -23,9 +23,13 @@ const pushService = require("../src/services/pushService");
 const ALICE = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
 const BOB = "GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI";
 
+const P256DH =
+  "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fw";
+const AUTH = "tBHItJI5svbpez7KI4CCXg";
+
 const subscription = (endpoint) => ({
   endpoint,
-  keys: { p256dh: "p256dh-key", auth: "auth-secret" },
+  keys: { p256dh: P256DH, auth: AUTH },
 });
 
 /** A VAPID pair that only has to be well-formed enough for the mock. */
@@ -46,6 +50,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   mockSendNotification.mockResolvedValue({ statusCode: 201 });
   await knex("push_subscriptions").del();
+  await knex("push_tokens").del();
   withVapidKeys();
 });
 
@@ -73,14 +78,20 @@ describe("addSubscription", () => {
 
     const result = await pushService.addSubscription(ALICE, {
       endpoint,
-      keys: { p256dh: "rotated-key", auth: "rotated-secret" },
+      keys: {
+        p256dh:
+          "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz",
+        auth: "tBHItJI5svbpez7KI4CCXh",
+      },
     });
 
     expect(result).toEqual({ created: false });
 
     const rows = await knex("push_subscriptions").where({ endpoint });
     expect(rows).toHaveLength(1);
-    expect(rows[0].p256dh).toBe("rotated-key");
+    expect(rows[0].p256dh).toBe(
+      "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz",
+    );
   });
 
   it("reassigns a shared device endpoint to the newest account", async () => {
@@ -94,19 +105,99 @@ describe("addSubscription", () => {
   });
 
   it.each([
-    ["no endpoint", { keys: { p256dh: "a", auth: "b" } }],
-    ["a non-HTTPS endpoint", { endpoint: "http://x.test", keys: { p256dh: "a", auth: "b" } }],
+    ["no endpoint", { keys: { p256dh: P256DH, auth: AUTH } }],
+    ["a non-HTTPS endpoint", { endpoint: "http://x.test", keys: { p256dh: P256DH, auth: AUTH } }],
     ["no keys", { endpoint: "https://push.example.com/x" }],
+    [
+      "a short p256dh key",
+      { endpoint: "https://push.example.com/x", keys: { p256dh: "short", auth: AUTH } },
+    ],
+    [
+      "invalid auth charset",
+      { endpoint: "https://push.example.com/x", keys: { p256dh: P256DH, auth: "bad+key!!!" } },
+    ],
   ])("rejects a subscription with %s", async (_label, bad) => {
-    await expect(pushService.addSubscription(ALICE, bad)).rejects.toThrow(
-      /valid push subscription/i,
-    );
+    await expect(pushService.addSubscription(ALICE, bad)).rejects.toMatchObject({
+      status: 400,
+      message: /valid push subscription/i,
+    });
+  });
+
+  it("enforces the per-account device cap", async () => {
+    for (let i = 0; i < pushService.MAX_DEVICES_PER_ACCOUNT; i++) {
+      await pushService.addSubscription(ALICE, subscription(`https://push.example.com/alice-${i}`));
+    }
+
+    await expect(
+      pushService.addSubscription(ALICE, subscription("https://push.example.com/alice-overflow")),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: /maximum of 10 devices/i,
+    });
+  });
+
+  it("allows refreshing an existing endpoint even when at the device cap", async () => {
+    for (let i = 0; i < pushService.MAX_DEVICES_PER_ACCOUNT; i++) {
+      await pushService.addSubscription(ALICE, subscription(`https://push.example.com/alice-${i}`));
+    }
+
+    const endpoint = "https://push.example.com/alice-0";
+    await expect(
+      pushService.addSubscription(ALICE, {
+        endpoint,
+        keys: {
+          p256dh:
+            "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz",
+          auth: "tBHItJI5svbpez7KI4CCXh",
+        },
+      }),
+    ).resolves.toEqual({ created: false });
   });
 
   it("requires a public key", async () => {
     await expect(
       pushService.addSubscription("", subscription("https://push.example.com/x")),
     ).rejects.toThrow(/publicKey is required/i);
+  });
+});
+
+describe("registerDeviceToken", () => {
+  const fcmToken = `fcm_${"A".repeat(140)}`;
+  const apnsToken = "a".repeat(64);
+
+  it("stores a new native device token", async () => {
+    const result = await pushService.registerDeviceToken(ALICE, fcmToken, "fcm");
+
+    expect(result).toEqual({ created: true, provider: "fcm" });
+    const rows = await knex("push_tokens").where({ public_key: ALICE });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].token).toBe(fcmToken);
+  });
+
+  it("rejects malformed device tokens", async () => {
+    await expect(pushService.registerDeviceToken(ALICE, "bad-token", "fcm")).rejects.toMatchObject({
+      status: 400,
+      message: /invalid device token/i,
+    });
+  });
+
+  it("enforces the per-account device cap for native tokens", async () => {
+    for (let i = 0; i < pushService.MAX_DEVICES_PER_ACCOUNT; i++) {
+      await pushService.registerDeviceToken(ALICE, `fcm_${"B".repeat(140)}${i}`, "fcm");
+    }
+
+    await expect(
+      pushService.registerDeviceToken(ALICE, `fcm_${"C".repeat(140)}overflow`, "fcm"),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: /maximum of 10 devices/i,
+    });
+  });
+
+  it("auto-detects APNs tokens when provider is omitted", async () => {
+    const result = await pushService.registerDeviceToken(ALICE, apnsToken);
+
+    expect(result).toEqual({ created: true, provider: "apns" });
   });
 });
 
@@ -238,6 +329,25 @@ describe("sendNotification", () => {
     expect(mockSendNotification).not.toHaveBeenCalled();
 
     withVapidKeys();
+  });
+});
+
+describe("isValidDeviceToken", () => {
+  const apnsToken = "a".repeat(64);
+  const fcmToken = `fcm_${"A".repeat(140)}`;
+
+  it("accepts a valid APNs token", () => {
+    expect(pushService.isValidDeviceToken(apnsToken, "apns")).toBe(true);
+  });
+
+  it("accepts a valid FCM token", () => {
+    expect(pushService.isValidDeviceToken(fcmToken, "fcm")).toBe(true);
+  });
+
+  it("rejects malformed native tokens", () => {
+    expect(pushService.isValidDeviceToken("not-a-real-token")).toBe(false);
+    expect(pushService.isValidDeviceToken("x".repeat(63), "apns")).toBe(false);
+    expect(pushService.isValidDeviceToken("x".repeat(139), "fcm")).toBe(false);
   });
 });
 

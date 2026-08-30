@@ -31,6 +31,7 @@ jest.mock("../src/config/tracing", () => ({
 jest.mock("@opentelemetry/api", () => ({
   propagation: { inject: jest.fn() },
   context: { active: jest.fn() },
+  SpanStatusCode: { OK: 0, ERROR: 2 },
 }));
 jest.mock("../src/utils/correlationId", () => ({ getRequestIdHeader: () => ({}) }));
 jest.mock("../src/utils/webhookSignature", () => ({ generateWebhookSignature: () => "sig" }));

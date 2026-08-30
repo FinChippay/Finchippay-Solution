@@ -7,19 +7,32 @@
 import { withCorrelation } from "./correlation";
 
 /**
- * Generates a standard W3C traceparent header.
- * Format: 00-traceid-parentid-traceflags
+ * Generate cryptographically secure random bytes as a hex string.
+ * Uses `crypto.getRandomValues` (Web Crypto API) instead of `Math.random`
+ * to produce spec-compliant, unforgeable randomness for W3C traceparent IDs.
+ *
+ * @param byteLength - Number of random bytes to generate.
+ * @returns Lowercase hex string of length `byteLength * 2`.
  */
-// frontend/lib/api.ts
+function secureRandomHex(byteLength: number): string {
+  const buf = new Uint8Array(byteLength);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 /**
  * Generates a W3C Traceparent header.
- * Fixes Issue #725: Implements probabilistic sampling instead of hardcoded '01'.
+ * Format: 00-traceid-parentid-traceflags
+ *
+ * Uses `crypto.getRandomValues` for cryptographically secure randomness
+ * so that trace and parent IDs are unforgeable and spec-compliant.
+ * Implements probabilistic sampling instead of hardcoded '01' (Issue #725).
  */
 export function generateTraceParent(): string {
   const version = "00";
-  const traceId = Math.random().toString(16).substring(2, 18) + Math.random().toString(16).substring(2, 18);
-  const parentId = Math.random().toString(16).substring(2, 18);
+  // W3C spec: trace-id = 32 hex chars (16 bytes), parent-id = 16 hex chars (8 bytes)
+  const traceId = secureRandomHex(16);
+  const parentId = secureRandomHex(8);
 
   // Define sampling rate (e.g., 0.1 for 10% of requests, or 1.0 for 100%)
   // Ideally, this value comes from an environment variable

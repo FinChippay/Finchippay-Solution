@@ -74,7 +74,7 @@ describe("SEP-0010 token refresh and rotation (#132)", () => {
   });
 
   it("POST /api/auth/refresh returns new token pair for valid refresh tokens", async () => {
-    const { accessToken, refreshToken } = tokenService.issueTokens(ME);
+    const { accessToken, refreshToken } = await tokenService.issueTokens(ME);
 
     const res = await request(app).post("/api/auth/refresh").send({ refreshToken });
 
@@ -84,12 +84,12 @@ describe("SEP-0010 token refresh and rotation (#132)", () => {
     expect(res.body).toHaveProperty("refreshToken");
 
     // Ensure the old refresh token was rotated out and marked as used
-    const oldTokenData = tokenService.getRefreshTokenData(refreshToken);
+    const oldTokenData = await tokenService.getRefreshTokenData(refreshToken);
     expect(oldTokenData.used).toBe(true);
   });
 
   it("reuse of a refresh token invalidates the entire family", async () => {
-    const { accessToken, refreshToken } = tokenService.issueTokens(ME);
+    const { accessToken, refreshToken } = await tokenService.issueTokens(ME);
 
     // First refresh - successful
     const res1 = await request(app).post("/api/auth/refresh").send({ refreshToken });
@@ -111,7 +111,7 @@ describe("SEP-0010 token refresh and rotation (#132)", () => {
   });
 
   it("POST /api/auth/logout revokes all tokens", async () => {
-    const { accessToken, refreshToken } = tokenService.issueTokens(ME);
+    const { accessToken, refreshToken } = await tokenService.issueTokens(ME);
 
     const resLogout = await request(app)
       .post("/api/auth/logout")

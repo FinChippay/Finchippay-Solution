@@ -23,7 +23,7 @@ export default function PDFReceipt({
     try {
       await generatePDFReceipt(transaction);
     } catch (err) {
-      logger.error("Failed to generate PDF receipt:", err);
+      logger.error("Failed to generate PDF receipt:", {}, err instanceof Error ? err : undefined);
       alert("Failed to generate PDF receipt. Please try again.");
     } finally {
       setGenerating(false);

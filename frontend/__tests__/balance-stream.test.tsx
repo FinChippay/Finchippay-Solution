@@ -18,6 +18,16 @@ jest.mock("@/lib/auth", () => ({
   ensureAccessToken: async () => "test-jwt-token",
 }));
 
+// Mock the API client so the ticket-request inside connect() resolves
+// without a real network call.
+const mockTicket = { ticket: "mock-ticket-value" };
+jest.mock("@/lib/api", () => ({
+  apiFetch: jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => mockTicket,
+  }),
+}));
+
 /** Minimal EventSource stand-in — jsdom does not implement one. */
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -140,8 +150,9 @@ describe("useBalanceStream", () => {
 
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(FakeEventSource.latest.url).toContain(`/api/accounts/${PUBLIC_KEY}/stream`);
-    // EventSource cannot set headers, so the JWT rides in the query string.
-    expect(FakeEventSource.latest.url).toContain("token=test-jwt-token");
+    // EventSource cannot set headers, so the JWT rides as a short-lived
+    // single-use ticket in the query string.
+    expect(FakeEventSource.latest.url).toContain("ticket=mock-ticket-value");
     expect(getXLMBalance).not.toHaveBeenCalled();
   });
 
@@ -314,5 +325,53 @@ describe("useBalanceStream", () => {
 
     expect(first.closed).toBe(true);
     expect(FakeEventSource.latest.url).toContain(other);
+  });
+
+  it("isLive is false whenever polling is the active source after a stream error", async () => {
+    await mount(PUBLIC_KEY);
+    FakeEventSource.latest.emit("balance", { xlm: "5.0000000" });
+    expect(screen.getByTestId("live")).toHaveTextContent("true");
+
+    await FakeEventSource.latest.fail();
+    await flush();
+
+    // Transport failure hands over to polling → the live indicator must drop.
+    expect(screen.getByTestId("live")).toHaveTextContent("false");
+  });
+
+  it("a stale reconnect for an old account cannot flip isLive back on", async () => {
+    const other = "GB" + "B".repeat(54);
+    const { rerender } = await mount(PUBLIC_KEY);
+    const first = FakeEventSource.latest;
+    first.emit("balance", { xlm: "7.0000000" });
+    expect(screen.getByTestId("live")).toHaveTextContent("true");
+
+    // Switch accounts; the old account's stream is torn down.
+    await act(async () => {
+      rerender(<Probe publicKey={other} />);
+    });
+    await flush();
+    expect(screen.getByTestId("live")).toHaveTextContent("false");
+
+    // A late balance from the OLD account's closed source must NOT resurrect
+    // the stale live flag (the generation guard keeps it out).
+    first.emit("balance", { xlm: "99.0000000" });
+    expect(screen.getByTestId("live")).toHaveTextContent("false");
+  });
+
+  it("resets the live flag to false across account switches", async () => {
+    const other = "GB" + "B".repeat(54);
+    const { rerender } = await mount(PUBLIC_KEY);
+    FakeEventSource.latest.emit("balance", { xlm: "3.0000000" });
+    expect(screen.getByTestId("live")).toHaveTextContent("true");
+
+    await act(async () => {
+      rerender(<Probe publicKey={other} />);
+    });
+    await flush();
+
+    // Before the new account's stream delivers anything, isLive must be false —
+    // a previous session's "live" badge must not survive the switch.
+    expect(screen.getByTestId("live")).toHaveTextContent("false");
   });
 });

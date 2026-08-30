@@ -1,4 +1,10 @@
-import { TransactionCategory, getFeeEstimate, formatStroopsToXlm } from "@/lib/stellar";
+import {
+  TransactionCategory,
+  formatStroopsToXlm,
+  getFeeEstimate,
+  isHorizonAccountNotFoundError,
+  toHorizonUnavailableError,
+} from "@/lib/stellar";
 
 describe("Stellar helper", () => {
   it("exposes transaction categories used by payment history", () => {
@@ -11,6 +17,33 @@ describe("Stellar helper", () => {
       expect(formatStroopsToXlm(10_000n)).toBe("0.0010000");
       expect(formatStroopsToXlm(10_000_000n)).toBe("1.0000000");
       expect(formatStroopsToXlm(100)).toBe("0.0000100");
+    });
+  });
+
+  describe("Horizon account lookup errors (#913)", () => {
+    it("recognizes a Horizon 404 response as an unfunded destination", () => {
+      expect(isHorizonAccountNotFoundError({ response: { status: 404 } })).toBe(true);
+    });
+
+    it("recognizes a top-level 404 status as an unfunded destination", () => {
+      expect(isHorizonAccountNotFoundError({ status: 404 })).toBe(true);
+    });
+
+    it("recognizes Horizon's not_found problem type", () => {
+      expect(isHorizonAccountNotFoundError({ response: { data: { type: "not_found" } } })).toBe(true);
+    });
+
+    it("does not classify transient failures as an unfunded destination", () => {
+      expect(isHorizonAccountNotFoundError({ response: { status: 500 } })).toBe(false);
+      expect(isHorizonAccountNotFoundError(new Error("socket timeout"))).toBe(false);
+    });
+
+    it("converts transient failures into a retryable error and preserves the cause", () => {
+      const timeout = new Error("socket timeout");
+      const unavailable = toHorizonUnavailableError(timeout);
+
+      expect(unavailable.message).toBe("Horizon unavailable, please retry");
+      expect(unavailable.cause).toBe(timeout);
     });
   });
 

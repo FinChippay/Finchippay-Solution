@@ -3,14 +3,19 @@
  * #270 — mapping error codes to user-facing copy and recovery actions.
  */
 
+import { ERROR_CODES } from "../../shared/errorCodes";
 import {
   describeError,
   handleApiError,
   handleError,
   handleContractError,
   formatForDisplay,
+  sanitizeMessage,
 } from "@/lib/handleError";
-import { ERROR_CODES } from "../../shared/errorCodes";
+
+// USER_COPY isn't exported, so derive the generic production fallback text
+// the same way sanitizeMessage does: from the SRV_INTERNAL user-facing copy.
+const SRV_INTERNAL_USER_MESSAGE = describeError("SRV_INTERNAL").userMessage;
 
 /** Minimal fetch Response stand-in. */
 function mockResponse(
@@ -145,9 +150,7 @@ describe("handleApiError()", () => {
   });
 
   it("still handles a legacy { error: string } body", async () => {
-    const handled = await handleApiError(
-      mockResponse(404, { error: "Not found" }),
-    );
+    const handled = await handleApiError(mockResponse(404, { error: "Not found" }));
 
     expect(handled.code).toBe("RES_NOT_FOUND");
     expect(handled.title).toBe("Not found");
@@ -250,5 +253,55 @@ describe("formatForDisplay()", () => {
     const handled = describeError("SRV_INTERNAL");
 
     expect(formatForDisplay(handled)).toBe(handled.userMessage);
+  });
+});
+
+describe("sanitizeMessage()", () => {
+  const originalEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
+  });
+
+  it("replaces an internal message with the generic copy in production", () => {
+    process.env.NODE_ENV = "production";
+    const internal = 'SQLITE_ERROR: near "SELECT": syntax error at storage key 0x9f2e';
+
+    expect(sanitizeMessage(internal)).toBe(SRV_INTERNAL_USER_MESSAGE);
+  });
+
+  it("passes a catalogue-approved message through unchanged in production", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(sanitizeMessage(ERROR_CODES.PAY_INSUFFICIENT_BALANCE.message)).toBe(
+      ERROR_CODES.PAY_INSUFFICIENT_BALANCE.message,
+    );
+  });
+
+  it("returns raw text unchanged outside production", () => {
+    process.env.NODE_ENV = "development";
+    const internal = "TypeError: cannot read property 'x' of undefined";
+
+    expect(sanitizeMessage(internal)).toBe(internal);
+  });
+
+  it("falls back to the generic message for empty input in production", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(sanitizeMessage("")).toBe(SRV_INTERNAL_USER_MESSAGE);
+    expect(sanitizeMessage(undefined)).toBe(SRV_INTERNAL_USER_MESSAGE);
+    expect(sanitizeMessage(null)).toBe(SRV_INTERNAL_USER_MESSAGE);
+  });
+
+  it("never leaks a raw server message through formatForDisplay in production", () => {
+    process.env.NODE_ENV = "production";
+    // Simulate a backend bug that stuffs internal detail into the field that
+    // would normally hold vetted catalogue copy.
+    const handled = describeError("SRV_INTERNAL");
+    (handled as { userMessage: string }).userMessage =
+      "Error: connect ECONNREFUSED 10.0.4.12:5432 at Pool.query";
+
+    expect(formatForDisplay(handled)).not.toContain("10.0.4.12");
+    expect(formatForDisplay(handled)).toContain(SRV_INTERNAL_USER_MESSAGE);
   });
 });

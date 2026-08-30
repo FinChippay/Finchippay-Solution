@@ -107,7 +107,7 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
 
   useEffect(() => {
     if (publicKey) {
-      listStreamsByPayer(publicKey, offset, limit).then(setContractStreams).catch((err) => { logger.error('Failed to list streams:', err); });
+      listStreamsByPayer(publicKey, offset, limit).then(setContractStreams).catch((err) => { logger.error('Failed to list streams:', {}, err instanceof Error ? err : undefined); });
     }
   }, [publicKey, offset, limit]);
 

@@ -55,6 +55,8 @@ import {
   queueAction,
   getQueuedActions,
   clearQueuedAction,
+  subscribeToQueue,
+  onQueueChanged,
 } from "@/lib/offlineQueue";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -296,6 +298,44 @@ describe("offlineQueue", () => {
       expect(items[0].createdAt).toBeLessThanOrEqual(items[1].createdAt);
       expect(items[0].amount).toBe("1.00");
       expect(items[1].amount).toBe("2.00");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  describe("change notifications (pub/sub)", () => {
+    it("subscribeToQueue fires on queueTransaction", async () => {
+      const listener = jest.fn();
+      const unsub = subscribeToQueue(listener);
+
+      // Clean the queue first.
+      const prev = await getQueuedTransactions();
+      for (const t of prev) await removeTransaction(t.id);
+      listener.mockClear();
+
+      await queueTransaction(TEST_XDR, TEST_META);
+      expect(listener).toHaveBeenCalled();
+      unsub();
+    });
+
+    it("fires on removeTransaction", async () => {
+      await queueTransaction(TEST_XDR, TEST_META);
+      const items = await getQueuedTransactions();
+      const listener = jest.fn();
+      const unsub = subscribeToQueue(listener);
+      listener.mockClear();
+
+      await removeTransaction(items[items.length - 1].id);
+      expect(listener).toHaveBeenCalled();
+      unsub();
+    });
+
+    it("onQueueChanged bridges to the window event", (done) => {
+      const unsub = onQueueChanged(() => {
+        unsub();
+        done();
+      });
+      // queueTransaction dispatches the change event on window.
+      void queueTransaction(TEST_XDR, TEST_META);
     });
   });
 });

@@ -14,10 +14,9 @@ import Head from "next/head";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import PortfolioAllocation from "@/components/PortfolioAllocation";
 import PortfolioOverview from "@/components/PortfolioOverview";
-import TokenPriceChart from "@/components/TokenPriceChart";
 import { FeatureGate } from "@/lib/FeatureFlags";
+import { logger } from "@/lib/logger";
 import {
   getPortfolioHoldings,
   loadCustomTokens,
@@ -34,6 +33,11 @@ import {
 import { useWallet } from "@/lib/useWallet";
 
 const WalletConnect = dynamic(() => import("@/components/WalletConnect"), { ssr: false });
+// PortfolioAllocation + TokenPriceChart both depend on recharts (the heaviest
+// client lib on this route); lazy-load them so recharts leaves the portfolio
+// first-load chunk (issue #610).
+const PortfolioAllocation = dynamic(() => import("@/components/PortfolioAllocation"), { ssr: false });
+const TokenPriceChart = dynamic(() => import("@/components/TokenPriceChart"), { ssr: false });
 
 export default function PortfolioPage() {
   const { t } = useTranslation("common");
@@ -67,7 +71,7 @@ export default function PortfolioPage() {
       } catch (err) {
         // Most commonly: the connected account hasn't been funded on this
         // network yet (no XLM balance exists to derive holdings from).
-        logger.error("Failed to load wallet holdings:", err);
+        logger.error("Failed to load wallet holdings:", {}, err instanceof Error ? err : undefined);
       }
 
       const customTokens = loadCustomTokens();
@@ -89,7 +93,7 @@ export default function PortfolioPage() {
         const priceSnapshots = await fetchTokenPrices(codes);
         setPrices(priceSnapshots);
       } catch (err) {
-        logger.error("Failed to load token prices:", err);
+        logger.error("Failed to load token prices:", {}, err instanceof Error ? err : undefined);
       }
     } finally {
       setLoading(false);

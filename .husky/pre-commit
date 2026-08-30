@@ -1,1 +1,13 @@
 npx lint-staged
+
+# Run gitleaks on staged files
+echo "Running gitleaks secret scan on staged files..."
+if command -v gitleaks &> /dev/null; then
+  gitleaks detect --verbose --config .gitleaks.toml --source . --no-git || {
+    echo "::error::Secrets detected in staged files. Commit blocked."
+    exit 1
+  }
+else
+  echo "Warning: gitleaks not found. Install with: brew install gitleaks or https://github.com/gitleaks/gitleaks"
+  echo "Skipping local secret scan (CI will still check)"
+fi

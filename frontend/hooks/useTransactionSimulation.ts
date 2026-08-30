@@ -23,6 +23,9 @@ import {
   type WalletBalance,
 } from "@/lib/stellar";
 
+/** Maximum amount shown in a simulation preview, expressed in asset units. */
+export const MAX_DISPLAY_AMOUNT = 1_000_000_000;
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface BalanceChange {
@@ -107,6 +110,70 @@ function estimateBaseFeeXlm(tx: Transaction): number {
   const feeStroops = parseInt(tx.fee, 10);
   if (!Number.isFinite(feeStroops) || feeStroops <= 0) return 0;
   return feeStroops / STELLAR_STROOPS_PER_XLM;
+}
+
+interface SanitizedBalanceChanges {
+  changes: BalanceChange[];
+  issue: string | null;
+}
+
+function sanitizeBalanceChanges(balanceChanges: BalanceChange[]): SanitizedBalanceChanges {
+  let issue: string | null = null;
+  const changes = balanceChanges.map((change) => {
+    const numbers = [change.before, change.after, change.difference].map(Number);
+    const hasInvalidValue = numbers.some(
+      (value, index) =>
+        !Number.isFinite(value) ||
+        Math.abs(value) > MAX_DISPLAY_AMOUNT ||
+        (index < 2 && value < 0),
+    );
+
+    if (hasInvalidValue) {
+      issue = "Simulation returned an unsafe balance amount. Review the transaction before signing.";
+    }
+
+    const clamp = (value: number) =>
+      Math.max(-MAX_DISPLAY_AMOUNT, Math.min(MAX_DISPLAY_AMOUNT, value));
+    return {
+      ...change,
+      before: Number.isFinite(numbers[0]) ? String(clamp(numbers[0])) : "0",
+      after: Number.isFinite(numbers[1]) ? String(clamp(numbers[1])) : "0",
+      difference: Number.isFinite(numbers[2]) ? String(clamp(numbers[2])) : "0",
+    };
+  });
+
+  return { changes, issue };
+}
+
+function sanitizeResourceFee(resourceFee: ResourceFee | null): {
+  fee: ResourceFee | null;
+  issue: string | null;
+} {
+  if (!resourceFee) return { fee: null, issue: null };
+
+  const maxStroops = BigInt(MAX_DISPLAY_AMOUNT) * BigInt(STELLAR_STROOPS_PER_XLM);
+  const hasInvalidValue =
+    resourceFee.stroops < 0 ||
+    resourceFee.stroops > maxStroops ||
+    !Number.isFinite(resourceFee.xlm) ||
+    resourceFee.xlm < 0 ||
+    resourceFee.xlm > MAX_DISPLAY_AMOUNT;
+  const stroops = resourceFee.stroops < 0
+    ? 0n
+    : resourceFee.stroops > maxStroops
+      ? maxStroops
+      : resourceFee.stroops;
+
+  return {
+    fee: {
+      ...resourceFee,
+      stroops,
+      xlm: Number(stroops) / STELLAR_STROOPS_PER_XLM,
+    },
+    issue: hasInvalidValue
+      ? "Simulation returned an unsafe fee estimate. Review the transaction before signing."
+      : null,
+  };
 }
 
 /**
@@ -338,7 +405,13 @@ export function useTransactionSimulation(options: UseTransactionSimulationOption
         // Check for simulation error (contract-level errors)
         const contractError = extractContractError(sim);
         const resourceFee = extractResourceFee(sim);
-        const balanceChanges = await computeBalanceChanges(publicKey, sim, tx);
+        const { changes: balanceChanges, issue: balanceIssue } = sanitizeBalanceChanges(
+          await computeBalanceChanges(publicKey, sim, tx),
+        );
+        const { fee: sanitizedResourceFee, issue: feeIssue } = sanitizeResourceFee(resourceFee);
+        const simulationIssue = balanceIssue || feeIssue
+          ? { message: balanceIssue || feeIssue }
+          : contractError;
 
         // The prepared transaction (with resource fees filled in)
         let preparedTransactionXdr: string | null = null;
@@ -351,13 +424,13 @@ export function useTransactionSimulation(options: UseTransactionSimulationOption
           }
         }
 
-        const success = !contractError && sim !== null;
+        const success = !simulationIssue && sim !== null;
 
         const result: SimulationResult = {
           success,
           balanceChanges,
-          resourceFee,
-          contractError,
+          resourceFee: sanitizedResourceFee,
+          contractError: simulationIssue,
           rawSimulation: sim,
           transactionXdr: transactionXdr,
           preparedTransactionXdr,
@@ -365,12 +438,12 @@ export function useTransactionSimulation(options: UseTransactionSimulationOption
 
         // If there's a contract error, set a warning (not error) so the
         // user can still choose to proceed
-        if (contractError) {
+        if (simulationIssue) {
           setState((prev: SimulationState) => ({
             ...prev,
             loading: false,
             result,
-            warning: `Simulation warning: ${contractError.message}`,
+            warning: `Simulation warning: ${simulationIssue.message}`,
           }));
         } else {
           setState((prev: SimulationState) => ({

@@ -18,15 +18,36 @@ describe("correlation ID propagation", () => {
     expect(second.get("X-Session-ID")).toBe(getSessionId());
   });
 
-  it("preserves a caller-provided correlation ID", async () => {
+  it("moves a caller-provided correlation ID to X-Retry-Of", async () => {
     const fetchMock = jest.fn().mockResolvedValue({ ok: true } as Response);
     await withCorrelation(fetchMock as typeof fetch)("/api/payments", {
       headers: { "X-Request-ID": "trace-from-ui-643" },
     });
 
     const headers = new Headers(fetchMock.mock.calls[0][1].headers);
-    expect(headers.get("X-Request-ID")).toBe("trace-from-ui-643");
-    expect(getCorrelationId()).toBe("trace-from-ui-643");
+    // The request ID is always fresh; the old value moves to X-Retry-Of.
+    expect(headers.get("X-Request-ID")).toBeTruthy();
+    expect(headers.get("X-Request-ID")).not.toBe("trace-from-ui-643");
+    expect(headers.get("X-Retry-Of")).toBe("trace-from-ui-643");
+  });
+
+  it("two calls with the same init object produce different request IDs", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true } as Response);
+    const correlatedFetch = withCorrelation(fetchMock as typeof fetch);
+    const init: RequestInit = { headers: { "X-Request-ID": "retried-id" } };
+
+    await correlatedFetch("/api/pay", init);
+    await correlatedFetch("/api/pay", init);
+
+    const first = new Headers(fetchMock.mock.calls[0][1].headers);
+    const second = new Headers(fetchMock.mock.calls[1][1].headers);
+    // Each call gets a fresh request ID
+    expect(first.get("X-Request-ID")).toBeTruthy();
+    expect(second.get("X-Request-ID")).toBeTruthy();
+    expect(first.get("X-Request-ID")).not.toBe(second.get("X-Request-ID"));
+    // Both carry the original ID as X-Retry-Of
+    expect(first.get("X-Retry-Of")).toBe("retried-id");
+    expect(second.get("X-Retry-Of")).toBe("retried-id");
   });
 
   it("apiFetch sends correlation and W3C trace headers", async () => {

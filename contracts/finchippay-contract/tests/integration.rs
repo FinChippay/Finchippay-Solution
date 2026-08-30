@@ -819,6 +819,40 @@ fn test_approve_multisig_emits_events() {
 }
 
 #[test]
+fn test_approve_multisig_event_reports_actual_count() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let proposer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &proposer, 5_000);
+    let mut signers = Vec::new(&env);
+    signers.push_back(s1.clone());
+    signers.push_back(s2.clone());
+    let expiry = env.ledger().sequence() + 1000;
+
+    let pid = client.create_multisig(
+        &token_id, &proposer, &recipient, &2_000, &2, &signers, &expiry,
+    );
+    client.approve_multisig(&pid, &s1);
+
+    let events = env.events().all().filter_by_contract(&contract_id);
+    let expected: Vec<(Address, Vec<Val>, Val)> = Vec::from_array(
+        &env,
+        [(
+            contract_id.clone(),
+            (Symbol::new(&env, "multisig_approved"), pid).into_val(&env),
+            (s1, 1u32, 2u32).into_val(&env),
+        )],
+    );
+    assert_eq!(events, expected);
+}
+
+#[test]
 fn test_create_multisig_emits_event() {
     let env = Env::default();
     let (contract_id, client) = deploy(&env);
@@ -1217,6 +1251,36 @@ fn test_create_vesting() {
 }
 
 #[test]
+fn test_create_vesting_rejects_current_or_past_end_ledger() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let funder = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    env.mock_all_auths();
+
+    let token_id = create_token(&env, &admin, &funder, 10_000);
+    advance_ledger(&env, 100);
+    let cliff = 50u32;
+    let current_end = env.ledger().sequence();
+    let past_end = current_end - 1;
+
+    assert!(client
+        .try_create_vesting(
+            &token_id,
+            &funder,
+            &beneficiary,
+            &5_000,
+            &cliff,
+            &current_end,
+        )
+        .is_err());
+    assert!(client
+        .try_create_vesting(&token_id, &funder, &beneficiary, &5_000, &cliff, &past_end,)
+        .is_err());
+}
+
+#[test]
 fn test_claim_vesting_after_cliff() {
     let env = Env::default();
     let (_, client) = deploy(&env);
@@ -1308,4 +1372,244 @@ fn test_approve_emergency_withdrawal() {
     client.approve_emergency_withdrawal(&wid, &signer2);
     let withdrawal = client.get_emergency_withdrawal(&wid);
     assert_eq!(withdrawal.approvals.len(), 1);
+}
+
+// ─── Dispute Resolution ────────────────────────────────────────────────────
+
+#[test]
+fn test_resolve_dispute_release_twice_fails() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let release_sym = Symbol::new(&env, "release");
+    client.resolve_dispute(&eid, &arbitrator, &release_sym, &to, &2_000);
+
+    let result = client.try_resolve_dispute(&eid, &arbitrator, &release_sym, &to, &2_000);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_resolve_dispute_refund_twice_fails() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let refund_sym = Symbol::new(&env, "refund");
+    client.resolve_dispute(&eid, &arbitrator, &refund_sym, &to, &0);
+
+    let result = client.try_resolve_dispute(&eid, &arbitrator, &refund_sym, &to, &0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_resolve_dispute_split_twice_fails() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let split_sym = Symbol::new(&env, "split");
+    client.resolve_dispute(&eid, &arbitrator, &split_sym, &to, &1_000);
+
+    let result = client.try_resolve_dispute(&eid, &arbitrator, &split_sym, &to, &1_000);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_resolve_dispute_state_and_token_checks() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+
+    let token_id = create_token(&env, &admin, &from, 10_000);
+    let release = env.ledger().sequence() + 100;
+
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &5_000,
+        &release,
+        &Symbol::new(&env, ""),
+    );
+
+    let sac_client = token::Client::new(&env, &token_id);
+    let contract_bal_before = sac_client.balance(&contract_id);
+
+    client.raise_dispute(&eid, &from);
+
+    let split_sym = Symbol::new(&env, "split");
+    client.resolve_dispute(&eid, &arbitrator, &split_sym, &to, &1_000);
+
+    let contract_bal_mid = sac_client.balance(&contract_id);
+    assert_eq!(contract_bal_mid, contract_bal_before - 2_000);
+
+    let escrow = client.get_escrow(&eid);
+    assert_eq!(escrow.status, EscrowStatus::Released);
+    assert_eq!(escrow.disputed, false);
+
+    let result = client.try_resolve_dispute(&eid, &arbitrator, &split_sym, &to, &1_000);
+    assert!(result.is_err());
+
+    let contract_bal_after = sac_client.balance(&contract_id);
+    assert_eq!(contract_bal_after, contract_bal_mid);
+}
+
+#[test]
+fn test_cancel_while_disputed_reverts() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let res = client.try_cancel_escrow(&eid);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_claim_while_disputed_reverts() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let res = client.try_claim_escrow(&eid);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_partial_claim_while_disputed_reverts() {
+    let env = Env::default();
+    let (_, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let res = client.try_claim_escrow_partial(&eid, &1_000);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_resolve_dispute_works_for_awarded_amounts() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    let admin = client.get_admin();
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.add_arbitrator(&admin, &arbitrator);
+    let token_id = create_token(&env, &admin, &from, 5_000);
+    let release = env.ledger().sequence() + 100;
+    let eid = client.create_disputable_escrow(&token_id, &from, &to, &2_000, &release, &arbitrator);
+
+    client.raise_dispute(&eid, &from);
+
+    let split_sym = Symbol::new(&env, "split");
+    client.resolve_dispute(&eid, &arbitrator, &split_sym, &to, &1_500);
+
+    let sac_client = token::Client::new(&env, &token_id);
+    assert_eq!(sac_client.balance(&to), 1_500);
+    assert_eq!(sac_client.balance(&from), 3_500); // 5000 - 2000 + 500 refunded
+    assert_eq!(sac_client.balance(&contract_id), 0);
+}
+
+#[test]
+fn direct_upgrade_is_disabled_via_legacy_admin() {
+    let env = Env::default();
+    let (_id, client) = deploy(&env);
+    let admin = client.get_admin();
+
+    // The legacy single-admin path must be blocked (issue #677).
+    // Attempting to call upgrade() directly should panic.
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(
+        &env,
+        &[0u8; 32],
+    );
+    let result = client.try_upgrade(
+        &admin,
+        &new_wasm_hash,
+        &0u32,
+    );
+    assert!(
+        result.is_err(),
+        "direct upgrade via legacy admin must be disabled"
+    );
 }

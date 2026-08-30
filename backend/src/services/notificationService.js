@@ -20,19 +20,61 @@
 
 "use strict";
 
+var crypto = require("crypto");
+var os = require("os");
 var nodemailer = require("nodemailer");
 var logger = require("../utils/logger");
 var knex = require("../db/connection");
 var emailRenderer = require("./emailRenderer");
 var emailTrackingService = require("./emailTrackingService");
-var emailVerificationService = require("./emailVerificationService");
+var metricsService = require("./metricsService");
 
-// ─── Configuration ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 var isEnabled = process.env.NOTIFICATION_EMAIL_ENABLED === "true";
 var BATCH_THRESHOLD = parseInt(process.env.EMAIL_BATCH_THRESHOLD || "3", 10);
 var BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 var UNSUBSCRIBE_EMAIL = process.env.EMAIL_UNSUBSCRIBE_ADDRESS || "unsubscribe@finchippay.io";
+var RATE_LIMIT_PER_HOUR = parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || "10", 10);
+var STALE_PROCESSING_MS = parseInt(process.env.EMAIL_STALE_PROCESSING_MS || "600000", 10);
+
+/**
+ * Canonical set of notification event types a caller may subscribe to.
+ * Covers both the legacy email-template naming scheme (keys of
+ * EVENT_TEMPLATE_MAP) and the unified notification-preferences scheme.
+ * Used to reject unknown/malformed `events` payloads before they are
+ * persisted (WS2).
+ */
+var KNOWN_EVENT_TYPES = new Set([
+  "payment_received",
+  "payment_sent",
+  "escrow_released",
+  "stream_depleted",
+  "stream_claimed",
+  "scheduled_txn_executed",
+  "price_alert",
+  "security_alert",
+  "multisig_executed",
+  "tip_received",
+  "incoming_payment",
+  "outgoing_payment",
+  "escrow_release",
+  "stream_claim",
+  "multi_sig_approval",
+  "scheduled_payment",
+  "contract_event",
+]);
+
+async function isRateLimited(toAddress) {
+  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  var row = await knex("email_send_queue")
+    .where("to_address", toAddress)
+    .where("created_at", ">=", oneHourAgo)
+    .count("id as cnt")
+    .first();
+  var count = parseInt((row && row.cnt) || "0", 10);
+  return count >= RATE_LIMIT_PER_HOUR;
+}
 
 var smtpConfig = {
   host: process.env.SMTP_HOST || "",
@@ -47,7 +89,7 @@ var smtpConfig = {
 var fromAddress = process.env.SMTP_FROM || "noreply@finchippay.io";
 var transport = null;
 
-// ─── Transport ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Transport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initTransport() {
   if (!isEnabled) {
@@ -71,7 +113,10 @@ function initTransport() {
     logger.info({ type: "notification_transport_ready" }, "SMTP transport initialized");
     return true;
   } catch (err) {
-    logger.error({ type: "notification_transport_error", error: err.message }, "Failed to init SMTP");
+    logger.error(
+      { type: "notification_transport_error", error: err.message },
+      "Failed to init SMTP",
+    );
     return false;
   }
 }
@@ -83,7 +128,7 @@ function getTransport() {
   return transport;
 }
 
-// ─── Unsubscribe helpers ──────────────────────────────────────────────────────
+// â”€â”€â”€ Unsubscribe helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Build List-Unsubscribe headers for a given email address + token.
@@ -121,7 +166,7 @@ async function ensureUnsubscribeToken(email, category) {
       email,
       category,
       token,
-      unsubscribed_at: null, // not yet unsubscribed — token pre-created for headers
+      unsubscribed_at: null, // not yet unsubscribed â€” token pre-created for headers
     })
     .onConflict(["email", "category"])
     .ignore();
@@ -130,7 +175,7 @@ async function ensureUnsubscribeToken(email, category) {
   return row ? row.token : token;
 }
 
-// ─── Core send ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Core send â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Send a raw email immediately (bypass queue).
@@ -185,7 +230,7 @@ async function sendEmail(to, subject, html, options) {
   }
 }
 
-// ─── Queue-based sending ──────────────────────────────────────────────────────
+// â”€â”€â”€ Queue-based sending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Enqueue an email for async processing.
@@ -198,6 +243,11 @@ async function sendEmail(to, subject, html, options) {
  */
 async function queueEmail(to, templateType, data, opts) {
   if (!opts) opts = {};
+  if (await isRateLimited(to)) {
+    metricsService.emailsRateLimitedTotal.inc();
+    logger.warn({ type: "email_rate_limited", to }, "Rate limit exceeded, dropping email");
+    return { emailId: null, rateLimited: true };
+  }
   const emailId = emailTrackingService.generateEmailId();
   const pixelUrl = emailTrackingService.trackingPixelUrl(emailId);
 
@@ -205,7 +255,12 @@ async function queueEmail(to, templateType, data, opts) {
   let unsubToken = null;
   try {
     unsubToken = await ensureUnsubscribeToken(to, "all");
-  } catch (_) {}
+  } catch (err) {
+    logger.debug(
+      { type: "unsubscribe_token_precreate_failed", error: err.message },
+      "Unsubscribe token pre-create failed",
+    );
+  }
 
   const unsubscribeUrl = unsubToken
     ? `${BASE_URL}/api/emails/unsubscribe?token=${unsubToken}`
@@ -238,16 +293,84 @@ async function queueEmail(to, templateType, data, opts) {
 }
 
 /**
+ * Restrict a query to rows eligible to be claimed right now: due,
+ * still-pending rows, plus "processing" rows whose lock has gone stale
+ * (crash recovery). Shared by the claim subquery and the outer UPDATE so
+ * the two stay in lockstep.
+ *
+ * @param {import("knex").QueryBuilder} qb
+ * @param {string} now         ISO timestamp
+ * @param {string} staleBefore ISO timestamp; processing rows locked before this are stale
+ */
+function applyClaimEligibility(qb, now, staleBefore) {
+  qb.where("next_attempt_at", "<=", now).where(function (outer) {
+    outer.where("status", "pending").orWhere(function (stale) {
+      stale.where("status", "processing").where("locked_at", "<", staleBefore);
+    });
+  });
+}
+
+/**
+ * Atomically claim up to `limit` due email_send_queue rows for this worker.
+ *
+ * Uses a single UPDATE ... WHERE id IN (SELECT ... LIMIT n) ... RETURNING *
+ * statement so the row selection and the ownership flip happen as one
+ * database operation: two workers (or two overlapping runs of this worker)
+ * racing on the same rows can never both win the claim. The outer UPDATE
+ * repeats the eligibility check (not just the id list) so that if a second
+ * worker's statement has to wait on a row lock, it re-validates against the
+ * committed value once unblocked and simply claims nothing for that row.
+ *
+ * @param {number} limit
+ * @returns {Promise<Array<object>>} claimed rows, now status="processing"
+ */
+async function claimQueuedEmails(limit) {
+  var now = new Date().toISOString();
+  var staleBefore = new Date(Date.now() - QUEUE_LOCK_TIMEOUT_MS).toISOString();
+
+  var idsSubquery = knex("email_send_queue")
+    .select("id")
+    .modify(applyClaimEligibility, now, staleBefore)
+    .orderBy("next_attempt_at", "asc")
+    .limit(limit);
+
+  var claimed = await knex("email_send_queue")
+    .modify(applyClaimEligibility, now, staleBefore)
+    .whereIn("id", idsSubquery)
+    .update(
+      {
+        status: "processing",
+        locked_by: WORKER_ID,
+        locked_at: now,
+        updated_at: now,
+      },
+      ["*"],
+    );
+
+  return claimed || [];
+}
+
+/**
  * Process pending items from email_send_queue with exponential backoff retries.
  * Called by the executor worker.
  *
  * @returns {Promise<{ processed: number, failed: number }>}
  */
 async function processEmailQueue() {
-  var now = new Date().toISOString();
+  var now = new Date();
+  var nowISO = now.toISOString();
+  // Pick up due "pending" rows AND orphaned "processing" rows (a worker that
+  // claimed a row but died before settling it). Orphan recovery prevents a crash
+  // from permanently stranding a queued email, while the claim below prevents
+  // two live workers from sending the same row twice (WS3).
+  var staleCutoff = new Date(now.getTime() - STALE_PROCESSING_MS).toISOString();
   var pending = await knex("email_send_queue")
-    .where("status", "pending")
-    .where("next_attempt_at", "<=", now)
+    .where(function () {
+      this.where({ status: "pending" }).andWhere("next_attempt_at", "<=", nowISO);
+    })
+    .orWhere(function () {
+      this.where({ status: "processing" }).andWhere("updated_at", "<", staleCutoff);
+    })
     .orderBy("next_attempt_at", "asc")
     .limit(50)
     .select();
@@ -260,11 +383,24 @@ async function processEmailQueue() {
     var attempts = (item.attempts || 0) + 1;
     var maxAttempts = item.max_attempts || 3;
 
+    // Atomically claim this row. Only the worker that flips "pending" ->
+    // "processing" proceeds; concurrent workers that selected the same row get
+    // 0 affected rows and skip it, so an email is never double-sent.
+    if (item.status === "pending") {
+      var claimed = await knex("email_send_queue")
+        .where("id", item.id)
+        .where("status", "pending")
+        .update({ status: "processing", updated_at: nowISO });
+      if (!claimed) continue;
+    }
+
     // Check suppression again at send time
     var suppressed = await emailTrackingService.isSuppressed(item.to_address);
     if (suppressed) {
       await knex("email_send_queue").where("id", item.id).update({
         status: "cancelled",
+        locked_by: null,
+        locked_at: null,
         updated_at: new Date().toISOString(),
       });
       continue;
@@ -276,30 +412,40 @@ async function processEmailQueue() {
       unsubscribeToken: null, // already baked into the rendered html
     });
 
+    metricsService.emailsSentTotal.inc();
     if (result.sent) {
       await knex("email_send_queue").where("id", item.id).update({
         status: "sent",
         attempts: attempts,
+        locked_by: null,
+        locked_at: null,
         updated_at: new Date().toISOString(),
       });
       processed++;
     } else {
       failed++;
+      metricsService.emailsFailedTotal.inc();
       if (attempts >= maxAttempts) {
         await knex("email_send_queue").where("id", item.id).update({
           status: "failed",
           attempts: attempts,
           last_error: result.error,
+          locked_by: null,
+          locked_at: null,
           updated_at: new Date().toISOString(),
         });
       } else {
-        // Exponential backoff: 2^attempts minutes
+        // Exponential backoff: 2^attempts minutes. Release the claim by
+        // going back to "pending" so the row is eligible for a future run.
         var backoffMs = Math.pow(2, attempts) * 60 * 1000;
         var nextAttempt = new Date(Date.now() + backoffMs).toISOString();
         await knex("email_send_queue").where("id", item.id).update({
+          status: "pending",
           attempts: attempts,
           last_error: result.error,
           next_attempt_at: nextAttempt,
+          locked_by: null,
+          locked_at: null,
           updated_at: new Date().toISOString(),
         });
       }
@@ -309,7 +455,7 @@ async function processEmailQueue() {
   return { processed, failed };
 }
 
-// ─── Notification integration ─────────────────────────────────────────────────
+// â”€â”€â”€ Notification integration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Map internal event types to email template names.
@@ -342,7 +488,7 @@ var EVENT_SUBJECTS = {
 
 /**
  * Send a single event notification to a specific address.
- * Legacy method — kept for backwards compatibility.
+ * Legacy method â€” kept for backwards compatibility.
  *
  * @param {string} to
  * @param {string} eventType
@@ -381,25 +527,9 @@ async function sendEventNotification(to, eventType, data) {
   });
 }
 
-// ─── Batch / digest logic ─────────────────────────────────────────────────────
+// â”€â”€â”€ Batch / digest logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/**
- * Count events queued in the last hour for a specific recipient.
- * @param {string} toAddress
- * @returns {Promise<number>}
- */
-async function recentEventCount(toAddress) {
-  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  var row = await knex("email_send_queue")
-    .where("to_address", toAddress)
-    .where("created_at", ">=", oneHourAgo)
-    .whereIn("status", ["pending", "sent"])
-    .count("id as cnt")
-    .first();
-  return parseInt((row && row.cnt) || "0", 10);
-}
-
-// ─── Email Preference Management ──────────────────────────────────────────────
+// â”€â”€â”€ Email Preference Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function registerEmail(publicKey, email, options) {
   if (!options) options = {};
@@ -410,15 +540,46 @@ async function registerEmail(publicKey, email, options) {
     "multisig_executed",
     "tip_received",
   ];
+
+  // Reject unknown event types instead of silently persisting arbitrary
+  // strings that would never fire a notification (WS2).
+  if (!Array.isArray(events)) {
+    var notArr = new Error("events must be an array of notification event types");
+    notArr.status = 400;
+    throw notArr;
+  }
+  var invalid = events.filter(function (e) {
+    return typeof e !== "string" || !KNOWN_EVENT_TYPES.has(e);
+  });
+  if (invalid.length > 0) {
+    var err = new Error(
+      "Unknown notification event type(s): " +
+        invalid.join(", ") +
+        ". Allowed types: " +
+        Array.from(KNOWN_EVENT_TYPES).join(", "),
+    );
+    err.status = 400;
+    throw err;
+  }
+
   var existing = await knex("notification_email_preferences")
     .where("public_key", publicKey)
     .first();
+
+  let consentOpenTracking = false;
+  if (options.consentOpenTracking !== undefined) {
+    consentOpenTracking = options.consentOpenTracking;
+  } else if (existing && existing.consent_open_tracking !== undefined) {
+    consentOpenTracking = existing.consent_open_tracking;
+  }
+
   if (existing) {
     await knex("notification_email_preferences")
       .where("public_key", publicKey)
       .update({
         email: email,
         events: JSON.stringify(events),
+        consent_open_tracking: consentOpenTracking,
         updated_at: new Date().toISOString(),
       });
   } else {
@@ -426,6 +587,7 @@ async function registerEmail(publicKey, email, options) {
       public_key: publicKey,
       email: email,
       events: JSON.stringify(events),
+      consent_open_tracking: consentOpenTracking,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -440,6 +602,7 @@ async function registerEmail(publicKey, email, options) {
     email: saved.email,
     events: JSON.parse(saved.events || "[]"),
     emailVerified: saved.email_verified || false,
+    consentOpenTracking: !!saved.consent_open_tracking,
     createdAt: saved.created_at,
     updatedAt: saved.updated_at,
   };
@@ -453,6 +616,7 @@ async function getEmailPreference(publicKey) {
     email: row.email,
     events: JSON.parse(row.events || "[]"),
     emailVerified: row.email_verified || false,
+    consentOpenTracking: !!row.consent_open_tracking,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -467,7 +631,7 @@ async function deleteEmailPreference(publicKey) {
   return false;
 }
 
-// ─── Subscriber notification with preference + verification check ─────────────
+// â”€â”€â”€ Subscriber notification with preference + verification check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Notify all subscribers of an event.
@@ -486,6 +650,61 @@ async function notifySubscribers(eventType, data) {
 
   // Fetch all notification_email_preferences
   var allRows = await knex("notification_email_preferences").select();
+
+  // ── N+1 reduction (WS4) ───────────────────────────────────────────────────
+  // The naive loop issued one SELECT per subscriber for the master toggle,
+  // one for the recent-queue count, and one for the pending-digest probe.
+  // Prefetch all three datasets with three queries total, then resolve them
+  // from Maps so the per-subscriber work is pure CPU.
+
+  // 1) Master toggles for every candidate subscriber (one query, IN-list).
+  var candidateKeys = allRows.map(function (r) {
+    return r.public_key;
+  });
+  var prefRows = candidateKeys.length
+    ? await knex("notification_preferences")
+        .whereIn("public_key", candidateKeys)
+        .select("public_key", "email_enabled")
+    : [];
+  var emailEnabledByKey = new Map();
+  for (var p = 0; p < prefRows.length; p++) {
+    emailEnabledByKey.set(prefRows[p].public_key, prefRows[p].email_enabled);
+  }
+
+  // 2) Recent queue counts for all candidate emails (one grouped query).
+  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  var candidateEmails = allRows.map(function (r) {
+    return r.email;
+  });
+  var recentRows = candidateEmails.length
+    ? await knex("email_send_queue")
+        .whereIn("to_address", candidateEmails)
+        .where("created_at", ">=", oneHourAgo)
+        .whereIn("status", ["pending", "sent"])
+        .groupBy("to_address")
+        .select("to_address")
+        .count("id as cnt")
+    : [];
+  var recentCountByEmail = new Map();
+  for (var q = 0; q < recentRows.length; q++) {
+    recentCountByEmail.set(recentRows[q].to_address, parseInt(recentRows[q].cnt, 10));
+  }
+
+  // 3) Existing pending digests (one query, IN-list) so the digest probe never
+  //    issues a SELECT per batched subscriber.
+  var pendingDigestRows = candidateEmails.length
+    ? await knex("email_send_queue")
+        .whereIn("to_address", candidateEmails)
+        .where("template_type", "digest")
+        .where("status", "pending")
+        .select("to_address")
+    : [];
+  var hasPendingDigest = new Set(
+    pendingDigestRows.map(function (r) {
+      return r.to_address;
+    }),
+  );
+  // ───────────────────────────────────────────────────────────────────────────
 
   var sent = 0;
   var failed = 0;
@@ -510,12 +729,10 @@ async function notifySubscribers(eventType, data) {
       continue;
     }
 
-    // Check notification_preferences.email_enabled (master toggle)
-    var pref = await knex("notification_preferences")
-      .where("public_key", row.public_key)
-      .select("email_enabled")
-      .first();
-    if (pref && pref.email_enabled === false) continue;
+    // Check notification_preferences.email_enabled (master toggle) — resolved
+    // from the prefetched map instead of a per-row SELECT (WS4).
+    var prefEnabled = emailEnabledByKey.get(row.public_key);
+    if (prefEnabled === false) continue;
 
     var templateType = EVENT_TEMPLATE_MAP[eventType];
     if (!templateType) continue;
@@ -531,24 +748,26 @@ async function notifySubscribers(eventType, data) {
     };
 
     // Batch check: if > BATCH_THRESHOLD events queued in the last hour, defer to digest
-    var recentCount = await recentEventCount(row.email);
+    var recentCount = recentCountByEmail.get(row.email) || 0;
     if (recentCount >= BATCH_THRESHOLD) {
       // Queue a daily digest instead (only queue one pending digest if none exists)
-      var pendingDigest = await knex("email_send_queue")
-        .where("to_address", row.email)
-        .where("template_type", "digest")
-        .where("status", "pending")
-        .first();
-      if (!pendingDigest) {
+      if (!hasPendingDigest.has(row.email)) {
         await queueEmail(
           row.email,
           "digest",
           {
             count: recentCount + 1,
-            events: [{ label: eventType, timestamp: payload.timestamp, summary: `${payload.amount || ""} ${payload.asset || ""}`.trim() }],
+            events: [
+              {
+                label: eventType,
+                timestamp: payload.timestamp,
+                summary: `${payload.amount || ""} ${payload.asset || ""}`.trim(),
+              },
+            ],
           },
           { publicKey: row.public_key },
         );
+        hasPendingDigest.add(row.email);
       }
       batched++;
       continue;
@@ -576,6 +795,7 @@ module.exports = {
   notifySubscribers,
   queueEmail,
   processEmailQueue,
+  claimQueuedEmails,
   ensureUnsubscribeToken,
   buildUnsubscribeHeaders,
   EVENT_TEMPLATE_MAP,

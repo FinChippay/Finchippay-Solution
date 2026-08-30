@@ -69,6 +69,38 @@ export const STELLAR_TRANSACTION_TIMEOUT_SECONDS = 60;
 /** Stellar MEMO_TEXT values are capped at 28 UTF-8 bytes by the protocol. */
 export const STELLAR_MEMO_TEXT_MAX_BYTES = 28;
 
+const HORIZON_UNAVAILABLE_MESSAGE = "Horizon unavailable, please retry";
+
+type HorizonAccountError = {
+  status?: unknown;
+  type?: unknown;
+  response?: {
+    status?: unknown;
+    type?: unknown;
+    data?: {
+      type?: unknown;
+      status?: unknown;
+    };
+  };
+};
+
+/** Returns true only for Horizon's account-not-found response. */
+export function isHorizonAccountNotFoundError(error: unknown): boolean {
+  const candidate = error as HorizonAccountError;
+  const status =
+    candidate?.response?.status ?? candidate?.status ?? candidate?.response?.data?.status;
+  const type =
+    candidate?.response?.data?.type ?? candidate?.response?.type ?? candidate?.type;
+  return status === 404 || type === "not_found";
+}
+
+/** Converts transient Horizon failures into a stable retryable user-facing error. */
+export function toHorizonUnavailableError(error: unknown): Error {
+  const unavailable = new Error(HORIZON_UNAVAILABLE_MESSAGE);
+  unavailable.cause = error;
+  return unavailable;
+}
+
 /** A base Stellar account must keep two reserve units before subentries. */
 export const STELLAR_BASE_ACCOUNT_RESERVE_COUNT = 2;
 
@@ -238,7 +270,7 @@ export interface PaymentRecord {
   /** Unique operation ID assigned by Horizon. */
   id: string;
   /** Whether this payment was sent or received by the queried account. */
-  type: "sent" | "received" | "merge";
+  type: "sent" | "received" | "merge" | "payment";
   /** Whether this payment was sent or received by the queried account. */
   amount: string;
   /** Asset code, e.g. `"XLM"` */
@@ -251,8 +283,12 @@ export interface PaymentRecord {
   memo?: string;
   /** ISO 8601 timestamp of when the operation was created. */
   createdAt: string;
+  /** ISO 8601 alias for createdAt (used in tests and search). */
+  timestamp?: string;
   /** Hash of the parent transaction. */
   transactionHash: string;
+  /** Alias for transactionHash (used in search and UI components). */
+  hash: string;
   /** Horizon paging token used for cursor-based pagination. */
   pagingToken?: string;
   /** Category of the transaction. */
@@ -738,11 +774,11 @@ export async function buildPaymentTransaction({
     let destinationExists = true;
     try {
       await server.loadAccount(toPublicKey);
-    } catch (err: any) {
-      if (err?.response?.status === 404) {
+    } catch (err: unknown) {
+      if (isHorizonAccountNotFoundError(err)) {
         destinationExists = false;
       } else {
-        throw err;
+        throw toHorizonUnavailableError(err);
       }
     }
 
@@ -1024,7 +1060,9 @@ export async function getPaymentHistory(
         to: payment.to,
         memo,
         createdAt: payment.created_at,
+        timestamp: payment.created_at,
         transactionHash: payment.transaction_hash,
+        hash: payment.transaction_hash,
         pagingToken: payment.paging_token,
         category: TransactionCategory.Payment,
       };
@@ -1043,7 +1081,9 @@ export async function getPaymentHistory(
         from: merge.account || merge.source_account, // Handle potential variations in property names
         to: merge.into, // The destination account
         createdAt: merge.created_at,
+        timestamp: merge.created_at,
         transactionHash: merge.transaction_hash,
+        hash: merge.transaction_hash,
         pagingToken: merge.paging_token,
         category: TransactionCategory.Merge,
       };
@@ -1105,7 +1145,9 @@ export async function fetchAllPayments(
         from: payment.from,
         to: payment.to,
         createdAt: payment.created_at,
+        timestamp: payment.created_at,
         transactionHash: payment.transaction_hash,
+        hash: payment.transaction_hash,
         pagingToken: payment.paging_token,
         category: TransactionCategory.Payment,
       });
@@ -1437,7 +1479,9 @@ export function streamPayments(
         to: payment.to,
         memo,
         createdAt: payment.created_at,
+        timestamp: payment.created_at,
         transactionHash: payment.transaction_hash,
+        hash: payment.transaction_hash,
         pagingToken: payment.paging_token,
         category: TransactionCategory.Payment,
       };
@@ -1933,16 +1977,25 @@ export async function buildCreateEscrowTransaction({
   toPublicKey,
   amount,
   releaseLedger,
+  asset = "XLM",
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   releaseLedger: number;
+  asset?: "XLM" | "USDC" | { code: string; issuer: string };
 }): Promise<Transaction> {
   if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
   const sourceAccount = await server.loadAccount(fromPublicKey);
   const contract = new Contract(CONTRACT_ID);
-  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+    let assetContractId: string;
+  if (asset === "XLM") {
+    assetContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+  } else if (asset === "USDC") {
+    assetContractId = new Asset("USDC", USDC_ISSUER).contractId(NETWORK_PASSPHRASE);
+  } else {
+    assetContractId = new Asset(asset.code, asset.issuer).contractId(NETWORK_PASSPHRASE);
+  }
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 
   const tx = new TransactionBuilder(sourceAccount, {
@@ -1952,7 +2005,7 @@ export async function buildCreateEscrowTransaction({
     .addOperation(
       contract.call(
         "create_escrow",
-        nativeToScVal(xlmContractId, { type: "address" }),
+        nativeToScVal(assetContractId, { type: "address" }),
         nativeToScVal(fromPublicKey, { type: "address" }),
         nativeToScVal(toPublicKey, { type: "address" }),
         nativeToScVal(stroops, { type: "i128" }),

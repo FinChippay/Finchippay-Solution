@@ -25,6 +25,7 @@ import {
   getCurrentLedger,
   computeStreamClaimable,
   submitTransaction,
+  buildClaimStreamTransaction,
   STELLAR_STROOPS_PER_XLM,
   shortenAddress,
   type StreamRecord,
@@ -35,11 +36,23 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 /** Matches Stellar's ~5s ledger close time. */
 const POLL_INTERVAL_MS = 5000;
 
-interface StreamingPaymentsProps {
-  publicKey: string;
+export interface OptimisticBalanceApi {
+  /** Apply an optimistic XLM delta; call rollback(key) on failure. */
+  applyDelta(deltaXlm: string, key: string): void;
+  /** Remove a pending optimistic delta by key. */
+  rollback(key: string): void;
 }
 
-export default function StreamingPayments({ publicKey }: StreamingPaymentsProps) {
+interface StreamingPaymentsProps {
+  publicKey: string;
+  /** Optional hook into the balance stream for optimistic claim updates. */
+  optimisticBalanceApi?: OptimisticBalanceApi | null;
+}
+
+export default function StreamingPayments({
+  publicKey,
+  optimisticBalanceApi,
+}: StreamingPaymentsProps) {
   const [streams, setStreams] = useState<StreamRecord[]>([]);
   const [currentLedger, setCurrentLedger] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +110,20 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
     if (!pendingClaimId) return;
     setShowPreview(false);
 
+    const claimKey = `claim:${pendingClaimId}`;
+    const pendingStream = streams.find((s) => s.id === pendingClaimId);
+
+    // Optimistic update: show the claimed amount in the balance immediately
+    // while the transaction confirms, and roll it back if the claim fails.
+    if (optimisticBalanceApi && pendingStream) {
+      const claimableStroops = computeStreamClaimable(
+        pendingStream,
+        currentLedger ?? pendingStream.startLedger
+      );
+      const claimableXlm = (Number(claimableStroops) / STELLAR_STROOPS_PER_XLM).toFixed(7);
+      optimisticBalanceApi.applyDelta(claimableXlm, claimKey);
+    }
+
     try {
       const tx = await buildClaimStreamTransaction(publicKey, pendingClaimId);
 
@@ -111,6 +138,8 @@ export default function StreamingPayments({ publicKey }: StreamingPaymentsProps)
       addToast("Stream claimed successfully.", "success");
       await fetchStreams();
     } catch (err) {
+      // Claim failed — the optimistic balance must not linger.
+      optimisticBalanceApi?.rollback(claimKey);
       addToast(err instanceof Error ? err.message : "Claim failed. Please try again.", "error");
     } finally {
       setClaimingId(null);

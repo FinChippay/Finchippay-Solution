@@ -1,4 +1,8 @@
 {
+  "assetSelect": {
+    "addTrustline": "Trustline",
+    "noAssets": "No assets available."
+  },
   "dashboard": {
     "": "__MISSING_TRANSLATION__",
     "accountNotFunded": "Account not funded yet",
@@ -6,6 +10,8 @@
     "balance": "Balance",
     "balanceLive": "Live",
     "balancePolling": "Updating every 30s",
+    "balanceReconnecting": "Reconnecting…",
+    "balanceStale": "Stale — data may be outdated",
     "balanceTrendDownward": "Balance trend: downward",
     "balanceTrendUpward": "Balance trend: upward",
     "batchSend": "Batch Send",
@@ -209,6 +215,7 @@
     "memoPlaceholder": "Payment note...",
     "mintNftReceipt": "Mint NFT Receipt",
     "mintingReceipt": "Minting receipt…",
+    "needsTrustline": "Add a trustline for {asset} before sending.",
     "networkFee": "Network Fee",
     "nftReceiptMinted": "NFT receipt minted successfully!",
     "nicknamePrompt": "Nickname for this contact:",
@@ -315,8 +322,8 @@
     "loadMoreResults": "Load more results",
     "loadingMore": "Loading more...",
     "needTestXlm": "Need test XLM?",
-    "noTransactions": "No transactions yet",
     "newest": "Newest",
+    "noTransactions": "No transactions yet",
     "offlineSnapshot": "Offline history snapshot from",
     "paymentHistory": "Payment history",
     "prefillSendForm": "Pre-fill send form with this transaction",

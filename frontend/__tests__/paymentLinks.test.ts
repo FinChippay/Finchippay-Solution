@@ -3,6 +3,7 @@
  */
 import {
   buildPaymentLinkUrl,
+  cancelPaymentLink,
   canRedeemPaymentLink,
   clearPaymentLinkStore,
   getPaymentLinkRecord,
@@ -13,6 +14,8 @@ import {
   rememberPaymentLink,
   type PaymentLinkPayload,
 } from "@/lib/paymentLinks";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const PAYLOAD: PaymentLinkPayload = {
   destination: "GABCDEF",
@@ -148,19 +151,40 @@ describe("payment link store", () => {
     expect(getPaymentLinkRecord(expired)?.status).toBe("expired");
   });
 
-  it("marks a link redeemed and stores the tx hash", () => {
+  it("clears the stored request once it is paid (#161)", () => {
     rememberPaymentLink(PAYLOAD, "url");
     expect(markPaymentLinkRedeemed(PAYLOAD, "tx-1")).toBe(true);
-    const after = getPaymentLinkRecord(PAYLOAD);
-    expect(after?.status).toBe("redeemed");
-    expect(after?.redeemedTxHash).toBe("tx-1");
+    expect(getPaymentLinkRecord(PAYLOAD)).toBeNull();
+    expect(listPaymentLinks()).toHaveLength(0);
   });
 
-  it("blocks reuse after redemption", () => {
+  it("still blocks reuse after redemption despite clearing the payload", () => {
     rememberPaymentLink(PAYLOAD, "url");
     markPaymentLinkRedeemed(PAYLOAD, "tx-1");
     expect(markPaymentLinkRedeemed(PAYLOAD, "tx-2")).toBe(false);
-    expect(getPaymentLinkRecord(PAYLOAD)?.redeemedTxHash).toBe("tx-1");
+    expect(canRedeemPaymentLink(PAYLOAD)).toEqual({
+      ok: false,
+      reason: "redeemed",
+    });
+  });
+
+  it("cancelPaymentLink discards a pending request", () => {
+    rememberPaymentLink(PAYLOAD, "url");
+    expect(cancelPaymentLink(PAYLOAD)).toBe(true);
+    expect(getPaymentLinkRecord(PAYLOAD)).toBeNull();
+    // Cancelling is not a redemption, so the link is not reuse-blocked.
+    expect(canRedeemPaymentLink(PAYLOAD)).toEqual({ ok: true });
+  });
+
+  it("rejects reads of a stored request older than the 24h TTL", () => {
+    const nowSpy = jest.spyOn(Date, "now");
+    const createdAt = 1_700_000_000_000;
+    nowSpy.mockReturnValue(createdAt);
+    rememberPaymentLink(PAYLOAD, "url"); // no validUntil: "never expire"
+
+    nowSpy.mockReturnValue(createdAt + DAY_MS + 1);
+    expect(getPaymentLinkRecord(PAYLOAD)).toBeNull();
+    nowSpy.mockRestore();
   });
 });
 

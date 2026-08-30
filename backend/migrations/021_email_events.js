@@ -14,7 +14,10 @@ exports.up = function (knex) {
     .createTable("email_events", (table) => {
       table.increments("id").primary();
       table.string("email_id", 64).notNullable().comment("Unique tracking ID per sent email");
-      table.string("event_type", 32).notNullable().comment("sent|delivered|opened|clicked|bounced|complained");
+      table
+        .string("event_type", 32)
+        .notNullable()
+        .comment("sent|delivered|opened|clicked|bounced|complained");
       table.timestamp("timestamp").defaultTo(knex.fn.now());
       table.string("user_agent", 512).nullable();
       table.string("ip", 64).nullable();
@@ -31,7 +34,11 @@ exports.up = function (knex) {
       table.text("text").nullable();
       table.string("template_type", 64).nullable();
       table.text("template_data").nullable().comment("JSON context used for rendering");
-      table.string("status", 32).notNullable().defaultTo("pending").comment("pending|sent|failed|cancelled");
+      table
+        .string("status", 32)
+        .notNullable()
+        .defaultTo("pending")
+        .comment("pending|sent|failed|cancelled");
       table.integer("attempts").defaultTo(0);
       table.integer("max_attempts").defaultTo(3);
       table.timestamp("next_attempt_at").defaultTo(knex.fn.now());
@@ -45,7 +52,11 @@ exports.up = function (knex) {
     .createTable("email_unsubscribes", (table) => {
       table.increments("id").primary();
       table.string("email", 320).notNullable();
-      table.string("category", 64).notNullable().defaultTo("all").comment("all or specific event category");
+      table
+        .string("category", 64)
+        .notNullable()
+        .defaultTo("all")
+        .comment("all or specific event category");
       table.timestamp("unsubscribed_at").defaultTo(knex.fn.now());
       table.string("reason", 255).nullable();
       table.string("token", 128).notNullable().unique().comment("One-click unsubscribe token");

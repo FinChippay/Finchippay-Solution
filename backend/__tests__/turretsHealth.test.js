@@ -10,6 +10,11 @@
 
 const request = require("supertest");
 
+// The app transitively loads @stellar/stellar-sdk, whose CJS build pulls an
+// ESM-only dependency Jest cannot transform; stub the SDK surface used by the
+// turrets/server layers.
+jest.mock("@stellar/stellar-sdk", () => require("./turretsSdkStub"));
+
 // Force the price feed to a known state before requiring the app so the
 // controller's first probe lands on the mocked response.
 jest.mock("../src/services/priceFeedService", () => {

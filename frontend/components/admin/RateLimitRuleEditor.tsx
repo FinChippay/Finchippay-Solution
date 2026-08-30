@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 interface RateLimitRule {
   id: number;
@@ -50,7 +51,7 @@ export default function RateLimitRuleEditor({ rules, onUpdate }: RateLimitRuleEd
       setEditingId(null);
       onUpdate();
     } catch (err) {
-      logger.error("Failed to update rule:", err);
+      logger.error("Failed to update rule:", {}, err instanceof Error ? err : undefined);
     } finally {
       setSaving(false);
     }

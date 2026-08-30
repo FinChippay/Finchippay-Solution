@@ -6,15 +6,10 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { apiClient, type ParsePaymentResponse as PaymentIntent } from "@/lib/api";
 import { logger } from "@/lib/logger";
 
-interface PaymentIntent {
-  amount: string;
-  recipient: string;
-  memo: string;
-  isValid: boolean;
-  clarification: string;
-}
+export type { PaymentIntent };
 
 interface AIPaymentAssistantProps {
   isOpen: boolean;
@@ -56,24 +51,11 @@ export default function AIPaymentAssistant({
     setParsedIntent(null);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-      const response = await fetch(`${apiUrl}/api/v1/parse-payment`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ input: input.trim() }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to parse payment intent");
-      }
-
-      const intent: PaymentIntent = await response.json();
+      const intent = await apiClient.parsePayment({ input: input.trim() });
       setParsedIntent(intent);
     } catch (err) {
       setError("Failed to parse your request. Please try again.");
-      logger.error("Payment parsing error:", err);
+      logger.error("Payment parsing error", {}, err instanceof Error ? err : undefined);
     } finally {
       setIsLoading(false);
     }

@@ -109,7 +109,7 @@ Comprehensive reference for every automated workflow in the Finchippay-Solution 
 | 10 | **Benchmark** | `benchmark.yml` | PR → main, manual | Performance regression detection |
 | 11 | **SDK Check** | `sdk-check.yml` | PR → main, push main | SDK type drift detection |
 | 12 | **Renovate** | `renovate-approve.yml` | PR from renovate/dependabot | Auto-approve dependency patches |
-| 13 | **Terraform** | `terraform-deploy.yml` | PR (terraform/**), push main, manual | Plan → PR comment → Apply (staging/production) |
+| 13 | **Terraform** | `terraform.yml` | PR (terraform/**), push main, manual | fmt → validate → Plan → PR comment → Apply (dev/staging/prod, prod gated) |
 | 14 | **Kubernetes** | `kubernetes-deploy.yml` | PR (k8s/**), push main, manual | Build 3 images → Scan → Push → Helm deploy |
 | 15 | **Greptile** | `greptile-review.yml`, `greptile-label.yml` | PR → main/develop, issue opened, manual | Config validation + issue context + manual trigger; auto-labels PRs |
 
@@ -210,20 +210,20 @@ Generate image SBOMs → Upload artifacts
 - Supports frontend, backend, or both targets
 - Posts PR comment with final status
 
-#### 13. Terraform Deploy (`terraform-deploy.yml`)
+#### 13. Terraform (`terraform.yml`)
 
 **Triggers:** `pull_request` (terraform/** paths), `push` → main, `workflow_dispatch`
 
 | Trigger | Action | Environment |
 |---------|--------|-------------|
-| PR | `terraform fmt → init → validate → plan` → post as PR comment | staging |
-| Push to main | `terraform init → plan → apply -auto-approve` | production |
-| Manual — plan | `terraform plan` only | staging or production |
-| Manual — apply | `terraform plan → apply -auto-approve` | staging or production |
-| Manual — destroy | `terraform plan -destroy → apply` | staging or production |
+| PR | `terraform fmt → init → validate → plan` → post as PR comment | dev |
+| Push to main | `terraform init → plan → apply -auto-approve` | prod |
+| Manual — plan | `terraform plan` only | dev, staging, or prod |
+| Manual — apply | `terraform plan → apply -auto-approve` | dev, staging, or prod |
+| Manual — destroy | `terraform plan -destroy → apply` | dev, staging, or prod |
 
-**Required secrets:** `DIGITALOCEAN_TOKEN`, `DIGITALOCEAN_SPACES_KEY`, `DIGITALOCEAN_SPACES_SECRET`  
-**Optional secrets:** `TF_VAR_db_password`, `TF_VAR_redis_password`
+**Required secrets:** `AWS_ROLE_ARN` (OIDC role), `TF_STATE_BUCKET`, `TF_STATE_LOCK_TABLE`  
+**Optional secrets:** `TF_VAR_allowed_origins`
 
 **Safety:** Production apply requires the `production` GitHub Environment approval gate. Plan artifacts are uploaded and retained for 7 days.
 
@@ -364,11 +364,10 @@ Two workflows handle the Greptile integration:
 | `VERCEL_ORG_ID` | `vercel-deploy` | ✅ | Vercel organization ID |
 | `VERCEL_PROJECT_ID` | `vercel-deploy` | ✅ | Vercel project ID |
 | `NEXT_PUBLIC_SENTRY_DSN` | `vercel-deploy` | ❌ | Sentry DSN for frontend error tracking |
-| `DIGITALOCEAN_TOKEN` | `terraform-deploy` | ✅ | DigitalOcean API token |
-| `DIGITALOCEAN_SPACES_KEY` | `terraform-deploy` | ✅ | DO Spaces access key (Terraform remote state) |
-| `DIGITALOCEAN_SPACES_SECRET` | `terraform-deploy` | ✅ | DO Spaces secret key (Terraform remote state) |
-| `TF_VAR_db_password` | `terraform-deploy` | ❌ | Override auto-generated DB password |
-| `TF_VAR_redis_password` | `terraform-deploy` | ❌ | Override auto-generated Redis password |
+| `AWS_ROLE_ARN` | `terraform` | ✅ | IAM role to assume via OIDC for Terraform plan/apply |
+| `TF_STATE_BUCKET` | `terraform` | ✅ | S3 bucket holding Terraform state |
+| `TF_STATE_LOCK_TABLE` | `terraform` | ✅ | DynamoDB table for Terraform state locking |
+| `TF_VAR_allowed_origins` | `terraform` | ❌ | CORS origins for the deployed app |
 | `KUBE_CONFIG` | `kubernetes-deploy` | ✅ | Base64-encoded kubeconfig |
 | `JWT_SECRET` | `kubernetes-deploy` | ❌ | JWT signing secret for backend |
 | `DB_URL` | `kubernetes-deploy` | ❌ | Database connection string |
@@ -387,7 +386,7 @@ Two workflows handle the Greptile integration:
 
 | Environment | Required Approvers | Used By |
 |-------------|-------------------|---------|
-| `production` | Manual approval gate | `vercel-deploy`, `terraform-deploy`, `kubernetes-deploy`, `canary-deploy` |
+| `production` | Manual approval gate | `vercel-deploy`, `terraform`, `kubernetes-deploy`, `canary-deploy` |
 | `preview` | None | `vercel-deploy` (preview) |
 | `testnet` | None | `contract-deploy` |
 

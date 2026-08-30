@@ -98,6 +98,11 @@ const ERROR_CODES = {
     httpStatus: 401,
     message: "SEP-0010 challenge verification failed.",
   },
+  AUTH_INVALID_WEBHOOK_SIGNATURE: {
+    code: "AUTH_INVALID_WEBHOOK_SIGNATURE",
+    httpStatus: 401,
+    message: "Webhook signature verification failed.",
+  },
   /**
    * Deprecated alias for AUTH_EXPIRED_TOKEN. Shipped before this catalogue
    * existed and is asserted by existing consumers, so the API still emits it
@@ -196,6 +201,11 @@ const ERROR_CODES = {
     code: "VAL_INVALID_QUERY_PARAM",
     httpStatus: 400,
     message: "A query parameter is missing or invalid.",
+  },
+  VAL_TOO_MANY_ROWS: {
+    code: "VAL_TOO_MANY_ROWS",
+    httpStatus: 400,
+    message: "The uploaded file exceeds the maximum number of allowed rows.",
   },
 
   // ── Resource errors ──────────────────────────────────────────────────────

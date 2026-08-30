@@ -282,7 +282,9 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
     horizonStreams[0].handlers.onmessage({ id: "1", type: "payment" });
     await stream.waitFor((frames) => eventsOf(frames, "balance").length >= 2);
 
-    expect(cache.del).toHaveBeenCalledWith(`account:${ME}`);
+    expect(cache.del).toHaveBeenCalledWith(
+      require("../src/services/stellarCacheKeys").accountCacheKey(ME),
+    );
 
     stream.close();
   });

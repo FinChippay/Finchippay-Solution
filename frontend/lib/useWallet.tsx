@@ -18,6 +18,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { revokeAllSessions } from "@/lib/auth";
+import { clearPaymentLinkStore } from "@/lib/paymentLinks";
 import {
   connectWallet as requestWalletConnection,
   disconnectWallet as clearWalletConnection,
@@ -25,7 +27,6 @@ import {
   performSEP0010Auth,
   initEncryptionSession,
 } from "@/lib/wallet";
-import { revokeAllSessions } from "@/lib/auth";
 
 /** A single Stellar account the user has connected to Finchippay. */
 export interface Account {
@@ -264,6 +265,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setState(EMPTY_STATE);
     // Best-effort logout to clear httpOnly cookies and revoke backend tokens
     void revokeAllSessions();
+    // Bound stored payment-request lifetime (#906): don't let pending or
+    // redeemed-marker data outlive the session.
+    clearPaymentLinkStore();
     router.push("/");
   }, [router]);
 
