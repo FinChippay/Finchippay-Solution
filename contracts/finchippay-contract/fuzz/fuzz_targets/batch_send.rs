@@ -1,12 +1,13 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use soroban_sdk::testutils::Ledger;
 use soroban_sdk::{Address, Env, Symbol, Vec};
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::testutils::Address as _;
 use finchippay_contract::FinchippayContractClient;
 
-fn setup_env() -> (Env, Address, Address) {
+fn setup_env<'a>() -> (Env, FinchippayContractClient<'a>, Address) {
     let env = Env::default();
     let contract_id = env.register(finchippay_contract::FinchippayContract, ());
     let client = FinchippayContractClient::new(&env, &contract_id);

@@ -1,6 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use soroban_sdk::testutils::Ledger;
 use soroban_sdk::{
     testutils::Address as _,
     Address, Env, Symbol, Vec,
