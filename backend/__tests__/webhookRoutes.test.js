@@ -151,6 +151,8 @@ describe("POST /api/webhooks", () => {
   });
 });
 
+// ─── GET /api/webhooks/:publicKey (authenticated) ──────────────────────────────
+
 describe("GET /api/webhooks/:publicKey", () => {
   it("returns the caller's webhooks", async () => {
     webhookService.getWebhooksByPublicKey.mockResolvedValue([
@@ -173,6 +175,8 @@ describe("GET /api/webhooks/:publicKey", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ─── DELETE /api/webhooks/:id (authenticated) ──────────────────────────────────
 
 describe("DELETE /api/webhooks/:id", () => {
   it("deletes a webhook owned by the caller", async () => {

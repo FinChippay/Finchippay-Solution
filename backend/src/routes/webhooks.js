@@ -14,6 +14,7 @@
 
 const express = require("express");
 const router = express.Router();
+const { strictLimiter } = require("../middleware/rateLimit");
 const webhookService = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { verifyJWT } = require("../middleware/auth");
@@ -32,6 +33,52 @@ const {
   setPaginationHeaders,
   formatPaginatedResponse,
 } = require("../utils/paginate");
+const { verifyJWT } = require("../middleware/auth");
+const { sendError } = require("../utils/errorResponse");
+
+/**
+ * Verify the authenticated user owns the webhook account identified by
+ * the :publicKey route parameter (or the body publicKey for POST /).
+ * Must run after verifyJWT (which sets req.user.publicKey).
+ */
+function requireOwnWebhookAccount(req, res, next) {
+  const targetPublicKey =
+    req.validatedParams?.publicKey ||
+    req.validated?.publicKey ||
+    req.params.publicKey ||
+    null;
+
+  if (!targetPublicKey || req.user?.publicKey !== targetPublicKey) {
+    return sendError(res, "AUTH_FORBIDDEN", {
+      message: "Forbidden: you may only access your own webhook data.",
+    });
+  }
+  next();
+}
+
+/**
+ * Verify the authenticated user owns the webhook identified by the :id
+ * route parameter. Looks up the webhook first, then checks ownership.
+ * Must run after verifyJWT.
+ */
+async function requireOwnWebhookById(req, res, next) {
+  try {
+    const webhook = await webhookService.getWebhookById(req.validated?.id || req.params.id);
+    if (!webhook) {
+      return sendError(res, "RES_NOT_FOUND", {
+        details: { resourceType: "webhook", id: req.validated?.id || req.params.id },
+      });
+    }
+    if (req.user?.publicKey !== webhook.publicKey) {
+      return sendError(res, "AUTH_FORBIDDEN", {
+        message: "Forbidden: you may only access your own webhook data.",
+      });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
 
 /**
  * Reject a route whose `:publicKey` path param differs from the authenticated
@@ -163,6 +210,7 @@ router.get(
   requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   validate(getEventsQuerySchema, "query"),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validatedParams || req.params;
@@ -202,6 +250,7 @@ router.post(
   requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   validate(replayEventsBodySchema),
+  requireOwnWebhookAccount,
   async (req, res, next) => {
     try {
       const { publicKey } = req.validatedParams || req.params;
