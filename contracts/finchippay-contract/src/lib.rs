@@ -259,6 +259,56 @@ pub struct EscrowSummary {
     pub is_milestone_based: bool,
 }
 
+/// Single item of a `batch_create_escrow` call: one escrow to create.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchEscrowInput {
+    pub to: Address,
+    pub amount: i128,
+    pub release_ledger: u32,
+    pub memo: Symbol,
+}
+
+/// Per-item outcome of `batch_create_escrow`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BatchEscrowResult {
+    /// Escrow created; carries the assigned escrow ID.
+    Success(u32),
+    /// Item skipped after failing per-item validation; carries the index of
+    /// the skipped item in the input vector.
+    Skipped(u32),
+}
+
+/// Per-item outcome of `batch_claim_escrow` / `batch_cancel_escrow`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BatchClaimResult {
+    /// Escrow claimed/cancelled; carries the amount of tokens moved.
+    Success(i128),
+    /// Item skipped (not found, wrong status, not yet claimable/cancellable);
+    /// carries the index of the skipped item in the input vector.
+    Skipped(u32),
+}
+
+/// Resume point returned by the cursor-based `batch_claim_escrow` /
+/// `batch_cancel_escrow` operations. The caller passes `escrow_ids` back in
+/// together with `next_index` to process the next chunk, so a large batch can
+/// be spread across several transactions while staying inside Soroban's
+/// per-transaction ledger-entry budget.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchClaimCursor {
+    /// First index processed by this call.
+    pub start_index: u32,
+    /// First index not yet processed; pass this as `start_index` to continue.
+    pub next_index: u32,
+    /// Per-item outcomes for this chunk, in input order.
+    pub results: Vec<BatchClaimResult>,
+    /// True when `next_index == escrow_ids.len()`, i.e. the batch is finished.
+    pub done: bool,
+}
+
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
 const MAX_USER_ESCROWS: u32 = 100;
 const MAX_USER_STREAMS: u32 = 100;
@@ -489,6 +539,11 @@ const MAX_VESTING_AMOUNT: i128 = 1_000_000_000_000_000_000;
 const MAX_VESTING_DURATION_LEDGERS: u32 = 31_536_000;
 /// Maximum number of recipients allowed in a single batch_send call.
 const MAX_BATCH_SIZE: u32 = 50;
+/// Maximum number of escrows processed by one `batch_claim_escrow` /
+/// `batch_cancel_escrow` cursor step. Keeps each call's storage reads/writes
+/// inside Soroban's per-transaction ledger-entry budget while still letting a
+/// full 50-item batch be settled in at most 3 calls.
+const BATCH_ESCROW_CURSOR_STEP: u32 = 20;
 /// Contract version identifier (used for off-chain discovery).
 const CONTRACT_VERSION: u32 = 4;
 /// Mandatory delay in ledgers before an emergency withdrawal can be executed
@@ -2484,6 +2539,44 @@ impl FinchippayContract {
         escrow::cancel_escrow(env, id)
     }
 
+    /// Create up to `MAX_BATCH_SIZE` escrows in a single transaction. The
+    /// total amount of the valid items is transferred once and the locked
+    /// balance is updated once; per-item validation failures are reported as
+    /// `Skipped(index)` without blocking the rest of the batch.
+    pub fn batch_create_escrow(
+        env: Env,
+        token_address: Address,
+        from: Address,
+        recipients: Vec<BatchEscrowInput>,
+    ) -> Vec<BatchEscrowResult> {
+        escrow::batch_create_escrow(env, token_address, from, recipients)
+    }
+
+    /// Claim up to `BATCH_ESCROW_CURSOR_STEP` matured escrows, resuming from
+    /// `start_index` into `escrow_ids`. Returns a cursor whose `next_index`
+    /// (with the same `escrow_ids`) continues the batch. `max_items == 0`
+    /// means the default cursor step.
+    pub fn batch_claim_escrow(
+        env: Env,
+        escrow_ids: Vec<u32>,
+        start_index: u32,
+        max_items: u32,
+    ) -> BatchClaimCursor {
+        escrow::batch_claim_escrow(env, escrow_ids, start_index, max_items)
+    }
+
+    /// Cancel up to `BATCH_ESCROW_CURSOR_STEP` pending escrows, resuming from
+    /// `start_index` into `escrow_ids`. Mirrors `batch_claim_escrow`;
+    /// `max_items == 0` means the default cursor step.
+    pub fn batch_cancel_escrow(
+        env: Env,
+        escrow_ids: Vec<u32>,
+        start_index: u32,
+        max_items: u32,
+    ) -> BatchClaimCursor {
+        escrow::batch_cancel_escrow(env, escrow_ids, start_index, max_items)
+    }
+
     pub fn get_escrow(env: Env, id: u32) -> Result<Escrow, ContractError> {
         escrow::get_escrow(env, id)
     }
@@ -4179,6 +4272,706 @@ mod tests {
         let memo = Symbol::new(&env, "dust");
         // MIN_ESCROW_AMOUNT is 1000, so 500 should panic.
         client.create_escrow(&token_id, &from, &to, &500, &release, &memo);
+    }
+
+    // ── Batch escrow operations ────────────────────────────────────────────
+
+    #[test]
+    fn test_batch_create_escrow_creates_multiple_escrows() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        let to3 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 6_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "s1"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "s2"),
+            },
+            BatchEscrowInput {
+                to: to3.clone(),
+                amount: 3_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "s3"),
+            },
+        ];
+
+        let results = client.batch_create_escrow(&token_id, &from, &recipients);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results.get(0).unwrap(), BatchEscrowResult::Success(0));
+        assert_eq!(results.get(1).unwrap(), BatchEscrowResult::Success(1));
+        assert_eq!(results.get(2).unwrap(), BatchEscrowResult::Success(2));
+        assert_eq!(client.get_escrow_count(), 3);
+
+        // One single transfer moved the whole total: sender is empty and the
+        // contract holds the sum of all three escrows.
+        assert_eq!(token.balance(&from), 0);
+        assert_eq!(token.balance(&contract_id), 6_000);
+
+        // Every escrow is stored with the right parameters and status.
+        let e0 = client.get_escrow(&0);
+        assert_eq!(e0.to, to1);
+        assert_eq!(e0.amount, 1_000);
+        assert_eq!(e0.status, EscrowStatus::Pending);
+        let e1 = client.get_escrow(&1);
+        assert_eq!(e1.to, to2);
+        assert_eq!(e1.amount, 2_000);
+        let e2 = client.get_escrow(&2);
+        assert_eq!(e2.to, to3);
+        assert_eq!(e2.amount, 3_000);
+        // Per-recipient index is populated.
+        assert_eq!(client.get_user_escrows(&e0.to).len(), 1);
+    }
+
+    #[test]
+    fn test_batch_create_escrow_partial_success_skips_invalid() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 10_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            // Valid.
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "ok"),
+            },
+            // Self-transfer: must be skipped.
+            BatchEscrowInput {
+                to: from.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "self"),
+            },
+            // Below MIN_ESCROW_AMOUNT: must be skipped.
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 100,
+                release_ledger: release,
+                memo: Symbol::new(&env, "dust"),
+            },
+            // Past release ledger: must be skipped.
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 2_000,
+                release_ledger: env.ledger().sequence(),
+                memo: Symbol::new(&env, "past"),
+            },
+            // Valid.
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "ok2"),
+            },
+        ];
+
+        let results = client.batch_create_escrow(&token_id, &from, &recipients);
+
+        assert_eq!(results.len(), 5);
+        assert_eq!(results.get(0).unwrap(), BatchEscrowResult::Success(0));
+        assert_eq!(results.get(1).unwrap(), BatchEscrowResult::Skipped(1));
+        assert_eq!(results.get(2).unwrap(), BatchEscrowResult::Skipped(2));
+        assert_eq!(results.get(3).unwrap(), BatchEscrowResult::Skipped(3));
+        assert_eq!(results.get(4).unwrap(), BatchEscrowResult::Success(1));
+        assert_eq!(client.get_escrow_count(), 2);
+
+        // Only the valid items' total was transferred — no stranded funds for
+        // the skipped items. `from` was funded 10_000 and 4_000 moved.
+        assert_eq!(token.balance(&from), 6_000);
+        assert_eq!(token.balance(&contract_id), 4_000);
+        let e0 = client.get_escrow(&0);
+        assert_eq!(e0.to, to1);
+        assert_eq!(e0.amount, 2_000);
+        let e1 = client.get_escrow(&1);
+        assert_eq!(e1.to, to2);
+        assert_eq!(e1.amount, 2_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "batch exceeds maximum size")]
+    fn test_batch_create_escrow_rejects_over_max_batch_size() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 51_000);
+        let release = env.ledger().sequence() + 10;
+        let mut recipients = Vec::new(&env);
+        for _ in 0..(MAX_BATCH_SIZE + 1) {
+            recipients.push_back(BatchEscrowInput {
+                to: Address::generate(&env),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "m"),
+            });
+        }
+        client.batch_create_escrow(&token_id, &from, &recipients);
+    }
+
+    #[test]
+    fn test_batch_create_escrow_skips_recipient_index_full() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(
+            &env,
+            &admin,
+            &from,
+            (MAX_USER_ESCROWS as i128 + 2) * MIN_ESCROW_AMOUNT,
+        );
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let memo = Symbol::new(&env, "e");
+
+        // Fill to1's index to the cap through single creates.
+        for _ in 0..MAX_USER_ESCROWS {
+            client.create_escrow(&token_id, &from, &to1, &MIN_ESCROW_AMOUNT, &release, &memo);
+        }
+
+        // Both items for to1 must be skipped (index full); to2's item succeeds.
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: MIN_ESCROW_AMOUNT,
+                release_ledger: release,
+                memo: memo.clone(),
+            },
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: MIN_ESCROW_AMOUNT,
+                release_ledger: release,
+                memo: memo.clone(),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: MIN_ESCROW_AMOUNT,
+                release_ledger: release,
+                memo: memo.clone(),
+            },
+        ];
+        let results = client.batch_create_escrow(&token_id, &from, &recipients);
+
+        assert_eq!(results.get(0).unwrap(), BatchEscrowResult::Skipped(0));
+        assert_eq!(results.get(1).unwrap(), BatchEscrowResult::Skipped(1));
+        assert_eq!(
+            results.get(2).unwrap(),
+            BatchEscrowResult::Success(MAX_USER_ESCROWS)
+        );
+        assert_eq!(client.get_escrow_count(), MAX_USER_ESCROWS + 1);
+
+        // Only to2's escrow moved funds in the batch call: contract balance
+        // grew by exactly one MIN_ESCROW_AMOUNT.
+        assert_eq!(
+            token.balance(&contract_id),
+            (MAX_USER_ESCROWS as i128 + 1) * MIN_ESCROW_AMOUNT
+        );
+        assert_eq!(client.get_user_escrows(&to1).len(), MAX_USER_ESCROWS);
+        assert_eq!(client.get_user_escrows(&to2).len(), 1);
+    }
+
+    #[test]
+    fn test_batch_create_escrow_emits_batch_escrow_created_event() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 4_000);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "ok"),
+            },
+            // Skipped: below minimum amount.
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 10,
+                release_ledger: release,
+                memo: Symbol::new(&env, "dust"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "ok2"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+
+        let events = env.events().all().filter_by_contract(&contract_id);
+        assert_eq!(
+            events,
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "batch_escrow_created"),).into_val(&env),
+                    (from, 2u32, 1u32, 4_000i128).into_val(&env),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_batch_claim_escrow_claims_matured() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        let to3 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 6_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "c1"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "c2"),
+            },
+            BatchEscrowInput {
+                to: to3.clone(),
+                amount: 3_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "c3"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        let ids = vec![&env, 0u32, 1u32, 2u32];
+
+        // Not yet matured: everything is skipped, nothing moves.
+        let early = client.batch_claim_escrow(&ids, &0, &0);
+        assert_eq!(early.results.get(0).unwrap(), BatchClaimResult::Skipped(0));
+        assert_eq!(early.results.get(1).unwrap(), BatchClaimResult::Skipped(1));
+        assert_eq!(early.results.get(2).unwrap(), BatchClaimResult::Skipped(2));
+        assert_eq!(token.balance(&contract_id), 6_000);
+
+        advance(&env, release + 1);
+        let cursor = client.batch_claim_escrow(&ids, &0, &0);
+        assert!(cursor.done);
+        assert_eq!(cursor.next_index, 3);
+        assert_eq!(
+            cursor.results.get(0).unwrap(),
+            BatchClaimResult::Success(1_000)
+        );
+        assert_eq!(
+            cursor.results.get(1).unwrap(),
+            BatchClaimResult::Success(2_000)
+        );
+        assert_eq!(
+            cursor.results.get(2).unwrap(),
+            BatchClaimResult::Success(3_000)
+        );
+
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(token.balance(&to1), 1_000);
+        assert_eq!(token.balance(&to2), 2_000);
+        assert_eq!(token.balance(&to3), 3_000);
+        assert_eq!(client.get_escrow(&0).status, EscrowStatus::Released);
+        assert_eq!(client.get_escrow(&1).status, EscrowStatus::Released);
+        assert_eq!(client.get_escrow(&2).status, EscrowStatus::Released);
+    }
+
+    #[test]
+    fn test_batch_claim_escrow_cursor_steps() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 5_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let mut recipients = Vec::new(&env);
+        for _ in 0..5 {
+            recipients.push_back(BatchEscrowInput {
+                to: Address::generate(&env),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "c"),
+            });
+        }
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        let ids = vec![&env, 0u32, 1u32, 2u32, 3u32, 4u32];
+        advance(&env, release + 1);
+
+        // Chunked claim across three cursor steps (2 + 2 + 1).
+        let c1 = client.batch_claim_escrow(&ids, &0, &2);
+        assert_eq!(c1.start_index, 0);
+        assert_eq!(c1.next_index, 2);
+        assert!(!c1.done);
+        assert_eq!(c1.results.len(), 2);
+        assert_eq!(c1.results.get(0).unwrap(), BatchClaimResult::Success(1_000));
+        assert_eq!(c1.results.get(1).unwrap(), BatchClaimResult::Success(1_000));
+
+        let c2 = client.batch_claim_escrow(&ids, &c1.next_index, &2);
+        assert_eq!(c2.start_index, 2);
+        assert_eq!(c2.next_index, 4);
+        assert!(!c2.done);
+
+        let c3 = client.batch_claim_escrow(&ids, &c2.next_index, &2);
+        assert_eq!(c3.start_index, 4);
+        assert_eq!(c3.next_index, 5);
+        assert!(c3.done);
+        assert_eq!(c3.results.len(), 1);
+
+        assert_eq!(token.balance(&contract_id), 0);
+        for id in 0..5u32 {
+            assert_eq!(client.get_escrow(&id).status, EscrowStatus::Released);
+        }
+    }
+
+    #[test]
+    fn test_batch_claim_escrow_partial_success_skips_not_matured() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        let to3 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 3_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "n0"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 1_000,
+                release_ledger: release + 100,
+                memo: Symbol::new(&env, "n1"),
+            },
+            BatchEscrowInput {
+                to: to3.clone(),
+                amount: 1_000,
+                release_ledger: release + 200,
+                memo: Symbol::new(&env, "n2"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        let ids = vec![&env, 0u32, 1u32, 2u32];
+
+        // Only escrow 0 is matured; the others must be skipped, not block it.
+        advance(&env, release + 1);
+        let cursor = client.batch_claim_escrow(&ids, &0, &0);
+        assert_eq!(
+            cursor.results.get(0).unwrap(),
+            BatchClaimResult::Success(1_000)
+        );
+        assert_eq!(cursor.results.get(1).unwrap(), BatchClaimResult::Skipped(1));
+        assert_eq!(cursor.results.get(2).unwrap(), BatchClaimResult::Skipped(2));
+
+        assert_eq!(token.balance(&contract_id), 2_000);
+        assert_eq!(token.balance(&to1), 1_000);
+        assert_eq!(token.balance(&to2), 0);
+        assert_eq!(token.balance(&to3), 0);
+        assert_eq!(client.get_escrow(&0).status, EscrowStatus::Released);
+        assert_eq!(client.get_escrow(&1).status, EscrowStatus::Pending);
+        assert_eq!(client.get_escrow(&2).status, EscrowStatus::Pending);
+    }
+
+    #[test]
+    fn test_batch_claim_escrow_skips_missing_ids() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 1_000);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "m"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        advance(&env, release + 1);
+
+        // Nonexistent ids are skipped without aborting the batch.
+        let ids = vec![&env, 0u32, 99u32, 100u32];
+        let cursor = client.batch_claim_escrow(&ids, &0, &0);
+        assert_eq!(
+            cursor.results.get(0).unwrap(),
+            BatchClaimResult::Success(1_000)
+        );
+        assert_eq!(cursor.results.get(1).unwrap(), BatchClaimResult::Skipped(1));
+        assert_eq!(cursor.results.get(2).unwrap(), BatchClaimResult::Skipped(2));
+        assert_eq!(client.get_escrow(&0).status, EscrowStatus::Released);
+    }
+
+    #[test]
+    fn test_batch_claim_escrow_skips_already_claimed_duplicate() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 1_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "d"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        advance(&env, release + 1);
+
+        // Duplicate id in the same chunk: first occurrence claims, the second
+        // is skipped (already released) and cannot double-claim.
+        let ids = vec![&env, 0u32, 0u32];
+        let cursor = client.batch_claim_escrow(&ids, &0, &0);
+        assert_eq!(
+            cursor.results.get(0).unwrap(),
+            BatchClaimResult::Success(1_000)
+        );
+        assert_eq!(cursor.results.get(1).unwrap(), BatchClaimResult::Skipped(1));
+        assert_eq!(token.balance(&to1), 1_000);
+        assert_eq!(token.balance(&contract_id), 0);
+    }
+
+    #[test]
+    fn test_batch_claim_escrow_requires_auth_from_each_recipient() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 2_000);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "a"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "b"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        advance(&env, release + 1);
+
+        let ids = vec![&env, 0u32, 1u32];
+        client.batch_claim_escrow(&ids, &0, &0);
+
+        // The batch claim must have required auth from both recipients.
+        let auths = env.auths();
+        assert!(auths.iter().any(|(addr, _)| addr == &to1));
+        assert!(auths.iter().any(|(addr, _)| addr == &to2));
+    }
+
+    #[test]
+    fn test_batch_cancel_escrow_cancels_pending() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        let to3 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 6_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 100;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "x1"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 2_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "x2"),
+            },
+            BatchEscrowInput {
+                to: to3.clone(),
+                amount: 3_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "x3"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        let ids = vec![&env, 0u32, 1u32, 2u32];
+
+        let cursor = client.batch_cancel_escrow(&ids, &0, &0);
+        assert!(cursor.done);
+        assert_eq!(
+            cursor.results.get(0).unwrap(),
+            BatchClaimResult::Success(1_000)
+        );
+        assert_eq!(
+            cursor.results.get(1).unwrap(),
+            BatchClaimResult::Success(2_000)
+        );
+        assert_eq!(
+            cursor.results.get(2).unwrap(),
+            BatchClaimResult::Success(3_000)
+        );
+
+        // Funds returned to the creator; the contract holds nothing.
+        assert_eq!(token.balance(&from), 6_000);
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(client.get_escrow(&0).status, EscrowStatus::Cancelled);
+        assert_eq!(client.get_escrow(&1).status, EscrowStatus::Cancelled);
+        assert_eq!(client.get_escrow(&2).status, EscrowStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_batch_cancel_escrow_skips_after_release() {
+        let env = Env::default();
+        let (contract_id, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 2_000);
+        let token = token::Client::new(&env, &token_id);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release + 100,
+                memo: Symbol::new(&env, "far"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "near"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        let ids = vec![&env, 0u32, 1u32];
+
+        // Once escrow 1's release ledger has passed it can no longer be
+        // cancelled; it is skipped and escrow 0 is still refunded.
+        advance(&env, release + 1);
+        let cursor = client.batch_cancel_escrow(&ids, &0, &0);
+        assert_eq!(
+            cursor.results.get(0).unwrap(),
+            BatchClaimResult::Success(1_000)
+        );
+        assert_eq!(cursor.results.get(1).unwrap(), BatchClaimResult::Skipped(1));
+
+        assert_eq!(token.balance(&from), 1_000);
+        assert_eq!(token.balance(&contract_id), 1_000);
+        assert_eq!(client.get_escrow(&0).status, EscrowStatus::Cancelled);
+        assert_eq!(client.get_escrow(&1).status, EscrowStatus::Pending);
+    }
+
+    #[test]
+    fn test_batch_cancel_escrow_requires_creator_auth() {
+        let env = Env::default();
+        let (_, client) = deploy(&env);
+        let admin = client.get_admin();
+        let from = Address::generate(&env);
+        let to1 = Address::generate(&env);
+        let to2 = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 2_000);
+        let release = env.ledger().sequence() + 10;
+        let recipients = vec![
+            &env,
+            BatchEscrowInput {
+                to: to1.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "a"),
+            },
+            BatchEscrowInput {
+                to: to2.clone(),
+                amount: 1_000,
+                release_ledger: release,
+                memo: Symbol::new(&env, "b"),
+            },
+        ];
+        client.batch_create_escrow(&token_id, &from, &recipients);
+        let ids = vec![&env, 0u32, 1u32];
+
+        client.batch_cancel_escrow(&ids, &0, &0);
+
+        // Cancellation must have required auth from the escrow creator.
+        let auths = env.auths();
+        assert!(auths.iter().any(|(addr, _)| addr == &from));
     }
 
     // ── Uninitialized guard ────────────────────────────────────────────────
