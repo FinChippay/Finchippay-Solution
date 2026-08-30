@@ -49,6 +49,7 @@ pub mod escrow;
 pub mod events;
 pub mod layout;
 pub mod multi_sig;
+pub mod oracle;
 pub mod storage;
 pub mod streams;
 pub mod yield_escrow;
@@ -2603,6 +2604,52 @@ impl FinchippayContract {
     /// Return the list of registered arbitrators.
     pub fn get_arbitrators(env: Env) -> Vec<Address> {
         escrow::get_arbitrators(env)
+    }
+
+    // ─── Yield escrow (AMM/DeFi pool integration; oracle-only for now) ────────
+
+    /// Create a yield escrow. Deposits `amount` of `token_a` from `from`,
+    /// recording `oracle_address` as the price oracle used to value the
+    /// pool's LP shares when the escrow is claimed. Pool deposit/withdrawal
+    /// is a placeholder pending full AMM integration (see `yield_escrow.rs`).
+    pub fn create_yield_escrow(
+        env: Env,
+        token_a: Address,
+        token_b: Address,
+        oracle_address: Address,
+        from: Address,
+        to: Address,
+        amount: i128,
+        release_ledger: u32,
+        memo: Symbol,
+    ) -> u64 {
+        yield_escrow::create_yield_escrow(
+            &env,
+            &token_a,
+            &token_b,
+            &oracle_address,
+            &from,
+            &to,
+            amount,
+            release_ledger,
+            &memo,
+        )
+    }
+
+    /// Claim a matured yield escrow. Pays out principal plus any yield
+    /// accrued, computed from the oracle-derived current LP share price.
+    pub fn claim_yield_escrow(env: Env, id: u64) -> i128 {
+        yield_escrow::claim_yield_escrow(&env, id)
+    }
+
+    /// Cancel a pending yield escrow, refunding the original funder.
+    pub fn cancel_yield_escrow(env: Env, id: u64) -> i128 {
+        yield_escrow::cancel_yield_escrow(&env, id)
+    }
+
+    /// Read a yield escrow by ID.
+    pub fn get_yield_escrow(env: Env, id: u64) -> yield_escrow::YieldEscrow {
+        yield_escrow::get_yield_escrow(&env, id)
     }
 
     // ─── Streaming payments ───────────────────────────────────────────────────
