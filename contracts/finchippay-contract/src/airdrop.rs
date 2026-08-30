@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, Symbol, Vec};
 
-use crate::{require_not_paused, DataKey};
+use crate::{decrease_locked_balance, increase_locked_balance, require_not_paused, DataKey};
 
 #[contracttype]
 #[derive(Clone)]
@@ -73,6 +73,7 @@ pub fn create_airdrop(
 
     let token_client = soroban_sdk::token::Client::new(env, &token);
     token_client.transfer(&funder, &env.current_contract_address(), &total_amount);
+    increase_locked_balance(env, &token, total_amount);
 
     let count: u32 = env
         .storage()
@@ -150,9 +151,6 @@ pub fn claim_airdrop(
         panic!("Claim exceeds remaining airdrop amount");
     }
 
-    let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
-    token_client.transfer(&env.current_contract_address(), &recipient, &amount);
-
     airdrop.claimed_amount += amount;
     env.storage()
         .persistent()
@@ -161,6 +159,11 @@ pub fn claim_airdrop(
         &DataKey::AirdropClaimed(airdrop_id, recipient.clone()),
         &true,
     );
+
+    decrease_locked_balance(env, &airdrop.token, amount);
+
+    let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
+    token_client.transfer(&env.current_contract_address(), &recipient, &amount);
 
     env.events().publish(
         (Symbol::new(env, "airdrop_claimed"), airdrop_id),
@@ -191,15 +194,17 @@ pub fn cancel_airdrop(env: &Env, airdrop_id: u32, funder: Address) {
     }
 
     let unclaimed = airdrop.total_amount - airdrop.claimed_amount;
-    if unclaimed > 0 {
-        let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
-        token_client.transfer(&env.current_contract_address(), &funder, &unclaimed);
-    }
 
     airdrop.cancelled = true;
     env.storage()
         .persistent()
         .set(&DataKey::Airdrop(airdrop_id), &airdrop);
+
+    if unclaimed > 0 {
+        decrease_locked_balance(env, &airdrop.token, unclaimed);
+        let token_client = soroban_sdk::token::Client::new(env, &airdrop.token);
+        token_client.transfer(&env.current_contract_address(), &funder, &unclaimed);
+    }
 
     env.events().publish(
         (Symbol::new(env, "airdrop_cancelled"), airdrop_id),
