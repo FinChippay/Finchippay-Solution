@@ -1590,3 +1590,26 @@ fn test_resolve_dispute_works_for_awarded_amounts() {
     assert_eq!(sac_client.balance(&from), 3_500); // 5000 - 2000 + 500 refunded
     assert_eq!(sac_client.balance(&contract_id), 0);
 }
+
+#[test]
+fn direct_upgrade_is_disabled_via_legacy_admin() {
+    let env = Env::default();
+    let (_id, client) = deploy(&env);
+    let admin = client.get_admin();
+
+    // The legacy single-admin path must be blocked (issue #677).
+    // Attempting to call upgrade() directly should panic.
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(
+        &env,
+        &[0u8; 32],
+    );
+    let result = client.try_upgrade(
+        &admin,
+        &new_wasm_hash,
+        &0u32,
+    );
+    assert!(
+        result.is_err(),
+        "direct upgrade via legacy admin must be disabled"
+    );
+}

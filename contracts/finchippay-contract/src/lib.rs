@@ -1674,35 +1674,32 @@ impl FinchippayContract {
     /// version declared by the new WASM. This must be >= the current layout
     /// version to prevent bricked upgrades. After a successful upgrade the
     /// stored version is incremented and the layout version is updated.
-    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>, new_layout_version: u32) {
-        admin.require_auth();
-        let stored = get_admin(&env);
-        if admin != stored {
-            panic!("Unauthorized");
-        }
-
-        // Validate storage compatibility before upgrading.
-        Self::validate_storage_compatibility(env.clone(), new_layout_version);
-
-        env.deployer()
-            .update_current_contract_wasm(new_wasm_hash.clone());
-        let current_ver: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Version)
-            .unwrap_or(CONTRACT_VERSION);
-        let next_ver = current_ver.checked_add(1).expect("version overflow");
-        env.deployer()
-            .update_current_contract_wasm(new_wasm_hash.clone());
-        env.storage().persistent().set(&DataKey::Version, &next_ver);
-        bump(&env, &DataKey::Version);
-        env.storage()
-            .persistent()
-            .set(&DataKey::StorageLayoutVersion, &new_layout_version);
-        bump(&env, &DataKey::StorageLayoutVersion);
-        env.events().publish(
-            (Symbol::new(&env, "upgraded"),),
-            (current_ver + 1, new_wasm_hash, new_layout_version),
+    /// Upgrade the contract to a new WASM hash and storage layout version.
+    ///
+    /// **Security:** This function is gated by the N-of-M admin signer
+    /// multi-sig. The legacy single-`Admin` pointer can no longer call
+    /// `upgrade` directly — doing so would let one key swap the contract to
+    /// an arbitrary (potentially malicious) WASM with full state access,
+    /// bypassing governance entirely (issue #677).
+    ///
+    /// To upgrade:
+    /// 1. A configured admin signer calls [`propose_admin_action`](Self::propose_admin_action)
+    ///    with `action_type = "upgrade"` and `action_data` encoding
+    ///    `(new_wasm_hash, new_layout_version)`.
+    /// 2. `threshold - 1` additional admin signers approve.
+    /// 3. `execute_admin_action` applies the upgrade with the multi-sig
+    ///    quorum already verified.
+    ///
+    /// The storage compatibility check is performed at execution time, after
+    /// the quorum is established.
+    pub fn upgrade(
+        _env: Env,
+        _admin: Address,
+        _new_wasm_hash: BytesN<32>,
+        _new_layout_version: u32,
+    ) {
+        panic!(
+            "Direct upgrade is disabled; use propose_admin_action(\"upgrade\", ...) with the admin signer multi-sig quorum (issue #677)"
         );
     }
 
