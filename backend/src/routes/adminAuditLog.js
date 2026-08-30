@@ -12,6 +12,7 @@
 
 const express = require("express");
 const router = express.Router();
+const { strictLimiter } = require("../middleware/rateLimit");
 const { verifyJWT, requireAdmin } = require("../middleware/auth");
 const auditService = require("../services/auditService");
 
@@ -26,7 +27,7 @@ const auditService = require("../services/auditService");
  *   limit       — page size (default 100, max 500)
  *   offset      — 0-based offset (default 0)
  */
-router.get("/", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/", strictLimiter, verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const { actor, action, resourceId, limit = 100, offset = 0 } = req.query;
     const rows = await auditService.query({

@@ -20,7 +20,7 @@ const tokenService = require("../services/tokenService");
 const { sendError } = require("../utils/errorResponse");
 
 const { verifyJWT } = require("../middleware/auth");
-const { authRefreshLimiter } = require("../middleware/rateLimit");
+const { authRefreshLimiter, strictLimiter } = require("../middleware/rateLimit");
 
 const router = express.Router();
 
@@ -227,7 +227,7 @@ router.post("/revoke", async (req, res) => {
 });
 
 // GET /api/auth/sessions — list active sessions for authenticated user
-router.get("/sessions", verifyJWT, async (req, res) => {
+router.get("/sessions", strictLimiter, verifyJWT, async (req, res) => {
   try {
     const publicKey = req.user.publicKey;
     const sessions = await tokenService.getActiveSessions(publicKey);
