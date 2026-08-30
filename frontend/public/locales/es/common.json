@@ -1,4 +1,8 @@
 {
+  "assetSelect": {
+    "addTrustline": "Línea de confianza",
+    "noAssets": "No hay activos disponibles."
+  },
   "dashboard": {
     "": "__MISSING_TRANSLATION__",
     "accountNotFunded": "Cuenta no fondeada aún",
@@ -6,6 +10,8 @@
     "balance": "Saldo",
     "balanceLive": "En vivo",
     "balancePolling": "Actualizando cada 30 s",
+    "balanceReconnecting": "Reconectando…",
+    "balanceStale": "Desactualizado — los datos pueden estar obsoletos",
     "balanceTrendDownward": "Tendencia del saldo: a la baja",
     "balanceTrendUpward": "Tendencia del saldo: al alza",
     "batchSend": "Envío por Lote",
@@ -209,6 +215,7 @@
     "memoPlaceholder": "Nota de pago...",
     "mintNftReceipt": "Acuñar Recibo NFT",
     "mintingReceipt": "Acuñando recibo…",
+    "needsTrustline": "Añade una línea de confianza para {asset} antes de enviar.",
     "networkFee": "Comisión de Red",
     "nftReceiptMinted": "¡Recibo NFT acuñado exitosamente!",
     "nicknamePrompt": "Apodo para este contacto:",
@@ -315,8 +322,8 @@
     "loadMoreResults": "Cargar más resultados",
     "loadingMore": "Cargando más...",
     "needTestXlm": "¿Necesitas XLM de prueba?",
-    "noTransactions": "Sin transacciones aún",
     "newest": "Más reciente",
+    "noTransactions": "Sin transacciones aún",
     "offlineSnapshot": "Captura de historial sin conexión de",
     "paymentHistory": "Historial de pagos",
     "prefillSendForm": "Pre-llenar formulario de envío con esta transacción",

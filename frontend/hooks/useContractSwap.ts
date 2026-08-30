@@ -67,7 +67,7 @@ function tokenContractId(code: ContractSwapToken): string {
 /** Convert a decimal amount string to contract base units (7 decimals). */
 function toContractUnits(amount: string): bigint {
   const parsed = parseFloat(amount);
-  if (!parsed || parsed <= 0) return 0n;
+  if (!parsed || parsed <= 0) return BigInt(0);
   return BigInt(Math.round(parsed * STELLAR_STROOPS_PER_XLM));
 }
 
@@ -104,7 +104,7 @@ export function useContractSwap(): UseContractSwapReturn {
 
       const amountIn = toContractUnits(payAmount);
       const minAmountOut = toContractUnits(minReceiveAmount);
-      if (amountIn <= 0n) {
+      if (amountIn <= BigInt(0)) {
         throw new Error("Amount must be positive.");
       }
 

@@ -24,7 +24,12 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]["code"];
 
 const LANGUAGE_STORAGE_KEY = "finchippay:lang";
 
-i18n.use(LanguageDetector).use(initReactI18next).init({
+const detector = (LanguageDetector as any)?.default || LanguageDetector;
+if (detector) {
+  i18n.use(detector);
+}
+
+i18n.use(initReactI18next).init({
   resources: {
     en: { common: enCommon },
     es: { common: esCommon },

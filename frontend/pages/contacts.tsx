@@ -8,6 +8,7 @@ import { useContacts } from "@/hooks/useContacts";
 import {
   resolveFederationWithCache,
   getCachedFederationAddress,
+  addressBookNeedsReEncryption,
 } from "@/lib/addressBook";
 import {
   exportContactsCSV,
@@ -81,6 +82,8 @@ export default function Contacts() {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupColor, setNewGroupColor] = useState("#6366f1");
   const [dragContact, setDragContact] = useState<number | null>(null);
+  const [needsReEncryption, setNeedsReEncryption] = useState(false);
+  const [reEncrypting, setReEncrypting] = useState(false);
 
   useEffect(() => {
     setNeedsReEncryption(publicKey ? addressBookNeedsReEncryption(publicKey) : false);

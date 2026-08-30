@@ -46,6 +46,24 @@ export function setNetworkConfig(config: NetworkConfig): void {
   if (typeof window !== "undefined") {
     localStorage.setItem("finchippay:network", JSON.stringify(config));
   }
+  // Invalidate all cached contract clients so they rebuild with the new
+  // network configuration on next use. This keeps soroban.ts, escrowManager.ts
+  // and any other registered client singletons in sync after a network switch.
+  void resetClientsOnNetworkChange();
+}
+
+/**
+ * Reset all registered contract client singletons. Called automatically by
+ * setNetworkConfig() so a network switch invalidates every cached client.
+ * Imported lazily to avoid a circular dependency on soroban.ts.
+ */
+async function resetClientsOnNetworkChange(): Promise<void> {
+  try {
+    const { resetClient } = await import("@/lib/soroban");
+    resetClient();
+  } catch {
+    // soroban.ts may not be available in all contexts (e.g. SSR); ignore.
+  }
 }
 
 // Get current network config

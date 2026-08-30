@@ -105,10 +105,13 @@ describe("API Integration Tests", () => {
       const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
       const txHash = "hash123";
 
-      // Mock Horizon server call for payments
+      // Mock Horizon server call for payments. Two calls are expected: the
+      // list plus the bounded count for the X-Total-Count header, both against
+      // the same collection page.
       nock("https://horizon-testnet.stellar.org")
         .get(`/accounts/${publicKey}/payments`)
         .query(() => true)
+        .times(2)
         .reply(200, {
           _embedded: {
             records: [

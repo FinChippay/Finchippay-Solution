@@ -8,8 +8,8 @@ use soroban_sdk::{token, Address, Env, Symbol, Vec};
 use crate::{
     contract_transfer_out, decrease_locked_balance, get_admin, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
-    ContractError, DataKey, Escrow, EscrowStatus, EscrowSummary, MAX_ESCROW_AMOUNT,
-    MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, Milestone, MIN_ESCROW_AMOUNT,
+    ContractError, DataKey, Escrow, EscrowStatus, EscrowSummary, Milestone, MAX_ESCROW_AMOUNT,
+    MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
 };
 
 use crate::storage::*;
@@ -153,6 +153,9 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("escrow is disputed");
+    }
     if env.ledger().sequence() < escrow.release_ledger {
         panic!("release_ledger not reached");
     }
@@ -244,6 +247,9 @@ pub fn claim_escrow(env: Env, id: u32) {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("escrow is disputed");
+    }
     if env.ledger().sequence() < escrow.release_ledger {
         panic!("release_ledger not reached");
     }
@@ -301,6 +307,9 @@ pub fn cancel_escrow(env: Env, id: u32) {
 
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
+    }
+    if escrow.disputed {
+        panic!("escrow is disputed");
     }
     escrow.from.require_auth();
 
@@ -656,7 +665,11 @@ pub fn claim_milestone(env: Env, escrow_id: u32, milestone_id: u32, recipient: A
     contract_transfer_out(&env, &token, &recipient, &claim_amount);
 
     env.events().publish(
-        (Symbol::new(&env, "milestone_claimed"), escrow_id, milestone_id),
+        (
+            Symbol::new(&env, "milestone_claimed"),
+            escrow_id,
+            milestone_id,
+        ),
         claim_amount,
     );
 }
@@ -1007,6 +1020,9 @@ pub fn resolve_dispute(
     let mut escrow = escrow.expect("escrow not found");
     let idx = found_index.unwrap();
 
+    if escrow.status != EscrowStatus::Pending {
+        panic!("Escrow is not pending");
+    }
     if !escrow.disputed {
         panic!("Escrow is not disputed");
     }
@@ -1044,6 +1060,7 @@ pub fn resolve_dispute(
 
     // Effects: commit the released state before the external transfers.
     escrow.status = EscrowStatus::Released;
+    escrow.disputed = false;
     decrease_locked_balance(&env, &token_address, transferred);
 
     r_escrows.set(idx, escrow);

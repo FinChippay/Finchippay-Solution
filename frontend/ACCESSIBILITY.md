@@ -53,6 +53,42 @@ All pages and major components are tested with `jest-axe` to ensure no accessibi
 cd frontend && npm test -- --testPathPattern=a11y
 ```
 
+## Visual Regression Testing
+
+Automated screenshot comparison tests catch CSS regressions (layout shifts, broken responsive design, z-index issues) before they reach users. Tests run at both desktop (1280×720) and mobile (iPhone 14) viewports.
+
+### Running Visual Tests
+
+```bash
+# Run visual regression tests (compares against baselines)
+cd frontend && npm run test:visual
+
+# Update baselines after an intentional layout change
+cd frontend && npx playwright test e2e/visual-regression.spec.ts --update-snapshots
+```
+
+### Pages Covered
+
+| Page | Route | Auth Required |
+|------|-------|---------------|
+| Landing | `/` | No |
+| Dashboard (logged out) | `/dashboard` | No |
+| Dashboard (logged in) | `/dashboard` | Yes |
+| Send Payment | `/pay` | Yes |
+| Escrow | `/escrow` | Yes |
+| Transaction List | `/transactions` | Yes |
+| Portfolio | `/portfolio` | Yes |
+
+### Updating Baselines
+
+When an intentional UI change is made:
+
+1. Run `npx playwright test e2e/visual-regression.spec.ts --update-snapshots` locally.
+2. Review the updated screenshots in `e2e/__screenshots__/`.
+3. Commit the updated baseline images along with the code change.
+
+The CI step fails when a visual diff exceeds **1% pixel difference**. Animations are disabled during tests to prevent false positives.
+
 ## Manual Testing Checklist
 
 - [ ] Navigate all pages using only the keyboard (Tab, Shift+Tab, Enter, Space, Escape).

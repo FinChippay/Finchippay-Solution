@@ -1,7 +1,7 @@
 import { Transaction } from "@stellar/stellar-sdk";
 import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ContactPicker from "@/components/ContactPicker";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
@@ -25,6 +25,14 @@ import { logger } from "@/lib/logger";
  */
 
 import { parseStellarURI } from "@/lib/sep0007";
+import { getKnownAssets, buildAddTrustlineTx, type AssetInfo } from "@/lib/assetDiscovery";
+import { fetchPrices } from "@/lib/priceAlerts";
+import { useToastContext } from "@/lib/ToastContext";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { queueTransaction } from "@/lib/offlineQueue";
+import AssetSelect, { type AssetSelectOption } from "@/components/AssetSelect";
+import { formatUSD } from "@/utils/format";
+
 import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
@@ -52,8 +60,6 @@ import {
   QrCodeIcon,
   ReceiptIcon,
 } from "@/components/icons";
-import { useToastContext } from "@/lib/ToastContext";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface SendPaymentFormProps {
   publicKey: string;
@@ -83,6 +89,15 @@ interface SendPaymentFormProps {
     amount: string;
     memo?: string;
   } | null;
+  /** Optional hook into the balance stream for optimistic send deltas. */
+  optimisticBalanceApi?: OptimisticBalanceApi | null;
+}
+
+export interface OptimisticBalanceApi {
+  /** Apply an optimistic XLM delta; call rollback(key) on failure. */
+  applyDelta(deltaXlm: string, key: string): void;
+  /** Remove a pending optimistic delta by key. */
+  rollback(key: string): void;
 }
 
 type Status = PaymentFlowStatus;
@@ -137,6 +152,7 @@ function SendPaymentForm({
   hideAmountField = false,
   hideMemoField = false,
   accountBalances = [],
+  optimisticBalanceApi,
 }: SendPaymentFormProps) {
   const { t } = useTranslation("common");
   const { addToast } = useToastContext();
@@ -144,6 +160,9 @@ function SendPaymentForm({
   const resolvedSuccessTitle = successTitle || t("sendPayment.successTitle");
   const resolvedSuccessMessage = successMessage || t("sendPayment.successMessage");
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
+  const [knownAssets, setKnownAssets] = useState<AssetInfo[]>([]);
+  const [assetPrices, setAssetPrices] = useState<Record<string, number>>({});
+  const [addingTrustline, setAddingTrustline] = useState(false);
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
@@ -217,6 +236,7 @@ function SendPaymentForm({
         const result = await submitTransaction(signedXDR);
         if (result?.hash) {
           successCount++;
+          optimisticBalanceApi?.applyDelta(`-${amt.toFixed(7)}`, `send:${result.hash}`);
         } else {
           failCount++;
         }
@@ -242,6 +262,9 @@ function SendPaymentForm({
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  // Tracks the tx hash whose optimistic delta is currently applied, so a later
+  // failure in the send flow can roll it back.
+  const optimisticAppliedHashRef = useRef<string | null>(null);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -503,6 +526,51 @@ function SendPaymentForm({
     return () => { cancelled = true; };
   }, [destination, selectedAsset]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!publicKey) return;
+
+    getKnownAssets(publicKey, accountBalances)
+      .then((assets) => {
+        if (!cancelled) setKnownAssets(assets);
+      })
+      .catch(() => {
+        // Catalogue unavailable — fall back to XLM-only selection.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, accountBalances]);
+
+  // Fiat estimate where a price feed is available (graceful fallback).
+  useEffect(() => {
+    let cancelled = false;
+    const assetsToFetch: string[] = ["XLM", "USDC"];
+    if (Array.isArray(accountBalances)) {
+      accountBalances.forEach((b) => {
+        if (b.code && !assetsToFetch.includes(b.code)) assetsToFetch.push(b.code);
+      });
+    }
+    if (knownAssets.length > 0) {
+      knownAssets.forEach((a) => {
+        if (!assetsToFetch.includes(a.code)) assetsToFetch.push(a.code);
+      });
+    }
+
+    fetchPrices(assetsToFetch)
+      .then((prices) => {
+        if (!cancelled) setAssetPrices(prices);
+      })
+      .catch(() => {
+        // Price feed unavailable — hide fiat estimates gracefully.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, knownAssets, accountBalances]);
+
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
   const customBal = accountBalances.find((b) => b.code === selectedAsset)
@@ -517,9 +585,91 @@ function SendPaymentForm({
       ? usdcBal
       : customBal;
 
+  // Trustline gating (#565): a non-native asset is only sendable when the
+  // connected account holds a trustline to it. We derive this from the known
+  // catalogue (which merges the account's trusted balances) plus the explicit
+  // balances passed by the caller.
+  const selectedAssetInfo = knownAssets.find((a) => a.code === selectedAsset);
+  const selectedTrusted =
+    selectedAsset === "XLM" ||
+    selectedAsset === "USDC" ||
+    Boolean(selectedAssetInfo?.isTrusted) ||
+    Boolean(accountBalances.find((b) => b.code === selectedAsset));
+  const needsTrustline = selectedAsset !== "XLM" && !selectedTrusted;
+  const selectedIssuer = selectedAssetInfo?.issuer ?? "";
+
+  const handleAddTrustline = async (code: string, issuer: string) => {
+    if (!issuer || addingTrustline) return;
+    setAddingTrustline(true);
+    try {
+      const xdr = await buildAddTrustlineTx(publicKey, code, issuer);
+      const { error: signError } = await signTransactionWithWallet(xdr);
+      if (signError) throw new Error(signError);
+      addToast(`Trustline added for ${code}. You can now send ${code}.`, "success");
+      const updated = await getKnownAssets(publicKey, accountBalances);
+      setKnownAssets(updated);
+      setSelectedAsset(code as AssetType);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to add trustline";
+      addToast(message, "error");
+    } finally {
+      setAddingTrustline(false);
+    }
+  };
+
   const amountNum = parseFloat(amount);
   const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
   const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
+
+  // Build the asset selector options from the static prop set, the known
+  // catalogue, and the caller-supplied trusted balances (#565).
+  const assetSelectOptions = useMemo<AssetSelectOption[]>(() => {
+    const seen = new Set<string>();
+    const options: AssetSelectOption[] = [];
+
+    assetOptions.forEach((a) => {
+      if (seen.has(a)) return;
+      seen.add(a);
+      if (a === "XLM") {
+        options.push({ code: "XLM", displayName: "XLM", isTrusted: true, balance: xlmBalance });
+      } else if (a === "USDC") {
+        options.push({
+          code: "USDC",
+          displayName: "USDC",
+          isTrusted: Boolean(usdcBalance),
+          balance: usdcBalance ?? undefined,
+        });
+      }
+    });
+
+    knownAssets.forEach((asset) => {
+      if (seen.has(asset.code)) return;
+      seen.add(asset.code);
+      options.push({
+        code: asset.code,
+        displayName: asset.code,
+        issuer: asset.issuer,
+        issuerHint: asset.domain ? asset.domain : undefined,
+        isTrusted: asset.isTrusted,
+        balance: asset.balance,
+      });
+    });
+
+    accountBalances.forEach((b) => {
+      if (seen.has(b.code)) return;
+      seen.add(b.code);
+      options.push({
+        code: b.code,
+        displayName: b.code,
+        issuer: b.issuer,
+        isTrusted: true,
+        balance: b.balance,
+      });
+    });
+
+    return options;
+  }, [assetOptions, knownAssets, accountBalances, xlmBalance, usdcBalance]);
+
   const trimmedDestination = destination.trim();
   const isValidDest = trimmedDestination.length > 0 && isValidStellarAddress(trimmedDestination);
   const isFederationDestination =
@@ -545,6 +695,7 @@ function SendPaymentForm({
     !destinationResolutionError &&
     isValidAmt &&
     status === "idle" &&
+    !needsTrustline &&
     trimmedDestination !== publicKey &&
     isMemoValid;
 
@@ -576,7 +727,6 @@ function SendPaymentForm({
               fromPublicKey: publicKey,
               toPublicKey: paymentDestination,
               amount: amountNum.toFixed(7),
-              baseFee: String(selectedFeeStroops),
             })
           : await buildPaymentTransaction({
               fromPublicKey: publicKey,
@@ -584,7 +734,6 @@ function SendPaymentForm({
               amount: amountNum.toFixed(7),
               memo: memo.trim() || undefined,
               asset: assetParam,
-              baseFee: String(selectedFeeStroops),
             });
 
         if (active) {
@@ -777,7 +926,6 @@ function SendPaymentForm({
           fromPublicKey: publicKey,
           toPublicKey: paymentDestination,
           amount: amountNum.toFixed(7),
-          baseFee: String(selectedFeeStroops),
         })
         : await buildPaymentTransaction({
             fromPublicKey: publicKey,
@@ -785,7 +933,6 @@ function SendPaymentForm({
             amount: amountNum.toFixed(7),
             memo: memo.trim() || undefined,
             asset: assetParam,
-            baseFee: String(selectedFeeStroops),
           });
       markStepCompleted("building");
 
@@ -817,8 +964,30 @@ function SendPaymentForm({
       activeStep = "submitting";
       markStepStarted("submitting");
       setStatus("submitting");
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await queueTransaction(signedXDR, { destination: paymentDestination, amount: amountNum.toFixed(7), asset: typeof assetParam === "string" ? assetParam : assetParam.code });
+        const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: PendingTransaction) => t.id !== pendingId);
+        sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
+        window.dispatchEvent(new CustomEvent("finchippay:failed-tx", { detail: { pendingId } }));
+        markStepCompleted("submitting");
+        setIsStatusModalOpen(false);
+        setStatus("idle");
+        saveRecipient(trimmedDestination);
+        addToast("You're offline. Your signed payment has been queued and will send when you're back online.", "info");
+        onSuccess?.();
+        return;
+      }
       const result = await submitTransaction(signedXDR);
       setTxHash(result.hash);
+
+      // The transaction has landed — apply the optimistic balance delta so the
+      // UI reflects the spend immediately instead of waiting for the next
+      // stream/poll round. Only XLM moves the XLM balance; custom assets and
+      // USDC are tracked separately.
+      if (assetParam === "XLM" && optimisticBalanceApi && result?.hash) {
+        optimisticAppliedHashRef.current = result.hash;
+        optimisticBalanceApi.applyDelta(`-${amountNum.toFixed(7)}`, `send:${result.hash}`);
+      }
 
       activeStep = "confirming";
       markStepStarted("confirming");
@@ -838,11 +1007,17 @@ function SendPaymentForm({
       
       if (autoMintReceipt) {
         // Run in background without awaiting, so UI doesn't block
-        mintNftReceipt(true).catch((err) => { logger.error('Receipt mint failed:', err); });
+        mintNftReceipt(true).catch((err) => { logger.error('Receipt mint failed:', {}, err instanceof Error ? err : undefined); });
       }
 
       onSuccess?.(result.hash);
     } catch (err: unknown) {
+      // If the optimistic delta was applied but a later step failed, roll it
+      // back so a failed send cannot leave a phantom balance reduction.
+      if (optimisticBalanceApi && optimisticAppliedHashRef.current) {
+        optimisticBalanceApi.rollback(`send:${optimisticAppliedHashRef.current}`);
+        optimisticAppliedHashRef.current = null;
+      }
       if (pendingId) {
         const updatedPending = JSON.parse(sessionStorage.getItem("finchippay:pending-txs") || "[]").filter((t: PendingTransaction) => t.id !== pendingId);
         sessionStorage.setItem("finchippay:pending-txs", JSON.stringify(updatedPending));
@@ -1018,39 +1193,29 @@ function SendPaymentForm({
       ) : (
       <div className="space-y-5">
         {!hideAssetSelector && (
-          <div className="flex flex-wrap gap-2">
-            {assetOptions.map((a) => (
-              <button
-                key={a}
-                type="button"
-                onClick={() => { setSelectedAsset(a); setAmount(""); }}
-                disabled={a === "USDC" && !usdcBalance}
-                className={clsx(
-                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                  selectedAsset === a
-                    ? "bg-stellar-500/15 text-stellar-700 dark:text-stellar-300 border-stellar-500/30"
-                    : "text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20",
-                  a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
-                )}
-              >
-                {a}
-              </button>
-            ))}
-            {accountBalances.map((b) => (
-              <button
-                key={b.code}
-                type="button"
-                onClick={() => { setSelectedAsset(b.code as AssetType); setAmount(""); }}
-                className={clsx(
-                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                  selectedAsset === b.code
-                    ? "bg-stellar-500/15 text-stellar-700 dark:text-stellar-300 border-stellar-500/30"
-                    : "text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
-                )}
-              >
-                {b.code}
-              </button>
-            ))}
+          <AssetSelect
+            options={assetSelectOptions}
+            selectedCode={selectedAsset}
+            onSelect={(code) => { setSelectedAsset(code as AssetType); setAmount(""); }}
+            onAddTrustline={handleAddTrustline}
+            disabled={status !== "idle"}
+            prices={assetPrices}
+          />
+        )}
+
+        {needsTrustline && selectedIssuer && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm text-amber-300">
+            <span>
+              {t("sendPayment.needsTrustline") ?? `Add a trustline for ${selectedAsset} before sending.`}
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleAddTrustline(selectedAsset, selectedIssuer)}
+              disabled={addingTrustline || status !== "idle"}
+              className="shrink-0 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-semibold hover:bg-amber-500/30 disabled:opacity-50"
+            >
+              {addingTrustline ? "Adding..." : `Add ${selectedAsset} trustline`}
+            </button>
           </div>
         )}
 
@@ -1190,6 +1355,22 @@ function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
+            {(() => {
+              const price = assetPrices[selectedAsset];
+              if (
+                price === undefined ||
+                price <= 0 ||
+                !Number.isFinite(amountNum) ||
+                amountNum <= 0
+              ) {
+                return null;
+              }
+              return (
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  {formatUSD(amountNum * price)}
+                </p>
+              );
+            })()}
           </div>
         )}
 

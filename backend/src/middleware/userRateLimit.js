@@ -17,7 +17,7 @@ const baseLimiter = rateLimit({
   // We'll inject our own X-RateLimit-User-* headers in the wrapper.
   standardHeaders: false,
   legacyHeaders: false,
-  handler: (req, res, next) => {
+  handler: (req, res, _next) => {
     // Return 429 Too Many Requests per requirements
     // "Too many requests from this account"
     res.status(429).json({

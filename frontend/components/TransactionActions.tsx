@@ -62,7 +62,7 @@ export default function TransactionActions({
     try {
       await generatePDFReceipt(transaction);
     } catch (err) {
-      logger.error("Failed to generate PDF:", err);
+      logger.error("Failed to generate PDF:", {}, err instanceof Error ? err : undefined);
       alert("Failed to generate PDF receipt. Please try again.");
     } finally {
       setGeneratingPDF(false);

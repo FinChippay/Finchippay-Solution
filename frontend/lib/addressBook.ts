@@ -1,6 +1,70 @@
 import { createEncryptedStore } from "@/lib/encryptedStorage";
 import { isValidStellarAddress } from "@/lib/stellar";
 
+// ─── Address Book ──────────────────────────────────────────────────────────
+
+const ADDRESS_BOOK_KEY = "finchippay:address-book";
+const ADDRESS_BOOK_UPDATED_EVENT = "finchippay:address-book-updated";
+
+export interface AddressBookContact {
+  id: string;
+  nickname: string;
+  address: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function makeContact(raw: unknown): AddressBookContact | null {
+  const entry = (raw ?? {}) as Partial<AddressBookContact>;
+  const id = typeof entry.id === "string" ? entry.id.trim() : "";
+  const nickname = typeof entry.nickname === "string" ? entry.nickname.trim() : "";
+  const address = typeof entry.address === "string" ? entry.address.trim() : "";
+
+  if (!id || !nickname || !isValidStellarAddress(address)) return null;
+
+  return {
+    id,
+    nickname,
+    address,
+    createdAt: typeof entry.createdAt === "number" ? entry.createdAt : Date.now(),
+    updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : Date.now(),
+  };
+}
+
+function dedupeContacts(items: AddressBookContact[]): AddressBookContact[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+const store = createEncryptedStore<AddressBookContact>({
+  storageKey: ADDRESS_BOOK_KEY,
+  eventName: ADDRESS_BOOK_UPDATED_EVENT,
+  revive: makeContact,
+  dedupe: dedupeContacts,
+});
+
+export function getAddressBookStorageKey(): string {
+  return ADDRESS_BOOK_KEY;
+}
+
+export function loadAddressBookContacts(): AddressBookContact[] {
+  return store.load();
+}
+
+export function saveAddressBookContacts(contacts: AddressBookContact[]) {
+  store.save(contacts);
+}
+
+export function clearAddressBook() {
+  store.clear();
+}
+
+// ─── Federation Cache ──────────────────────────────────────────────────────
+
 const FEDERATION_CACHE_KEY = "finchippay:federation-cache";
 const FEDERATION_CACHE_UPDATED_EVENT = "finchippay:federation-cache-updated";
 const FEDERATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -12,17 +76,12 @@ export interface FederationCacheEntry {
   resolvedAt: number;
 }
 
-function now() {
-  return Date.now();
+function normaliseFederationAddress(address: string): string {
+  return address.trim().toLowerCase();
 }
 
-function getFederationCache(): Record<string, FederationCacheEntry> {
-  try {
-    const raw = window.localStorage.getItem(FEDERATION_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+function now() {
+  return Date.now();
 }
 
 function makeFederationEntry(input: unknown): FederationCacheEntry | null {

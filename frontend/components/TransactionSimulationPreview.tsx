@@ -26,8 +26,13 @@
 import clsx from "clsx";
 import { useState, useMemo, useEffect } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
-import type { SimulationResult, BalanceChange } from "@/hooks/useTransactionSimulation";
+import {
+  MAX_DISPLAY_AMOUNT,
+  type SimulationResult,
+  type BalanceChange,
+} from "@/hooks/useTransactionSimulation";
 import { getFeeStats, type FeeStats } from "@/lib/fees";
+import { formatAsset } from "@/utils/format";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -90,7 +95,19 @@ export default function TransactionSimulationPreview({
 
   if (!isOpen) return null;
 
-  const hasIssues = !!warning || !!error;
+  const unsafeBalanceMessage = simulation?.balanceChanges.some((change) => {
+    const values = [change.before, change.after, change.difference].map(Number);
+    return values.some(
+      (value, index) =>
+        !Number.isFinite(value) ||
+        Math.abs(value) > MAX_DISPLAY_AMOUNT ||
+        (index < 2 && value < 0),
+    );
+  })
+    ? "Simulation returned an unsafe balance amount. Review the transaction before signing."
+    : null;
+  const effectiveError = error || unsafeBalanceMessage;
+  const hasIssues = !!warning || !!effectiveError;
   const canProceed = confirmed || !hasIssues;
 
   return (
@@ -137,13 +154,13 @@ export default function TransactionSimulationPreview({
           )}
 
           {/* Error state */}
-          {error && !loading && (
+          {effectiveError && !loading && (
             <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
               <div className="flex items-start gap-2">
                 <WarnIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-400" />
                 <div>
                   <p className="text-sm font-medium text-red-300">Simulation Error</p>
-                  <p className="mt-1 text-sm text-red-200/80">{error}</p>
+                  <p className="mt-1 text-sm text-red-200/80">{effectiveError}</p>
                 </div>
               </div>
             </div>
@@ -336,9 +353,17 @@ export default function TransactionSimulationPreview({
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
 function BalanceChangeRow({ change }: { change: BalanceChange }) {
-  const diffNum = parseFloat(change.difference);
+  const clamp = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(-MAX_DISPLAY_AMOUNT, Math.min(MAX_DISPLAY_AMOUNT, parsed));
+  };
+  const diffNum = clamp(change.difference);
   const isNegative = diffNum < 0;
   const isPositive = diffNum > 0;
+  const before = formatAsset(clamp(change.before), change.assetCode);
+  const after = formatAsset(clamp(change.after), change.assetCode);
+  const difference = formatAsset(Math.abs(diffNum), change.assetCode);
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
@@ -358,13 +383,13 @@ function BalanceChangeRow({ change }: { change: BalanceChange }) {
           )}
         >
           {isPositive ? "+" : ""}
-          {change.difference} {change.assetCode}
+          {difference}
         </span>
       </div>
       <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-        <span>Before: {change.before}</span>
+        <span>Before: {before}</span>
         <ArrowRightIcon className="mx-2 h-3 w-3 text-slate-600" />
-        <span>After: {change.after}</span>
+        <span>After: {after}</span>
       </div>
     </div>
   );

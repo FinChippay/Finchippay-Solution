@@ -25,6 +25,23 @@ import {
 } from "./auth";
 import { sdk } from "./sdk-instance";
 import { getNetworkPassphrase } from "./stellar";
+import {
+  getOrCreateSalt,
+  deriveKey,
+  setSessionKey,
+  getSessionKey,
+  getSessionOwner,
+} from "@/lib/encryption";
+import {
+  unlockAddressBook,
+  reEncryptAddressBook,
+  unlockFederationCache,
+  reEncryptFederationCache,
+} from "./addressBook";
+import {
+  unlockPaymentTemplates,
+  reEncryptPaymentTemplates,
+} from "./paymentTemplates";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -40,10 +57,10 @@ async function fetchAuthChallenge(publicKey: string): Promise<string> {
 async function verifyAuthChallenge(signedXDR: string): Promise<{ accessToken: string; refreshToken: string }> {
   const res = await sdk.verifyChallenge(signedXDR);
   const data = res as Record<string, string | undefined>;
-  const accessToken = data.accessToken || data.token;
-  const refreshToken = data.refreshToken;
+  const accessToken = data.accessToken || data.token || null;
+  const refreshToken = data.refreshToken ?? null;
   sdk.setToken(accessToken);
-  return { accessToken, refreshToken };
+  return { accessToken: accessToken || '', refreshToken: refreshToken || '' };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -153,7 +170,7 @@ export async function performSEP0010Auth(
 ): Promise<{ token: string | null; error: string | null }> {
   try {
     const challengeXDR = await fetchAuthChallenge(publicKey);
-    const { signedXDR, error: signError } = await signTransactionWithWallet(challengeXDR);
+    const { signedXDR, error: signError } = await signTransactionWithWallet(challengeXDR, publicKey);
     if (signError || !signedXDR) {
       return { token: null, error: signError || "Failed to sign challenge transaction" };
     }
@@ -169,12 +186,40 @@ export async function performSEP0010Auth(
 
 // ─── Signing ─────────────────────────────────────────────────────────────────
 
+/**
+ * Active hardware-wallet type used to route signing. Defaults to "freighter"
+ * and is switched after a successful Ledger/Trezor connection.
+ */
+export type SigningWalletType = "freighter" | "ledger" | "trezor";
+
+let activeWalletType: SigningWalletType = "freighter";
+
+export function setActiveWalletType(type: SigningWalletType): void {
+  activeWalletType = type;
+}
+
+export function getActiveWalletType(): SigningWalletType {
+  return activeWalletType;
+}
+
 export async function signTransactionWithWallet(
-  transactionXDR: string
+  transactionXDR: string,
+  publicKey?: string
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   if (typeof window === "undefined") {
     return { signedXDR: null, error: "Wallet signing is not available during server-side rendering." };
   }
+
+  // Route signing through the active hardware-wallet type when one is set and
+  // we have the signer's public key. Defaults to Freighter.
+  const activeType = getActiveWalletType();
+  if (activeType === "trezor" && publicKey) {
+    return signTransactionWithTrezor(transactionXDR, publicKey);
+  }
+  if (activeType === "ledger" && publicKey) {
+    return signTransactionWithLedger(transactionXDR, publicKey);
+  }
+
   try {
     const signed = await signTransaction(transactionXDR, {
       networkPassphrase: getNetworkPassphrase(),
@@ -246,9 +291,15 @@ export function disconnectWallet(): void {
 
   setJwtToken(null);
   clearAuthToken();
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("finchippay_refresh_token");
-  }
 }
 
 export { isLedgerSupported, signTransactionWithLedger, getLedgerPublicKey, connectLedger, disconnectLedger } from "./ledger";
+export {
+  isTrezorSupported,
+  signTransactionWithTrezor,
+  getTrezorPublicKey,
+  disconnectTrezor,
+  mapTrezorError,
+  normalizeSignature,
+  attachSignature,
+} from "./trezor";

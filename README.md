@@ -62,6 +62,25 @@ Report vulnerabilities to `security@finchippay.dev`. See [SECURITY.md](./SECURIT
 
 We maintain a [Security Audit Framework](./docs/SECURITY_AUDIT_FRAMEWORK.md) based on Stellar Smart Contract Security Guidelines and OWASP Top 10.
 
+## Storage lifetime (TTL) retention policy
+
+Soroban persistent entries expire unless their TTL is extended. The contract
+sweeps enumerable storage in classes via `bump_all_ttls` (admin-orchestrated),
+and every read/write bumps the keys it touches. The policy for the families
+that matter to dashboards/analytics:
+
+- **Airdrops** (`Airdrop(id)`, `AirdropCount`, claimed markers) are in the
+  `Airdrop` sweep class so unclaimed — and locked — airdrop pools cannot
+  silently expire and strand funds.
+- **Tip records** (`TipTotal`/`TipCount`/`TipRecord`) are keyed by an arbitrary
+  recipient address with **no on-chain index**, so they are **not** a sweep
+  class. Their retention policy is *keep-alive*: `send_tip`, `batch_send*`,
+  and the read views (`tip_total`/`tip_count`/`get_tip_record`) extend their
+  TTL on access. An active recipient's on-chain numbers never silently vanish;
+  cold keys for recipients never touched again simply age out. This decision is
+  implemented in `src/lib.rs` and `contracts/finchippay-contract/src/storage.rs`
+  (workstream 5 of issue #945).
+
 ## Community
 
 - **Contributing**: See [CONTRIBUTING.md](./CONTRIBUTING.md)

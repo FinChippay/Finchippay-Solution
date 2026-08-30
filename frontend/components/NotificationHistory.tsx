@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 interface HistoryItem {
   id: number;
@@ -110,7 +111,7 @@ export default function NotificationHistory({ publicKey }: NotificationHistoryPr
         prev.map((h) => (h.id === item.id ? { ...h, read: true } : h)),
       );
     } catch (err) {
-      logger.error("Failed to mark as read:", err);
+      logger.error("Failed to mark as read:", {}, err instanceof Error ? err : undefined);
     }
   };
 

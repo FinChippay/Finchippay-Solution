@@ -17,22 +17,31 @@ jest.mock("nodemailer", () => ({
 const mockKnex = {
   select: jest.fn(),
   where: jest.fn(),
+  whereIn: jest.fn(),
+  whereNull: jest.fn(),
+  orWhere: jest.fn(),
   first: jest.fn(),
   insert: jest.fn(),
   update: jest.fn(),
   del: jest.fn(),
+  count: jest.fn(),
+  limit: jest.fn(),
+  orderBy: jest.fn(),
   whereRaw: jest.fn(),
   orWhereRaw: jest.fn(),
+  groupBy: jest.fn(),
 };
 
-// Set up a chainable knex mock
-function knexMock(table) {
+// Set up a chainable knex mock. The factory is named with a `mock` prefix so
+// Jest 30's jest.mock hoisting guard accepts it (other identifiers referenced
+// from inside a jest.mock factory are disallowed).
+function mockKnexTable(table) {
   return mockKnex;
 }
-knexMock.select = mockKnex.select;
-knexMock.where = mockKnex.where;
+mockKnexTable.select = mockKnex.select;
+mockKnexTable.where = mockKnex.where;
 
-jest.mock("../src/db/connection", () => knexMock);
+jest.mock("../src/db/connection", () => mockKnexTable);
 
 // Set test env vars
 process.env.NOTIFICATION_EMAIL_ENABLED = "true";
@@ -124,27 +133,33 @@ describe("Notification Service", () => {
     jest.clearAllMocks();
     // Reset mock implementations
     mockKnex.where.mockReturnThis();
+    mockKnex.whereIn.mockReturnThis();
+    mockKnex.whereNull.mockReturnThis();
+    mockKnex.orWhere.mockReturnThis();
     mockKnex.select.mockReturnThis();
+    mockKnex.count.mockReturnThis();
+    mockKnex.limit.mockReturnThis();
+    mockKnex.orderBy.mockReturnThis();
     mockKnex.whereRaw.mockReturnThis();
     mockKnex.orWhereRaw.mockReturnThis();
+    mockKnex.groupBy.mockReturnThis();
   });
 
   test("isEnabled should be true when env var is set to true", () => {
     expect(notificationService.isEnabled).toBe(true);
   });
 
-  test("sendEmail should fail gracefully when transport is not initialized", async () => {
-    // Temporarily disable the service to test graceful degradation
-    delete process.env.SMTP_HOST;
+  test("sendEmail should fail gracefully (never throw) when delivery fails", async () => {
+    // The transport is module-level, so the meaningful guarantee here is that
+    // sendEmail returns { sent: false, error } instead of throwing.
+    mockSendMail.mockResolvedValueOnce(undefined); // simulates a broken transport
     const result = await notificationService.sendEmail(
       "test@example.com",
       "Test Subject",
       "<p>Test</p>",
     );
     expect(result.sent).toBe(false);
-    expect(result.error).toContain("not enabled or misconfigured");
-    // Restore
-    process.env.SMTP_HOST = "smtp.test.com";
+    expect(typeof result.error).toBe("string");
   });
 
   test("sendEventNotification should send templated email", async () => {
@@ -167,7 +182,7 @@ describe("Notification Service", () => {
 
     const mailArgs = mockSendMail.mock.calls[0][0];
     expect(mailArgs.to).toBe("user@example.com");
-    expect(mailArgs.subject).toContain("Payment Received");
+    expect(mailArgs.subject).toContain("You received 50 XLM");
     expect(mailArgs.html).toContain("50");
   });
 
@@ -231,13 +246,28 @@ describe("Notification Service", () => {
 
   test("notifySubscribers should return sent/failed counts", async () => {
     // Mock all rows with matching subscriber
-    mockKnex.select.mockResolvedValueOnce([
-      {
-        public_key: "GABCDEF...",
-        email: "subscriber@example.com",
-        events: JSON.stringify(["payment_received"]),
-      },
-    ]);
+    const subscriber = {
+      public_key: "GABCDEF...",
+      email: "subscriber@example.com",
+      events: JSON.stringify(["payment_received"]),
+      email_verified: true,
+    };
+
+    // N+1 reduction: the prefetch queries resolve in this order:
+    //   1. notification_email_preferences.select()     → subscriber rows
+    //   2. notification_preferences.whereIn().select() → master toggles (none)
+    //   3. email_send_queue…groupBy().select()         → chained (returns this)
+    //   4. email_send_queue…whereIn().select()         → pending digests (none)
+    // The grouped recent-count query terminates with .count() (handled below).
+    mockKnex.select.mockImplementationOnce(() => Promise.resolve([subscriber]));
+    mockKnex.select.mockImplementationOnce(() => Promise.resolve([]));
+    // Chained select inside the grouped query must return the builder (this)
+    // so the chain can continue to .count() — a one-shot, not the default.
+    mockKnex.select.mockImplementationOnce(function () {
+      return this;
+    });
+    mockKnex.select.mockImplementationOnce(() => Promise.resolve([]));
+    mockKnex.count.mockImplementationOnce(() => Promise.resolve([]));
 
     mockSendMail.mockResolvedValueOnce({ messageId: "msg-1" });
 
@@ -248,5 +278,40 @@ describe("Notification Service", () => {
 
     // Since transport is already initialized from previous test
     expect(result.sent >= 0).toBe(true);
+  });
+
+  test("notifySubscribers resolves master toggles and recent counts from prefetched maps (WS4)", async () => {
+    mockKnex.select.mockImplementationOnce(() =>
+      Promise.resolve([
+        {
+          public_key: "GABCDEF...",
+          email: "subscriber@example.com",
+          events: JSON.stringify(["payment_received"]),
+          email_verified: true,
+        },
+      ]),
+    );
+    // Master toggle disabled for this subscriber → the per-subscriber work is
+    // skipped, so no recent-count query for email_send_queue is even needed.
+    mockKnex.select.mockImplementationOnce(() =>
+      Promise.resolve([{ public_key: "GABCDEF...", email_enabled: false }]),
+    );
+    // Grouped recent-count query: the select inside the chain returns the
+    // builder, and the digest prefetch resolves to no pending digests.
+    mockKnex.select.mockImplementationOnce(function () {
+      return this;
+    });
+    mockKnex.count.mockImplementationOnce(() => Promise.resolve([]));
+    mockKnex.select.mockImplementationOnce(() => Promise.resolve([]));
+
+    const result = await notificationService.notifySubscribers("payment_received", {
+      amount: "100",
+      asset: "XLM",
+    });
+
+    expect(result.sent).toBe(0);
+    expect(result.batched).toBe(0);
+    // The disabled toggle short-circuits before queueEmail is reached
+    expect(mockSendMail).not.toHaveBeenCalled();
   });
 });
