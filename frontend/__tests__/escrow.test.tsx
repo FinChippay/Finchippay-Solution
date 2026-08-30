@@ -47,6 +47,36 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
+jest.mock("@/lib/assetDiscovery", () => ({
+  getKnownAssets: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock("@/components/AssetSelect", () => {
+  const ReactMod = require("react");
+  return {
+    __esModule: true,
+    default: ({ options, selectedCode, onSelect }: {
+      options: Array<{ code: string; displayName?: string }>;
+      selectedCode: string;
+      onSelect: (code: string, issuer?: string) => void;
+    }) => (
+      <ReactMod.Fragment>
+        {options.map((opt) => (
+          <button
+            key={opt.code}
+            type="button"
+            data-testid={`asset-option-${opt.code}`}
+            aria-pressed={selectedCode === opt.code}
+            onClick={() => onSelect(opt.code)}
+          >
+            {opt.displayName ?? opt.code}
+          </button>
+        ))}
+      </ReactMod.Fragment>
+    ),
+  };
+});
+
 import EscrowPage from "../pages/escrow";
 import { useWallet } from "@/lib/useWallet";
 import * as stellarModule from "@/lib/stellar";

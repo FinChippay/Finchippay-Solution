@@ -20,6 +20,8 @@
 
 "use strict";
 
+var crypto = require("crypto");
+var os = require("os");
 var nodemailer = require("nodemailer");
 var logger = require("../utils/logger");
 var knex = require("../db/connection");
@@ -291,6 +293,64 @@ async function queueEmail(to, templateType, data, opts) {
 }
 
 /**
+ * Restrict a query to rows eligible to be claimed right now: due,
+ * still-pending rows, plus "processing" rows whose lock has gone stale
+ * (crash recovery). Shared by the claim subquery and the outer UPDATE so
+ * the two stay in lockstep.
+ *
+ * @param {import("knex").QueryBuilder} qb
+ * @param {string} now         ISO timestamp
+ * @param {string} staleBefore ISO timestamp; processing rows locked before this are stale
+ */
+function applyClaimEligibility(qb, now, staleBefore) {
+  qb.where("next_attempt_at", "<=", now).where(function (outer) {
+    outer.where("status", "pending").orWhere(function (stale) {
+      stale.where("status", "processing").where("locked_at", "<", staleBefore);
+    });
+  });
+}
+
+/**
+ * Atomically claim up to `limit` due email_send_queue rows for this worker.
+ *
+ * Uses a single UPDATE ... WHERE id IN (SELECT ... LIMIT n) ... RETURNING *
+ * statement so the row selection and the ownership flip happen as one
+ * database operation: two workers (or two overlapping runs of this worker)
+ * racing on the same rows can never both win the claim. The outer UPDATE
+ * repeats the eligibility check (not just the id list) so that if a second
+ * worker's statement has to wait on a row lock, it re-validates against the
+ * committed value once unblocked and simply claims nothing for that row.
+ *
+ * @param {number} limit
+ * @returns {Promise<Array<object>>} claimed rows, now status="processing"
+ */
+async function claimQueuedEmails(limit) {
+  var now = new Date().toISOString();
+  var staleBefore = new Date(Date.now() - QUEUE_LOCK_TIMEOUT_MS).toISOString();
+
+  var idsSubquery = knex("email_send_queue")
+    .select("id")
+    .modify(applyClaimEligibility, now, staleBefore)
+    .orderBy("next_attempt_at", "asc")
+    .limit(limit);
+
+  var claimed = await knex("email_send_queue")
+    .modify(applyClaimEligibility, now, staleBefore)
+    .whereIn("id", idsSubquery)
+    .update(
+      {
+        status: "processing",
+        locked_by: WORKER_ID,
+        locked_at: now,
+        updated_at: now,
+      },
+      ["*"],
+    );
+
+  return claimed || [];
+}
+
+/**
  * Process pending items from email_send_queue with exponential backoff retries.
  * Called by the executor worker.
  *
@@ -339,6 +399,8 @@ async function processEmailQueue() {
     if (suppressed) {
       await knex("email_send_queue").where("id", item.id).update({
         status: "cancelled",
+        locked_by: null,
+        locked_at: null,
         updated_at: new Date().toISOString(),
       });
       continue;
@@ -355,6 +417,8 @@ async function processEmailQueue() {
       await knex("email_send_queue").where("id", item.id).update({
         status: "sent",
         attempts: attempts,
+        locked_by: null,
+        locked_at: null,
         updated_at: new Date().toISOString(),
       });
       processed++;
@@ -366,16 +430,22 @@ async function processEmailQueue() {
           status: "failed",
           attempts: attempts,
           last_error: result.error,
+          locked_by: null,
+          locked_at: null,
           updated_at: new Date().toISOString(),
         });
       } else {
-        // Exponential backoff: 2^attempts minutes
+        // Exponential backoff: 2^attempts minutes. Release the claim by
+        // going back to "pending" so the row is eligible for a future run.
         var backoffMs = Math.pow(2, attempts) * 60 * 1000;
         var nextAttempt = new Date(Date.now() + backoffMs).toISOString();
         await knex("email_send_queue").where("id", item.id).update({
+          status: "pending",
           attempts: attempts,
           last_error: result.error,
           next_attempt_at: nextAttempt,
+          locked_by: null,
+          locked_at: null,
           updated_at: new Date().toISOString(),
         });
       }
@@ -725,6 +795,7 @@ module.exports = {
   notifySubscribers,
   queueEmail,
   processEmailQueue,
+  claimQueuedEmails,
   ensureUnsubscribeToken,
   buildUnsubscribeHeaders,
   EVENT_TEMPLATE_MAP,
