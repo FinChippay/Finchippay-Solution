@@ -153,6 +153,9 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("escrow is disputed");
+    }
     if env.ledger().sequence() < escrow.release_ledger {
         panic!("release_ledger not reached");
     }
@@ -244,6 +247,9 @@ pub fn claim_escrow(env: Env, id: u32) {
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
     }
+    if escrow.disputed {
+        panic!("escrow is disputed");
+    }
     if env.ledger().sequence() < escrow.release_ledger {
         panic!("release_ledger not reached");
     }
@@ -301,6 +307,9 @@ pub fn cancel_escrow(env: Env, id: u32) {
 
     if escrow.status != EscrowStatus::Pending {
         panic!("escrow is not pending");
+    }
+    if escrow.disputed {
+        panic!("escrow is disputed");
     }
     escrow.from.require_auth();
 
