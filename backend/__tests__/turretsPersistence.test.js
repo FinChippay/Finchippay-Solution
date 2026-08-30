@@ -25,6 +25,10 @@
 
 "use strict";
 
+// turretsService imports @stellar/stellar-sdk, whose CJS build pulls an
+// ESM-only dependency Jest cannot transform; stub the SDK surface it uses.
+jest.mock("@stellar/stellar-sdk", () => require("./turretsSdkStub"));
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

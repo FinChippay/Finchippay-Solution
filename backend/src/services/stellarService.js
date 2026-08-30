@@ -11,11 +11,7 @@ const logger = require("../utils/logger");
 const metrics = require("./metricsService");
 const { getRequestId, getRequestIdHeader } = require("../utils/correlationId");
 const tracer = require("../config/tracing").getTracer("stellar-service");
-const {
-  accountCacheKey,
-  paymentsCacheKey,
-  paymentsCountCacheKey,
-} = require("./stellarCacheKeys");
+const { accountCacheKey, paymentsCacheKey, paymentsCountCacheKey } = require("./stellarCacheKeys");
 
 // Lazy-loaded cache service (avoids circular dependency at parse time)
 function getCache() {

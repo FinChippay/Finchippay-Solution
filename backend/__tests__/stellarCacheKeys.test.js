@@ -8,16 +8,13 @@ const {
   paymentsCachePattern,
 } = require("../src/services/stellarCacheKeys");
 
-const PUBLIC_KEY =
-  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const PUBLIC_KEY = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TESTNET = "https://horizon-testnet.stellar.org";
 const MAINNET = "https://horizon.stellar.org";
 
 describe("Stellar Horizon cache keys", () => {
   it("uses distinct namespaces for testnet and mainnet", () => {
-    expect(networkCacheNamespace(TESTNET)).not.toBe(
-      networkCacheNamespace(MAINNET),
-    );
+    expect(networkCacheNamespace(TESTNET)).not.toBe(networkCacheNamespace(MAINNET));
   });
 
   it("scopes account cache entries to the configured Horizon URL", () => {

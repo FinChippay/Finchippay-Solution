@@ -60,7 +60,10 @@ async function recordEvent(emailId, eventType, meta) {
     });
     logger.info({ type: "email_event_recorded", emailId, eventType }, "Email event");
   } catch (err) {
-    logger.error({ type: "email_event_record_failed", emailId, eventType, error: err.message }, "Failed");
+    logger.error(
+      { type: "email_event_record_failed", emailId, eventType, error: err.message },
+      "Failed",
+    );
   }
 }
 
@@ -71,21 +74,30 @@ async function recordEvent(emailId, eventType, meta) {
  */
 async function handleOpen(emailId, meta) {
   // Gate open-tracking on explicit consent per recipient (default off)
-  const queueRow = await knex("email_send_queue").where("email_id", emailId).select("to_address").first();
+  const queueRow = await knex("email_send_queue")
+    .where("email_id", emailId)
+    .select("to_address")
+    .first();
   if (queueRow) {
     const prefRow = await knex("notification_email_preferences")
       .where("email", queueRow.to_address)
       .select("consent_open_tracking")
       .first();
-    
+
     if (prefRow && prefRow.consent_open_tracking) {
       await module.exports.recordEvent(emailId, "opened", meta);
     } else {
-      logger.debug({ type: "tracking_omitted_consent", emailId }, "Omitted tracking pixel log due to lack of explicit consent");
+      logger.debug(
+        { type: "tracking_omitted_consent", emailId },
+        "Omitted tracking pixel log due to lack of explicit consent",
+      );
     }
   } else {
     // If we can't find who we sent it to, we shouldn't track them.
-    logger.debug({ type: "tracking_omitted_unknown", emailId }, "Omitted tracking pixel log for unknown recipient");
+    logger.debug(
+      { type: "tracking_omitted_unknown", emailId },
+      "Omitted tracking pixel log for unknown recipient",
+    );
   }
 }
 
@@ -96,7 +108,11 @@ async function handleOpen(emailId, meta) {
  * @param {object} [meta]  { userAgent, ip }
  */
 async function handleClick(emailId, clickUrl, meta) {
-  await module.exports.recordEvent(emailId, "clicked", Object.assign({}, meta, { metadata: { url: clickUrl } }));
+  await module.exports.recordEvent(
+    emailId,
+    "clicked",
+    Object.assign({}, meta, { metadata: { url: clickUrl } }),
+  );
 }
 
 // ─── Bounce handling ──────────────────────────────────────────────────────────

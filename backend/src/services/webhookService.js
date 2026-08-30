@@ -58,6 +58,7 @@ const {
   matchesWebhookTopic,
 } = require("./webhookTopics");
 const { accountCacheKey, paymentsCachePattern } = require("./stellarCacheKeys");
+const { decodeCursor, applyKnexKeyset } = require("../utils/paginate");
 const knex = require("../db/connection");
 const auditService = require("./auditService");
 require("dotenv").config();
@@ -149,8 +150,20 @@ async function registerWebhook(publicKey, url, secret, topics = ["all"]) {
     created_at: createdAt,
   });
 
-  // Keep the plaintext secret in-memory for signed delivery this session
-  const webhook = { id, publicKey, url, secret, topics: normalizedTopics, createdAt };
+  // Keep ONLY the ciphertext in-memory (WS7). The raw secret is decrypted at
+  // delivery time inside attemptDelivery — the process memory never holds the
+  // plaintext for the life of the registration, only the AES-GCM blob that is
+  // also persisted. This keeps the in-memory cache consistent with restored
+  // webhooks (which also carry ciphertext) and shrinks the secret's exposure
+  // window to the moment of delivery.
+  const webhook = {
+    id,
+    publicKey,
+    url,
+    secret: encryptedSecret,
+    topics: normalizedTopics,
+    createdAt,
+  };
   webhooks.set(id, webhook);
   startMonitoring(publicKey);
   logger.info({ type: "webhook_registered", id, publicKey, url });
@@ -177,7 +190,9 @@ async function getWebhooksByPublicKey(publicKey) {
     id: row.id,
     publicKey: row.public_key,
     url: row.url,
-    secret: "[protected]",
+    // The ciphertext blob, not the plaintext secret: delivery decrypts it at
+    // send time (WS7). Never expose the raw secret to API consumers.
+    secret: row.secret,
     topics: parseTopics(row.topics),
     createdAt: row.created_at,
   }));
@@ -772,16 +787,39 @@ async function closeAllStreams(timeoutMs = 5000) {
 // â”€â”€â”€ Event Replay & Querying â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getEvents(publicKey, { since, until, type, limit = 50, cursor } = {}) {
+  // Composite (created_at DESC, id DESC) keyset pagination (WS4). The cursor is
+  // an opaque base64url-encoded `{ created_at, id }` from the previous page's
+  // last row; applyKnexKeyset emits the lexicographic seek predicate, so pages
+  // stay stable and use the (created_at, id) order instead of a full re-sort.
   const query = knex("webhook_events as e")
     .join("webhooks as w", "e.webhook_id", "w.id")
     .where("w.public_key", publicKey)
-    .orderBy("e.created_at", "desc")
+    .orderBy([
+      { column: "e.created_at", order: "desc" },
+      { column: "e.id", order: "desc" },
+    ])
     .select("e.*");
   if (since) query.andWhere("e.created_at", ">=", since);
   if (until) query.andWhere("e.created_at", "<=", until);
   if (type) query.andWhere("e.event_type", type);
-  if (cursor) query.andWhere("e.id", "<", cursor);
-  query.limit(limit);
+  if (cursor) {
+    let decoded = cursor;
+    if (typeof cursor === "string") {
+      try {
+        decoded = decodeCursor(cursor);
+      } catch {
+        decoded = null;
+      }
+    }
+    if (decoded) {
+      applyKnexKeyset(query, decoded, [
+        ["e.created_at", "desc"],
+        ["e.id", "desc"],
+      ]);
+    }
+  }
+  // Fetch limit + 1 so the caller can detect a next page without a second query.
+  query.limit(limit + 1);
   return query;
 }
 

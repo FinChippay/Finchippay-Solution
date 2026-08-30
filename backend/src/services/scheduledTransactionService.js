@@ -169,7 +169,7 @@ async function executeSchedule(scheduleId) {
 }
 
 async function createSchedule(body) {
-  let {
+  const {
     ownerPk,
     recipient,
     amount,
@@ -179,8 +179,7 @@ async function createSchedule(body) {
     cronExpression,
     startDate,
   } = body;
-
-  asset = normalizeAsset(asset);
+  const normalizedAsset = normalizeAsset(asset);
 
   if (!ownerPk || !recipient || !amount || !frequency || !startDate) {
     const err = new Error("ownerPk, recipient, amount, frequency, and startDate are required");
@@ -189,6 +188,23 @@ async function createSchedule(body) {
   }
   validatePublicKey(ownerPk);
   validatePublicKey(recipient);
+
+  // Per-account cap on active schedules so a single account cannot create an
+  // unbounded executor backlog (WS6).
+  const MAX_SCHEDULES_PER_ACCOUNT = parseInt(process.env.MAX_SCHEDULES_PER_ACCOUNT, 10) || 50;
+  const existing = await knex("scheduled_transactions")
+    .where("owner_pk", ownerPk)
+    .andWhere("status", "active")
+    .count("id as cnt")
+    .first();
+  const currentCount = parseInt((existing && existing.cnt) || "0", 10);
+  if (currentCount >= MAX_SCHEDULES_PER_ACCOUNT) {
+    const err = new Error(
+      `Maximum of ${MAX_SCHEDULES_PER_ACCOUNT} active schedules per account reached`,
+    );
+    err.status = 400;
+    throw err;
+  }
 
   const resolvedCron = frequencyToCron(frequency, startDate, cronExpression);
   const id = crypto.randomUUID();
@@ -199,7 +215,7 @@ async function createSchedule(body) {
     owner_pk: ownerPk,
     recipient,
     amount: String(amount),
-    asset,
+    asset: normalizedAsset,
     memo: memo || null,
     frequency,
     cron_expression: resolvedCron,

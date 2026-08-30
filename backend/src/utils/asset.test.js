@@ -16,7 +16,7 @@ describe("normalizeAsset", () => {
 
   it("accepts USDC:G... with issuer", () => {
     expect(normalizeAsset("USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2CJXQVDCE4Z5O3DB3V3YQ4Q")).toBe(
-      "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2CJXQVDCE4Z5O3DB3V3YQ4Q"
+      "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2CJXQVDCE4Z5O3DB3V3YQ4Q",
     );
   });
 
@@ -30,6 +30,8 @@ describe("normalizeAsset", () => {
   });
 
   it("rejects missing code with issuer", () => {
-    expect(() => normalizeAsset(":GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2CJXQVDCE4Z5O3DB3V3YQ4Q")).toThrow("Non-XLM asset must be formatted as CODE:ISSUER");
+    expect(() =>
+      normalizeAsset(":GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2CJXQVDCE4Z5O3DB3V3YQ4Q"),
+    ).toThrow("Non-XLM asset must be formatted as CODE:ISSUER");
   });
 });

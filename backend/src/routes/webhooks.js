@@ -27,6 +27,7 @@ const {
   replayEventsBodySchema,
 } = require("../validation/schemas");
 const {
+  buildPage,
   paginateInMemory,
   setPaginationHeaders,
   formatPaginatedResponse,
@@ -167,18 +168,19 @@ router.get(
       const { publicKey } = req.validatedParams || req.params;
       const options = req.validatedQuery || req.query;
       const limit = req.pagination?.limit || Math.min(parseInt(req.query.limit) || 20, 100);
-      const cursor = req.pagination?.cursor || null;
 
-      const rawEvents = await webhookService.getEvents(publicKey, { ...options, limit });
-      const { data, nextCursor, total } = paginateInMemory(
-        rawEvents || [],
-        { limit, cursor },
-        (e) => ({ id: e.id || e.timestamp }),
-        (a, b) => (b.timestamp || 0) - (a.timestamp || 0),
-      );
+      // The service performs composite (created_at, id) keyset pagination and
+      // returns limit + 1 rows; buildPage slices the extra row and derives the
+      // opaque nextCursor from the last returned row (WS4). No in-memory
+      // re-sort is needed — the DB order is the page order.
+      const rawEvents = (await webhookService.getEvents(publicKey, { ...options, limit })) || [];
+      const { data, nextCursor } = buildPage(rawEvents, limit, (e) => ({
+        created_at: e.created_at,
+        id: e.id,
+      }));
 
-      setPaginationHeaders(req, res, { nextCursor, total, limit });
-      const formatted = formatPaginatedResponse(data, nextCursor, total, { limit });
+      setPaginationHeaders(req, res, { nextCursor, total: null, limit });
+      const formatted = formatPaginatedResponse(data, nextCursor, null, { limit });
       return res.json({
         ...formatted,
         events: data, // maintain backward compatibility

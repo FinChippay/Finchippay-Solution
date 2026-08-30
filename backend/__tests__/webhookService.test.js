@@ -5,6 +5,8 @@
  */
 "use strict";
 
+const crypto = require("crypto");
+
 // Set test env vars before any module is required
 process.env.NODE_ENV = "test";
 // 64-char hex key required by the AES-256-GCM encryption utility
@@ -165,16 +167,59 @@ function mockMakeBuilder(tableName) {
       return Promise.resolve(count);
     },
     join() {
-      // Joins for dead-delivery and event queries — return empty arrays
-      return {
-        where: () => ({
-          andWhere: () => ({
-            orderBy: () => ({ select: () => Promise.resolve([]) }),
-          }),
-          select: () => Promise.resolve([]),
-          groupBy: () => ({ select: () => ({ count: () => Promise.resolve([]) }) }),
-        }),
+      // Joins for dead-delivery and event queries. Resolves webhook_events
+      // rows joined with webhooks (so WS4 keyset tests can exercise the real
+      // query chain), handling the `w.` / `e.` column prefixes.
+      const resolveJoined = () => {
+        const webhookRows = Array.from(mockWebhooks.values());
+        return Array.from(mockEvents.values()).filter((ev) => {
+          const wh = webhookRows.find((w) => w.id === ev.webhook_id);
+          if (!wh) return false;
+          return state.wheres.every(({ col, val }) => {
+            if (col === "w.public_key") return wh.public_key === val;
+            if (col === "w.id") return wh.id === val;
+            return ev[col] === val;
+          });
+        });
       };
+      const joined = {
+        where(col, val) {
+          if (typeof col === "function") {
+            state.wheres.push({ fn: (row) => true });
+          } else {
+            state.wheres.push({ col, val });
+          }
+          return joined;
+        },
+        andWhere(colOrFn, val) {
+          if (typeof colOrFn === "function") {
+            state.wheres.push({ fn: () => true });
+          } else {
+            state.wheres.push({ col: colOrFn, val });
+          }
+          return joined;
+        },
+        orderBy() {
+          return joined;
+        },
+        limit(n) {
+          state.limit = n;
+          return joined;
+        },
+        select() {
+          return joined;
+        },
+        groupBy() {
+          return { select: () => ({ count: () => Promise.resolve([]) }) };
+        },
+        // Real knex query builders are thenable; the service returns the
+        // builder and relies on `await` to execute it. Mirror that here.
+        then(resolve) {
+          const rows = resolveJoined();
+          return Promise.resolve(state.limit ? rows.slice(0, state.limit) : rows).then(resolve);
+        },
+      };
+      return joined;
     },
     orderBy() {
       return builder;
@@ -294,6 +339,39 @@ describe("webhook registry", () => {
     // encrypted secret must also be stored
     expect(row.secret).toBeTruthy();
     expect(row.secret).not.toBe("supersecret");
+  });
+
+  it("keeps only the ciphertext in memory after registration (WS7)", async () => {
+    await webhookService.registerWebhook(ACCOUNT_A, "https://x.test/hook", "supersecret");
+
+    // The DB row stores ciphertext, never the plaintext.
+    const [row] = Array.from(mockWebhooks.values());
+    expect(row.secret).toBe("enc:supersecret");
+    expect(row.secret).not.toBe("supersecret");
+
+    // Delivery decrypts the ciphertext blob at send time and signs with the
+    // plaintext — a restored webhook (ciphertext-only) delivers correctly.
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
+    try {
+      const restored = { id: row.id, publicKey: ACCOUNT_A, url: row.url, secret: row.secret };
+      await webhookService.deliverWebhook(
+        restored,
+        { event: "payment.received" },
+        "payment.received",
+      );
+      const call = global.fetch.mock.calls[0];
+      expect(call[1].headers["X-Webhook-Signature"]).toBe("sig-supersecret");
+    } finally {
+      delete global.fetch;
+    }
+  });
+
+  it("lists webhooks with ciphertext secrets, never the plaintext (WS7)", async () => {
+    await webhookService.registerWebhook(ACCOUNT_A, "https://x.test/hook", "supersecret");
+
+    const list = await webhookService.getWebhooksByPublicKey(ACCOUNT_A);
+    expect(list[0].secret).toBe("enc:supersecret");
+    expect(list[0].secret).not.toBe("supersecret");
   });
 
   it("scopes listing to the account and supports deletion", async () => {
@@ -475,5 +553,82 @@ describe("webhook event idempotency (WS3)", () => {
     // No timestamp in the key ⇒ deterministic for the same (id, type, payload).
     const keys = events.map((e) => e.idempotency_key);
     expect(new Set(keys).size).toBe(1);
+  });
+});
+
+describe("webhook events keyset pagination (WS4)", () => {
+  function seedEvent(webhookId, created, id = crypto.randomUUID()) {
+    mockEvents.set(id, {
+      id,
+      webhook_id: webhookId,
+      event_type: "payment.received",
+      payload: JSON.stringify({ event: "payment.received" }),
+      idempotency_key: `key-${id}`,
+      created_at: created,
+    });
+    return id;
+  }
+
+  it("returns only events for the caller's webhooks (joined by public key)", async () => {
+    const whA = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    const whB = await webhookService.registerWebhook(
+      ACCOUNT_B,
+      "https://y.test/hook",
+      "supersecret",
+    );
+    seedEvent(whA.id, "2026-08-25T10:00:00.000Z");
+    seedEvent(whB.id, "2026-08-25T11:00:00.000Z");
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10 });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].webhook_id).toBe(whA.id);
+  });
+
+  it("fetches limit + 1 rows so the caller can detect a next page without a second query", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    for (let i = 0; i < 4; i++) {
+      seedEvent(wh.id, `2026-08-25T0${i}:00:00.000Z`, `ev-${i}`);
+    }
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 3 });
+    expect(events).toHaveLength(4); // limit + 1 (3 + 1)
+  });
+
+  it("accepts an opaque keyset cursor without error", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    seedEvent(wh.id, "2026-08-25T10:00:00.000Z", "ev-cursor");
+
+    const cursor = Buffer.from(
+      JSON.stringify({ created_at: "2026-08-25T10:00:00.000Z", id: "ev-cursor" }),
+    ).toString("base64url");
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10, cursor });
+    expect(Array.isArray(events)).toBe(true);
+  });
+
+  it("ignores a malformed cursor instead of crashing the query", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    seedEvent(wh.id, "2026-08-25T10:00:00.000Z", "ev-ok");
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10, cursor: "not-json!!!" });
+    expect(Array.isArray(events)).toBe(true);
+    expect(events).toHaveLength(1);
   });
 });

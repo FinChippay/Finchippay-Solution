@@ -459,22 +459,6 @@ async function sendEventNotification(to, eventType, data) {
 
 // â”€â”€â”€ Batch / digest logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/**
- * Count events queued in the last hour for a specific recipient.
- * @param {string} toAddress
- * @returns {Promise<number>}
- */
-async function recentEventCount(toAddress) {
-  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  var row = await knex("email_send_queue")
-    .where("to_address", toAddress)
-    .where("created_at", ">=", oneHourAgo)
-    .whereIn("status", ["pending", "sent"])
-    .count("id as cnt")
-    .first();
-  return parseInt((row && row.cnt) || "0", 10);
-}
-
 // â”€â”€â”€ Email Preference Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function registerEmail(publicKey, email, options) {
@@ -597,6 +581,61 @@ async function notifySubscribers(eventType, data) {
   // Fetch all notification_email_preferences
   var allRows = await knex("notification_email_preferences").select();
 
+  // ── N+1 reduction (WS4) ───────────────────────────────────────────────────
+  // The naive loop issued one SELECT per subscriber for the master toggle,
+  // one for the recent-queue count, and one for the pending-digest probe.
+  // Prefetch all three datasets with three queries total, then resolve them
+  // from Maps so the per-subscriber work is pure CPU.
+
+  // 1) Master toggles for every candidate subscriber (one query, IN-list).
+  var candidateKeys = allRows.map(function (r) {
+    return r.public_key;
+  });
+  var prefRows = candidateKeys.length
+    ? await knex("notification_preferences")
+        .whereIn("public_key", candidateKeys)
+        .select("public_key", "email_enabled")
+    : [];
+  var emailEnabledByKey = new Map();
+  for (var p = 0; p < prefRows.length; p++) {
+    emailEnabledByKey.set(prefRows[p].public_key, prefRows[p].email_enabled);
+  }
+
+  // 2) Recent queue counts for all candidate emails (one grouped query).
+  var oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  var candidateEmails = allRows.map(function (r) {
+    return r.email;
+  });
+  var recentRows = candidateEmails.length
+    ? await knex("email_send_queue")
+        .whereIn("to_address", candidateEmails)
+        .where("created_at", ">=", oneHourAgo)
+        .whereIn("status", ["pending", "sent"])
+        .groupBy("to_address")
+        .select("to_address")
+        .count("id as cnt")
+    : [];
+  var recentCountByEmail = new Map();
+  for (var q = 0; q < recentRows.length; q++) {
+    recentCountByEmail.set(recentRows[q].to_address, parseInt(recentRows[q].cnt, 10));
+  }
+
+  // 3) Existing pending digests (one query, IN-list) so the digest probe never
+  //    issues a SELECT per batched subscriber.
+  var pendingDigestRows = candidateEmails.length
+    ? await knex("email_send_queue")
+        .whereIn("to_address", candidateEmails)
+        .where("template_type", "digest")
+        .where("status", "pending")
+        .select("to_address")
+    : [];
+  var hasPendingDigest = new Set(
+    pendingDigestRows.map(function (r) {
+      return r.to_address;
+    }),
+  );
+  // ───────────────────────────────────────────────────────────────────────────
+
   var sent = 0;
   var failed = 0;
   var batched = 0;
@@ -620,12 +659,10 @@ async function notifySubscribers(eventType, data) {
       continue;
     }
 
-    // Check notification_preferences.email_enabled (master toggle)
-    var pref = await knex("notification_preferences")
-      .where("public_key", row.public_key)
-      .select("email_enabled")
-      .first();
-    if (pref && pref.email_enabled === false) continue;
+    // Check notification_preferences.email_enabled (master toggle) — resolved
+    // from the prefetched map instead of a per-row SELECT (WS4).
+    var prefEnabled = emailEnabledByKey.get(row.public_key);
+    if (prefEnabled === false) continue;
 
     var templateType = EVENT_TEMPLATE_MAP[eventType];
     if (!templateType) continue;
@@ -641,15 +678,10 @@ async function notifySubscribers(eventType, data) {
     };
 
     // Batch check: if > BATCH_THRESHOLD events queued in the last hour, defer to digest
-    var recentCount = await recentEventCount(row.email);
+    var recentCount = recentCountByEmail.get(row.email) || 0;
     if (recentCount >= BATCH_THRESHOLD) {
       // Queue a daily digest instead (only queue one pending digest if none exists)
-      var pendingDigest = await knex("email_send_queue")
-        .where("to_address", row.email)
-        .where("template_type", "digest")
-        .where("status", "pending")
-        .first();
-      if (!pendingDigest) {
+      if (!hasPendingDigest.has(row.email)) {
         await queueEmail(
           row.email,
           "digest",
@@ -665,6 +697,7 @@ async function notifySubscribers(eventType, data) {
           },
           { publicKey: row.public_key },
         );
+        hasPendingDigest.add(row.email);
       }
       batched++;
       continue;

@@ -28,6 +28,7 @@ const express = require("express");
 const cors = require("cors");
 const pinoHttp = require("pino-http");
 const { strictLimiter, createInstrumentedLimiter } = require("./middleware/rateLimit");
+const { deprecationHeader } = require("./middleware/deprecation");
 const Sentry = require("@sentry/node");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
@@ -53,6 +54,7 @@ const eventRoutes = require("./routes/events");
 const notificationRoutes = require("./routes/notifications");
 const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
+const adminAuditLogRoutes = require("./routes/adminAuditLog");
 const tokensRoutes = require("./routes/tokens");
 const pushRoutes = require("./routes/push");
 const emailRoutes = require("./routes/emails");
@@ -301,6 +303,20 @@ for (const { path, router } of apiRouteMounts) {
   app.use(`/api/v1${path}`, router);
 }
 
+// Legacy (unversioned) /api/* routes are deprecated in favour of /api/v1.
+// Mark them with a Deprecation header, but leave versioned and docs routes
+// clean so clients can detect the migration path.
+app.use((req, res, next) => {
+  if (
+    req.path.startsWith("/api/") &&
+    !req.path.startsWith("/api/v1/") &&
+    !req.path.startsWith("/api/docs")
+  ) {
+    return deprecationHeader(req, res, next);
+  }
+  next();
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/keys", apiKeysRoutes);
 app.use("/api/accounts", accountRoutes);
@@ -323,6 +339,7 @@ app.use("/api/push", pushRoutes);
 app.use("/api/emails", emailRoutes);
 app.use("/api/features", featuresRoutes);
 app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
+app.use("/api/admin/audit-log", adminAuditLogRoutes);
 app.use("/api/v1/tokens", tokensRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);

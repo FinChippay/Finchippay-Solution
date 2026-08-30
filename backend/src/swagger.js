@@ -193,7 +193,10 @@ const options = {
               description: "Direction relative to the queried account",
             },
             amount: { type: "string", description: "Amount sent/received" },
-            asset: { type: "string", description: "Asset code (e.g. XLM, or CODE:ISSUER for non-native assets)" },
+            asset: {
+              type: "string",
+              description: "Asset code (e.g. XLM, or CODE:ISSUER for non-native assets)",
+            },
             from: { type: "string", description: "Sender public key" },
             to: { type: "string", description: "Recipient public key" },
             memo: { type: "string", description: "Optional memo text" },
@@ -1221,7 +1224,10 @@ const options = {
                     from: { type: "string" },
                     to: { type: "string" },
                     amount: { type: "string" },
-                    asset: { type: "string", description: "Asset code (e.g. XLM, or CODE:ISSUER for non-native assets)" },
+                    asset: {
+                      type: "string",
+                      description: "Asset code (e.g. XLM, or CODE:ISSUER for non-native assets)",
+                    },
                     memo: { type: "string" },
                     transactionHash: { type: "string" },
                   },
@@ -1241,7 +1247,7 @@ const options = {
           tags: ["Turrets"],
           summary: "Turrets subsystem health (incl. price feed)",
           description:
-            "Reports deployment counts, per-provider price-feed status, the active provider, and the freshness of the price cache. Returns 200 when at least one provider is healthy, 503 when every provider is currently down (the runner cannot evaluate stop-loss or DCA txFunctions without a price).",
+            'Reports deployment counts, per-provider price-feed status, the active provider, and the freshness of the price cache. Returns 200 with status "ok" when at least one provider is healthy, or status "degraded" when every provider is currently down (the runner cannot evaluate stop-loss or DCA txFunctions without a price, but the endpoint stays up so operators can still see counts and the error breakdown).',
           responses: {
             200: {
               description: "Turrets subsystem is healthy",
@@ -1309,10 +1315,6 @@ const options = {
                   },
                 },
               },
-            },
-            503: {
-              description:
-                "Every price provider is currently unreachable. Stop-loss and DCA evaluations will fail until at least one provider recovers.",
             },
           },
         },

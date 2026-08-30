@@ -120,42 +120,46 @@ describe("emailTrackingService", () => {
   describe("handleOpen()", () => {
     it("records an 'opened' event when consent is granted", async () => {
       const knex = require("../src/db/connection");
-      
+
       const queueChain = {
         where: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         first: jest.fn().mockResolvedValue({ to_address: "test@example.com" }),
       };
-      
+
       const prefChain = {
         where: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         first: jest.fn().mockResolvedValue({ consent_open_tracking: true }),
       };
-      
+
       knex.mockReturnValueOnce(queueChain).mockReturnValueOnce(prefChain);
 
       const recordSpy = jest.spyOn(emailTracking, "recordEvent").mockResolvedValue();
       await emailTracking.handleOpen("eid1", { userAgent: "Mozilla", ip: "1.2.3.4" });
-      expect(recordSpy).toHaveBeenCalledWith("eid1", "opened", expect.objectContaining({ userAgent: "Mozilla" }));
+      expect(recordSpy).toHaveBeenCalledWith(
+        "eid1",
+        "opened",
+        expect.objectContaining({ userAgent: "Mozilla" }),
+      );
       recordSpy.mockRestore();
     });
 
     it("does not record 'opened' event when consent is missing/false", async () => {
       const knex = require("../src/db/connection");
-      
+
       const queueChain = {
         where: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         first: jest.fn().mockResolvedValue({ to_address: "test@example.com" }),
       };
-      
+
       const prefChain = {
         where: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         first: jest.fn().mockResolvedValue({ consent_open_tracking: false }),
       };
-      
+
       knex.mockReturnValueOnce(queueChain).mockReturnValueOnce(prefChain);
 
       const recordSpy = jest.spyOn(emailTracking, "recordEvent").mockResolvedValue();
@@ -251,7 +255,13 @@ describe("emailTrackingService", () => {
       const knex = require("../src/db/connection");
       const mockEvents = [
         { event_type: "sent", timestamp: "2026-01-01", user_agent: null, ip: null, metadata: null },
-        { event_type: "opened", timestamp: "2026-01-02", user_agent: "Mozilla", ip: "1.1.1.1", metadata: null },
+        {
+          event_type: "opened",
+          timestamp: "2026-01-02",
+          user_agent: "Mozilla",
+          ip: "1.1.1.1",
+          metadata: null,
+        },
       ];
       const chain = {
         where: jest.fn().mockReturnThis(),

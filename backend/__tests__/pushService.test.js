@@ -78,7 +78,11 @@ describe("addSubscription", () => {
 
     const result = await pushService.addSubscription(ALICE, {
       endpoint,
-      keys: { p256dh: "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz", auth: "tBHItJI5svbpez7KI4CCXh" },
+      keys: {
+        p256dh:
+          "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz",
+        auth: "tBHItJI5svbpez7KI4CCXh",
+      },
     });
 
     expect(result).toEqual({ created: false });
@@ -104,8 +108,14 @@ describe("addSubscription", () => {
     ["no endpoint", { keys: { p256dh: P256DH, auth: AUTH } }],
     ["a non-HTTPS endpoint", { endpoint: "http://x.test", keys: { p256dh: P256DH, auth: AUTH } }],
     ["no keys", { endpoint: "https://push.example.com/x" }],
-    ["a short p256dh key", { endpoint: "https://push.example.com/x", keys: { p256dh: "short", auth: AUTH } }],
-    ["invalid auth charset", { endpoint: "https://push.example.com/x", keys: { p256dh: P256DH, auth: "bad+key!!!" } }],
+    [
+      "a short p256dh key",
+      { endpoint: "https://push.example.com/x", keys: { p256dh: "short", auth: AUTH } },
+    ],
+    [
+      "invalid auth charset",
+      { endpoint: "https://push.example.com/x", keys: { p256dh: P256DH, auth: "bad+key!!!" } },
+    ],
   ])("rejects a subscription with %s", async (_label, bad) => {
     await expect(pushService.addSubscription(ALICE, bad)).rejects.toMatchObject({
       status: 400,
@@ -136,7 +146,8 @@ describe("addSubscription", () => {
       pushService.addSubscription(ALICE, {
         endpoint,
         keys: {
-          p256dh: "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz",
+          p256dh:
+            "BEl62iUYgUivxIkv69yViEuiBIa-Ib37y8aQjq0W6KXQ6f2p7vHqJVgKLqUqKsP5gWNh-TcZKWnZKpC5tV5Fz",
           auth: "tBHItJI5svbpez7KI4CCXh",
         },
       }),

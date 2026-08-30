@@ -14,7 +14,10 @@ function event(id, ledger = 5) {
     contractId: TEST_CONTRACT_ID,
     id,
     pagingToken: `token-${id}`,
-    txHash: `${String(id).replace(/[^a-f0-9]/gi, "a").padEnd(64, "a").slice(0, 64)}`,
+    txHash: `${String(id)
+      .replace(/[^a-f0-9]/gi, "a")
+      .padEnd(64, "a")
+      .slice(0, 64)}`,
     topic: ["tip", "GFROM", "GTO"],
     data: { amount: "100" },
   };
@@ -93,22 +96,14 @@ describe("eventIndexer cursor reliability", () => {
 
   it("follows getEvents pagination cursors until exhausted", async () => {
     const pageBodies = [];
-    mockRpc(
-      "getEvents",
-      { events: [event("a1", 10)], cursor: "cursor-1" },
-      (body) => {
-        pageBodies.push(body);
-        return body.params.startLedger === 10 && body.params.endLedger === 13;
-      },
-    );
-    mockRpc(
-      "getEvents",
-      { events: [event("b2", 11)], cursor: null },
-      (body) => {
-        pageBodies.push(body);
-        return body.params.pagination.cursor === "cursor-1" && body.params.startLedger === undefined;
-      },
-    );
+    mockRpc("getEvents", { events: [event("a1", 10)], cursor: "cursor-1" }, (body) => {
+      pageBodies.push(body);
+      return body.params.startLedger === 10 && body.params.endLedger === 13;
+    });
+    mockRpc("getEvents", { events: [event("b2", 11)], cursor: null }, (body) => {
+      pageBodies.push(body);
+      return body.params.pagination.cursor === "cursor-1" && body.params.startLedger === undefined;
+    });
     const indexer = loadIndexer();
 
     const events = await indexer._internals.getEvents(10, 13);
@@ -165,7 +160,11 @@ describe("eventIndexer cursor reliability", () => {
 
   it("does not advance the watermark when a conflict occurs in the range", async () => {
     const client = {
-      query: jest.fn().mockResolvedValueOnce({}).mockResolvedValueOnce({ rowCount: 0 }).mockResolvedValueOnce({}),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({}),
       release: jest.fn(),
     };
     const pool = {
@@ -181,7 +180,10 @@ describe("eventIndexer cursor reliability", () => {
     await indexer._internals.pollOnce();
 
     expect(indexer._internals.getCursorForTest().lastProcessedLedger).toBe(0);
-    expect(pool.query).not.toHaveBeenCalledWith(expect.stringContaining("last_processed_ledger = EXCLUDED"), expect.any(Array));
+    expect(pool.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("last_processed_ledger = EXCLUDED"),
+      expect.any(Array),
+    );
   });
 
   it("advances the PostgreSQL cursor in the same transaction as a clean batch", async () => {
@@ -212,7 +214,10 @@ describe("eventIndexer cursor reliability", () => {
 
     expect(cursorCall).toBeGreaterThan(-1);
     expect(commitCall).toBeGreaterThan(cursorCall);
-    expect(pool.query).not.toHaveBeenCalledWith(expect.stringContaining("indexer_state"), expect.any(Array));
+    expect(pool.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("indexer_state"),
+      expect.any(Array),
+    );
     expect(indexer._internals.getCursorForTest().lastProcessedLedger).toBe(5);
   });
 

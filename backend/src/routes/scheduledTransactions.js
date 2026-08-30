@@ -23,8 +23,23 @@ const {
 } = require("../utils/paginate");
 const { verifyJWT } = require("../middleware/auth");
 const { combinedAuth } = require("../middleware/combinedAuth");
-const { sensitiveLimiter } = require("../middleware/rateLimit");
+const { sensitiveLimiter, createInstrumentedLimiter } = require("../middleware/rateLimit");
 const { userLimiter } = require("../middleware/userRateLimit");
+
+// Per-schedule execute-now cap (WS6): a caller may manually trigger the same
+// schedule at most N times per minute, keyed by schedule id + account, so a
+// single schedule cannot be hammered into unbounded Horizon submissions.
+const executeNowLimiter = createInstrumentedLimiter(
+  {
+    windowMs: 1 * 60 * 1000,
+    limit: parseInt(process.env.EXECUTE_NOW_LIMIT_PER_MINUTE, 10) || 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `${req.user?.publicKey || req.ip}:${req.params?.id || "unknown"}`,
+    message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
+  },
+  "executeNow",
+);
 
 /**
  * Restrict scheduled-transaction routes to the authenticated account holder.
@@ -286,6 +301,7 @@ router.post(
   verifyJWT,
   requireScheduleOwner,
   validate(idParamSchema, "params"),
+  executeNowLimiter,
   async (req, res, next) => {
     try {
       const { id } = req.validated;
