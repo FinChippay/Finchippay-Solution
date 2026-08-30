@@ -14,10 +14,12 @@ import Head from "next/head";
  *   errors (e.g. "release_ledger not reached"). If simulation fails,
  *   a warning is shown but the user can still proceed.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import AssetSelect, { type AssetSelectOption } from "@/components/AssetSelect";
 import TransactionSimulationPreview from "@/components/TransactionSimulationPreview";
 import WalletConnect from "@/components/WalletConnect";
 import { useSimulatedTransactionFlow } from "@/hooks/useSimulatedTransactionFlow";
+import { getKnownAssets, type AssetInfo } from "@/lib/assetDiscovery";
 import {
   buildCreateEscrowTransaction,
   buildClaimEscrowTransaction,
@@ -72,6 +74,44 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const [xlmBalance, setXlmBalance] = useState("0");
   const [latestLedger, setLatestLedger] = useState<number | null>(null);
 
+  // Asset selection (#805): XLM by default, custom SAC token via the
+  // catalogue when the user opts in. The escrow contract's create_escrow
+  // already accepts an arbitrary token contract id, so the UI just passes
+  // the chosen code + issuer through to the transaction builder.
+  const [selectedAsset, setSelectedAsset] = useState("XLM");
+  const [selectedIssuer, setSelectedIssuer] = useState<string | undefined>(undefined);
+  const [knownAssets, setKnownAssets] = useState<AssetInfo[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!publicKey) return;
+    getKnownAssets(publicKey)
+      .then((assets) => {
+        if (!cancelled) setKnownAssets(assets);
+      })
+      .catch(() => {
+        // Catalogue unavailable — XLM-only form remains fully functional.
+      });
+    return () => { cancelled = true; };
+  }, [publicKey]);
+
+  const escrowAssetOptions = useMemo<AssetSelectOption[]>(() => {
+    const options: AssetSelectOption[] = [
+      { code: "XLM", displayName: "XLM", isTrusted: true, balance: xlmBalance },
+    ];
+    knownAssets.forEach((a) => {
+      options.push({
+        code: a.code,
+        displayName: a.code,
+        issuer: a.issuer,
+        issuerHint: a.domain ? a.domain : undefined,
+        isTrusted: a.isTrusted,
+        balance: a.balance,
+      });
+    });
+    return options;
+  }, [knownAssets, xlmBalance]);
+
   // Manage-escrow (claim / cancel) state.
   const [lookupId, setLookupId] = useState("");
   const [lookup, setLookup] = useState<LookupState>({ kind: "idle" });
@@ -118,6 +158,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     if (!publicKey) return true;
     if (isSelfTransfer) return true;
     if (!isValidStellarAddress(recipient)) return true;
+    if (selectedAsset !== "XLM" && !selectedIssuer) return true;
     const parsedAmount = parseFloat(amount);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return true;
     const parsedLedger = parseInt(releaseLedger, 10);
@@ -133,6 +174,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
       toPublicKey: recipient,
       amount,
       releaseLedger: parseInt(releaseLedger, 10),
+      asset: selectedAsset === "XLM" ? "XLM" : selectedIssuer ? { code: selectedAsset, issuer: selectedIssuer } : "XLM",
     });
   }
 
@@ -272,6 +314,18 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
             </p>
             <form onSubmit={handleCreate} className="space-y-3">
               <label className="block text-sm">
+                Asset
+                <AssetSelect
+                  options={escrowAssetOptions}
+                  selectedCode={selectedAsset}
+                  onSelect={(code, issuer) => {
+                    setSelectedAsset(code);
+                    setSelectedIssuer(issuer);
+                  }}
+                  className="mt-1"
+                />
+              </label>
+              <label className="block text-sm">
                 Recipient address
                 <input
                   type="text"
@@ -282,7 +336,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                 />
               </label>
               <label className="block text-sm">
-                Amount (XLM)
+                Amount ({selectedAsset})
                 <input
                   type="number"
                   min="0"
