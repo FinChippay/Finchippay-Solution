@@ -20,9 +20,7 @@ exports.up = async function (knex) {
     table.index("public_key", "idx_push_tokens_public_key");
   });
 
-  await knex.schema.raw(
-    `CREATE UNIQUE INDEX idx_push_tokens_token ON push_tokens (token)`,
-  );
+  await knex.schema.raw(`CREATE UNIQUE INDEX idx_push_tokens_token ON push_tokens (token)`);
 };
 
 exports.down = function (knex) {

@@ -32,7 +32,9 @@ process.env.WEBHOOK_SECRET_KEY = "test-webhook-secret-key-for-hashing-only";
 const knex = require("../src/db/connection");
 const cacheService = require("../src/services/cacheService");
 const inboundWebhookSecretService = require("../src/services/inboundWebhookSecretService");
-const { verifyInboundWebhookSignature } = require("../src/middleware/verifyInboundWebhookSignature");
+const {
+  verifyInboundWebhookSignature,
+} = require("../src/middleware/verifyInboundWebhookSignature");
 const { jsonBodyParser } = require("../src/middleware/bodyParsing");
 
 const ENDPOINT = "test_webhook";

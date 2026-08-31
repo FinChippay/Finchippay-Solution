@@ -30,6 +30,14 @@ jest.mock("../src/middleware/rateLimit", () => {
   };
 });
 
+// The device-token route is JWT-gated (WS1); authenticate as the route's owner.
+jest.mock("../src/middleware/auth", () => ({
+  verifyJWT: (req, res, next) => {
+    req.user = { publicKey: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA" };
+    next();
+  },
+}));
+
 const express = require("express");
 const request = require("supertest");
 

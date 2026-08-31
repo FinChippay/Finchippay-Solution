@@ -27,8 +27,8 @@
 //! Contract-based tests (with real token transfers) use lower case counts
 //! to stay within CI time budgets, while arithmetic-only tests use higher counts.
 
-use finchippay_contract::{FinchippayContract, FinchippayContractClient};
 use finchippay_contract::{Escrow, EscrowStatus};
+use finchippay_contract::{FinchippayContract, FinchippayContractClient};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 use soroban_sdk::{
@@ -62,7 +62,10 @@ fn deploy<'a>(env: &'a Env, payer: &Address) -> (Address, FinchippayContractClie
     let sac = env.register_stellar_asset_contract_v2(admin.clone());
     let token = sac.address();
     let token_admin = token::StellarAssetClient::new(env, &token);
-    token_admin.mint(payer, &(MAX_TEST_DEPOSIT.saturating_mul(CASES_CONTRACT as i128 + 10)));
+    token_admin.mint(
+        payer,
+        &(MAX_TEST_DEPOSIT.saturating_mul(CASES_CONTRACT as i128 + 10)),
+    );
 
     (id, client, token)
 }
@@ -125,14 +128,21 @@ fn invariant_payout_never_exceeds_deposit() {
             let release_ledger = current_ledger + ledger_offset;
 
             let escrow_id = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+                &env,
+                &client,
+                &token,
+                &funder,
+                &beneficiary,
+                amount,
+                release_ledger,
             );
 
             let escrow = get_escrow_data(&client, escrow_id);
             assert!(
                 escrow.amount <= amount,
                 "Invariant violated: payout ({}) > deposit ({})",
-                escrow.amount, amount
+                escrow.amount,
+                amount
             );
 
             Ok(())
@@ -163,7 +173,13 @@ fn invariant_payout_never_exceeds_deposit_plus_yield() {
             let release_ledger = current_ledger + ledger_offset;
 
             let escrow_id = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+                &env,
+                &client,
+                &token,
+                &funder,
+                &beneficiary,
+                amount,
+                release_ledger,
             );
 
             let escrow = get_escrow_data(&client, escrow_id);
@@ -173,7 +189,8 @@ fn invariant_payout_never_exceeds_deposit_plus_yield() {
             assert!(
                 escrow.amount <= max_payout,
                 "Invariant violated: payout ({}) > deposit + yield ({})",
-                escrow.amount, max_payout
+                escrow.amount,
+                max_payout
             );
 
             Ok(())
@@ -200,36 +217,51 @@ fn invariant_no_double_pay() {
 
     let mut runner = TestRunner::new(config(CASES_MULTI));
     runner
-        .run(&strategy, |(amount1, amount2, ledger_offset1, ledger_offset2)| {
-            let current_ledger = env.ledger().sequence();
-            let release_ledger1 = current_ledger + ledger_offset1;
-            let release_ledger2 = current_ledger + ledger_offset2;
+        .run(
+            &strategy,
+            |(amount1, amount2, ledger_offset1, ledger_offset2)| {
+                let current_ledger = env.ledger().sequence();
+                let release_ledger1 = current_ledger + ledger_offset1;
+                let release_ledger2 = current_ledger + ledger_offset2;
 
-            let escrow_id1 = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount1, release_ledger1,
-            );
+                let escrow_id1 = create_test_escrow(
+                    &env,
+                    &client,
+                    &token,
+                    &funder,
+                    &beneficiary,
+                    amount1,
+                    release_ledger1,
+                );
 
-            let escrow_id2 = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount2, release_ledger2,
-            );
+                let escrow_id2 = create_test_escrow(
+                    &env,
+                    &client,
+                    &token,
+                    &funder,
+                    &beneficiary,
+                    amount2,
+                    release_ledger2,
+                );
 
-            advance_ledger(&env, release_ledger1);
+                advance_ledger(&env, release_ledger1);
 
-            client.claim_escrow(&escrow_id1);
+                client.claim_escrow(&escrow_id1);
 
-            let result = client.try_claim_escrow(&escrow_id1);
-            assert!(result.is_err(), "Double-claim should panic");
+                let result = client.try_claim_escrow(&escrow_id1);
+                assert!(result.is_err(), "Double-claim should panic");
 
-            client.cancel_escrow(&escrow_id2);
+                client.cancel_escrow(&escrow_id2);
 
-            let result = client.try_cancel_escrow(&escrow_id2);
-            assert!(result.is_err(), "Double-cancel should panic");
+                let result = client.try_cancel_escrow(&escrow_id2);
+                assert!(result.is_err(), "Double-cancel should panic");
 
-            let result = client.try_claim_escrow(&escrow_id2);
-            assert!(result.is_err(), "Claiming cancelled escrow should panic");
+                let result = client.try_claim_escrow(&escrow_id2);
+                assert!(result.is_err(), "Claiming cancelled escrow should panic");
 
-            Ok(())
-        })
+                Ok(())
+            },
+        )
         .unwrap();
 }
 
@@ -257,7 +289,13 @@ fn invariant_amount_never_negative() {
             let release_ledger = current_ledger + ledger_offset;
 
             let escrow_id = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+                &env,
+                &client,
+                &token,
+                &funder,
+                &beneficiary,
+                amount,
+                release_ledger,
             );
 
             let escrow = get_escrow_data(&client, escrow_id);
@@ -297,7 +335,13 @@ fn invariant_yield_never_negative() {
             let release_ledger = current_ledger + ledger_offset;
 
             let escrow_id = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+                &env,
+                &client,
+                &token,
+                &funder,
+                &beneficiary,
+                amount,
+                release_ledger,
             );
 
             let escrow = get_escrow_data(&client, escrow_id);
@@ -338,7 +382,13 @@ fn invariant_valid_state_transitions() {
             let release_ledger = current_ledger + ledger_offset;
 
             let escrow_id = create_test_escrow(
-                &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+                &env,
+                &client,
+                &token,
+                &funder,
+                &beneficiary,
+                amount,
+                release_ledger,
             );
 
             let escrow = get_escrow_data(&client, escrow_id);
@@ -391,7 +441,8 @@ fn invariant_deposit_yield_no_overflow() {
             assert!(
                 payout <= total,
                 "Payout ({}) > deposit + yield ({})",
-                payout, total
+                payout,
+                total
             );
 
             Ok(())
@@ -402,7 +453,10 @@ fn invariant_deposit_yield_no_overflow() {
 /// Pure arithmetic invariant: shares ratio calculation.
 #[test]
 fn invariant_shares_proportional_to_deposit() {
-    let strategy = (MIN_DEPOSIT..=MAX_TEST_DEPOSIT, MIN_DEPOSIT..=MAX_TEST_DEPOSIT);
+    let strategy = (
+        MIN_DEPOSIT..=MAX_TEST_DEPOSIT,
+        MIN_DEPOSIT..=MAX_TEST_DEPOSIT,
+    );
 
     let mut runner = TestRunner::new(config(CASES_ARITHMETIC));
     runner
@@ -411,9 +465,15 @@ fn invariant_shares_proportional_to_deposit() {
             let shares2 = deposit2;
 
             if deposit1 > deposit2 {
-                assert!(shares1 > shares2, "Shares should be proportional to deposit");
+                assert!(
+                    shares1 > shares2,
+                    "Shares should be proportional to deposit"
+                );
             } else if deposit1 < deposit2 {
-                assert!(shares1 < shares2, "Shares should be proportional to deposit");
+                assert!(
+                    shares1 < shares2,
+                    "Shares should be proportional to deposit"
+                );
             } else {
                 assert_eq!(shares1, shares2, "Equal deposits should yield equal shares");
             }
@@ -440,7 +500,13 @@ fn edge_case_minimum_deposit() {
     let release_ledger = current_ledger + 1000;
 
     let escrow_id = create_test_escrow(
-        &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+        &env,
+        &client,
+        &token,
+        &funder,
+        &beneficiary,
+        amount,
+        release_ledger,
     );
 
     let escrow = get_escrow_data(&client, escrow_id);
@@ -466,7 +532,13 @@ fn edge_case_minimum_release_ledger() {
     let release_ledger = current_ledger + 1;
 
     let escrow_id = create_test_escrow(
-        &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+        &env,
+        &client,
+        &token,
+        &funder,
+        &beneficiary,
+        amount,
+        release_ledger,
     );
 
     advance_ledger(&env, release_ledger);
@@ -491,7 +563,13 @@ fn edge_case_multiple_escrows_same_release() {
     let mut escrow_ids = soroban_sdk::Vec::new(&env);
     for _ in 0..5 {
         let escrow_id = create_test_escrow(
-            &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+            &env,
+            &client,
+            &token,
+            &funder,
+            &beneficiary,
+            amount,
+            release_ledger,
         );
         escrow_ids.push_back(escrow_id);
     }
@@ -519,7 +597,13 @@ fn edge_case_cancel_immediately() {
     let release_ledger = current_ledger + 1000;
 
     let escrow_id = create_test_escrow(
-        &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+        &env,
+        &client,
+        &token,
+        &funder,
+        &beneficiary,
+        amount,
+        release_ledger,
     );
 
     client.cancel_escrow(&escrow_id);
@@ -542,7 +626,13 @@ fn edge_case_zero_amount_panics() {
     let release_ledger = current_ledger + 1000;
 
     create_test_escrow(
-        &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+        &env,
+        &client,
+        &token,
+        &funder,
+        &beneficiary,
+        amount,
+        release_ledger,
     );
 }
 
@@ -560,7 +650,13 @@ fn edge_case_negative_amount_panics() {
     let release_ledger = current_ledger + 1000;
 
     create_test_escrow(
-        &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+        &env,
+        &client,
+        &token,
+        &funder,
+        &beneficiary,
+        amount,
+        release_ledger,
     );
 }
 
@@ -578,7 +674,13 @@ fn edge_case_past_release_ledger_panics() {
     let release_ledger = current_ledger - 1;
 
     create_test_escrow(
-        &env, &client, &token, &funder, &beneficiary, amount, release_ledger,
+        &env,
+        &client,
+        &token,
+        &funder,
+        &beneficiary,
+        amount,
+        release_ledger,
     );
 }
 

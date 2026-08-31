@@ -6,8 +6,9 @@
 
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
+use crate::events::Events;
 use crate::{
-    decrease_locked_balance, get_admin, get_token_client, increase_locked_balance,
+    decrease_locked_balance, get_admin_signers, get_token_client, increase_locked_balance,
     require_initialized, require_not_paused, require_transfer_succeeded, ContractError, DataKey,
     SwapItem, TipRecord, TokenTotal, VestingSchedule, MAX_BATCH_SIZE, MAX_VESTING_AMOUNT,
     MAX_VESTING_DURATION_LEDGERS,
@@ -98,13 +99,12 @@ pub fn batch_send(
             ),
         );
 
-        env.events().publish_event(&TipSent {
-            from: from.clone(),
-            to: to.clone(),
-            amount,
-            ledger: env.ledger().sequence(),
-            memo,
-        });
+        // Canonical single-tip payload (`amount`, `memo`) on the shared
+        // `tip_sent` topic — identical shape to `send_tip` (see events.rs).
+        env.events().publish(
+            (Events::tip_sent(&env), from.clone(), to.clone()),
+            (amount, memo),
+        );
     }
 
     for (to, (final_count, batch_accumulated_amount)) in recipient_updates.iter() {
@@ -129,11 +129,10 @@ pub fn batch_send(
         bump(&env, &DataKey::TipCount(to.clone()));
     }
 
-    env.events().publish_event(&BatchSent {
-        sender: from,
-        recipient_count: recipients.len(),
-        total_amount,
-    });
+    env.events().publish(
+        (Events::batch_sent(&env),),
+        (from, recipients.len(), total_amount),
+    );
     Ok(())
 }
 
@@ -219,9 +218,10 @@ pub fn batch_send_multi(
         );
         bump(&env, &DataKey::TipTotal(to.clone()));
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::TipCount(to.clone()), &(count + 1));
+        env.storage().persistent().set(
+            &DataKey::TipCount(to.clone()),
+            &(count.checked_add(1).expect("tip count overflow")),
+        );
         bump(&env, &DataKey::TipCount(to.clone()));
 
         let record = TipRecord {
@@ -237,11 +237,10 @@ pub fn batch_send_multi(
         bump_to_floor(&env, &DataKey::TipRecord(to.clone(), count));
     }
 
-    env.events().publish_event(&BatchSentMulti {
-        sender: from,
-        recipient_count: recipients.len(),
-        total_amount,
-    });
+    env.events().publish(
+        (Events::batch_sent_multi(&env),),
+        (from, recipients.len(), total_amount),
+    );
     Ok(())
 }
 
@@ -344,20 +343,17 @@ pub fn create_vesting(
         .set(&DataKey::VestingCount, &(next_id + 1));
     bump(&env, &DataKey::VestingCount);
 
-    env.events().publish_event(&VestingCreate {
-        vesting_id: next_id,
-        from,
-        beneficiary,
-        amount,
-        cliff_ledger,
-        end_ledger,
-    });
+    env.events().publish(
+        (Events::vesting_created(&env), next_id),
+        (from, beneficiary, amount, cliff_ledger, end_ledger),
+    );
 
     next_id
 }
 
 pub fn claim_vesting(env: Env, id: u32, beneficiary: Address) -> i128 {
     let _guard = ReentrancyGuard::acquire(&env);
+    require_initialized(&env);
     require_not_paused(&env);
     beneficiary.require_auth();
 
@@ -413,22 +409,25 @@ pub fn claim_vesting(env: Env, id: u32, beneficiary: Address) -> i128 {
     let token_client = get_token_client(&env, &vesting.token);
     token_client.transfer(&env.current_contract_address(), &beneficiary, &claimable);
 
-    env.events().publish_event(&VestingClaim {
-        vesting_id: id,
-        beneficiary,
-        amount: claimable,
-    });
+    env.events().publish(
+        (Events::vesting_claimed(&env), id),
+        (beneficiary, claimable),
+    );
 
     claimable
 }
 
 pub fn revoke_vesting(env: Env, id: u32, admin: Address) {
     let _guard = ReentrancyGuard::acquire(&env);
+    require_initialized(&env);
     require_not_paused(&env);
     admin.require_auth();
 
-    let stored_admin = get_admin(&env);
-    if admin != stored_admin {
+    // Privileged operation gated by the *admin-signer multi-sig set*, mirroring
+    // pause/unpause/rescue_tokens/set_admin_signers. A single legacy admin key
+    // must not be able to revoke a schedule the signer set would not approve.
+    let admin_signers = get_admin_signers(&env);
+    if !admin_signers.iter().any(|s| s == admin) {
         panic!("Unauthorized");
     }
 
@@ -464,11 +463,10 @@ pub fn revoke_vesting(env: Env, id: u32, admin: Address) {
         token_client.transfer(&env.current_contract_address(), &vesting.funder, &unclaimed);
     }
 
-    env.events().publish_event(&VestingRevoke {
-        vesting_id: id,
-        funder: vesting.funder,
-        amount: unclaimed,
-    });
+    env.events().publish(
+        (Events::vesting_revoked(&env), id),
+        (vesting.funder, unclaimed),
+    );
 }
 
 pub fn get_vesting(env: Env, id: u32) -> VestingSchedule {

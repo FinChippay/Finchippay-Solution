@@ -103,7 +103,7 @@ describe("SEP-0024 API", () => {
         })
         .expect(400);
 
-      expect(response.body.error.details.reason).toContain("Invalid Stellar public key");
+      expect(response.body.error).toContain("Invalid Stellar public key");
     });
   });
 
@@ -189,7 +189,7 @@ describe("SEP-0024 API", () => {
     it("should return 400 when id query parameter is missing", async () => {
       const response = await request(app).get("/api/sep24/transaction").expect(400);
 
-      expect(response.body.error.code).toBe("VAL_MISSING_FIELD");
+      expect(response.body.error).toContain("Missing required query parameter: id");
     });
 
     it("should return 404 for non-existent transaction", async () => {

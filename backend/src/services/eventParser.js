@@ -6,29 +6,20 @@
  * table. Since the contract migrated from `env.events().publish()` tuples to
  * typed `#[contractevent]` structs, every event now has the shape:
  *
- *   topic[0] = the event struct's snake_case name (e.g. "tip_sent")
- *   data     = a Soroban Map keyed by the event's field names
- *              (e.g. { from, to, amount, ledger, memo })
+ * Event types emitted by the contract (canonical catalog in
+ * contracts/finchippay-contract/src/events.rs — keep these in sync):
+ *   init, admin_transfer, paused, unpaused, pauser_set, upgraded,
+ *   rescue_tokens, tip_sent, batch_sent, receipt, escrow_create,
+ *   escrow_claim_partial, escrow_claim, escrow_cancelled, stream_open,
+ *   stream_claim, stream_topped_up, stream_close, stream_reject,
+ *   stream_transfer, multisig_created, multisig_approved,
+ *   multisig_executed, multisig_timeout, multisig_cancelled,
+ *   airdrop_created, airdrop_claimed, airdrop_cancelled,
+ *   vesting_created, vesting_claimed, vesting_revoked
  *
- * The parser transparently decodes base64 SCVal XDR when the RPC returns it,
- * extracts the participant addresses (from/to) and the primary amount from the
- * named data fields, and stores the full decoded payload for querying.
- *
- * Event types emitted by the contract (see contracts/finchippay-contract/src/events.rs):
- *   init, admin_transfer, paused, unpaused, pauser_set, admin_signers_set,
- *   upgraded, ttl_bumped, admin_action_proposed, admin_action_approved,
- *   rescue_tokens, fee_collector_set, swap_fee_set, swap, tip_sent,
- *   receipt_minted, escrow_created, escrow_claim_partial, escrow_claimed,
- *   escrow_cancelled, disputable_escrow_created, dispute_raised,
- *   dispute_resolved, arbitrator_added, arbitrator_removed, stream_opened,
- *   stream_claimed, stream_topped_up, stream_close, stream_closed,
- *   stream_reject, stream_transfer, multisig_created, multisig_approved,
- *   multisig_executed, multisig_timeout, multisig_cancelled, batch_sent,
- *   batch_sent_multi, vesting_create, vesting_claim, vesting_revoke,
- *   airdrop_created, airdrop_claimed, airdrop_cancelled, yield_escrow_create,
- *   yield_escrow_claim, yield_escrow_cancelled,
- *   emergency_withdrawal_initiated, emergency_withdrawal_approved,
- *   emergency_withdrawal_executed, emergency_withdrawal_cancelled
+ * NOTE: the tip family uses exactly ONE topic — `tip_sent` — with payload
+ * `(amount, memo)`, identical for `send_tip`, `batch_send` and
+ * `batch_send_multi`. There is no bare `tip` topic any longer.
  */
 
 "use strict";
@@ -39,52 +30,31 @@
  * the primary "amount" value for that event type.
  */
 const EVENT_PARTICIPANT_MAP = {
-  init: { from: "admin" },
-  admin_transfer: { to: "new_admin" },
-  pauser_set: { to: "pauser" },
-  tip_sent: { from: "from", to: "to", amount: "amount" },
-  receipt_minted: { from: "payer" },
-  escrow_created: { from: "from", to: "to", amount: "amount" },
-  escrow_claim_partial: { to: "to", amount: "claim_amount" },
-  escrow_claimed: { to: "recipient", amount: "amount" },
-  escrow_cancelled: { from: "from", amount: "amount" },
-  disputable_escrow_created: { to: "arbitrator" },
-  dispute_raised: { from: "raised_by" },
-  dispute_resolved: { to: "to", amount: "amount" },
-  arbitrator_added: { to: "arbitrator" },
-  arbitrator_removed: { from: "arbitrator" },
-  stream_opened: { from: "payer", to: "recipient", amount: "deposit" },
-  stream_claimed: { to: "recipient", amount: "amount" },
-  stream_topped_up: { from: "payer", amount: "amount" },
-  stream_close: { from: "payer", amount: "refund" },
-  stream_closed: { amount: "refund" },
-  stream_reject: { to: "recipient", amount: "refund" },
+  tip_sent: { from: "from", to: "to" },
+  receipt: { from: "from", to: "to" },
+  escrow_create: { from: "from", to: "to" },
+  escrow_claim: { from: "from", to: "to" },
+  escrow_claim_partial: { from: "from", to: "to" },
+  escrow_cancelled: { from: "from", to: "to" },
+  stream_open: { from: "payer", to: "recipient" },
+  stream_claim: { from: "stream_id", to: "recipient" },
+  stream_topped_up: { from: "payer", to: "recipient" },
+  stream_close: { from: "stream_id", to: null },
+  stream_reject: { from: "stream_id", to: null },
   stream_transfer: { from: "from", to: "to" },
-  multisig_created: { from: "proposer", to: "recipient", amount: "amount" },
-  multisig_approved: { from: "approver" },
-  multisig_executed: { to: "recipient", amount: "amount" },
-  multisig_timeout: { from: "proposer", amount: "amount" },
-  multisig_cancelled: { from: "proposer", amount: "amount" },
-  batch_sent: { from: "sender", amount: "total_amount" },
-  batch_sent_multi: { from: "sender", amount: "total_amount" },
-  vesting_create: { from: "from", to: "beneficiary", amount: "amount" },
-  vesting_claim: { to: "beneficiary", amount: "amount" },
-  vesting_revoke: { from: "funder", amount: "amount" },
-  airdrop_created: { from: "funder", amount: "total_amount" },
-  airdrop_claimed: { to: "recipient", amount: "amount" },
-  airdrop_cancelled: { from: "funder", amount: "amount" },
-  yield_escrow_create: { from: "from", to: "to", amount: "amount" },
-  yield_escrow_claim: { to: "to", amount: "amount" },
-  yield_escrow_cancelled: { from: "from", amount: "amount" },
-  emergency_withdrawal_initiated: { from: "initiator", amount: "amount" },
-  emergency_withdrawal_approved: { from: "signer" },
-  emergency_withdrawal_executed: { to: "to", amount: "amount" },
-  emergency_withdrawal_cancelled: { from: "admin", amount: "amount" },
-  admin_action_proposed: { from: "proposer" },
-  admin_action_approved: { from: "approver" },
-  rescue_tokens: { to: "to", amount: "amount" },
-  fee_collector_set: { to: "collector" },
-  swap: { from: "caller", amount: "amount_in" },
+  multisig_created: { from: "proposer", to: null },
+  multisig_approved: { from: "signer", to: null },
+  multisig_executed: { from: "proposer", to: "recipient" },
+  multisig_timeout: { from: null, to: null },
+  multisig_cancelled: { from: null, to: null },
+  airdrop_created: { from: "funder", to: null },
+  airdrop_claimed: { from: null, to: "recipient" },
+  airdrop_cancelled: { from: "funder", to: null },
+  vesting_created: { from: "funder", to: "beneficiary" },
+  vesting_claimed: { from: "vesting_id", to: "beneficiary" },
+  vesting_revoked: { from: "funder", to: null },
+  admin_transfer: { from: "old_admin", to: "new_admin" },
+  rescue_tokens: { from: "admin", to: "to" },
 };
 
 // ─── SCVal decoding (lazily loaded to keep this module dependency-light) ─────

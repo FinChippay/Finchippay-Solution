@@ -51,9 +51,7 @@ function reject(res, endpoint, reason) {
   // failed (missing vs. stale vs. bad signature vs. replay). The `reason`
   // is only for our own logs.
   logger.warn({ endpoint, reason }, "Inbound webhook signature rejected");
-  return res
-    .status(401)
-    .json(formatErrorResponse("AUTH_INVALID_WEBHOOK_SIGNATURE"));
+  return res.status(401).json(formatErrorResponse("AUTH_INVALID_WEBHOOK_SIGNATURE"));
 }
 
 /**

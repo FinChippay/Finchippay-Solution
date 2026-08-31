@@ -18,14 +18,22 @@
 //! Remaining work:
 //! 1. Replace placeholder `pool_address` with real AMM contract ID
 //! 2. Implement LP share deposit in `create_yield_escrow`
-//! 3. Implement LP share withdrawal + yield computation in `claim_yield_escrow`
+//! 3. Implement LP share withdrawal in `claim_yield_escrow` (yield is now
+//!    computed from the oracle-derived share price; see `oracle.rs`)
 //! 4. Implement LP share withdrawal + yield computation in `cancel_yield_escrow`
 //! 5. Add integration tests with a mock AMM contract
 //! 6. Add fuzz targets for yield escrow lifecycle
+//!
+//! ## Oracle-derived yield
+//!
+//! `claim_yield_escrow` values `shares_received` at the current oracle price
+//! for `pool_address` (queried from `oracle_address`) and pays out
+//! `principal + max(0, share_value - principal)`. See `oracle.rs` for the
+//! oracle interface, staleness rules, and the mock oracle used in tests.
 
 use soroban_sdk::{contracttype, token, Address, Env, Symbol};
 
-use crate::events::*;
+use crate::oracle;
 use crate::storage;
 use crate::{require_not_paused, DataKey};
 
@@ -37,6 +45,8 @@ pub struct YieldEscrow {
     pub token_b: Address,
     /// Liquidity pool address for yield generation (placeholder).
     pub pool_address: Address,
+    /// Price oracle queried for `pool_address`'s current LP share value.
+    pub oracle_address: Address,
     pub from: Address,
     pub to: Address,
     pub amount: i128,
@@ -71,6 +81,7 @@ pub fn create_yield_escrow(
     env: &Env,
     token_a: &Address,
     token_b: &Address,
+    oracle_address: &Address,
     from: &Address,
     to: &Address,
     amount: i128,
@@ -104,6 +115,7 @@ pub fn create_yield_escrow(
         token_a: token_a.clone(),
         token_b: token_b.clone(),
         pool_address: token_a.clone(), // placeholder — real pool address TBD
+        oracle_address: oracle_address.clone(),
         from: from.clone(),
         to: to.clone(),
         amount,
@@ -147,12 +159,21 @@ pub fn claim_yield_escrow(env: &Env, id: u64) -> i128 {
         panic!("Release ledger not reached");
     }
 
-    // TODO(#amm-integration, #yield-escrow-v2): Withdraw LP shares from pool
-    // and compute actual principal + yield.
+    // TODO(#amm-integration, #yield-escrow-v2): Withdraw LP shares from the
+    // real pool once integrated. Yield is already computed from the oracle
+    // below; this TODO covers the actual token movement out of the pool.
     // See: https://github.com/FinChippay/Finchippay-Solution/issues?q=amm-integration
-    // Currently returns principal only.
     let principal = escrow.amount;
-    let total = principal;
+    let price = oracle::get_share_price(env, &escrow.pool_address, &escrow.oracle_address);
+    let share_value = escrow
+        .shares_received
+        .checked_mul(price)
+        .and_then(|v| v.checked_div(oracle::PRICE_SCALE))
+        .unwrap_or_else(|| panic!("Overflow computing share value"));
+    let accrued_yield = (share_value - principal).max(0);
+    let total = principal
+        .checked_add(accrued_yield)
+        .unwrap_or_else(|| panic!("Overflow computing payout"));
     let token_client = token::Client::new(env, &escrow.token_a);
     token_client.transfer(&env.current_contract_address(), &escrow.to, &total);
 

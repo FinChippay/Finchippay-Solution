@@ -25,8 +25,8 @@ const { sep12CustomerBodySchema, sep12CustomerQuerySchema } = require("../valida
  */
 router.post(
   "/customer",
-  verifyJWT,
   sensitiveLimiter,
+  verifyJWT,
   validate(sep12CustomerBodySchema),
   async (req, res, next) => {
     try {
@@ -67,8 +67,8 @@ router.post(
  */
 router.get(
   "/customer",
-  verifyJWT,
   sensitiveLimiter,
+  verifyJWT,
   validate(sep12CustomerQuerySchema, "query"),
   async (req, res, next) => {
     try {
@@ -109,8 +109,8 @@ router.get(
  */
 router.get(
   "/customer/status",
-  verifyJWT,
   sensitiveLimiter,
+  verifyJWT,
   validate(sep12CustomerQuerySchema, "query"),
   async (req, res, next) => {
     try {

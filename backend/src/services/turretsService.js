@@ -40,7 +40,6 @@ async function getDynamicFee() {
   return "100";
 }
 
-
 let runnerStarted = false;
 let runnerTimer = null;
 

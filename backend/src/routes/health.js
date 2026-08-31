@@ -17,6 +17,7 @@ const express = require("express");
 const healthService = require("../services/healthService");
 const shutdownState = require("../services/shutdownState");
 const { verifyJWT, requireAdmin } = require("../middleware/auth");
+const { strictLimiter } = require("../middleware/rateLimit");
 
 const router = express.Router();
 
@@ -154,7 +155,7 @@ router.get("/started", async (_req, res, next) => {
  * shared last-checked timestamp. Intended for operator debugging, not for
  * automated probes.
  */
-router.get("/dependencies", verifyJWT, requireAdmin, async (_req, res, next) => {
+router.get("/dependencies", strictLimiter, verifyJWT, requireAdmin, async (_req, res, next) => {
   try {
     const results = await healthService.runAllChecks();
     const checkedAt = new Date().toISOString();

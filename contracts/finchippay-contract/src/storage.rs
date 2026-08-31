@@ -55,7 +55,13 @@ pub const MAX_KEYS_PER_SWEEP: u32 = 100;
 
 /// Number of variants in `TtlClass`, i.e. how many key groups a full sweep
 /// walks through.
-pub const TTL_CLASS_COUNT: u32 = 8;
+///
+/// Note: tip-record families (`TipTotal`/`TipCount`/`TipRecord`) are **not** a
+/// sweep class because they are keyed by an arbitrary recipient address with no
+/// on-chain index (see the tip-retention policy in `src/lib.rs`). Their TTL is
+/// kept alive by the per-access bumps in `send_tip`/`batch_send`, which is
+/// documented there and in the README.
+pub const TTL_CLASS_COUNT: u32 = 9;
 
 /// Number of singleton configuration keys enumerated by the `Config` class.
 pub const TTL_CONFIG_KEYS: u32 = 9;
@@ -188,6 +194,7 @@ pub fn ttl_class_at(index: u32) -> TtlClass {
         4 => TtlClass::MultiSig,
         5 => TtlClass::Vesting,
         6 => TtlClass::YieldEscrow,
+        7 => TtlClass::Airdrop,
         _ => TtlClass::Emergency,
     }
 }
@@ -203,6 +210,7 @@ pub fn ttl_class_symbol(env: &Env, class: &TtlClass) -> Symbol {
         TtlClass::Vesting => Symbol::new(env, "vesting"),
         TtlClass::Emergency => Symbol::new(env, "emergency"),
         TtlClass::YieldEscrow => Symbol::new(env, "yieldescrow"),
+        TtlClass::Airdrop => Symbol::new(env, "airdrop"),
     }
 }
 
@@ -218,6 +226,7 @@ pub fn ttl_class_len(env: &Env, class: &TtlClass) -> u32 {
         TtlClass::Vesting => 1 + counter(env, &DataKey::VestingCount),
         TtlClass::Emergency => 1 + counter(env, &DataKey::EmergencyWithdrawalCount),
         TtlClass::YieldEscrow => 1 + counter(env, &DataKey::YieldEscrowCount),
+        TtlClass::Airdrop => 1 + counter(env, &DataKey::AirdropCount),
     }
 }
 
@@ -277,7 +286,8 @@ pub fn ttl_class_item_key_cost(class: &TtlClass, index: u32) -> u32 {
         TtlClass::MultiSig
         | TtlClass::Vesting
         | TtlClass::Emergency
-        | TtlClass::YieldEscrow => 1,
+        | TtlClass::YieldEscrow
+        | TtlClass::Airdrop => 1,
     }
 }
 
@@ -363,6 +373,13 @@ pub fn bump_ttl_class_item(env: &Env, class: &TtlClass, index: u32) -> u32 {
                 bump_to_floor_if_present(env, &DataKey::YieldEscrowCount)
             } else {
                 bump_to_floor_if_present(env, &DataKey::YieldEscrow((index - 1) as u64))
+            }
+        }
+        TtlClass::Airdrop => {
+            if index == 0 {
+                bump_to_floor_if_present(env, &DataKey::AirdropCount)
+            } else {
+                bump_to_floor_if_present(env, &DataKey::Airdrop(index - 1))
             }
         }
     }

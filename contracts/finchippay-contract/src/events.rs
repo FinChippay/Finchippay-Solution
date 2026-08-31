@@ -1,14 +1,29 @@
 //! # Finchippay Contract — Typed Events
 //!
-//! Structured, schema-enforced events emitted by the contract. Every event is
-//! a `#[contractevent]` struct: the struct's snake-case name becomes the first
-//! topic, and every field becomes a named entry in the event data (a Soroban
-//! `Map`). Indexers and generated SDK clients can deserialize these directly
-//! instead of relying on ad-hoc `(Symbol, ...)` tuple layouts.
+//! Centralized event symbols used for off-chain indexing and monitoring.
+//! All events emitted by the contract are documented here and are the **single
+//! source of truth**: every publish site routes through the `Events::*` helpers
+//! below, `backend/src/services/eventParser.js` mirrors this catalog, and a
+//! catalog-parity test (see `tests/event_catalog.rs` and the backend
+//! `eventParser.parity.test.js`) enforces `catalog == emitted == parsed`.
+//!
+//! ## Topic × payload contract
+//!
+//! Each topic is emitted with exactly **one** payload shape, and that shape is
+//! documented in the table below. This is what lets an indexer parse events
+//! without guessing. In particular the tip family is canonicalized to a single
+//! topic, `tip_sent`, published with payload `(amount, memo)` from *every*
+//! tip-minting path (`send_tip`, `batch_send`, `batch_send_multi`), so there is
+//! never one topic carrying two shapes. `batch_sent` additionally reports the
+//! completed overall batch.
 //!
 //! ## Event Catalog
 //!
-//! | Struct (topic) | Fields | Description |
+//! Airdrop, vesting, multi-sig and tip topics are all registered here. The
+//! `ContractError`-free set below is emitted by `src/contract.rs` and its
+//! sibling modules:
+//!
+//! | Topic | Payload | Description |
 //! |---|---|---|
 //! | `init` | admin address | Contract initialised |
 //! | `admin_transfer` | new_admin address | Legacy admin pointer transferred |
@@ -18,58 +33,46 @@
 //! | `pauser_set` | pauser address | Pauser role assigned |
 //! | `upgraded` | (new_version, wasm_hash, layout_version) | Contract upgraded |
 //! | `ttl_bumped` | (keys_bumped, class_index, key_index) | TTL sweep progress |
-//! | `tip_sent` | (from, to, amount, ledger, memo) | Tip recorded |
+//! | `tip_sent` | (amount, memo) | Single tip recorded (topic carries `from`, `to`) |
 //! | `receipt_minted` | (payer, receipt_index) | Payment receipt minted |
-//! | `escrow_created` | (escrow_id, from, to, amount, release_ledger) | Escrow opened |
-//! | `escrow_cancelled` | (escrow_id, from, amount) | Escrow cancelled |
-//! | `disputable_escrow_created` | (escrow_id, arbitrator) | Disputable escrow created |
-//! | `dispute_raised` | (escrow_id, raised_by) | Dispute flag set |
-//! | `arbitrator_added` | arbitrator address | Arbitrator registered |
-//! | `arbitrator_removed` | arbitrator address | Arbitrator removed |
-//! | `stream_opened` | (stream_id, payer, recipient, rate, deposit) | Stream started |
-//! | `stream_claimed` | (stream_id, recipient, amount) | Stream funds withdrawn |
-//! | `stream_topped_up` | (stream_id, payer, amount, deposited) | Stream balance increased |
-//! | `stream_closed` | (stream_id, refund, claimable) | Stream closed by payer |
-//! | `multisig_created` | (proposal_id, proposer, recipient, amount, threshold, signers_count, expiration_ledger) | Multi-sig proposal created |
-//! | `multisig_approved` | (proposal_id, approver, count, threshold) | Proposal approved |
-//! | `multisig_cancelled` | (proposal_id, proposer, amount) | Multi-sig cancelled |
-//! | `batch_sent` | (sender, recipient_count, total_amount) | Batch payment completed |
-//! | `batch_sent_multi` | (sender, recipient_count, total_amount) | Multi-token batch completed |
-//! | `vesting_create` | (vesting_id, from, beneficiary, amount, cliff_ledger, end_ledger) | Vesting schedule created |
-//! | `vesting_claim` | (vesting_id, beneficiary, amount) | Vesting claimed |
-//! | `vesting_revoke` | (vesting_id, funder, amount) | Vesting revoked |
-//! | `emergency_withdrawal_initiated` | (withdrawal_id, initiator, token, amount, activation_ledger) | Emergency withdrawal requested |
-//! | `emergency_withdrawal_approved` | (withdrawal_id, signer, count, threshold) | Emergency withdrawal approved |
-//! | `emergency_withdrawal_executed` | (withdrawal_id, to, amount) | Funds rescued |
-//! | `emergency_withdrawal_cancelled` | (withdrawal_id, admin, amount) | Emergency withdrawal cancelled |
-//! | `admin_action_proposed` | (proposal_id, action_type, proposer) | Gov proposal created |
-//! | `admin_action_approved` | (proposal_id, approver, count, threshold) | Gov action approved |
-//! | `airdrop_created` | (airdrop_id, funder, token, total_amount) | Airdrop created |
-//! | `airdrop_claimed` | (airdrop_id, recipient, amount) | Airdrop claimed |
-//! | `airdrop_cancelled` | (airdrop_id, funder, amount) | Airdrop cancelled |
-//! | `yield_escrow_create` | (escrow_id, from, to, token, amount, shares) | Yield escrow created |
-//! | `yield_escrow_claim` | (escrow_id, to, amount) | Yield escrow claimed |
-//! | `yield_escrow_cancelled` | (escrow_id, from, amount) | Yield escrow cancelled |
-//! | `fee_collector_set` | collector address | Fee collector updated |
-//! | `swap_fee_set` | fee_bps | Swap fee rate updated |
-//! | `escrow_claimed` | (escrow_id, recipient, amount) | Escrow claimed |
-//! | `escrow_claim_partial` | (escrow_id, to, claim_amount, remaining) | Partial escrow claim |
-//! | `milestone_escrow_created` | (escrow_id, milestone_count) | Milestone escrow created |
-//! | `milestone_approved` | (escrow_id, milestone_id) | Milestone approved |
-//! | `milestone_claimed` | (escrow_id, milestone_id, amount) | Milestone claimed |
-//! | `dispute_resolved` | (escrow_id, resolution, to, amount) | Dispute resolved |
-//! | `stream_close` | (stream_id, payer, refund) | Stream close (old API) |
-//! | `stream_reject` | (stream_id, recipient, refund) | Stream rejected |
-//! | `stream_transfer` | (stream_id, from, to) | Stream transferred |
-//! | `multisig_executed` | (proposal_id, recipient, amount) | Multi-sig executed |
-//! | `multisig_timeout` | (proposal_id, proposer, amount) | Multi-sig timed out |
-//! | `swap` | (caller, token_in, token_out, amount_in, actual_amount_in, amount_out, fee, path_len) | Swap executed |
+//! | `escrow_created` | (id, from, to, amount, release_ledger) | Escrow opened |
+//! | `escrow_released` | (id, recipient) | Escrow claimed |
+//! | `escrow_cancelled` | (id, from) | Escrow cancelled by sender |
+//! | `escrow_disputed` | (id, raised_by) | Dispute flag set |
+//! | `stream_opened` | (id, payer, recipient, rate) | Stream started |
+//! | `stream_claimed` | (id, amount) | Stream funds withdrawn |
+//! | `stream_topped_up` | (id, amount) | Stream balance increased |
+//! | `stream_closed` | (id) | Stream closed by payer |
+//! | `multisig_created` | (id, proposer, recipient, amount, threshold) | Multi-sig proposal created |
+//! | `multisig_approved` | (id, signer, count, threshold) | Proposal approved |
+//! | `multisig_executed` | (id, recipient, amount) | Payment executed |
+//! | `multisig_timeout` | (id, proposer, amount) | Proposal expired and refunded |
+//! | `multisig_cancelled` | (id, proposer, amount) | Proposal cancelled by proposer |
+//! | `airdrop_created` | (id, funder, token, total_amount) | Airdrop pool created |
+//! | `airdrop_claimed` | (id, recipient, amount) | Airdrop claim paid out |
+//! | `airdrop_cancelled` | (id, funder, unclaimed) | Airdrop cancelled and refunded |
+//! | `vesting_created` | (id, funder, beneficiary, amount, cliff_ledger, end_ledger) | Vesting schedule created |
+//! | `vesting_claimed` | (id, beneficiary, amount) | Vesting claim paid out |
+//! | `vesting_revoked` | (id, funder, unclaimed) | Vesting schedule revoked |
+//! | `batch_sent` | (from, recipient_count, total_amount) | Batch payment completed |
+//! | `batch_sent_multi` | (from, recipient_count, total_amount) | Multi-token batch completed |
+//! | `emergency_withdrawal_initiated` | (id, initiator) | Emergency withdrawal requested |
+//! | `emergency_withdrawal_approve` | (id, signer, count, threshold) | Emergency withdrawal approved |
+//! | `emergency_withdrawal_executed` | (id, to, amount) | Funds rescued |
+//! | `emergency_withdrawal_cancelled` | (id, admin, amount) | Emergency withdrawal voided |
+//! | `admin_action_proposed` | (id, action_type, proposer) | Gov proposal created |
+//! | `admin_action_approved` | (id, approver, count, threshold) | Gov action approved |
 //! | `balance_reconciled` | (token, old, new) | Admin resynced cached contract balance |
 //! | `balance_drift_detected` | (token, cached, actual) | Cached vs actual balance drift surfaced |
 
 use soroban_sdk::{contractevent, Address, BytesN, Symbol};
 
-// ─── Admin & governance events ────────────────────────────────────────────
+/// Event symbols generated lazily per-environment for gas efficiency.
+/// Callers should use the functions below rather than constructing Symbols
+/// inline. This module is the single source of truth for event topic names;
+/// publishing anywhere else, or instructing a different topic, is a bug
+/// (see `tests/event_catalog.rs`).
+pub struct Events;
 
 #[contractevent]
 pub struct Init {
@@ -191,10 +194,12 @@ pub struct ArbitratorAdded {
     pub arbitrator: Address,
 }
 
-#[contractevent]
-pub struct ArbitratorRemoved {
-    pub arbitrator: Address,
-}
+    /// Single-tip topic. Payload is always `(amount, memo)` and the topic also
+    /// carries the `from` and `to` addresses. Emitted from every tip-minting
+    /// path with the identical shape.
+    pub fn tip_sent(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "tip_sent")
+    }
 
 // ─── Streaming payment events ─────────────────────────────────────────────
 
@@ -242,13 +247,17 @@ pub struct MultisigCreated {
     pub expiration_ledger: u32,
 }
 
-#[contractevent]
-pub struct MultisigApproved {
-    pub proposal_id: u32,
-    pub approver: Address,
-    pub count: u32,
-    pub threshold: u32,
-}
+    pub fn stream_topped_up(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "stream_topped_up")
+    }
+
+    pub fn stream_closed(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "stream_closed")
+    }
+
+    pub fn multisig_created(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "multisig_created")
+    }
 
 #[contractevent]
 pub struct MultisigCancelled {
@@ -273,31 +282,69 @@ pub struct BatchSentMulti {
     pub total_amount: i128,
 }
 
-// ─── Vesting events ───────────────────────────────────────────────────────
+    pub fn multisig_executed(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "multisig_executed")
+    }
 
-#[contractevent]
-pub struct VestingCreate {
-    pub vesting_id: u32,
-    pub from: Address,
-    pub beneficiary: Address,
-    pub amount: i128,
-    pub cliff_ledger: u32,
-    pub end_ledger: u32,
-}
+    pub fn multisig_timeout(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "multisig_timeout")
+    }
 
-#[contractevent]
-pub struct VestingClaim {
-    pub vesting_id: u32,
-    pub beneficiary: Address,
-    pub amount: i128,
-}
+    pub fn multisig_cancelled(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "multisig_cancelled")
+    }
 
-#[contractevent]
-pub struct VestingRevoke {
-    pub vesting_id: u32,
-    pub funder: Address,
-    pub amount: i128,
-}
+    pub fn airdrop_created(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "airdrop_created")
+    }
+
+    pub fn airdrop_claimed(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "airdrop_claimed")
+    }
+
+    pub fn airdrop_cancelled(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "airdrop_cancelled")
+    }
+
+    pub fn vesting_created(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "vesting_created")
+    }
+
+    pub fn vesting_claimed(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "vesting_claimed")
+    }
+
+    pub fn vesting_revoked(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "vesting_revoked")
+    }
+
+    pub fn batch_sent(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "batch_sent")
+    }
+
+    pub fn batch_sent_multi(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "batch_sent_multi")
+    }
+
+    pub fn emergency_withdrawal_initiated(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "emergency_withdrawal_initiated")
+    }
+
+    pub fn emergency_withdrawal_approve(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "emergency_withdrawal_approve")
+    }
+
+    pub fn emergency_withdrawal_executed(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "emergency_withdrawal_executed")
+    }
+
+    pub fn emergency_withdrawal_cancelled(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "emergency_withdrawal_cancelled")
+    }
+
+    pub fn admin_action_proposed(env: &soroban_sdk::Env) -> Symbol {
+        Symbol::new(env, "admin_action_proposed")
+    }
 
 // ─── Emergency withdrawal events ──────────────────────────────────────────
 

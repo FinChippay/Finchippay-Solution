@@ -22,15 +22,11 @@ router.get("/", requireMetricsToken, async (req, res) => {
 
 router.get("/business", async (req, res) => {
   try {
-    const activeGauge = metrics.register.getSingleMetric("finchippay_active_users");
-    const paymentsCounter = metrics.register.getSingleMetric("finchippay_payments_volume_total");
-    const eventsCounter = metrics.register.getSingleMetric(
-      "finchippay_contract_events_indexed_total",
-    );
-    const webhookCounter = metrics.register.getSingleMetric("finchippay_webhook_deliveries_total");
-    const durationHistogram = metrics.register.getSingleMetric(
-      "finchippay_http_request_duration_seconds",
-    );
+    const activeGauge = metrics.register.getSingleMetric("active_users");
+    const paymentsCounter = metrics.register.getSingleMetric("payments_volume_total");
+    const eventsCounter = metrics.register.getSingleMetric("contract_events_indexed_total");
+    const webhookCounter = metrics.register.getSingleMetric("webhook_deliveries_total");
+    const durationHistogram = metrics.register.getSingleMetric("http_request_duration_seconds");
 
     const snapshotValue = async (metric) => {
       if (!metric) return 0;
