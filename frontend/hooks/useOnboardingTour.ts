@@ -10,6 +10,11 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  getTourProgress,
+  markTourComplete,
+  markTourDismissed,
+} from "@/lib/onboardingState";
 
 // ─── localStorage keys ────────────────────────────────────────────────────────
 
@@ -100,8 +105,9 @@ export function useOnboardingTour(): OnboardingTourState {
 
   // ── Hydrate from localStorage once the component mounts ──────────────────
   useEffect(() => {
-    const completed = readBool(ONBOARDING_KEY_COMPLETED);
-    const dismissed = readBool(ONBOARDING_KEY_DISMISSED);
+    const progress = getTourProgress();
+    const completed = progress.completed || progress.completedAt !== null || readBool(ONBOARDING_KEY_COMPLETED);
+    const dismissed = progress.dismissed || readBool(ONBOARDING_KEY_DISMISSED);
     const savedStep = readInt(ONBOARDING_KEY_STEP, 0);
 
     setIsCompleted(completed);
@@ -138,6 +144,7 @@ export function useOnboardingTour(): OnboardingTourState {
         const next = prev + 1;
         if (next >= total) {
           // Finished.
+          markTourComplete();
           writeBool(ONBOARDING_KEY_COMPLETED, true);
           writeInt(ONBOARDING_KEY_STEP, 0);
           setIsCompleted(true);
@@ -167,6 +174,7 @@ export function useOnboardingTour(): OnboardingTourState {
   }, []);
 
   const completeTour = useCallback(() => {
+    markTourComplete();
     writeBool(ONBOARDING_KEY_COMPLETED, true);
     writeInt(ONBOARDING_KEY_STEP, 0);
     setIsCompleted(true);
@@ -176,6 +184,7 @@ export function useOnboardingTour(): OnboardingTourState {
   }, []);
 
   const dismissForever = useCallback(() => {
+    markTourDismissed();
     writeBool(ONBOARDING_KEY_DISMISSED, true);
     setIsDismissed(true);
     setIsRunning(false);

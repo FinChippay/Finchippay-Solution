@@ -92,7 +92,7 @@ const LOCALE = {
   next: "Next",
   nextLabelWithProgress: "Next (Step {step} of {steps})",
   open: "Open",
-  skip: "Skip tour",
+  skip: "Skip and don't show again",
 };
 
 // ─── Joyride styles ───────────────────────────────────────────────────────────
@@ -200,7 +200,7 @@ export default function OnboardingTour({ tour: externalTour, isVisible, onComple
           tour.prevStep();
         } else if (action === "close" || action === "skip") {
           tour.setStepIndex(index);
-          tour.skipTour();
+          tour.dismissForever();
           onSkip?.();
           trackOnboardingEvent("onboarding_skipped");
         }
@@ -214,7 +214,7 @@ export default function OnboardingTour({ tour: externalTour, isVisible, onComple
           trackOnboardingEvent("onboarding_completed");
         } else if (isSkipped) {
           tour.setStepIndex(index);
-          tour.skipTour();
+          tour.dismissForever();
           onSkip?.();
           trackOnboardingEvent("onboarding_skipped");
         }
