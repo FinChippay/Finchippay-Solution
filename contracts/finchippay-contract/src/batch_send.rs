@@ -14,6 +14,7 @@ use crate::{
     MAX_VESTING_DURATION_LEDGERS,
 };
 
+use crate::events::*;
 use crate::storage::*;
 // ─── Batch send ───────────────────────────────────────────────────────────
 

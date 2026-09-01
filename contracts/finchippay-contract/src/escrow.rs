@@ -13,6 +13,7 @@ use crate::{
     MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
 };
 
+use crate::events::*;
 use crate::storage::*;
 /// Lock `amount` tokens from `from` until `release_ledger`. Returns the escrow ID.
 ///
@@ -107,10 +108,13 @@ pub fn create_escrow(
     env.storage().persistent().set(&rkey, &r_escrows);
     bump_to_floor(&env, &rkey);
 
-    env.events().publish(
-        (Symbol::new(&env, "escrow_create"), next_id),
-        (from.clone(), to.clone(), amount, release_ledger),
-    );
+    env.events().publish_event(&EscrowCreated {
+        escrow_id: next_id,
+        from: from.clone(),
+        to: to.clone(),
+        amount,
+        release_ledger,
+    });
     Ok(next_id)
 }
 
@@ -185,10 +189,12 @@ pub fn claim_escrow_partial(env: Env, id: u32, claim_amount: i128) -> i128 {
     let token = get_token_client(&env, &escrow.token);
     contract_transfer_out(&env, &token, &escrow.to, &claim_amount);
 
-    env.events().publish(
-        (Symbol::new(&env, "escrow_claim_partial"), id),
-        (escrow.to.clone(), claim_amount, remaining),
-    );
+    env.events().publish_event(&EscrowClaimPartial {
+        escrow_id: id,
+        to: escrow.to.clone(),
+        claim_amount,
+        remaining,
+    });
     remaining
 }
 
@@ -268,10 +274,11 @@ pub fn claim_escrow(env: Env, id: u32) {
     let token = get_token_client(&env, &escrow.token);
     contract_transfer_out(&env, &token, &escrow.to, &escrow.amount);
 
-    env.events().publish(
-        (Symbol::new(&env, "escrow_claim"), id),
-        (escrow.to, escrow.amount),
-    );
+    env.events().publish_event(&EscrowClaimed {
+        escrow_id: id,
+        recipient: escrow.to,
+        amount: escrow.amount,
+    });
 }
 
 /// Payer cancels the escrow before `release_ledger`; funds are returned.
@@ -343,10 +350,11 @@ pub fn cancel_escrow(env: Env, id: u32) {
     let token = get_token_client(&env, &escrow.token);
     contract_transfer_out(&env, &token, &escrow.from, &refund_amount);
 
-    env.events().publish(
-        (Symbol::new(&env, "escrow_cancelled"),),
-        (id, escrow.from, refund_amount),
-    );
+    env.events().publish_event(&EscrowCancelled {
+        escrow_id: id,
+        from: escrow.from,
+        amount: refund_amount,
+    });
 }
 
 pub fn get_escrow(env: Env, id: u32) -> Result<Escrow, ContractError> {
@@ -498,10 +506,10 @@ pub fn create_milestone_escrow(
     env.storage().persistent().set(&rkey, &r_escrows);
     bump_to_floor(&env, &rkey);
 
-    env.events().publish(
-        (Symbol::new(&env, "milestone_escrow_created"), next_id),
+    env.events().publish_event(&MilestoneEscrowCreated {
+        escrow_id: next_id,
         milestone_count,
-    );
+    });
     Ok(next_id)
 }
 
@@ -577,10 +585,10 @@ pub fn approve_milestone(env: Env, escrow_id: u32, milestone_id: u32, approver: 
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
 
-    env.events().publish(
-        (Symbol::new(&env, "milestone_approved"), escrow_id),
+    env.events().publish_event(&MilestoneApproved {
+        escrow_id,
         milestone_id,
-    );
+    });
 }
 
 /// Claim an approved milestone. Only the escrow recipient (`to`) may claim.
@@ -1194,8 +1202,7 @@ pub fn add_arbitrator(env: Env, admin: Address, arbitrator: Address) {
         .set(&DataKey::ArbitratorCount, &count);
     bump_to_floor(&env, &DataKey::ArbitratorCount);
 
-    env.events()
-        .publish((Symbol::new(&env, "arbitrator_added"),), arbitrator);
+    env.events().publish_event(&ArbitratorAdded { arbitrator });
 }
 
 /// Admin: remove an arbitrator from the global arbitrator list.
@@ -1235,7 +1242,7 @@ pub fn remove_arbitrator(env: Env, admin: Address, arbitrator: Address) {
     bump_to_floor(&env, &DataKey::ArbitratorCount);
 
     env.events()
-        .publish((Symbol::new(&env, "arbitrator_removed"),), arbitrator);
+        .publish_event(&ArbitratorRemoved { arbitrator });
 }
 
 /// Create a disputable escrow with a designated arbitrator.
@@ -1329,10 +1336,10 @@ pub fn create_disputable_escrow(
     env.storage().persistent().set(&rkey, &r_escrows);
     bump_to_floor(&env, &rkey);
 
-    env.events().publish(
-        (Symbol::new(&env, "disputable_escrow_created"),),
-        (next_id, arbitrator),
-    );
+    env.events().publish_event(&DisputableEscrowCreated {
+        escrow_id: next_id,
+        arbitrator,
+    });
 
     Ok(next_id)
 }
@@ -1393,8 +1400,10 @@ pub fn raise_dispute(env: Env, escrow_id: u32, by: Address) {
     env.storage().persistent().set(&rkey, &r_escrows);
     bump(&env, &rkey);
 
-    env.events()
-        .publish((Symbol::new(&env, "dispute_raised"),), (escrow_id, by));
+    env.events().publish_event(&DisputeRaised {
+        escrow_id,
+        raised_by: by,
+    });
 }
 
 /// Resolve a dispute. Only the designated arbitrator can call this.
@@ -1503,10 +1512,12 @@ pub fn resolve_dispute(
         client.transfer(&contract, &sender, &sender_amount);
     }
 
-    env.events().publish(
-        (Symbol::new(&env, "dispute_resolved"),),
-        (escrow_id, resolution, to, amount),
-    );
+    env.events().publish_event(&DisputeResolved {
+        escrow_id,
+        resolution,
+        to,
+        amount,
+    });
 }
 
 /// Return the list of registered arbitrators.

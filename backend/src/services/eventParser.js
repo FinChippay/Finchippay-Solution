@@ -3,8 +3,8 @@
  * Soroban Contract Event Parser
  *
  * Parses raw Soroban RPC events into structured rows for the contract_events
- * table. Extracts participant addresses (from/to), amounts, and maps event
- * types to known schemas for FinchippayContract.
+ * table. Since the contract migrated from `env.events().publish()` tuples to
+ * typed `#[contractevent]` structs, every event now has the shape:
  *
  * Event types emitted by the contract (canonical catalog in
  * contracts/finchippay-contract/src/events.rs — keep these in sync):
@@ -25,9 +25,9 @@
 "use strict";
 
 /**
- * Maps of event types to their known address field names.
- * When parsing, we extract these fields from the payload and populate
- * from_addr / to_addr on the row.
+ * Event type → participant field mapping for typed `#[contractevent]` events.
+ * Each entry names the *data* field that holds the "from" / "to" address and
+ * the primary "amount" value for that event type.
  */
 const EVENT_PARTICIPANT_MAP = {
   tip_sent: { from: "from", to: "to" },
@@ -57,6 +57,109 @@ const EVENT_PARTICIPANT_MAP = {
   rescue_tokens: { from: "admin", to: "to" },
 };
 
+// ─── SCVal decoding (lazily loaded to keep this module dependency-light) ─────
+
+let sdkCache = null;
+
+/**
+ * Lazily load the Stellar SDK XDR helpers used to decode SCVal values.
+ * Returns `null` when the SDK is unavailable so callers can degrade to
+ * passing through already-decoded (plain) event values.
+ */
+function loadSdk() {
+  if (sdkCache === null) {
+    try {
+      // eslint-disable-next-line global-require
+      const { xdr, StrKey } = require("@stellar/stellar-sdk");
+      sdkCache = { xdr, StrKey };
+    } catch (err) {
+      sdkCache = undefined;
+    }
+  }
+  return sdkCache;
+}
+
+/**
+ * Convert a decoded `xdr.ScVal` into a plain JavaScript value:
+ *  - symbols/strings → string
+ *  - addresses → Stellar StrKey (G…/C…)
+ *  - integers → string (preserves i128/u128 precision)
+ *  - vec → array, map → object keyed by field name
+ */
+function scValToJs(scVal, sdk) {
+  const kind = scVal.switch().name;
+  switch (kind) {
+    case "scvSymbol":
+      return scVal.sym().toString();
+    case "scvString":
+      return scVal.str().toString();
+    case "scvBool":
+      return scVal.b();
+    case "scvVoid":
+      return null;
+    case "scvU32":
+      return String(scVal.u32());
+    case "scvI32":
+      return String(scVal.i32());
+    case "scvU64":
+      return scVal.u64().toString();
+    case "scvI64":
+      return scVal.i64().toString();
+    case "scvU128": {
+      const parts = scVal.u128();
+      return ((BigInt(parts.hi().toString()) << 64n) | BigInt(parts.lo().toString())).toString();
+    }
+    case "scvI128": {
+      const parts = scVal.i128();
+      const raw = (BigInt(parts.hi().toString()) << 64n) | BigInt(parts.lo().toString());
+      const signed = raw >= 1n << 127n ? raw - (1n << 128n) : raw;
+      return signed.toString();
+    }
+    case "scvAddress": {
+      const addr = scVal.address();
+      if (addr.switch().name === "scAddressTypeAccount") {
+        return sdk.StrKey.encodeEd25519PublicKey(addr.accountId().ed25519());
+      }
+      if (addr.switch().name === "scAddressTypeContract") {
+        return sdk.StrKey.encodeContract(addr.contractId());
+      }
+      return addr.toString();
+    }
+    case "scvBytes":
+      return Buffer.from(scVal.bytes()).toString("hex");
+    case "scvVec":
+      return scVal.vec().map((v) => scValToJs(v, sdk));
+    case "scvMap": {
+      const obj = {};
+      for (const entry of scVal.map()) {
+        obj[scValToJs(entry.key(), sdk)] = scValToJs(entry.val(), sdk);
+      }
+      return obj;
+    }
+    default:
+      return scVal.toString();
+  }
+}
+
+/**
+ * Decode a single event value (topic entry or data). Strings are assumed to be
+ * base64-encoded SCVal XDR and decoded when possible; anything else is passed
+ * through unchanged so the parser also works with already-decoded values
+ * (e.g. test mocks).
+ */
+function decodeValue(value, sdk) {
+  if (typeof value !== "string" || !sdk) {
+    return value;
+  }
+  try {
+    return scValToJs(sdk.xdr.ScVal.fromXDR(value, "base64"), sdk);
+  } catch {
+    return value;
+  }
+}
+
+// ─── Event parsing ───────────────────────────────────────────────────────────
+
 /**
  * Parse a raw Soroban event into our standard DB row shape.
  *
@@ -64,55 +167,36 @@ const EVENT_PARTICIPANT_MAP = {
  * @returns {object} Parsed event row ready for contract_events table
  */
 function parseEvent(raw) {
-  const topics = raw.topic ?? [];
-  const data = raw.data;
+  const sdk = loadSdk();
+  const topics = (raw.topic ?? []).map((t) => decodeValue(t, sdk));
+  const data = decodeValue(raw.data, sdk);
 
-  // Extract event type: first topic is typically a Symbol
+  // The first topic is the event struct's snake_case name (a Symbol).
   let eventType = "unknown";
-  if (topics.length > 0) {
-    const first = topics[0];
-    if (typeof first === "string") {
-      eventType = first;
-    } else if (first && typeof first === "object") {
-      eventType = first.symbol || first.str || first.value || String(first) || "unknown";
-    }
+  const first = topics[0];
+  if (typeof first === "string") {
+    eventType = first;
+  } else if (first && typeof first === "object") {
+    eventType = first.symbol || first.str || first.value || String(first) || "unknown";
   }
 
   eventType = String(eventType)
     .replace(/[^a-zA-Z0-9_]/g, "_")
     .slice(0, 64);
 
-  // Extract participant addresses based on known event schemas
-  let fromAddr = null;
-  let toAddr = null;
-  let amountRaw = null;
+  // Typed events carry their fields in the data Map.
+  const fields = data && typeof data === "object" && !Array.isArray(data) ? data : {};
 
   const schema = EVENT_PARTICIPANT_MAP[eventType] || {};
+  const fromAddr = schema.from && fields[schema.from] != null ? String(fields[schema.from]) : null;
+  const toAddr = schema.to && fields[schema.to] != null ? String(fields[schema.to]) : null;
 
-  // Parse SCVal objects to extract addresses and amounts
-  const parseScVal = (val) => {
-    if (!val) return null;
-    if (typeof val === "string") return val;
-    if (val && typeof val === "object") {
-      return (
-        val.address || val.symbol || val.str || val.scv_symbol || val.value || String(val) || null
-      );
-    }
-    return null;
-  };
-
-  // Try extracting from known topic positions (topic[1] and topic[2])
-  // Soroban events often have: topic[0] = event name, topic[1] = from, topic[2] = to
-  if (topics.length >= 2 && schema.from) {
-    fromAddr = parseScVal(topics[1]);
-  }
-  if (topics.length >= 3 && schema.to) {
-    toAddr = parseScVal(topics[2]);
-  }
-
-  // Try extracting amount from data or topics
-  if (data && typeof data === "object") {
-    amountRaw = String(data.amount || data.i128 || data.u64 || data.u128 || "");
+  let amountRaw =
+    schema.amount && fields[schema.amount] != null ? String(fields[schema.amount]) : null;
+  if (amountRaw == null && data && typeof data === "object" && !Array.isArray(data)) {
+    // Fallback for unknown event types that still expose a numeric amount.
+    const candidate = data.amount ?? data.i128 ?? data.u64 ?? data.u128;
+    amountRaw = candidate != null ? String(candidate) : null;
   }
 
   const payload = {

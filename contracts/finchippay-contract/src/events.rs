@@ -1,4 +1,4 @@
-//! # Finchippay Contract — Event Constants
+//! # Finchippay Contract — Typed Events
 //!
 //! Centralized event symbols used for off-chain indexing and monitoring.
 //! All events emitted by the contract are documented here and are the **single
@@ -64,9 +64,8 @@
 //! | `admin_action_approved` | (id, approver, count, threshold) | Gov action approved |
 //! | `balance_reconciled` | (token, old, new) | Admin resynced cached contract balance |
 //! | `balance_drift_detected` | (token, cached, actual) | Cached vs actual balance drift surfaced |
-//! | `swap` | (requested_in, actual_in, amount_out, fee, path_len) | Contract-reserve swap settled |
 
-use soroban_sdk::Symbol;
+use soroban_sdk::{contractevent, Address, BytesN, Symbol};
 
 /// Event symbols generated lazily per-environment for gas efficiency.
 /// Callers should use the functions below rather than constructing Symbols
@@ -75,38 +74,125 @@ use soroban_sdk::Symbol;
 /// (see `tests/event_catalog.rs`).
 pub struct Events;
 
-impl Events {
-    pub fn init(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "init")
-    }
+#[contractevent]
+pub struct Init {
+    pub admin: Address,
+}
 
-    pub fn admin_transfer(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_transfer")
-    }
+#[contractevent]
+pub struct AdminTransfer {
+    pub new_admin: Address,
+}
 
-    pub fn admin_signers_set(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_signers_set")
-    }
+#[contractevent]
+pub struct AdminSignersSet {
+    pub threshold: u32,
+    pub signer_count: u32,
+}
 
-    pub fn paused(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "paused")
-    }
+#[contractevent]
+pub struct Paused {}
 
-    pub fn unpaused(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "unpaused")
-    }
+#[contractevent]
+pub struct Unpaused {}
 
-    pub fn pauser_set(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "pauser_set")
-    }
+#[contractevent]
+pub struct PauserSet {
+    pub pauser: Address,
+}
 
-    pub fn upgraded(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "upgraded")
-    }
+#[contractevent]
+pub struct Upgraded {
+    pub new_version: u32,
+    pub wasm_hash: BytesN<32>,
+    pub layout_version: u32,
+}
 
-    pub fn ttl_bumped(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "ttl_bumped")
-    }
+#[contractevent]
+pub struct AdminActionProposed {
+    pub proposal_id: u64,
+    pub action_type: Symbol,
+    pub proposer: Address,
+}
+
+#[contractevent]
+pub struct AdminActionApproved {
+    pub proposal_id: u64,
+    pub approver: Address,
+    pub count: u32,
+    pub threshold: u32,
+}
+
+#[contractevent]
+pub struct FeeCollectorSet {
+    pub collector: Address,
+}
+
+#[contractevent]
+pub struct SwapFeeSet {
+    pub fee_bps: u32,
+}
+
+// ─── TTL sweep event ──────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct TtlBumped {
+    pub keys_bumped: u32,
+    pub class_index: u32,
+    pub key_index: u32,
+}
+
+// ─── Tip & receipt events ─────────────────────────────────────────────────
+
+#[contractevent]
+pub struct TipSent {
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub ledger: u32,
+    pub memo: Symbol,
+}
+
+#[contractevent]
+pub struct ReceiptMinted {
+    pub payer: Address,
+    pub receipt_index: u32,
+}
+
+// ─── Escrow events ────────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct EscrowCreated {
+    pub escrow_id: u32,
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub release_ledger: u32,
+}
+
+#[contractevent]
+pub struct EscrowCancelled {
+    pub escrow_id: u32,
+    pub from: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct DisputableEscrowCreated {
+    pub escrow_id: u32,
+    pub arbitrator: Address,
+}
+
+#[contractevent]
+pub struct DisputeRaised {
+    pub escrow_id: u32,
+    pub raised_by: Address,
+}
+
+#[contractevent]
+pub struct ArbitratorAdded {
+    pub arbitrator: Address,
+}
 
     /// Single-tip topic. Payload is always `(amount, memo)` and the topic also
     /// carries the `from` and `to` addresses. Emitted from every tip-minting
@@ -115,33 +201,51 @@ impl Events {
         Symbol::new(env, "tip_sent")
     }
 
-    pub fn receipt_minted(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "receipt_minted")
-    }
+// ─── Streaming payment events ─────────────────────────────────────────────
 
-    pub fn escrow_created(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_created")
-    }
+#[contractevent]
+pub struct StreamOpened {
+    pub stream_id: u32,
+    pub payer: Address,
+    pub recipient: Address,
+    pub rate: i128,
+    pub deposit: i128,
+}
 
-    pub fn escrow_released(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_released")
-    }
+#[contractevent]
+pub struct StreamClaimed {
+    pub stream_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
 
-    pub fn escrow_cancelled(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_cancelled")
-    }
+#[contractevent]
+pub struct StreamToppedUp {
+    pub stream_id: u32,
+    pub payer: Address,
+    pub amount: i128,
+    pub deposited: i128,
+}
 
-    pub fn escrow_disputed(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "escrow_disputed")
-    }
+#[contractevent]
+pub struct StreamClosed {
+    pub stream_id: u32,
+    pub refund: i128,
+    pub claimable: i128,
+}
 
-    pub fn stream_opened(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "stream_opened")
-    }
+// ─── Multi-sig events ─────────────────────────────────────────────────────
 
-    pub fn stream_claimed(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "stream_claimed")
-    }
+#[contractevent]
+pub struct MultisigCreated {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub threshold: u32,
+    pub signers_count: u32,
+    pub expiration_ledger: u32,
+}
 
     pub fn stream_topped_up(env: &soroban_sdk::Env) -> Symbol {
         Symbol::new(env, "stream_topped_up")
@@ -155,9 +259,28 @@ impl Events {
         Symbol::new(env, "multisig_created")
     }
 
-    pub fn multisig_approved(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "multisig_approved")
-    }
+#[contractevent]
+pub struct MultisigCancelled {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub amount: i128,
+}
+
+// ─── Batch send events ────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct BatchSent {
+    pub sender: Address,
+    pub recipient_count: u32,
+    pub total_amount: i128,
+}
+
+#[contractevent]
+pub struct BatchSentMulti {
+    pub sender: Address,
+    pub recipient_count: u32,
+    pub total_amount: i128,
+}
 
     pub fn multisig_executed(env: &soroban_sdk::Env) -> Symbol {
         Symbol::new(env, "multisig_executed")
@@ -223,15 +346,198 @@ impl Events {
         Symbol::new(env, "admin_action_proposed")
     }
 
-    pub fn admin_action_approved(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "admin_action_approved")
-    }
+// ─── Emergency withdrawal events ──────────────────────────────────────────
 
-    pub fn balance_reconciled(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "balance_reconciled")
-    }
+#[contractevent]
+pub struct EmergencyWithdrawalInitiated {
+    pub withdrawal_id: u32,
+    pub initiator: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub activation_ledger: u32,
+}
 
-    pub fn balance_drift_detected(env: &soroban_sdk::Env) -> Symbol {
-        Symbol::new(env, "balance_drift_detected")
-    }
+#[contractevent]
+pub struct EmergencyWithdrawalApproved {
+    pub withdrawal_id: u32,
+    pub signer: Address,
+    pub count: u32,
+    pub threshold: u32,
+}
+
+#[contractevent]
+pub struct EmergencyWithdrawalExecuted {
+    pub withdrawal_id: u32,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct EmergencyWithdrawalCancelled {
+    pub withdrawal_id: u32,
+    pub admin: Address,
+    pub amount: i128,
+}
+
+// ─── Airdrop events ───────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct AirdropCreated {
+    pub airdrop_id: u32,
+    pub funder: Address,
+    pub token: Address,
+    pub total_amount: i128,
+}
+
+#[contractevent]
+pub struct AirdropClaimed {
+    pub airdrop_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct AirdropCancelled {
+    pub airdrop_id: u32,
+    pub funder: Address,
+    pub amount: i128,
+}
+
+// ─── Remaining escrow events (claim, milestones, disputes) ───────────────
+
+#[contractevent]
+pub struct EscrowClaimed {
+    pub escrow_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct EscrowClaimPartial {
+    pub escrow_id: u32,
+    pub to: Address,
+    pub claim_amount: i128,
+    pub remaining: i128,
+}
+
+#[contractevent]
+pub struct MilestoneEscrowCreated {
+    pub escrow_id: u32,
+    pub milestone_count: u32,
+}
+
+#[contractevent]
+pub struct MilestoneApproved {
+    pub escrow_id: u32,
+    pub milestone_id: u32,
+}
+
+#[contractevent]
+pub struct MilestoneClaimed {
+    pub escrow_id: u32,
+    pub milestone_id: u32,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct DisputeResolved {
+    pub escrow_id: u32,
+    pub resolution: Symbol,
+    pub to: Address,
+    pub amount: i128,
+}
+
+// ─── Remaining stream events (close, reject, transfer) ────────────────────
+
+#[contractevent]
+pub struct StreamClose {
+    pub stream_id: u32,
+    pub payer: Address,
+    pub refund: i128,
+}
+
+#[contractevent]
+pub struct StreamReject {
+    pub stream_id: u32,
+    pub recipient: Address,
+    pub refund: i128,
+}
+
+#[contractevent]
+pub struct StreamTransfer {
+    pub stream_id: u32,
+    pub from: Address,
+    pub to: Address,
+}
+
+// ─── Remaining multi-sig events (executed, timeout) ───────────────────────
+
+#[contractevent]
+pub struct MultisigExecuted {
+    pub proposal_id: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct MultisigTimeout {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub amount: i128,
+}
+
+// ─── Swap event ───────────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct Swap {
+    pub caller: Address,
+    pub token_in: Address,
+    pub token_out: Address,
+    pub amount_in: i128,
+    pub actual_amount_in: i128,
+    pub amount_out: i128,
+    pub fee: i128,
+    pub path_len: u32,
+}
+
+// ─── Balance reconciliation events ────────────────────────────────────────
+
+#[contractevent]
+pub struct BalanceReconciled {
+    pub token: Address,
+    pub old: i128,
+    pub new: i128,
+}
+
+#[contractevent]
+pub struct BalanceDriftDetected {
+    pub token: Address,
+    pub cached: i128,
+    pub actual: i128,
+}
+
+// ─── Yield escrow events ──────────────────────────────────────────────────
+
+#[contractevent]
+pub struct YieldEscrowCreate {
+    pub escrow_id: u64,
+    pub from: Address,
+    pub to: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub shares: i128,
+}
+
+#[contractevent]
+pub struct YieldEscrowClaim {
+    pub escrow_id: u64,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct YieldEscrowCancelled {
+    pub escrow_id: u64,
+    pub from: Address,
+    pub amount: i128,
 }

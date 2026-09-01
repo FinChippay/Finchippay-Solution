@@ -13,6 +13,7 @@ use crate::{
     MIN_MULTISIG_AMOUNT,
 };
 
+use crate::events::*;
 use crate::storage::*;
 // ─── Multi-sig payments ───────────────────────────────────────────────────
 

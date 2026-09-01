@@ -1,10 +1,12 @@
 #![cfg(test)]
 
-use finchippay_contract::{ContractError, FinchippayContract, FinchippayContractClient};
+use finchippay_contract::{
+    events::Swap, ContractError, FinchippayContract, FinchippayContractClient,
+};
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Events as _},
-    token, vec, Address, Env, IntoVal, Map, Symbol, Val, Vec,
+    token, vec, Address, Env, Event, IntoVal, Map, Symbol, Val, Vec,
 };
 
 #[contracttype]
@@ -515,19 +517,18 @@ fn swap_event_records_requested_actual_fee_output_and_path_length() {
     client.swap_exact_tokens_for_tokens(&caller, &token_in, &token_out, &1_000, &997, &path);
 
     let events = env.events().all().filter_by_contract(&contract_id);
-    let expected: Vec<(Address, Vec<Val>, Val)> = vec![
-        &env,
-        (
-            contract_id.clone(),
-            (
-                Symbol::new(&env, "swap"),
-                caller.clone(),
-                token_in.clone(),
-                token_out.clone(),
-            )
-                .into_val(&env),
-            (1_000i128, 1_000i128, 997i128, 3i128, 2u32).into_val(&env),
-        ),
-    ];
-    assert_eq!(events, expected);
+    assert_eq!(
+        events,
+        [Swap {
+            caller: caller.clone(),
+            token_in: token_in.clone(),
+            token_out: token_out.clone(),
+            amount_in: 1_000i128,
+            actual_amount_in: 1_000i128,
+            amount_out: 997i128,
+            fee: 3i128,
+            path_len: 2u32,
+        }
+        .to_xdr(&env, &contract_id)]
+    );
 }

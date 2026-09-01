@@ -14,13 +14,21 @@
  *  - When DATABASE_URL is not set the indexer stores events in an in-memory
  *    buffer so the API remains functional in CI / dev without PostgreSQL.
  *
- * Event types emitted by the contract (see lib.rs):
- *   init, admin_transfer, paused, unpaused, pauser_set, upgraded,
- *   rescue_tokens, tip, receipt, escrow_create, escrow_claim_partial,
- *   escrow_claim, escrow_cancelled, stream_open, stream_claim,
- *   stream_topped_up, stream_close, stream_reject, stream_transfer,
- *   multisig_create, multisig_approve, multisig_executed,
- *   multisig_timeout, multisig_cancelled
+ * Event types emitted by the contract (see contracts/finchippay-contract/src/events.rs):
+ *   init, admin_transfer, paused, unpaused, pauser_set, admin_signers_set,
+ *   upgraded, ttl_bumped, admin_action_proposed, admin_action_approved,
+ *   rescue_tokens, fee_collector_set, swap_fee_set, swap, tip_sent,
+ *   receipt_minted, escrow_created, escrow_claim_partial, escrow_claimed,
+ *   escrow_cancelled, disputable_escrow_created, dispute_raised,
+ *   dispute_resolved, arbitrator_added, arbitrator_removed, stream_opened,
+ *   stream_claimed, stream_topped_up, stream_close, stream_closed,
+ *   stream_reject, stream_transfer, multisig_created, multisig_approved,
+ *   multisig_executed, multisig_timeout, multisig_cancelled, batch_sent,
+ *   batch_sent_multi, vesting_create, vesting_claim, vesting_revoke,
+ *   airdrop_created, airdrop_claimed, airdrop_cancelled,
+ *   yield_escrow_create, yield_escrow_claim, yield_escrow_cancelled,
+ *   emergency_withdrawal_initiated, emergency_withdrawal_approved,
+ *   emergency_withdrawal_executed, emergency_withdrawal_cancelled
  */
 
 "use strict";

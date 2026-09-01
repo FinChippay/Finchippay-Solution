@@ -17,11 +17,17 @@
 //!    restores correctness and deposits/claims across escrow, stream, and
 //!    multi-sig flows continue to settle exactly.
 
-use finchippay_contract::{DataKey, FinchippayContract, FinchippayContractClient};
+use finchippay_contract::{
+    events::{
+        AdminActionApproved, AdminActionProposed, BalanceDriftDetected,
+        BalanceReconciled, EscrowCreated,
+    },
+    DataKey, FinchippayContract, FinchippayContractClient,
+};
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Events as _, Ledger},
-    token, vec, Address, Env, IntoVal, Map, Symbol, Val, Vec,
+    token, Address, Env, Event, IntoVal, Map, Symbol, Val, Vec,
 };
 
 // ─── Fee-on-transfer token (99% fee) ────────────────────────────────────────
@@ -270,25 +276,30 @@ fn test_reconcile_balance_resyncs_cache_and_emits_event() {
     // operation (which would clear the buffer).
     reconcile(&env, &client, &admin, &token_id);
     let events = env.events().all().filter_by_contract(&contract_id);
-    let expected: Vec<(Address, Vec<Val>, Val)> = vec![
-        &env,
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "admin_action_proposed"),).into_val(&env),
-            (1u64, Symbol::new(&env, "reconcile_balance"), admin.clone()).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "admin_action_approved"),).into_val(&env),
-            (1u64, admin.clone(), 1u32, 1u32).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "balance_reconciled"), token_id.clone()).into_val(&env),
-            (1_000i128, 1_500i128).into_val(&env),
-        ),
-    ];
-    assert_eq!(events, expected);
+    assert_eq!(
+        events,
+        [
+            AdminActionProposed {
+                proposal_id: 1u64,
+                action_type: Symbol::new(&env, "reconcile_balance"),
+                proposer: admin.clone(),
+            }
+            .to_xdr(&env, &contract_id),
+            AdminActionApproved {
+                proposal_id: 1u64,
+                approver: admin.clone(),
+                count: 1u32,
+                threshold: 1u32,
+            }
+            .to_xdr(&env, &contract_id),
+            BalanceReconciled {
+                token: token_id.clone(),
+                old: 1_000i128,
+                new: 1_500i128,
+            }
+            .to_xdr(&env, &contract_id),
+        ]
+    );
 }
 
 #[test]
@@ -320,25 +331,30 @@ fn test_reconcile_balance_no_drift_emits_event_with_equal_values() {
     // events before any further host operation (which would clear the buffer).
     reconcile(&env, &client, &admin, &token_id);
     let events = env.events().all().filter_by_contract(&contract_id);
-    let expected: Vec<(Address, Vec<Val>, Val)> = vec![
-        &env,
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "admin_action_proposed"),).into_val(&env),
-            (1u64, Symbol::new(&env, "reconcile_balance"), admin.clone()).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "admin_action_approved"),).into_val(&env),
-            (1u64, admin.clone(), 1u32, 1u32).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "balance_reconciled"), token_id.clone()).into_val(&env),
-            (1_000i128, 1_000i128).into_val(&env),
-        ),
-    ];
-    assert_eq!(events, expected);
+    assert_eq!(
+        events,
+        [
+            AdminActionProposed {
+                proposal_id: 1u64,
+                action_type: Symbol::new(&env, "reconcile_balance"),
+                proposer: admin.clone(),
+            }
+            .to_xdr(&env, &contract_id),
+            AdminActionApproved {
+                proposal_id: 1u64,
+                approver: admin.clone(),
+                count: 1u32,
+                threshold: 1u32,
+            }
+            .to_xdr(&env, &contract_id),
+            BalanceReconciled {
+                token: token_id.clone(),
+                old: 1_000i128,
+                new: 1_000i128,
+            }
+            .to_xdr(&env, &contract_id),
+        ]
+    );
 }
 
 #[test]
@@ -401,24 +417,25 @@ fn test_drift_detected_event_on_read() {
     );
 
     let events = env.events().all().filter_by_contract(&contract_id);
-    let expected: Vec<(Address, Vec<Val>, Val)> = vec![
-        &env,
-        (
-            contract_id.clone(),
-            (
-                Symbol::new(&env, "balance_drift_detected"),
-                token_id.clone(),
-            )
-                .into_val(&env),
-            (1_000i128, 1_500i128).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "escrow_create"), 1u32).into_val(&env),
-            (payer.clone(), recipient2.clone(), 1_000i128, release2).into_val(&env),
-        ),
-    ];
-    assert_eq!(events, expected);
+    assert_eq!(
+        events,
+        [
+            BalanceDriftDetected {
+                token: token_id.clone(),
+                cached: 1_000i128,
+                actual: 1_500i128,
+            }
+            .to_xdr(&env, &contract_id),
+            EscrowCreated {
+                escrow_id: 1u32,
+                from: payer.clone(),
+                to: recipient2.clone(),
+                amount: 1_000i128,
+                release_ledger: release2,
+            }
+            .to_xdr(&env, &contract_id),
+        ]
+    );
 
     // Cache self-healed to the real balance (1_500 + the 1_000 just deposited).
     assert_eq!(
@@ -536,25 +553,30 @@ fn test_rebasing_token_escrow_reconcile_and_claim() {
     // operation (which would clear the buffer).
     reconcile(&env, &client, &admin, &rb_id);
     let events = env.events().all().filter_by_contract(&contract_id);
-    let expected: Vec<(Address, Vec<Val>, Val)> = vec![
-        &env,
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "admin_action_proposed"),).into_val(&env),
-            (1u64, Symbol::new(&env, "reconcile_balance"), admin.clone()).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "admin_action_approved"),).into_val(&env),
-            (1u64, admin.clone(), 1u32, 1u32).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "balance_reconciled"), rb_id.clone()).into_val(&env),
-            (1_000i128, 2_000i128).into_val(&env),
-        ),
-    ];
-    assert_eq!(events, expected);
+    assert_eq!(
+        events,
+        [
+            AdminActionProposed {
+                proposal_id: 1u64,
+                action_type: Symbol::new(&env, "reconcile_balance"),
+                proposer: admin.clone(),
+            }
+            .to_xdr(&env, &contract_id),
+            AdminActionApproved {
+                proposal_id: 1u64,
+                approver: admin.clone(),
+                count: 1u32,
+                threshold: 1u32,
+            }
+            .to_xdr(&env, &contract_id),
+            BalanceReconciled {
+                token: rb_id.clone(),
+                old: 1_000i128,
+                new: 2_000i128,
+            }
+            .to_xdr(&env, &contract_id),
+        ]
+    );
 
     // Claim after reconcile: the recipient receives the full escrow amount and
     // the cache tracks the post-claim balance.
@@ -667,20 +689,25 @@ fn test_rebasing_token_drift_detected_on_read() {
     );
 
     let events = env.events().all().filter_by_contract(&contract_id);
-    let expected: Vec<(Address, Vec<Val>, Val)> = vec![
-        &env,
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "balance_drift_detected"), rb_id.clone()).into_val(&env),
-            (1_000i128, 2_000i128).into_val(&env),
-        ),
-        (
-            contract_id.clone(),
-            (Symbol::new(&env, "escrow_create"), 1u32).into_val(&env),
-            (payer.clone(), recipient2.clone(), 1_000i128, release2).into_val(&env),
-        ),
-    ];
-    assert_eq!(events, expected);
+    assert_eq!(
+        events,
+        [
+            BalanceDriftDetected {
+                token: rb_id.clone(),
+                cached: 1_000i128,
+                actual: 2_000i128,
+            }
+            .to_xdr(&env, &contract_id),
+            EscrowCreated {
+                escrow_id: 1u32,
+                from: payer.clone(),
+                to: recipient2.clone(),
+                amount: 1_000i128,
+                release_ledger: release2,
+            }
+            .to_xdr(&env, &contract_id),
+        ]
+    );
 
     // Cache self-healed (2_000 at drift + the 1_000 just deposited).
     assert_eq!(cached_contract_balance(&env, &contract_id, &rb_id), 3_000);
