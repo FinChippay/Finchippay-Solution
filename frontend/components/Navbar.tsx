@@ -15,16 +15,9 @@ import { NavStarIcon } from "@/components/icons";
 import { logger } from "@/lib/logger";
 import { getQueueCount, processQueue, registerBackgroundSync } from "@/lib/offlineQueue";
 import { loadAlerts, PRICE_ALERTS_STORAGE_KEY } from "@/lib/priceAlerts";
-import {
-  getNetworkConfig,
-  fetchNetworkFeeStats,
-  type FeeLevel,
-} from "@/lib/stellar";
+import { getNetworkConfig, fetchNetworkFeeStats, type FeeLevel } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
-import {
-  connectWallet as requestWalletConnection,
-  performSEP0010Auth,
-} from "@/lib/wallet";
+import { connectWallet as requestWalletConnection, performSEP0010Auth } from "@/lib/wallet";
 
 /** Prop interface allowing _app.tsx to wire the tour launcher. */
 export interface NavbarProps {
@@ -65,10 +58,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
       const alerts = loadAlerts();
       const cutoff = Date.now() - 24 * 60 * 60 * 1000; // last 24 hours
       const recentlyTriggered = alerts.filter(
-        (a) =>
-          !a.active &&
-          a.triggeredAt !== null &&
-          new Date(a.triggeredAt).getTime() > cutoff
+        (a) => !a.active && a.triggeredAt !== null && new Date(a.triggeredAt).getTime() > cutoff,
       ).length;
       setAlertBadgeCount(recentlyTriggered);
     };
@@ -130,13 +120,14 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
     }
     try {
       setQueueBadgeCount(await getQueueCount());
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   const config = getNetworkConfig();
   const isMainnet = config.network === "mainnet";
-  const networkLabel =
-    config.network === "custom" ? "Custom" : isMainnet ? "Mainnet" : "Testnet";
+  const networkLabel = config.network === "custom" ? "Custom" : isMainnet ? "Mainnet" : "Testnet";
 
   const navLinks = [
     { href: "/", label: t("nav.home") },
@@ -180,10 +171,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
   // Close help menu when clicking outside or pressing Escape.
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        helpMenuRef.current &&
-        !helpMenuRef.current.contains(event.target as Node)
-      ) {
+      if (helpMenuRef.current && !helpMenuRef.current.contains(event.target as Node)) {
         setIsHelpMenuOpen(false);
       }
     };
@@ -207,8 +195,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
   }, [isHelpMenuOpen]);
 
   const handleConnectClick = async () => {
-    const { publicKey: nextPublicKey, error: walletError } =
-      await requestWalletConnection();
+    const { publicKey: nextPublicKey, error: walletError } = await requestWalletConnection();
 
     if (!nextPublicKey) {
       if (walletError) {
@@ -248,7 +235,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
           <span
             className={clsx(
               "hidden items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide md:inline-flex",
-              networkBadgeClassName
+              networkBadgeClassName,
             )}
           >
             {networkLabel}
@@ -262,7 +249,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
                 "hidden h-2.5 w-2.5 rounded-full border transition-colors md:inline-block",
                 feeLevel === "normal" && "border-emerald-400/50 bg-emerald-400",
                 feeLevel === "elevated" && "border-amber-400/50 bg-amber-400",
-                feeLevel === "high" && "border-red-400/50 bg-red-400"
+                feeLevel === "high" && "border-red-400/50 bg-red-400",
               )}
             />
           )}
@@ -277,7 +264,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
                   "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
                   router.pathname === link.href
                     ? "bg-stellar-100 text-stellar-700 dark:bg-stellar-500/15 dark:text-stellar-300"
-                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200",
                 )}
               >
                 {link.label}
@@ -317,7 +304,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
             </svg>
             {alertBadgeCount > 0 && (
               <span
-                className="absolute top-0.5 right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white leading-none"
+                className="absolute top-0.5 end-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-0.5 text-[10px] font-bold text-white leading-none"
                 aria-hidden="true"
                 data-testid="price-alerts-badge"
               >
@@ -351,7 +338,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
                 />
               </svg>
               <span
-                className="absolute top-0.5 right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-0.5 text-[10px] font-bold text-white leading-none"
+                className="absolute top-0.5 end-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-0.5 text-[10px] font-bold text-white leading-none"
                 aria-hidden="true"
                 data-testid="offline-queue-badge"
               >
@@ -392,7 +379,7 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
               <div
                 role="menu"
                 aria-label="Help options"
-                className="absolute right-0 top-full mt-1 min-w-[160px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-cosmos-700 dark:bg-cosmos-800"
+                className="absolute end-0 top-full mt-1 min-w-[160px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-cosmos-700 dark:bg-cosmos-800"
                 data-testid="help-menu-dropdown"
               >
                 <button
@@ -452,11 +439,27 @@ export default function Navbar({ onTakeTour }: NavbarProps) {
             aria-expanded={isMobileMenuOpen}
             aria-controls="mobile-nav-menu"
           >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <svg
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
               {isMobileMenuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               )}
             </svg>
           </button>
