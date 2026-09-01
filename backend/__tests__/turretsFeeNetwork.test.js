@@ -1,5 +1,9 @@
 "use strict";
 
+// turretsService imports @stellar/stellar-sdk, whose CJS build pulls an
+// ESM-only dependency Jest cannot transform; stub the SDK surface it uses.
+jest.mock("@stellar/stellar-sdk", () => require("./turretsSdkStub"));
+
 const { Networks } = require("@stellar/stellar-sdk");
 const turretsService = require("../src/services/turretsService");
 const { Keypair } = require("@stellar/stellar-sdk");
@@ -51,7 +55,7 @@ describe("Turrets Service - Fee and Network Selection", () => {
         quoteAssetCode: "USDC",
       },
     });
-    
+
     expect(challenge).toBeDefined();
     expect(challenge.challengeXDR).toBeDefined();
   });

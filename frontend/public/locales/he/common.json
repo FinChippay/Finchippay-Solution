@@ -1,11 +1,7 @@
 {
-  "analytics": {
-    "assetBreakdown": "פירוט נכסים",
-    "lastMonth": "החודש שעבר",
-    "monthlyChange": "שינוי חודשי",
-    "noData": "אין נתוני ניתוח זמינים.",
-    "thisMonth": "החודש",
-    "volumeOverTime": "נפח לאורך זמן"
+  "assetSelect": {
+    "addTrustline": "קו אמון",
+    "noAssets": "אין נכסים זמינים."
   },
   "dashboard": {
     "": "__MISSING_TRANSLATION__",
@@ -14,6 +10,8 @@
     "balance": "יתרה",
     "balanceLive": "חי",
     "balancePolling": "מתעדכן כל 30 שניות",
+    "balanceReconnecting": "מתחבר מחדש…",
+    "balanceStale": "פג — הנתונים עלולים להיות מיושנים",
     "balanceTrendDownward": "מגמת היתרה: ירידה",
     "balanceTrendUpward": "מגמת היתרה: עלייה",
     "batchSend": "שליחה מרובה",
@@ -78,9 +76,7 @@
     "walletAddress": "כתובת הארנק",
     "xlmBalance": "יתרת XLM",
     "xlmReceived": "סך הכל התקבל",
-    "xlmSent": "סך הכל נשלח",
-    "balanceReconnecting": "מתחבר מחדש…",
-    "balanceStale": "פג — הנתונים עלולים להיות מיושנים"
+    "xlmSent": "סך הכל נשלח"
   },
   "home": {
     "badge": "בנוי על רשת הבדיקות של Stellar · קוד פתוח",
@@ -222,6 +218,7 @@
     "memoPlaceholder": "הערת תשלום...",
     "mintNftReceipt": "הנפקת קבלת NFT",
     "mintingReceipt": "מנפיק קבלה…",
+    "needsTrustline": "הוסף קו אמון עבור {asset} לפני השליחה.",
     "networkFee": "עמלת רשת",
     "nftReceiptMinted": "קבלת ה-NFT הונפקה בהצלחה!",
     "nicknamePrompt": "כינוי לאיש קשר זה:",
@@ -242,8 +239,7 @@
     "transactionHash": "גיבוב העסקה",
     "updateNicknamePrompt": "עדכון הכינוי של איש הקשר:",
     "usernameNotFound": "שם המשתמש לא נמצא",
-    "viewOnExplorer": "צפייה בסייר",
-    "needsTrustline": "הוסף קו אמון עבור {asset} לפני השליחה."
+    "viewOnExplorer": "צפייה בסייר"
   },
   "settings": {
     "active": "פעיל",
@@ -329,8 +325,8 @@
     "loadMoreResults": "טעינת תוצאות נוספות",
     "loadingMore": "טוען עוד...",
     "needTestXlm": "צריך XLM לבדיקה?",
-    "noTransactions": "אין עדיין עסקאות",
     "newest": "החדש ביותר",
+    "noTransactions": "אין עדיין עסקאות",
     "offlineSnapshot": "תצוגת היסטוריה לא מקוונת מתאריך",
     "paymentHistory": "היסטוריית תשלומים",
     "prefillSendForm": "מילוי טופס השליחה מראש עם עסקה זו",
@@ -346,9 +342,5 @@
     "title": "תשלומים אחרונים",
     "tryAgain": "נסה שוב",
     "viewOnExpert": "צפייה ב-Stellar Expert"
-  },
-  "assetSelect": {
-    "noAssets": "אין נכסים זמינים.",
-    "addTrustline": "קו אמון"
   }
 }

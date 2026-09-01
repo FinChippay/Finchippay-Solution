@@ -6,8 +6,45 @@
 
 "use strict";
 
+// The tests target the documented 100kb global JSON limit (#81); the default is
+// 1mb so set it before the server module reads it.
+process.env.BODY_LIMIT_JSON = "100kb";
+
+// The full server transitively loads @stellar/stellar-sdk whose nested ESM
+// deps cannot be parsed by babel-jest (a known repo constraint — other tests
+// mock the SDK before requiring it). Stub it so the app boots under Jest.
+jest.mock("@stellar/stellar-sdk", () => {
+  // tokenPriceService constructs Assets at module load; give the stub a
+  // contractId() so the app can boot.
+  function MockAsset() {
+    return { contractId: () => "Ccontractid" };
+  }
+  MockAsset.native = () => ({ contractId: () => "Ccontractid" });
+  return {
+    Horizon: { Server: class {} },
+    Networks: { TESTNET: "testnet", PUBLIC: "public" },
+    TransactionBuilder: { fromXDR: jest.fn() },
+    Asset: MockAsset,
+    Memo: {},
+    Operation: {},
+    Keypair: {},
+    Account: class {},
+  };
+});
+
 const request = require("supertest");
+const jwt = require("jsonwebtoken");
 const app = require("../src/server");
+const { JWT_SECRET } = require("../src/middleware/auth");
+
+// POST /api/webhooks is JWT-gated (WS1); a token lets the request reach the
+// downstream body-schema validation that these Content-Type tests target.
+const authHeader = () =>
+  `Bearer ${jwt.sign(
+    { publicKey: "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA" },
+    JWT_SECRET,
+    { expiresIn: 60 * 60, algorithm: "HS256" },
+  )}`;
 
 describe("Content-Type enforcement (#81)", () => {
   it("rejects a POST with a non-JSON Content-Type with 415", async () => {
@@ -23,6 +60,7 @@ describe("Content-Type enforcement (#81)", () => {
   it("accepts application/json with a charset parameter", async () => {
     const res = await request(app)
       .post("/api/webhooks")
+      .set("Authorization", authHeader())
       .set("Content-Type", "application/json; charset=utf-8")
       .send(JSON.stringify({ url: "https://x.test/hook" }));
 
@@ -46,7 +84,8 @@ describe("Global 100kb JSON body limit (#81)", () => {
       });
 
     expect(res.status).toBe(413);
-    expect(res.body.error).toMatch(/exceeds|too large/i);
+    expect(res.body.error.code).toBe("VAL_BODY_TOO_LARGE");
+    expect(res.body.error.message).toMatch(/exceeds|too large/i);
   });
 });
 
@@ -69,7 +108,8 @@ describe("/api/turrets 512kb body limit override (#81)", () => {
       .send({ ownerPublicKey: "invalid-key", type: "dca", padding: oversized });
 
     expect(res.status).toBe(413);
-    expect(res.body.error).toMatch(/exceeds|too large/i);
+    expect(res.body.error.code).toBe("VAL_BODY_TOO_LARGE");
+    expect(res.body.error.message).toMatch(/exceeds|too large/i);
   });
 });
 
@@ -107,9 +147,8 @@ describe("Improved 413 error response (#353)", () => {
     const res = await request(app).post("/api/webhooks").send({ padding: oversized });
 
     if (res.status === 413) {
-      expect(res.body).toHaveProperty("error", "PAYLOAD_TOO_LARGE");
-      expect(res.body).toHaveProperty("message");
-      expect(res.body.message).toMatch(/exceeds|limit/i);
+      expect(res.body.error.code).toBe("VAL_BODY_TOO_LARGE");
+      expect(res.body.error.message).toMatch(/exceeds|limit/i);
     }
   });
 });

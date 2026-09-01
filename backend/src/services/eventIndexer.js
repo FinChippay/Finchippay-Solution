@@ -384,7 +384,10 @@ async function loadCursor() {
     if (row) {
       lastProcessedLedger = parseInt(row.last_processed_ledger ?? "0", 10);
       lastProcessedTxId = row.last_processed_tx_id ?? null;
-      logger.info({ lastProcessedLedger, lastProcessedTxId }, "Loaded event cursor from PostgreSQL");
+      logger.info(
+        { lastProcessedLedger, lastProcessedTxId },
+        "Loaded event cursor from PostgreSQL",
+      );
     }
   } catch (err) {
     logger.error({ err }, "Failed to load cursor from PostgreSQL");
@@ -404,7 +407,9 @@ function getLastTxId(events) {
     )
     .at(-1);
 
-  return latest?.payload?.txHash ?? latest?.payload?.pagingToken ?? latest?.payload?.eventId ?? null;
+  return (
+    latest?.payload?.txHash ?? latest?.payload?.pagingToken ?? latest?.payload?.eventId ?? null
+  );
 }
 
 // ─── Polling loop ────────────────────────────────────────────────────────────
@@ -590,8 +595,12 @@ async function queryEventsByType(publicKey, eventType, { limit = 20, offset = 0,
   const pool = getPgPool();
 
   if (pool) {
-    let where = `payload::text ILIKE $1 AND event_type = $2`;
-    const params = [`%${publicKey}%`, eventType];
+    // Exact-match on the extracted participant columns (WS4). The indexer
+    // persists `from_addr` / `to_addr`, so we never fall back to a
+    // `payload::text ILIKE` scan — that was both slow (no index usage) and
+    // incorrect (matched the key anywhere in the JSON, e.g. inside a memo).
+    let where = `(from_addr = $1 OR to_addr = $1) AND event_type = $2`;
+    const params = [publicKey, eventType];
 
     if (since) {
       where += ` AND emitted_at >= $${params.length + 1}`;
@@ -653,8 +662,10 @@ async function queryEventsByPublicKey(publicKey, { limit = 20, offset = 0, since
   const pool = getPgPool();
 
   if (pool) {
-    let where = `payload::text ILIKE $1`;
-    const params = [`%${publicKey}%`];
+    // Exact-match participant query on the indexed columns (WS4). See
+    // queryEventsByType for why ILIKE-on-payload was replaced.
+    let where = `(from_addr = $1 OR to_addr = $1)`;
+    const params = [publicKey];
 
     if (since) {
       where += ` AND emitted_at >= $${params.length + 1}`;
@@ -712,10 +723,10 @@ async function getEventStats(publicKey) {
     const result = await pool.query(
       `SELECT event_type, COUNT(*) AS count
        FROM contract_events
-       WHERE payload::text ILIKE $1
+       WHERE (from_addr = $1 OR to_addr = $1)
        GROUP BY event_type
        ORDER BY count DESC`,
-      [`%${publicKey}%`],
+      [publicKey],
     );
     return result.rows;
   }

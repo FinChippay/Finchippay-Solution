@@ -2,18 +2,18 @@
   GENERATED FILE — do not edit by hand.
   Source: shared/errorCodes.js
   Regenerate: node scripts/generate-error-codes-doc.js
-  Generated: 2026-08-22 20:20:00 UTC
+  Generated: 2026-08-30 00:27:10 UTC
 -->
 
 # Error codes
 
-> **Last generated:** 2026-08-22 20:20:00 UTC
+> **Last generated:** 2026-08-30 00:27:10 UTC
 
 Every error Finchippay returns carries a machine-readable code from a single
 catalogue shared by the contract, the API, and the frontend. This document is
 generated from that catalogue, so it cannot drift from the code.
 
-**89 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
+**90 codes** are defined in [`shared/errorCodes.js`](../shared/errorCodes.js).
 
 ---
 
@@ -108,7 +108,7 @@ replaced at runtime with context-specific values:
 | `RES_*` | api | 7 | Resource lifecycle |
 | `SRV_*` | api | 6 | Server and infrastructure |
 | `TOKEN_*` | api | 1 | Legacy aliases |
-| `VAL_*` | api | 17 | Request validation |
+| `VAL_*` | api | 18 | Request validation |
 | `WALLET_*` | frontend | 7 | Browser wallet |
 
 ## Common errors
@@ -394,6 +394,7 @@ Request validation failures: malformed input, missing required fields, invalid f
 | `VAL_INVALID_USERNAME` | 400 | Username must be 3–20 characters and contain only letters and numbers. |
 | `VAL_MEMO_TOO_LONG` | 400 | Memo exceeds the maximum of 28 bytes. |
 | `VAL_MISSING_FIELD` | 400 | Required field is missing. |
+| `VAL_TOO_MANY_ROWS` | 400 | The uploaded file exceeds the maximum number of allowed rows. |
 | `VAL_WEAK_SECRET` | 400 | Secret must be at least 8 characters for HMAC-SHA256 security. |
 
 ### `WALLET_*` — Browser wallet
@@ -414,4 +415,4 @@ Browser wallet (Freighter) interaction errors: not installed, not connected, rej
 
 ---
 
-*Document auto-generated on 2026-08-22 20:20:00 UTC from [`shared/errorCodes.js`](../shared/errorCodes.js).*
+*Document auto-generated on 2026-08-30 00:27:10 UTC from [`shared/errorCodes.js`](../shared/errorCodes.js).*

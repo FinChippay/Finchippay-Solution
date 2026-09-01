@@ -189,3 +189,35 @@ cargo fuzz run create_escrow -- -max_total_time=60
 ```bash
 python3 create_fuzz_targets.py --entrypoint <name> --args "ArgType1, ArgType2"
 ```
+
+## Frozen Merkle Commitment (do not change)
+
+The airdrop module's Merkle leaf/pair serialization is a **backward
+compatibility guarantee**: any change invalidates every outstanding airdrop
+proof, so it is frozen (see `src/layout.rs` and `src/airdrop.rs`). For airdrop
+`id`, recipient `R` and amount `A`:
+
+```text
+leaf = sha256( xdr(R) || id_be32 || amount_be128 )
+pair = sha256( xdr(left) || xdr(right) )
+```
+
+`id` is bound into the leaf so a proof minted for airdrop A can never be
+replayed against airdrop B (issue #945 WS6). Changing this format after launch
+is a breaking proof-format change requiring a fresh Merkle root per airdrop and
+a `StorageLayoutVersion` bump.
+
+## Property Tests (issue #945 WS7)
+
+`tests/property_airdrop.rs` pins three built-in invariants via `proptest`:
+
+1. **Merkle soundness** — `airdrop::verify_merkle_proof` returns `true` iff the
+   leaf is genuinely in the tree at `index`; a foreign leaf, a proof used at the
+   wrong index, and an out-of-range index all return `false`.
+2. **Batch conservation** — after `batch_send`, each recipient's `TipTotal`
+   delta equals the sum of its amounts and `TipCount` matches the transfer
+   count; the sum of balances received equals the total sent.
+3. **Vesting monotonicity & boundedness** — `vested(t2) >= vested(t1)` for
+   `t2 >= t1` and `vested <= total_amount` (no over-claim).
+
+Run them with `cargo test --test property_airdrop`.

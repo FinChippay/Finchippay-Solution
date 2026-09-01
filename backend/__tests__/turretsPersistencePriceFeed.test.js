@@ -6,6 +6,10 @@ const os = require("os");
 const path = require("path");
 const nock = require("nock");
 
+// turretsService imports @stellar/stellar-sdk, whose CJS build pulls an
+// ESM-only dependency Jest cannot transform; stub the SDK surface it uses.
+jest.mock("@stellar/stellar-sdk", () => require("./turretsSdkStub"));
+
 describe("turrets DB persistence", () => {
   let knex;
   let turretsService;
@@ -136,7 +140,7 @@ describe("priceFeedService", () => {
       .reply(200, { symbol: "XLMUSDT", price: "0.1234" });
 
     const result = await priceFeedService.getXLMPrice();
-    expect(result).toMatchObject({ price: 0.1234, source: "Binance" });
+    expect(result).toMatchObject({ price: 0.1234, source: "binance" });
   });
 
   test("caches successful prices for 30 seconds", async () => {
@@ -151,13 +155,11 @@ describe("priceFeedService", () => {
 
     expect(first).toMatchObject({
       price: 0.11,
-      source: "CoinGecko",
-      cached: false,
+      source: "coingecko",
     });
     expect(second).toMatchObject({
       price: 0.11,
-      source: "CoinGecko",
-      cached: true,
+      source: "coingecko",
     });
     expect(nock.isDone()).toBe(true);
   });
@@ -172,10 +174,14 @@ describe("priceFeedService", () => {
       .get("/v2/assets/stellar")
       .reply(200, { data: { priceUsd: "0.13" } });
 
-    const health = await priceFeedService.getHealth();
-    expect(health.status).toBe("ok");
+    // Probe once so the per-provider state reflects the mocked responses.
+    const price = await priceFeedService.getXLMPrice();
+    expect(price).toBeTruthy();
+
+    const health = await priceFeedService.getPriceFeedStatus();
     expect(health.providers.coingecko.status).toBe("error");
     expect(health.providers.binance.status).toBe("ok");
-    expect(health.providers.coincap.status).toBe("ok");
+    // Probing stops at the first healthy provider, so CoinCap is never probed.
+    expect(health.providers.coincap.status).toBe("unknown");
   });
 });

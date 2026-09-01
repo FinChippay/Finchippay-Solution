@@ -28,11 +28,13 @@ const express = require("express");
 const cors = require("cors");
 const pinoHttp = require("pino-http");
 const { strictLimiter, createInstrumentedLimiter } = require("./middleware/rateLimit");
+const { deprecationHeader } = require("./middleware/deprecation");
 const Sentry = require("@sentry/node");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
+const apiKeysRoutes = require("./routes/apiKeys");
 const paymentRoutes = require("./routes/payments");
 const receiptsRoutes = require("./routes/receipts");
 const analyticsRoutes = require("./routes/analytics");
@@ -52,6 +54,7 @@ const eventRoutes = require("./routes/events");
 const notificationRoutes = require("./routes/notifications");
 const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
+const adminAuditLogRoutes = require("./routes/adminAuditLog");
 const tokensRoutes = require("./routes/tokens");
 const pushRoutes = require("./routes/push");
 const emailRoutes = require("./routes/emails");
@@ -187,9 +190,12 @@ app.use(requireJsonContentType);
 // JSON body size limits (#81, #353) — configurable via env vars.
 // Apply standard body parsing with env-configured limits.
 const { bodyParsing } = require("./middleware/bodyParsing");
-bodyParsing(app);
-// /api/turrets gets a larger limit for txFunction payloads.
+// /api/turrets gets a larger limit for txFunction payloads (#81). Mounted
+// BEFORE the global parser so the override actually applies: express parses
+// the body with the first matching middleware, so mounting the global parser
+// first would silently shadow the 512kb limit.
 app.use("/api/turrets", express.json({ limit: "512kb" }));
+bodyParsing(app);
 
 // JSON body parsing error handler — uses standardized error codes
 app.use((err, req, res, next) => {
@@ -224,6 +230,7 @@ app.use(
     allowedHeaders: [
       "Content-Type",
       "Authorization",
+      "X-API-Key",
       "X-Request-ID",
       "X-Correlation-ID",
       "X-Session-ID",
@@ -296,7 +303,22 @@ for (const { path, router } of apiRouteMounts) {
   app.use(`/api/v1${path}`, router);
 }
 
+// Legacy (unversioned) /api/* routes are deprecated in favour of /api/v1.
+// Mark them with a Deprecation header, but leave versioned and docs routes
+// clean so clients can detect the migration path.
+app.use((req, res, next) => {
+  if (
+    req.path.startsWith("/api/") &&
+    !req.path.startsWith("/api/v1/") &&
+    !req.path.startsWith("/api/docs")
+  ) {
+    return deprecationHeader(req, res, next);
+  }
+  next();
+});
+
 app.use("/api/auth", authRoutes);
+app.use("/api/keys", apiKeysRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/receipts", receiptsRoutes);
@@ -317,6 +339,7 @@ app.use("/api/push", pushRoutes);
 app.use("/api/emails", emailRoutes);
 app.use("/api/features", featuresRoutes);
 app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
+app.use("/api/admin/audit-log", adminAuditLogRoutes);
 app.use("/api/v1/tokens", tokensRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
@@ -501,9 +524,7 @@ if (require.main === module) {
       // logs again — so an operator can capture it and configure it on the
       // anchor's side. Use inboundWebhookSecretService.rotateSecret() to
       // change it afterwards.
-      const newSep24Secret = await inboundWebhookSecretService.ensureSecretExists(
-        "sep24_callback",
-      );
+      const newSep24Secret = await inboundWebhookSecretService.ensureSecretExists("sep24_callback");
       if (newSep24Secret) {
         logger.warn(
           { endpoint: "sep24_callback", secretId: newSep24Secret.id },

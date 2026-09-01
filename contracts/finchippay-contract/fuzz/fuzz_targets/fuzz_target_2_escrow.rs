@@ -47,8 +47,8 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let amount_raw = u64::from_le_bytes(data[0..8].try_into().unwrap());
-    // Map amount to valid range [MIN_ESCROW, MAX_ESCROW]
-    let amount = (amount_raw % 1_000_000_000_000_000_000) as i128 + 1_000;
+    // Map amount to valid range [MIN_ESCROW, MAX_ESCROW] = [1000, 10^18]
+    let amount = (amount_raw % (1_000_000_000_000_000_000 - 1_000)) as i128 + 1_000;
 
     // Derive release_ledger offset from bytes 8..12
     let release_offset = u32::from_le_bytes(data[8..12].try_into().unwrap()) % 500_000 + 1;
@@ -62,21 +62,22 @@ fuzz_target!(|data: &[u8]| {
 
     let memo = Symbol::new(&env, "escrow_fuzz");
 
+    // Authorize everything up front (mint included) so setup never panics.
+    env.mock_all_auths();
+
     // Mint tokens
     let sac_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     sac_client.mint(&from, &(amount * 100));
-
-    env.mock_all_auths();
 
     // --- Create escrow ---
     let current_ledger = env.ledger().sequence();
     let release_ledger = current_ledger + release_offset;
 
-    let escrow_id = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.create_escrow(&token_id, &from, &to, &amount, &release_ledger, &memo)
-    })) {
-        Ok(id) => id,
-        Err(_) => return, // Invalid params from fuzzer — expected, skip this iteration
+    // try_ client methods return contract errors/panics as results instead of
+    // aborting the fuzzer (libFuzzer aborts on any Rust panic).
+    let escrow_id = match client.try_create_escrow(&token_id, &from, &to, &amount, &release_ledger, &memo) {
+        Ok(Ok(id)) => id,
+        _ => return, // Invalid params from fuzzer — expected, skip this iteration
     };
 
     // Verify escrow was created correctly
@@ -100,18 +101,15 @@ fuzz_target!(|data: &[u8]| {
         if should_claim_partial {
             let claim_amount = amount / partial_divisor as i128;
             if claim_amount > 0 {
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let remaining = client.claim_escrow_partial(&escrow_id, &claim_amount);
+                if let Ok(Ok(remaining)) = client.try_claim_escrow_partial(&escrow_id, &claim_amount) {
                     let escrow_after = client.get_escrow(&escrow_id);
                     assert_eq!(escrow_after.amount, remaining,
                         "escrow amount should equal remaining after partial claim");
-                }));
+                }
             }
         } else {
             // Full claim
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.claim_escrow(&escrow_id);
-            }));
+            let _ = client.try_claim_escrow(&escrow_id);
         }
 
         // After claiming, escrow should be Released (if fully claimed) or still Pending
@@ -132,14 +130,13 @@ fuzz_target!(|data: &[u8]| {
         // Only cancel if the escrow is still pending
         let esc = client.get_escrow(&escrow_id);
         if matches!(esc.status, finchippay_contract::EscrowStatus::Pending) {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.cancel_escrow(&escrow_id);
+            if client.try_cancel_escrow(&escrow_id).ok().and_then(|r| r.ok()).is_some() {
                 let escrow_after = client.get_escrow(&escrow_id);
                 assert!(matches!(
                     escrow_after.status,
                     finchippay_contract::EscrowStatus::Cancelled
                 ), "cancelled escrow should be Cancelled");
-            }));
+            }
         }
     }
 });

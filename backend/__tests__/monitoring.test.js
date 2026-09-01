@@ -51,7 +51,10 @@ function metricsIn(expr) {
     // Strip label matchers, which contain quoted values that look like names.
     .replace(/\{[^}]*\}/g, "")
     // Strip range selectors and durations.
-    .replace(/\[[^\]]*\]/g, "");
+    .replace(/\[[^\]]*\]/g, "")
+    // Strip group-modifier label lists, e.g. `by (limiter_type, status)`,
+    // whose members are label names, not metric names.
+    .replace(/\b(?:by|without|on|ignoring)\s*\([^)]*\)/g, "");
 
   const PROMQL_KEYWORDS = new Set([
     "rate",
@@ -151,14 +154,14 @@ describe("metricsService", () => {
   });
 
   it("records the label values the dashboard queries group by", async () => {
-    metrics.rateLimitHitsTotal.inc({ limiter: "global", route: "/api/test" });
-    metrics.webhookDeliveriesTotal.inc({ outcome: "failed", status_code: "500" });
+    metrics.rateLimitHitsTotal.inc({ limiter_type: "global", route: "/api/test" });
+    metrics.webhookDeliveriesTotal.inc({ status: "failed" });
     metrics.contractEventsProcessedTotal.inc({ outcome: "parse_failed" });
     metrics.contractEventIndexerLagLedgers.set(42);
 
     const text = await metrics.getMetrics();
-    expect(text).toContain('limiter="global"');
-    expect(text).toContain('outcome="failed"');
+    expect(text).toContain('limiter_type="global"');
+    expect(text).toContain('status="failed"');
     expect(text).toContain('outcome="parse_failed"');
     expect(text).toContain("contract_event_indexer_lag_ledgers 42");
   });

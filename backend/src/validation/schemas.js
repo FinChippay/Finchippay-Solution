@@ -293,10 +293,7 @@ const scheduleTransactionSchema = z.object({
       message: "submitAt must be a valid ISO 8601 date string",
     }),
   // Optional: if provided, must match the authenticated user's publicKey
-  publicKey: z
-    .string()
-    .min(1)
-    .optional(),
+  publicKey: z.string().min(1).optional(),
 });
 
 // ─── SEP-0024 ─────────────────────────────────────────────────────────────────
@@ -452,16 +449,67 @@ const registerEmailSchema = z.object({
     .regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar public key format"),
   email: z.string({ required_error: "email is required" }).email("Invalid email address format"),
   events: z.array(z.enum(NOTIF_EVENT_TYPES)).optional().default(NOTIF_EVENT_TYPES),
+  consentOpenTracking: z.boolean().optional().default(false),
 });
 
 /** PUT /api/notifications/email/:publicKey */
 const updateEmailSchema = z.object({
   email: z.string().email("Invalid email address format").optional(),
   events: z.array(z.enum(NOTIF_EVENT_TYPES)).optional(),
+  consentOpenTracking: z.boolean().optional(),
 });
 
 const emailEventsQuerySchema = z.object({
   events: z.array(z.enum(NOTIF_EVENT_TYPES)).optional(),
+});
+
+// ─── push (Web Push subscriptions) ───────────────────────────────────────────
+
+const pushSubscriptionKeysSchema = z.object({
+  p256dh: z
+    .string({ required_error: "p256dh key is required" })
+    .min(80, "p256dh key is too short")
+    .max(256, "p256dh key is too long")
+    .regex(/^[A-Za-z0-9_-]+$/, "p256dh key must be base64url-encoded"),
+  auth: z
+    .string({ required_error: "auth key is required" })
+    .min(16, "auth key is too short")
+    .max(64, "auth key is too long")
+    .regex(/^[A-Za-z0-9_-]+$/, "auth key must be base64url-encoded"),
+});
+
+const pushSubscriptionSchema = z.object({
+  endpoint: z
+    .string({ required_error: "endpoint is required" })
+    .url("endpoint must be a valid URL")
+    .max(2048, "endpoint is too long")
+    .refine((url) => url.startsWith("https://"), "endpoint must use HTTPS"),
+  keys: pushSubscriptionKeysSchema,
+});
+
+/** POST /api/push/subscribe */
+const pushSubscribeSchema = z.object({
+  publicKey: stellarAddress.optional(),
+  subscription: pushSubscriptionSchema,
+});
+
+/** POST /api/push/unsubscribe */
+const pushUnsubscribeSchema = z.object({
+  publicKey: stellarAddress.optional(),
+  endpoint: z
+    .string({ required_error: "endpoint is required" })
+    .url("endpoint must be a valid URL")
+    .max(2048, "endpoint is too long")
+    .refine((url) => url.startsWith("https://"), "endpoint must use HTTPS"),
+});
+
+/** POST /api/notifications/:publicKey/device-token */
+const registerDeviceTokenSchema = z.object({
+  token: z
+    .string({ required_error: "token is required" })
+    .min(1, "token is required")
+    .max(4096, "token is too long"),
+  provider: z.enum(["fcm", "apns"]).optional(),
 });
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
@@ -523,6 +571,10 @@ module.exports = {
   registerEmailSchema,
   updateEmailSchema,
   emailEventsQuerySchema,
+  // push
+  pushSubscribeSchema,
+  pushUnsubscribeSchema,
+  registerDeviceTokenSchema,
   // contacts
   contactSyncSchema,
 };

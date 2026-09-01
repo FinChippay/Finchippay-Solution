@@ -1,11 +1,7 @@
 {
-  "analytics": {
-    "assetBreakdown": "Répartition des Actifs",
-    "lastMonth": "Le Mois Dernier",
-    "monthlyChange": "Variation Mensuelle",
-    "noData": "Aucune donnée d'analyse disponible.",
-    "thisMonth": "Ce Mois-ci",
-    "volumeOverTime": "Volume au Fil du Temps"
+  "assetSelect": {
+    "addTrustline": "Trustline",
+    "noAssets": "Aucun actif disponible."
   },
   "dashboard": {
     "": "__MISSING_TRANSLATION__",
@@ -14,6 +10,8 @@
     "balance": "Solde",
     "balanceLive": "En direct",
     "balancePolling": "Mise a jour toutes les 30 s",
+    "balanceReconnecting": "Reconnexion…",
+    "balanceStale": "Obsolète — les données peuvent être périmées",
     "balanceTrendDownward": "Tendance du solde : à la baisse",
     "balanceTrendUpward": "Tendance du solde : à la hausse",
     "batchSend": "Envoi par Lot",
@@ -78,9 +76,7 @@
     "walletAddress": "Adresse du Portefeuille",
     "xlmBalance": "Solde XLM",
     "xlmReceived": "Total Reçu",
-    "xlmSent": "Total Envoyé",
-    "balanceReconnecting": "Reconnexion…",
-    "balanceStale": "Obsolète — les données peuvent être périmées"
+    "xlmSent": "Total Envoyé"
   },
   "home": {
     "badge": "Construit sur Stellar Testnet · Open Source",
@@ -222,6 +218,7 @@
     "memoPlaceholder": "Note de paiement...",
     "mintNftReceipt": "Créer un Reçu NFT",
     "mintingReceipt": "Création du reçu…",
+    "needsTrustline": "Ajoutez une trustline pour {asset} avant d'envoyer.",
     "networkFee": "Frais de Réseau",
     "nftReceiptMinted": "Reçu NFT créé avec succès !",
     "nicknamePrompt": "Surnom pour ce contact :",
@@ -242,8 +239,7 @@
     "transactionHash": "Hash de Transaction",
     "updateNicknamePrompt": "Mettre à jour le surnom du contact :",
     "usernameNotFound": "Utilisateur non trouvé",
-    "viewOnExplorer": "Voir sur l'Explorateur",
-    "needsTrustline": "Ajoutez une trustline pour {asset} avant d'envoyer."
+    "viewOnExplorer": "Voir sur l'Explorateur"
   },
   "settings": {
     "active": "actifs",
@@ -329,8 +325,8 @@
     "loadMoreResults": "Charger plus de résultats",
     "loadingMore": "Chargement...",
     "needTestXlm": "Besoin de XLM de test ?",
-    "noTransactions": "Aucune transaction pour le moment",
     "newest": "Plus récent",
+    "noTransactions": "Aucune transaction pour le moment",
     "offlineSnapshot": "Instantané de l'historique hors ligne du",
     "paymentHistory": "Historique des paiements",
     "prefillSendForm": "Pré-remplir le formulaire d'envoi avec cette transaction",
@@ -346,9 +342,5 @@
     "title": "Paiements Récents",
     "tryAgain": "Réessayer",
     "viewOnExpert": "Voir sur Stellar Expert"
-  },
-  "assetSelect": {
-    "noAssets": "Aucun actif disponible.",
-    "addTrustline": "Trustline"
   }
 }

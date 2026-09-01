@@ -1,11 +1,7 @@
 {
-  "analytics": {
-    "assetBreakdown": "Asset Breakdown",
-    "lastMonth": "Last Month",
-    "monthlyChange": "Monthly Change",
-    "noData": "No analytics data available.",
-    "thisMonth": "This Month",
-    "volumeOverTime": "Volume Over Time"
+  "assetSelect": {
+    "addTrustline": "Trustline",
+    "noAssets": "No assets available."
   },
   "dashboard": {
     "": "__MISSING_TRANSLATION__",
@@ -14,6 +10,8 @@
     "balance": "Balance",
     "balanceLive": "Live",
     "balancePolling": "Updating every 30s",
+    "balanceReconnecting": "Reconnecting…",
+    "balanceStale": "Stale — data may be outdated",
     "balanceTrendDownward": "Balance trend: downward",
     "balanceTrendUpward": "Balance trend: upward",
     "batchSend": "Batch Send",
@@ -78,9 +76,7 @@
     "walletAddress": "Wallet Address",
     "xlmBalance": "XLM Balance",
     "xlmReceived": "Total Received",
-    "xlmSent": "Total Sent",
-    "balanceReconnecting": "Reconnecting…",
-    "balanceStale": "Stale — data may be outdated"
+    "xlmSent": "Total Sent"
   },
   "home": {
     "badge": "Built on Stellar Testnet · Open Source",
@@ -222,6 +218,7 @@
     "memoPlaceholder": "Payment note...",
     "mintNftReceipt": "Mint NFT Receipt",
     "mintingReceipt": "Minting receipt…",
+    "needsTrustline": "Add a trustline for {asset} before sending.",
     "networkFee": "Network Fee",
     "nftReceiptMinted": "NFT receipt minted successfully!",
     "nicknamePrompt": "Nickname for this contact:",
@@ -242,8 +239,7 @@
     "transactionHash": "Transaction Hash",
     "updateNicknamePrompt": "Update contact nickname:",
     "usernameNotFound": "Username not found",
-    "viewOnExplorer": "View on Explorer",
-    "needsTrustline": "Add a trustline for {asset} before sending."
+    "viewOnExplorer": "View on Explorer"
   },
   "settings": {
     "active": "active",
@@ -329,8 +325,8 @@
     "loadMoreResults": "Load more results",
     "loadingMore": "Loading more...",
     "needTestXlm": "Need test XLM?",
-    "noTransactions": "No transactions yet",
     "newest": "Newest",
+    "noTransactions": "No transactions yet",
     "offlineSnapshot": "Offline history snapshot from",
     "paymentHistory": "Payment history",
     "prefillSendForm": "Pre-fill send form with this transaction",
@@ -346,9 +342,5 @@
     "title": "Recent Payments",
     "tryAgain": "Try again",
     "viewOnExpert": "View on Stellar Expert"
-  },
-  "assetSelect": {
-    "noAssets": "No assets available.",
-    "addTrustline": "Trustline"
   }
 }
