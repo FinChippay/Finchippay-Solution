@@ -30,6 +30,7 @@ Object.defineProperty(global, "navigator", {
     onLine: true,
     serviceWorker: {
       ready: mockSwReady,
+      register: jest.fn().mockResolvedValue(undefined),
       addEventListener: jest.fn(),
       removeEventListener: jest.fn(),
     },
@@ -77,12 +78,53 @@ function mockFetchFail(status = 500, statusText = "Internal Server Error") {
   } as unknown as Response);
 }
 
+/** Poll until a mock has been called (for fire-and-forget async work). */
+async function waitForCall(mock: jest.Mock, timeoutMs = 2000): Promise<void> {
+  const startedAt = Date.now();
+  while (mock.mock.calls.length === 0 && Date.now() - startedAt < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+const TEST_DB_NAME = "finchippay-offline-queue";
+const TEST_DB_VERSION = 3;
+
+function openTestDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(TEST_DB_NAME, TEST_DB_VERSION);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Move every entry's `nextRetryAt` into the past so backoff does not gate retries. */
+async function clearBackoff() {
+  const db = await openTestDb();
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction("entries", "readwrite");
+    const store = tx.objectStore("entries");
+    const req = store.getAll();
+    req.onsuccess = () => {
+      for (const entry of req.result) {
+        store.put({ ...entry, nextRetryAt: 0 });
+      }
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
 // ── Suite ─────────────────────────────────────────────────────────────────
 
 /** Remove all transactions from IndexedDB to isolate each test. */
 async function clearAll() {
   const items = await getQueuedTransactions();
   for (const t of items) await removeTransaction(t.id);
+
+  const entries = await getAll();
+  for (const entry of entries) await remove(entry.id);
 }
 
 describe("offlineQueue", () => {
@@ -90,7 +132,6 @@ describe("offlineQueue", () => {
     jest.clearAllMocks();
     await clearAll();
   });
-
 
   // ─────────────────────────────────────────────────────────────────────────
   describe("queueTransaction", () => {
@@ -134,7 +175,7 @@ describe("offlineQueue", () => {
       const items = await getQueuedTransactions();
       const count = await getQueueCount();
       const pendingInDb = items.filter(
-        (t) => t.status === "queued" || t.status === "failed"
+        (t) => t.status === "queued" || t.status === "failed",
       ).length;
       expect(count).toBe(pendingInDb);
     });
@@ -174,7 +215,7 @@ describe("offlineQueue", () => {
       expect(await getQueueCount()).toBe(0);
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining("/transactions"),
-        expect.objectContaining({ method: "POST" })
+        expect.objectContaining({ method: "POST" }),
       );
     });
 
@@ -200,14 +241,15 @@ describe("offlineQueue", () => {
       const afterFirst = await getQueuedTransactions();
       const failedTx = afterFirst.find((t) => t.status === "failed");
       expect(failedTx).toBeDefined();
-      expect(failedTx!.attempts).toBe(1);
+      if (!failedTx) throw new Error("Expected a failed transaction");
+      expect(failedTx.attempts).toBe(1);
 
       // Second attempt — now succeeds.
       mockFetchOk();
       await processQueue();
 
       const afterSecond = await getQueuedTransactions();
-      expect(afterSecond.find((t) => t.id === failedTx!.id)).toBeUndefined();
+      expect(afterSecond.find((t) => t.id === failedTx.id)).toBeUndefined();
     });
 
     it("handles an empty queue gracefully", async () => {
@@ -245,8 +287,9 @@ describe("offlineQueue", () => {
       attachOnlineListener();
       window.dispatchEvent(new Event("online"));
 
-      // Allow the microtask queue to drain.
-      await new Promise((r) => setTimeout(r, 0));
+      // processQueue runs fire-and-forget on the "online" event; poll until
+      // the submission reaches Horizon instead of assuming a single tick.
+      await waitForCall(global.fetch as jest.Mock);
 
       expect(global.fetch).toHaveBeenCalled();
     });
