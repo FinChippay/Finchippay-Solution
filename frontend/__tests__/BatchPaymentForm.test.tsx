@@ -18,15 +18,89 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
+jest.mock("@/lib/assetDiscovery", () => ({
+  getKnownAssets: jest.fn().mockResolvedValue([
+    {
+      code: "EURT",
+      issuer: "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S",
+      domain: "tempo.eu.com",
+      isTrusted: true,
+      balance: "5.0",
+    },
+    {
+      code: "NGNT",
+      issuer: "GAWODAROMJ33V5YDFY3NPYTHVYQG7MJXVJ2ND3AOGIHYRWINES6ACCPD",
+      domain: "cowrie.exchange",
+      isTrusted: false,
+      balance: undefined,
+    },
+  ]),
+  buildAddTrustlineTx: jest.fn().mockResolvedValue("trustline-xdr"),
+}));
+
+jest.mock("@/lib/priceAlerts", () => ({
+  fetchPrices: jest.fn().mockResolvedValue({ XLM: 0.5, USDC: 1, EURT: 1.08 }),
+}));
+
+jest.mock("@/components/AssetSelect", () => {
+  return {
+    __esModule: true,
+    default: ({
+      options,
+      selectedCode,
+      onSelect,
+      onAddTrustline,
+      prices,
+    }: {
+      options: Array<{ code: string; displayName?: string; isTrusted?: boolean; balance?: string }>;
+      selectedCode: string;
+      onSelect: (code: string, issuer?: string) => void;
+      onAddTrustline?: (code: string, issuer: string) => void;
+      prices?: Record<string, number>;
+    }) => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const ReactMod = require("react");
+      return (
+      <div data-testid="asset-select">
+        {options.map((opt) => (
+          <ReactMod.Fragment key={opt.code}>
+            <button
+              type="button"
+              data-testid={`token-option-${opt.code}`}
+              aria-pressed={selectedCode === opt.code}
+              aria-label={`${opt.displayName ?? opt.code}${opt.balance !== undefined ? ` ~$${(Number(opt.balance || 0) * (prices?.[opt.code] ?? 0)).toFixed(2)}` : ""}`}
+              onClick={() => onSelect(opt.code, opt.code === "XLM" ? undefined : "ISSUER-" + opt.code)}
+            >
+              {opt.displayName ?? opt.code}
+            </button>
+            {opt.isTrusted === false && onAddTrustline && (
+              <button
+                type="button"
+                data-testid={`add-trustline-${opt.code}`}
+                onClick={() => onAddTrustline(opt.code, "ISSUER-" + opt.code)}
+              >
+                + Trustline
+              </button>
+            )}
+          </ReactMod.Fragment>
+        ))}
+      </div>
+      );
+    },
+  };
+});
+
 import BatchPaymentForm from "../components/BatchPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
+import { getKnownAssets } from "@/lib/assetDiscovery";
 
 const mockBuildPaymentTransaction =
   stellarModule.buildPaymentTransaction as jest.Mock;
 const mockSubmitTransaction = stellarModule.submitTransaction as jest.Mock;
 const mockSignTransactionWithWallet =
   walletModule.signTransactionWithWallet as jest.Mock;
+const mockGetKnownAssets = getKnownAssets as jest.Mock;
 
 describe("BatchPaymentForm", () => {
   const defaultProps = {
@@ -145,6 +219,73 @@ describe("BatchPaymentForm", () => {
     // This is tested through the CSV upload component's own tests
     await waitFor(() => {
       expect(screen.getByText("Import from CSV")).toBeInTheDocument();
+    });
+  });
+
+  it("renders the SAC asset catalogue in the per-row token picker", async () => {
+    render(<BatchPaymentForm {...defaultProps} />);
+    await waitFor(() => {
+      expect(mockGetKnownAssets).toHaveBeenCalled();
+    });
+    // XLM + USDC static pair plus EURT/NGNT from the mocked catalogue
+    expect(screen.getByTestId("token-option-EURT")).toBeInTheDocument();
+    expect(screen.getByTestId("token-option-NGNT")).toBeInTheDocument();
+  });
+
+  it("sends a custom SAC token by passing code + issuer to the transaction builder", async () => {
+    const mockTx = { toXDR: () => "mock-xdr" };
+    mockBuildPaymentTransaction.mockResolvedValue(mockTx);
+    mockSignTransactionWithWallet.mockResolvedValue({ signedXDR: "signed-xdr" });
+    mockSubmitTransaction.mockResolvedValue({ hash: "tx-hash" });
+
+    render(<BatchPaymentForm {...defaultProps} />);
+
+    // Select EURT from the catalogue
+    const eurtOption = await screen.findByTestId("token-option-EURT");
+    fireEvent.click(eurtOption);
+
+    const addressInput = screen.getByPlaceholderText("G...");
+    const amountInput = screen.getByPlaceholderText("0.5");
+    await userEvent.type(addressInput, "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE");
+    await userEvent.type(amountInput, "2");
+
+    fireEvent.click(screen.getByRole("button", { name: /send batch/i }));
+
+    await waitFor(() => {
+      expect(mockBuildPaymentTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          asset: expect.objectContaining({ code: "EURT", issuer: "ISSUER-EURT" }),
+        })
+      );
+    });
+  });
+
+  it("shows an add-trustline action for an untrusted catalogue asset", async () => {
+    render(<BatchPaymentForm {...defaultProps} />);
+    const ngntOption = await screen.findByTestId("add-trustline-NGNT");
+    expect(ngntOption).toBeInTheDocument();
+  });
+
+  it("does not block XLM batch when the catalogue is unavailable", async () => {
+    mockGetKnownAssets.mockRejectedValueOnce(new Error("network down"));
+    const mockTx = { toXDR: () => "mock-xdr" };
+    mockBuildPaymentTransaction.mockResolvedValue(mockTx);
+    mockSignTransactionWithWallet.mockResolvedValue({ signedXDR: "signed-xdr" });
+    mockSubmitTransaction.mockResolvedValue({ hash: "tx-hash" });
+
+    render(<BatchPaymentForm {...defaultProps} />);
+
+    const addressInput = screen.getByPlaceholderText("G...");
+    const amountInput = screen.getByPlaceholderText("0.5");
+    await userEvent.type(addressInput, "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE");
+    await userEvent.type(amountInput, "5");
+
+    fireEvent.click(screen.getByRole("button", { name: /send batch/i }));
+
+    await waitFor(() => {
+      expect(mockBuildPaymentTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ asset: "XLM" })
+      );
     });
   });
 });

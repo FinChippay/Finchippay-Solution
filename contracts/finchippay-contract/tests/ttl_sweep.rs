@@ -15,13 +15,15 @@
 #![allow(deprecated)]
 
 use finchippay_contract::{
-    storage::{ttl_class_at, MAX_KEYS_PER_SWEEP, MIN_TTL_LEDGERS, TTL_CLASS_COUNT},
+    storage::{
+        ttl_class_at, MAX_KEYS_PER_SWEEP, MIN_TTL_LEDGERS, MIN_TTL_THRESHOLD, TTL_CLASS_COUNT,
+    },
     DataKey, FinchippayContract, FinchippayContractClient, TtlClass,
 };
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, Env, Symbol, Vec,
+    token, Address, BytesN, Env, Symbol, Vec,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -354,6 +356,70 @@ fn single_call_never_exceeds_hard_key_cap() {
         "bumped {bumped} keys, exceeding the hard cap"
     );
     assert!(bumped > 0);
+}
+
+// ─── WS5: airdrop in the sweep, tip keys kept alive by policy ───────────────
+
+/// An airdrop's keys (`Airdrop(id)`, `AirdropCount`) belong to `TtlClass::Airdrop`
+/// and must be raised to the TTL floor by a completed `bump_all_ttls` sweep.
+/// Otherwise an unclaimed airdrop pool silently expires and the locked funds
+/// strand in the contract.
+#[test]
+fn airdrop_keys_are_swept_to_the_ttl_floor() {
+    let env = ttl_env();
+    let a = deploy_infra(&env);
+    env.mock_all_auths();
+    shorten_entry_lifetimes(&env);
+
+    // Any non-zero root is sufficient for the sweep-coverage assertion here.
+    let root = BytesN::from_array(&env, &[7u8; 32]);
+    let _id = a.client.create_airdrop(
+        &a.token,
+        &a.payer,
+        &root,
+        &1_000_000,
+        &(env.ledger().sequence() + 100),
+    );
+
+    let start = env.ledger().sequence();
+    advance(&env, start + 500_000);
+    // The airdrop entries really did decay below the floor before the sweep.
+    assert!(ttl_of(&env, &a.id, &DataKey::Airdrop(0)) < MIN_TTL_LEDGERS);
+
+    // One full pass covers the airdrop class and raises its keys back to floor.
+    a.client.bump_all_ttls(&a.admin, &MAX_KEYS_PER_SWEEP);
+    assert_eq!(ttl_of(&env, &a.id, &DataKey::Airdrop(0)), MIN_TTL_LEDGERS);
+    assert_eq!(ttl_of(&env, &a.id, &DataKey::AirdropCount), MIN_TTL_LEDGERS);
+    assert_eq!(a.client.get_min_ttl().0, MIN_TTL_LEDGERS);
+}
+
+/// Tip keys (`TipTotal`/`TipCount`/`TipRecord`) are *not* a sweep class (they
+/// are keyed by arbitrary recipient address with no on-chain index). The
+/// retention policy is keep-alive: the read views and writes extend their TTL,
+/// so active recipients' dashboard numbers cannot silently vanish. This test
+/// pins that a query refreshes a decayed tip key back to the floor.
+#[test]
+fn tip_keys_are_kept_alive_by_access() {
+    let env = ttl_env();
+    let a = deploy_infra(&env);
+    shorten_entry_lifetimes(&env);
+    let to = Address::generate(&env);
+    env.mock_all_auths();
+    let token = create_token(&env, &a.admin, &a.payer, 10_000_000);
+    a.client
+        .send_tip(&token, &a.payer, &to, &300, &Symbol::new(&env, "m"));
+
+    let start = env.ledger().sequence();
+    advance(&env, start + 500_000);
+    // It aged below the floor while untouched (tip keys are not a sweep class).
+    assert!(ttl_of(&env, &a.id, &DataKey::TipTotal(to.clone())) < MIN_TTL_LEDGERS);
+
+    // A read (as dashboards/analytics do) keeps the key alive back to >= floor.
+    assert_eq!(a.client.get_tip_total(&to), 300);
+    assert!(ttl_of(&env, &a.id, &DataKey::TipTotal(to.clone())) >= MIN_TTL_LEDGERS);
+    // MIN_TTL_THRESHOLD is the bump threshold: a touch below it refreshes to
+    // the floor, which is exactly the keep-alive guarantee of the policy.
+    assert!(ttl_of(&env, &a.id, &DataKey::TipTotal(to.clone())) >= MIN_TTL_THRESHOLD);
 }
 
 #[test]

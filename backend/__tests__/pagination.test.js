@@ -66,8 +66,8 @@ const stellarService = require("../src/services/stellarService");
 jest.mock("../src/services/eventIndexer");
 const eventIndexer = require("../src/services/eventIndexer");
 
-jest.mock("../src/services/webhookSubscriptionService");
-const webhookService = require("../src/services/webhookSubscriptionService");
+jest.mock("../src/services/webhookService");
+const webhookService = require("../src/services/webhookService");
 
 jest.mock("../src/services/turretsService");
 const turretsService = require("../src/services/turretsService");
@@ -298,6 +298,12 @@ describe("GET /api/tips/received/:creatorPublicKey (keyset)", () => {
 // ─── Integration: payments endpoint (Horizon paging token as cursor) ───────────
 describe("GET /api/payments/:publicKey (Horizon cursor alignment)", () => {
   const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+  const jwt = require("jsonwebtoken");
+  const { JWT_SECRET } = require("../src/middleware/auth");
+  const token = jwt.sign({ publicKey: ACCOUNT }, JWT_SECRET, {
+    expiresIn: 60 * 60,
+    algorithm: "HS256",
+  });
 
   function app() {
     const server = express();
@@ -317,7 +323,9 @@ describe("GET /api/payments/:publicKey (Horizon cursor alignment)", () => {
       { id: "op2", pagingToken: "222", amount: "2" },
     ]);
 
-    const res = await request(app()).get(`/api/payments/${ACCOUNT}?limit=2`);
+    const res = await request(app())
+      .get(`/api/payments/${ACCOUNT}?limit=2`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
     expect(res.headers["x-total-count"]).toBe("57");
@@ -332,7 +340,9 @@ describe("GET /api/payments/:publicKey (Horizon cursor alignment)", () => {
     // Fewer rows than the limit → last page, no next cursor.
     stellarService.getPayments.mockResolvedValue([{ id: "op1", pagingToken: "111", amount: "1" }]);
 
-    const res = await request(app()).get(`/api/payments/${ACCOUNT}?limit=2`);
+    const res = await request(app())
+      .get(`/api/payments/${ACCOUNT}?limit=2`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.pagination.nextCursor).toBeNull();
     expect(res.headers.link).toBeUndefined();
@@ -434,6 +444,12 @@ describe("GET /api/v1/events/:publicKey", () => {
 // ─── Integration: Webhooks Endpoint ───────────────────────────────────────────
 describe("GET /api/v1/webhooks/:publicKey", () => {
   const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+  const jwt = require("jsonwebtoken");
+  const { JWT_SECRET } = require("../src/middleware/auth");
+  const token = jwt.sign({ publicKey: ACCOUNT }, JWT_SECRET, {
+    expiresIn: 60 * 60,
+    algorithm: "HS256",
+  });
 
   function app() {
     const server = express();
@@ -452,7 +468,9 @@ describe("GET /api/v1/webhooks/:publicKey", () => {
   });
 
   it("returns paginated webhooks list with standardized shape", async () => {
-    const res = await request(app()).get(`/api/v1/webhooks/${ACCOUNT}?limit=2`);
+    const res = await request(app())
+      .get(`/api/v1/webhooks/${ACCOUNT}?limit=2`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
     expect(res.body.pagination.nextCursor).toBeTruthy();
@@ -508,6 +526,12 @@ describe("GET /api/v1/turrets", () => {
 // ─── Integration: Scheduled Transactions Endpoint ─────────────────────────────
 describe("GET /api/v1/scheduled-transactions/:publicKey", () => {
   const ACCOUNT = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+  const jwt = require("jsonwebtoken");
+  const { JWT_SECRET } = require("../src/middleware/auth");
+  const token = jwt.sign({ publicKey: ACCOUNT }, JWT_SECRET, {
+    expiresIn: 60 * 60,
+    algorithm: "HS256",
+  });
 
   function app() {
     const server = express();
@@ -530,7 +554,9 @@ describe("GET /api/v1/scheduled-transactions/:publicKey", () => {
   });
 
   it("returns paginated scheduled transactions with standardized shape", async () => {
-    const res = await request(app()).get(`/api/v1/scheduled-transactions/${ACCOUNT}?limit=2`);
+    const res = await request(app())
+      .get(`/api/v1/scheduled-transactions/${ACCOUNT}?limit=2`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
     expect(res.body.pagination.nextCursor).toBeTruthy();
@@ -539,9 +565,9 @@ describe("GET /api/v1/scheduled-transactions/:publicKey", () => {
   });
 
   it("returns paginated pending executions with standardized shape", async () => {
-    const res = await request(app()).get(
-      `/api/v1/scheduled-transactions/${ACCOUNT}/pending?limit=1`,
-    );
+    const res = await request(app())
+      .get(`/api/v1/scheduled-transactions/${ACCOUNT}/pending?limit=1`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
     expect(res.body.pagination.nextCursor).toBeTruthy();

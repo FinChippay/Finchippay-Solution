@@ -16,22 +16,29 @@
 "use strict";
 
 const crypto = require("crypto");
-const logger = require("./logger");
 
 /**
  * Server-side secret used to produce the stored HMAC-SHA256 hash.
- * Must be set in the environment; defaults to a generated value that won't
- * survive restarts — force explicit configuration in production.
+ *
+ * Fail-closed by default: in production, an unset WEBHOOK_SECRET_KEY is a
+ * fatal misconfiguration (previously it silently rotated a random key every
+ * boot, which made every stored secret_hash irreproducible after a restart
+ * and broke webhook verification). We throw at module load outside of tests
+ * so the operator is forced to configure a stable key. In tests a fixed key
+ * keeps behaviour deterministic.
+ *
+ * Generate a key with:  openssl rand -hex 32
  */
-const WEBHOOK_SECRET_KEY = process.env.WEBHOOK_SECRET_KEY || crypto.randomBytes(32).toString("hex");
-
-if (!process.env.WEBHOOK_SECRET_KEY && process.env.NODE_ENV !== "test") {
-  logger.warn(
-    "WEBHOOK_SECRET_KEY is not set — a random key will be used. " +
-      "Stored secret hashes will not be reproducible across restarts. " +
-      "Set WEBHOOK_SECRET_KEY in your environment for production use.",
-  );
-}
+const WEBHOOK_SECRET_KEY = process.env.WEBHOOK_SECRET_KEY
+  ? process.env.WEBHOOK_SECRET_KEY
+  : process.env.NODE_ENV === "test"
+    ? "test-webhook-secret-key-for-unit-tests-only"
+    : (() => {
+        throw new Error(
+          "WEBHOOK_SECRET_KEY is not set. Generate one: openssl rand -hex 32. " +
+            "This is fatal so stored webhook secret hashes remain stable across restarts.",
+        );
+      })();
 
 /**
  * Produce a deterministic HMAC-SHA256 hash of `secret` keyed by `id`.

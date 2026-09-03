@@ -19,7 +19,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { strictLimiter } = require("../middleware/rateLimit");
+const { strictLimiter, sensitiveLimiter } = require("../middleware/rateLimit");
 const { verifyJWT } = require("../middleware/auth");
 const { validate } = require("../validation/middleware");
 const { pushSubscribeSchema, pushUnsubscribeSchema } = require("../validation/schemas");
@@ -66,7 +66,7 @@ router.get("/public-key", strictLimiter, (req, res) => {
  */
 router.post(
   "/subscribe",
-  strictLimiter,
+  sensitiveLimiter,
   verifyJWT,
   validate(pushSubscribeSchema),
   requireOwnAccount,
@@ -83,6 +83,9 @@ router.post(
         message: created ? "Push subscription registered" : "Push subscription updated",
       });
     } catch (err) {
+      if (err.status === 400) {
+        return res.status(400).json({ error: err.message });
+      }
       next(err);
     }
   },

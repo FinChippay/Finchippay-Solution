@@ -41,6 +41,7 @@ jest.mock("../src/middleware/rateLimit", () => ({
   sensitiveLimiter: (req, res, next) => next(),
   strictLimiter: (req, res, next) => next(),
   authRefreshLimiter: (req, res, next) => next(),
+  createInstrumentedLimiter: () => (req, res, next) => next(),
 }));
 
 jest.mock("../src/middleware/userRateLimit", () => ({
