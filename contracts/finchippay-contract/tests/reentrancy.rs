@@ -24,7 +24,9 @@ use finchippay_contract::{
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Ledger},
-    token, Address, Env, Map, Symbol, Vec,
+    token,
+    xdr::ToXdr,
+    Address, Bytes, BytesN, Env, Map, Symbol, Vec,
 };
 
 // ─── Adversarial token contract ──────────────────────────────────────────────
@@ -46,6 +48,7 @@ pub enum Attack {
     ClaimStream(u32),
     ApproveMultisig(u32),
     ClaimVesting(u32),
+    ClaimAirdrop(u32),
     Swap,
 }
 
@@ -132,6 +135,12 @@ impl ReentrantToken {
                 Attack::ClaimStream(id) => client.try_claim_stream(&id, &from).is_err(),
                 Attack::ApproveMultisig(id) => client.try_approve_multisig(&id, &from).is_err(),
                 Attack::ClaimVesting(id) => client.try_claim_vesting(&id, &from).is_err(),
+                Attack::ClaimAirdrop(id) => {
+                    let empty_proof: Vec<BytesN<32>> = Vec::new(&env);
+                    client
+                        .try_claim_airdrop(&id, &from, &100, &empty_proof, &0)
+                        .is_err()
+                }
                 Attack::Swap => {
                     let path = Vec::from_array(&env, [from.clone(), to.clone()]);
                     client
@@ -181,6 +190,17 @@ fn create_sac(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address
 
 fn advance(env: &Env, to: u32) {
     env.ledger().with_mut(|l| l.sequence_number = to);
+}
+
+/// Root of a single-leaf airdrop = the leaf itself, using the frozen commitment
+/// `leaf = sha256(xdr(recipient) || id_be32 || amount_be128)`. A single-leaf
+/// tree has an empty proof, which is exactly what the re-entrant attack needs.
+fn airdrop_single_leaf_root(env: &Env, id: u32, recipient: &Address, amount: i128) -> BytesN<32> {
+    let mut data = Bytes::new(env);
+    data.append(&recipient.clone().to_xdr(env));
+    data.append(&Bytes::from_slice(env, &id.to_be_bytes()));
+    data.append(&Bytes::from_slice(env, &amount.to_be_bytes()));
+    env.crypto().sha256(&data).into()
 }
 
 // ─── Direct guard test ───────────────────────────────────────────────────────
@@ -347,6 +367,40 @@ fn test_vesting_claim_reentrancy_blocked() {
     assert!(token_client.was_blocked());
     assert_eq!(token_client.balance(&beneficiary), 1000);
     assert_eq!(client.get_vesting(&vid).claimed, 1000);
+}
+
+#[test]
+fn test_airdrop_claim_reentrancy_blocked() {
+    let env = Env::default();
+    let (contract_id, client) = deploy(&env);
+    env.mock_all_auths();
+
+    let funder = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let (token_id, token_client) =
+        deploy_reentrant_token(&env, &contract_id, Attack::ClaimAirdrop(0));
+    token_client.mint(&funder, &1000);
+
+    // Single-leaf airdrop over (recipient, 1000) at id 0; the empty proof is
+    // valid for a single-leaf tree.
+    let root = airdrop_single_leaf_root(&env, 0, &recipient, 1000);
+    client.create_airdrop(
+        &token_id,
+        &funder,
+        &root,
+        &1000,
+        &(env.ledger().sequence() + 100),
+    );
+
+    // The claim releases the full allocation. The hostile token re-enters
+    // `claim_airdrop` during the payout, which must be blocked (WS1 guard).
+    let empty_proof: Vec<BytesN<32>> = Vec::new(&env);
+    client.claim_airdrop(&0, &recipient, &1000, &empty_proof, &0);
+
+    // Single claim — no double-drain; exactly one payout reached the recipient.
+    assert!(token_client.was_blocked());
+    assert_eq!(token_client.balance(&recipient), 1000);
+    assert_eq!(token_client.balance(&contract_id), 0);
 }
 
 #[test]

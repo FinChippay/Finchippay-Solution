@@ -1439,6 +1439,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               <BatchPaymentForm
                 publicKey={publicKey}
                 xlmBalance={xlmBalance || "0"}
+                usdcBalance={usdcBalance}
+                accountBalances={otherBalances}
                 onBatchSuccess={handlePaymentSuccess}
               />
             </div>

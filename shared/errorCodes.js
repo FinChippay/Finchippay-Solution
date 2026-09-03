@@ -202,6 +202,11 @@ const ERROR_CODES = {
     httpStatus: 400,
     message: "A query parameter is missing or invalid.",
   },
+  VAL_TOO_MANY_ROWS: {
+    code: "VAL_TOO_MANY_ROWS",
+    httpStatus: 400,
+    message: "The uploaded file exceeds the maximum number of allowed rows.",
+  },
 
   // ── Resource errors ──────────────────────────────────────────────────────
   RES_NOT_FOUND: {

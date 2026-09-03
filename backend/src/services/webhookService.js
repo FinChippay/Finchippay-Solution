@@ -57,11 +57,10 @@ const {
   parseTopics,
   matchesWebhookTopic,
 } = require("./webhookTopics");
-const {
-  accountCacheKey,
-  paymentsCachePattern,
-} = require("./stellarCacheKeys");
+const { accountCacheKey, paymentsCachePattern } = require("./stellarCacheKeys");
+const { decodeCursor, applyKnexKeyset } = require("../utils/paginate");
 const knex = require("../db/connection");
+const auditService = require("./auditService");
 require("dotenv").config();
 
 // Lazy-loaded to avoid circular dependency at parse time
@@ -80,6 +79,9 @@ const MAX_RETRIES = parseInt(process.env.WEBHOOK_MAX_RETRIES, 10) || 6;
 // Exponential backoff schedule in seconds: 1min, 5min, 15min, 1h, 6h, 24h.
 const RETRY_INTERVALS_SECONDS = [60, 300, 900, 3600, 21600, 86400];
 const RETRY_WORKER_INTERVAL = 30000;
+// Per-account cap on active webhooks — bounds SSE fan-out and outbound
+// delivery so a single account cannot degrade the service (WS6).
+const MAX_WEBHOOKS_PER_ACCOUNT = parseInt(process.env.MAX_WEBHOOKS_PER_ACCOUNT, 10) || 10;
 
 /** In-process cache of the most recently registered webhooks (by id). The DB
  *  is the source of truth â€” this Map just gives the SSE delivery path a
@@ -122,6 +124,16 @@ function generateId() {
  * @returns {Promise<{ id, publicKey, url, createdAt }>}
  */
 async function registerWebhook(publicKey, url, secret, topics = ["all"]) {
+  // Enforce the per-account cap BEFORE persisting so flooding the endpoint
+  // cannot create unbounded SSE streams / delivery fan-out (WS6).
+  const existing = await knex("webhooks").where("public_key", publicKey).count("id as cnt").first();
+  const currentCount = parseInt((existing && existing.cnt) || "0", 10);
+  if (currentCount >= MAX_WEBHOOKS_PER_ACCOUNT) {
+    const err = new Error(`Maximum of ${MAX_WEBHOOKS_PER_ACCOUNT} webhooks per account reached`);
+    err.status = 400;
+    throw err;
+  }
+
   const id = generateId();
   const createdAt = new Date().toISOString();
   const encryptedSecret = encryptSecret(secret);
@@ -138,11 +150,31 @@ async function registerWebhook(publicKey, url, secret, topics = ["all"]) {
     created_at: createdAt,
   });
 
-  // Keep the plaintext secret in-memory for signed delivery this session
-  const webhook = { id, publicKey, url, secret, topics: normalizedTopics, createdAt };
+  // Keep ONLY the ciphertext in-memory (WS7). The raw secret is decrypted at
+  // delivery time inside attemptDelivery — the process memory never holds the
+  // plaintext for the life of the registration, only the AES-GCM blob that is
+  // also persisted. This keeps the in-memory cache consistent with restored
+  // webhooks (which also carry ciphertext) and shrinks the secret's exposure
+  // window to the moment of delivery.
+  const webhook = {
+    id,
+    publicKey,
+    url,
+    secret: encryptedSecret,
+    topics: normalizedTopics,
+    createdAt,
+  };
   webhooks.set(id, webhook);
   startMonitoring(publicKey);
   logger.info({ type: "webhook_registered", id, publicKey, url });
+  auditService.record({
+    actor: publicKey,
+    action: "webhook.register",
+    resourceType: "webhook",
+    resourceId: id,
+    targetPublicKey: publicKey,
+    outcome: "success",
+  });
   return { id, publicKey, url, createdAt };
 }
 
@@ -158,7 +190,9 @@ async function getWebhooksByPublicKey(publicKey) {
     id: row.id,
     publicKey: row.public_key,
     url: row.url,
-    secret: "[protected]",
+    // The ciphertext blob, not the plaintext secret: delivery decrypts it at
+    // send time (WS7). Never expose the raw secret to API consumers.
+    secret: row.secret,
     topics: parseTopics(row.topics),
     createdAt: row.created_at,
   }));
@@ -178,6 +212,14 @@ async function deleteWebhook(id) {
 
   if (deleted) {
     logger.info({ type: "webhook_deleted", id });
+    auditService.record({
+      actor: publicKey,
+      action: "webhook.delete",
+      resourceType: "webhook",
+      resourceId: id,
+      targetPublicKey: publicKey,
+      outcome: "success",
+    });
     const remaining = Array.from(webhooks.values()).filter((w) => w.publicKey === publicKey);
     if (remaining.length === 0 && publicKey && activeStreams.has(publicKey)) {
       activeStreams.get(publicKey)();
@@ -263,10 +305,15 @@ function signPayload(secret, payload) {
   return generateWebhookSignature(payload, secret);
 }
 
-function generateIdempotencyKey(webhookId, eventType, payloadStr, timestamp) {
+function generateIdempotencyKey(webhookId, eventType, payloadStr) {
+  // Derive the key from stable event identity only (webhook + event type +
+  // payload). The caller no longer feeds a per-call timestamp, so retries of
+  // the same event (or a duplicate SSE message) produce the SAME key, letting
+  // the webhook_events.idempotency_key UNIQUE constraint actually dedupe the
+  // event instead of silently writing a second row with a new key (WS3).
   return crypto
     .createHash("sha256")
-    .update(webhookId + eventType + payloadStr + timestamp)
+    .update(`${webhookId}:${eventType}:${payloadStr}`)
     .digest("hex");
 }
 
@@ -337,25 +384,51 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
   const deliveryId = crypto.randomUUID();
   const payloadStr = JSON.stringify(payload);
   const timestamp = new Date().toISOString();
-  const idempotencyKey = generateIdempotencyKey(resolvedWebhook.id, eventType, payloadStr, timestamp);
+  const idempotencyKey = generateIdempotencyKey(resolvedWebhook.id, eventType, payloadStr);
 
+  // Claim the event row atomically. Because the idempotency key is now derived
+  // from stable event identity, a retry or a duplicate SSE message for the same
+  // event produces the same key and the UNIQUE constraint makes the insert a
+  // no-op (returns 0). In that case we skip creating a NEW delivery record so a
+  // retry can never double-send; the event is either already delivered or still
+  // in flight (WS3).
+  let eventInserted;
   try {
-    await knex("webhook_events").insert({
-      id: crypto.randomUUID(),
-      webhook_id: resolvedWebhook.id,
-      event_type: eventType,
-      payload: payloadStr,
-      idempotency_key: idempotencyKey,
-      created_at: timestamp,
-    });
+    const insertResult = await knex("webhook_events")
+      .insert({
+        id: crypto.randomUUID(),
+        webhook_id: resolvedWebhook.id,
+        event_type: eventType,
+        payload: payloadStr,
+        idempotency_key: idempotencyKey,
+        created_at: timestamp,
+      })
+      .onConflict("idempotency_key")
+      .ignore();
+    // knex returns the number of affected rows (0 when the unique constraint
+    // caused the insert to be ignored).
+    eventInserted = Number.isInteger(insertResult) ? insertResult > 0 : true;
   } catch (err) {
-    if (err.code !== "23505" && err.code !== "SQLITE_CONSTRAINT") {
-      logger.error({
-        type: "webhook_event_db_error",
-        webhookId: resolvedWebhook.id,
-        error: err.message,
-      });
-    }
+    logger.error({
+      type: "webhook_event_db_error",
+      webhookId: resolvedWebhook.id,
+      error: err.message,
+    });
+    eventInserted = false;
+  }
+
+  if (!eventInserted) {
+    // Duplicate event already recorded — a retry/duplicate for the same id.
+    // Do not enqueue another delivery so consumers never receive the same
+    // event twice under two different X-Idempotency-Key values.
+    logger.debug({
+      type: "webhook_event_deduplicated",
+      id: resolvedWebhook.id,
+      eventType,
+      idempotencyKey,
+    });
+    span.end();
+    return;
   }
 
   try {
@@ -389,7 +462,12 @@ async function deliverWebhook(webhook, payload, eventType = "payment.received") 
       await knex("webhook_events")
         .where("idempotency_key", idempotencyKey)
         .update({ delivered_at: new Date().toISOString() });
-      logger.info({ type: "webhook_delivered", id: resolvedWebhook.id, url: resolvedWebhook.url, deliveryId });
+      logger.info({
+        type: "webhook_delivered",
+        id: resolvedWebhook.id,
+        url: resolvedWebhook.url,
+        deliveryId,
+      });
       span.setStatus({ code: 1 });
     } else {
       await handleDeliveryFailure(deliveryId, resolvedWebhook, result.error, payload);
@@ -626,7 +704,9 @@ function startMonitoring(webhookArg) {
     .stream({
       onmessage: async (payment) => {
         if (payment.type !== "payment" || payment.to !== webhook.publicKey) return;
-        const sseSpan = tracer.startSpan("webhook.sse.receive", { attributes: { "webhook.public_key": webhook.publicKey, "stellar.payment_id": payment.id } });
+        const sseSpan = tracer.startSpan("webhook.sse.receive", {
+          attributes: { "webhook.public_key": webhook.publicKey, "stellar.payment_id": payment.id },
+        });
         try {
           const cache = getCache();
           if (cache) {
@@ -707,16 +787,39 @@ async function closeAllStreams(timeoutMs = 5000) {
 // â”€â”€â”€ Event Replay & Querying â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getEvents(publicKey, { since, until, type, limit = 50, cursor } = {}) {
+  // Composite (created_at DESC, id DESC) keyset pagination (WS4). The cursor is
+  // an opaque base64url-encoded `{ created_at, id }` from the previous page's
+  // last row; applyKnexKeyset emits the lexicographic seek predicate, so pages
+  // stay stable and use the (created_at, id) order instead of a full re-sort.
   const query = knex("webhook_events as e")
     .join("webhooks as w", "e.webhook_id", "w.id")
     .where("w.public_key", publicKey)
-    .orderBy("e.created_at", "desc")
+    .orderBy([
+      { column: "e.created_at", order: "desc" },
+      { column: "e.id", order: "desc" },
+    ])
     .select("e.*");
   if (since) query.andWhere("e.created_at", ">=", since);
   if (until) query.andWhere("e.created_at", "<=", until);
   if (type) query.andWhere("e.event_type", type);
-  if (cursor) query.andWhere("e.id", "<", cursor);
-  query.limit(limit);
+  if (cursor) {
+    let decoded = cursor;
+    if (typeof cursor === "string") {
+      try {
+        decoded = decodeCursor(cursor);
+      } catch {
+        decoded = null;
+      }
+    }
+    if (decoded) {
+      applyKnexKeyset(query, decoded, [
+        ["e.created_at", "desc"],
+        ["e.id", "desc"],
+      ]);
+    }
+  }
+  // Fetch limit + 1 so the caller can detect a next page without a second query.
+  query.limit(limit + 1);
   return query;
 }
 
@@ -819,6 +922,3 @@ module.exports = {
   hashSecret,
   WEBHOOK_SECRET_KEY,
 };
-
-
-

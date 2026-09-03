@@ -1,4 +1,8 @@
 {
+  "assetSelect": {
+    "addTrustline": "خط الثقة",
+    "noAssets": "لا توجد أصول متاحة."
+  },
   "dashboard": {
     "": "__MISSING_TRANSLATION__",
     "accountNotFunded": "لم يُموَّل الحساب بعد",
@@ -6,6 +10,8 @@
     "balance": "الرصيد",
     "balanceLive": "مباشر",
     "balancePolling": "يُحدَّث كل 30 ثانية",
+    "balanceReconnecting": "جارٍ إعادة الاتصال…",
+    "balanceStale": "قديمة — البيانات قد تكون قديمة",
     "balanceTrendDownward": "اتجاه الرصيد: هابط",
     "balanceTrendUpward": "اتجاه الرصيد: صاعد",
     "batchSend": "إرسال جماعي",
@@ -70,9 +76,7 @@
     "walletAddress": "عنوان المحفظة",
     "xlmBalance": "رصيد XLM",
     "xlmReceived": "إجمالي المُستلم",
-    "xlmSent": "إجمالي المُرسل",
-    "balanceReconnecting": "جارٍ إعادة الاتصال…",
-    "balanceStale": "قديمة — البيانات قد تكون قديمة"
+    "xlmSent": "إجمالي المُرسل"
   },
   "home": {
     "badge": "مبني على شبكة Stellar التجريبية · مفتوح المصدر",
@@ -211,6 +215,7 @@
     "memoPlaceholder": "ملاحظة الدفع...",
     "mintNftReceipt": "إصدار إيصال NFT",
     "mintingReceipt": "جارٍ إصدار الإيصال…",
+    "needsTrustline": "أضف خط ثقة لـ {asset} قبل الإرسال.",
     "networkFee": "رسوم الشبكة",
     "nftReceiptMinted": "تم إصدار إيصال NFT بنجاح!",
     "nicknamePrompt": "الاسم المستعار لجهة الاتصال هذه:",
@@ -231,8 +236,7 @@
     "transactionHash": "تجزئة المعاملة",
     "updateNicknamePrompt": "تحديث الاسم المستعار لجهة الاتصال:",
     "usernameNotFound": "لم يتم العثور على اسم المستخدم",
-    "viewOnExplorer": "عرض في المستكشف",
-    "needsTrustline": "أضف خط ثقة لـ {asset} قبل الإرسال."
+    "viewOnExplorer": "عرض في المستكشف"
   },
   "settings": {
     "active": "نشط",
@@ -318,8 +322,8 @@
     "loadMoreResults": "تحميل نتائج أكثر",
     "loadingMore": "جارٍ تحميل المزيد...",
     "needTestXlm": "تحتاج XLM تجريبي؟",
-    "noTransactions": "لا توجد معاملات بعد",
     "newest": "الأحدث",
+    "noTransactions": "لا توجد معاملات بعد",
     "offlineSnapshot": "لقطة سجل دون اتصال من",
     "paymentHistory": "سجل المدفوعات",
     "prefillSendForm": "تعبئة نموذج الإرسال بهذه المعاملة",
@@ -335,9 +339,5 @@
     "title": "المدفوعات الأخيرة",
     "tryAgain": "حاول مرة أخرى",
     "viewOnExpert": "عرض على Stellar Expert"
-  },
-  "assetSelect": {
-    "noAssets": "لا توجد أصول متاحة.",
-    "addTrustline": "خط الثقة"
   }
 }

@@ -46,45 +46,58 @@ fuzz_target!(|data: &[u8]| {
         return; // self-transfer panics — not relevant
     }
 
+    // Fuzz memo: build a Symbol from random bytes restricted to the valid
+    // Stellar symbol charset [A-Za-z0-9_] (Symbol::new panics on other bytes).
+    let memo_bytes: std::vec::Vec<u8> = data[40..]
+        .iter()
+        .map(|b| {
+            // Restrict to [A-Za-z0-9] so Symbol::new never rejects a byte.
+            let c = b % 62u8;
+            match c {
+                0..=25 => b'A' + c,
+                26..=51 => b'a' + (c - 26),
+                _ => b'0' + (c - 52),
+            }
+        })
+        .take(10)
+        .collect();
+    let memo_str = std::str::from_utf8(&memo_bytes).unwrap_or("fuzz");
+    let memo = Symbol::new(&env, memo_str);
+
+    // Authorize everything up front (mint included) so setup never panics.
+    env.mock_all_auths();
+
     // Mint tokens to `from`
     let sac_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     sac_client.mint(&from, &(amount * 10));
 
-    // Fuzz memo: try to construct a Symbol from random bytes.
-    // Only use ASCII-range bytes to avoid panics on invalid UTF-8 in Symbol::new.
-    let memo_str = data[40..]
-        .iter()
-        .map(|b| (b % 95 + 32) as u8)
-        .take(10)
-        .collect::<Vec<u8>>();
-    let memo_str = std::str::from_utf8(&memo_str).unwrap_or("fuzz");
-    let memo = Symbol::new(&env, memo_str);
-
-    env.mock_all_auths();
-
     // --- send_tip with fuzzed memo ---
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.send_tip(&token_id, &from, &to, &amount, &memo);
-    }));
+    // try_ client methods return contract errors/panics as results instead of
+    // aborting the fuzzer (libFuzzer aborts on any Rust panic).
+    let _ = client.try_send_tip(&token_id, &from, &to, &amount, &memo);
 
     // --- mint_receipt with fuzzed memo ---
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let receipt_idx = client.mint_receipt(&from, &to, &amount, &memo);
+    if let Ok(Ok(receipt_idx)) = client.try_mint_receipt(&from, &to, &amount, &memo) {
         // Verify receipt round-trip
         let receipt = client.get_receipt(&from, &receipt_idx);
         assert_eq!(receipt.memo, memo, "memo should round-trip through receipt");
         // Verify receipt proof
         let verified = client.verify_receipt(&from, &receipt_idx, &receipt.amount, &receipt.memo);
         assert!(verified, "verify_receipt should return true for correct memo");
-    }));
+    }
 
     // --- create_escrow with fuzzed memo ---
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let release = env.ledger().sequence() + 100;
-        let escrow_id = client.create_escrow(&token_id, &from, &to, &amount, &release, &memo);
+    if let Ok(Ok(escrow_id)) = client.try_create_escrow(
+        &token_id,
+        &from,
+        &to,
+        &amount,
+        &(env.ledger().sequence() + 100),
+        &memo,
+    ) {
         let escrow = client.get_escrow(&escrow_id);
         assert_eq!(escrow.memo, memo, "memo should round-trip through escrow");
-    }));
+    }
 
     // --- Verify get_tip_total integrity ---
     // If send_tip didn't panic, we should be able to read the totals

@@ -29,11 +29,6 @@ jest.mock("framer-motion", () => ({
   },
 }));
 
-// Mock lucide-react icons
-jest.mock("lucide-react", () => ({
-  Printer: () => <span>PrintIcon</span>,
-  Send: () => <span>SendIcon</span>,
-}));
 
 describe("HighlightedTransactionRow Component", () => {
   const mockPayment: PaymentRecord = {

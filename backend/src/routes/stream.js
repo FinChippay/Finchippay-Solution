@@ -33,10 +33,10 @@ router.post("/:publicKey/ticket", async (req, res) => {
     const publicKey = req.params.publicKey;
     // Generate a random 32-byte hex string for the ticket
     const ticket = crypto.randomBytes(32).toString("hex");
-    
+
     // Store ticket in cache for 30 seconds, associated with this publicKey
     await cacheService.set(`stream_ticket:${ticket}`, publicKey, 30);
-    
+
     res.json({ ticket });
   } catch (err) {
     res.status(500).json({ error: "Failed to generate stream ticket" });
@@ -53,7 +53,7 @@ router.get("/:publicKey", async (req, res) => {
 
   try {
     const cachedKey = await cacheService.get(`stream_ticket:${ticket}`);
-    
+
     // Verify the ticket exists and matches the requested public key
     if (!cachedKey || cachedKey !== publicKey) {
       return res.status(401).json({ error: "Invalid or expired stream ticket" });

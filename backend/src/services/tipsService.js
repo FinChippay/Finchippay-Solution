@@ -35,6 +35,8 @@ function amountFromRow(row) {
  * @param {string} [txHash] - The transaction hash
  * @returns {Promise<object>} The created tip record
  */
+const { normalizeAsset } = require("../utils/asset");
+
 async function recordTip({
   senderPublicKey,
   creatorPublicKey,
@@ -43,6 +45,7 @@ async function recordTip({
   memo = "",
   txHash = "",
 }) {
+  asset = normalizeAsset(asset);
   if (!senderPublicKey || !creatorPublicKey || !amount) {
     const error = new Error("senderPublicKey, creatorPublicKey, and amount are required");
     error.status = 400;

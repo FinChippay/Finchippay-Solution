@@ -46,9 +46,7 @@ describe("emailRenderer", () => {
 
   describe("render()", () => {
     it("throws for unknown template type", () => {
-      expect(() => emailRenderer.render("nonexistent_type", {})).toThrow(
-        /Unknown email template/,
-      );
+      expect(() => emailRenderer.render("nonexistent_type", {})).toThrow(/Unknown email template/);
     });
 
     it("renders payment_received with HTML and plain text", () => {

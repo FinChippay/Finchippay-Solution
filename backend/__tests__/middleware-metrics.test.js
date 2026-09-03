@@ -16,9 +16,9 @@ function makeRequest({ method = "GET", baseUrl = "", path = "/" } = {}) {
 }
 
 function resetMetrics() {
-  metrics.register.getSingleMetric("finchippay_http_requests_total")?.reset();
-  metrics.register.getSingleMetric("finchippay_http_request_duration_seconds")?.reset();
-  metrics.register.getSingleMetric("finchippay_http_requests_in_flight")?.reset();
+  metrics.register.getSingleMetric("http_requests_total")?.reset();
+  metrics.register.getSingleMetric("http_request_duration_seconds")?.reset();
+  metrics.register.getSingleMetric("http_requests_in_flight")?.reset();
 }
 
 async function getGaugeValue(name) {
@@ -72,7 +72,7 @@ describe("trackHttpMetrics middleware", () => {
     await request(app).get("/test").expect(200);
 
     await expect(
-      metrics.register.getSingleMetric("finchippay_http_requests_total").get(),
+      metrics.register.getSingleMetric("http_requests_total").get(),
     ).resolves.toMatchObject({
       values: expect.arrayContaining([expect.objectContaining({ value: 1 })]),
     });
@@ -87,7 +87,7 @@ describe("trackHttpMetrics middleware", () => {
     });
 
     await request(app).get("/inflight").expect(200);
-    const inFlight = await getGaugeValue("finchippay_http_requests_in_flight");
+    const inFlight = await getGaugeValue("http_requests_in_flight");
     expect(inFlight).toBe(0);
   });
 
@@ -98,10 +98,10 @@ describe("trackHttpMetrics middleware", () => {
 
     await request(app).get("/metrics").expect(200);
 
-    const totalSnap = await metrics.register
-      .getSingleMetric("finchippay_http_requests_total")
-      .get();
-    expect(totalSnap.values).toBeUndefined();
+    const totalSnap = await metrics.register.getSingleMetric("http_requests_total").get();
+    // The metric exists (registered at module load) but no /metrics request
+    // was recorded, so the values list is empty.
+    expect(totalSnap.values).toEqual([]);
   });
 
   it("excludes /api/metrics path from self-recording", async () => {
@@ -111,10 +111,8 @@ describe("trackHttpMetrics middleware", () => {
 
     await request(app).get("/api/metrics").expect(200);
 
-    const totalSnap = await metrics.register
-      .getSingleMetric("finchippay_http_requests_total")
-      .get();
-    expect(totalSnap.values).toBeUndefined();
+    const totalSnap = await metrics.register.getSingleMetric("http_requests_total").get();
+    expect(totalSnap.values).toEqual([]);
   });
 
   it("records 404 responses", async () => {
@@ -123,7 +121,7 @@ describe("trackHttpMetrics middleware", () => {
     await request(app).get("/nonexistent").expect(404);
 
     await expect(
-      metrics.register.getSingleMetric("finchippay_http_requests_total").get(),
+      metrics.register.getSingleMetric("http_requests_total").get(),
     ).resolves.toMatchObject({
       values: expect.arrayContaining([expect.objectContaining({ value: 1 })]),
     });
@@ -136,14 +134,12 @@ describe("trackHttpMetrics middleware", () => {
 
     await request(app).get("/error").expect(500);
 
-    const totalSnap = await metrics.register
-      .getSingleMetric("finchippay_http_requests_total")
-      .get();
+    const totalSnap = await metrics.register.getSingleMetric("http_requests_total").get();
     expect(totalSnap.values).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           value: 1,
-          labels: expect.objectContaining({ status_code: "500" }),
+          labels: expect.objectContaining({ status_code: 500 }),
         }),
       ]),
     );

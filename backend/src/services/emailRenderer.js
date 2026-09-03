@@ -265,11 +265,11 @@ const RAW_TEMPLATES = {
     html: `
       <p>Hi! Please verify your email address to enable email notifications.</p>
       <p>Click the button below (valid for <strong>24 hours</strong>):</p>
-      <a href="{{verificationUrl}}" class="btn">Verify Email Address</a>
-      <p style="font-size:12px;color:#999;">Or copy this link: <br /><a href="{{verificationUrl}}">{{verificationUrl}}</a></p>
+      <a href="{{{verificationUrl}}}" class="btn">Verify Email Address</a>
+      <p style="font-size:12px;color:#999;">Or copy this link: <br /><a href="{{{verificationUrl}}}">{{{verificationUrl}}}</a></p>
       <p style="font-size:12px;color:#999;">If you did not request this, you can safely ignore this email.</p>
     `,
-    text: "Verify your email\n\nClick this link to verify your email:\n{{verificationUrl}}\n\nValid for 24 hours. If you did not request this, ignore this email.",
+    text: "Verify your email\n\nClick this link to verify your email:\n{{{verificationUrl}}}\n\nValid for 24 hours. If you did not request this, ignore this email.",
   },
 
   digest: {

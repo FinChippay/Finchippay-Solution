@@ -7,6 +7,8 @@
 
 const express = require("express");
 const router = express.Router();
+const { verifyJWT } = require("../middleware/auth");
+const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { strictLimiter } = require("../middleware/rateLimit");
 const { userLimiter } = require("../middleware/userRateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
@@ -18,10 +20,35 @@ const Papa = require("papaparse");
 const logger = require("../utils/logger");
 const { sendError } = require("../utils/errorResponse");
 
+/**
+ * Reject a route whose `:publicKey` path param differs from the authenticated
+ * account (WS1). The JWT is the source of truth for authorization; a caller
+ * may only query payment history for their own account.
+ */
+function requireOwnPublicKey(req, res, next) {
+  if (req.user?.publicKey !== req.params.publicKey) {
+    return res.status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus).json(
+      formatErrorResponse("AUTH_FORBIDDEN", {
+        message: "Forbidden: you may only access your own payment history.",
+      }),
+    );
+  }
+  return next();
+}
+
+// Per-upload row cap so a malicious CSV cannot force unbounded parsing
+// memory/CPU per request (WS6).
+const MAX_CSV_ROWS = parseInt(process.env.MAX_CSV_ROWS, 10) || 500;
+
 const sanitizeFileName = (name) => {
   if (!name) return "upload.csv";
-  // eslint-disable-next-line no-control-regex
-  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "").replace(/&[a-zA-Z0-9#]+;/g, "").trim() || "upload.csv";
+  return (
+    name
+      // eslint-disable-next-line no-control-regex
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
+      .replace(/&[a-zA-Z0-9#]+;/g, "")
+      .trim() || "upload.csv"
+  );
 };
 
 const validateCsvRows = (rows) => {
@@ -54,6 +81,8 @@ router.get(
   "/:publicKey",
   strictLimiter,
   userLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   sanitizePublicKey,
   validate(publicKeyParamSchema, "params"),
   validate(paymentsQuerySchema, "query"),
@@ -68,6 +97,8 @@ router.get(
   "/:publicKey/stats",
   strictLimiter,
   userLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   paymentController.getStats,
 );
@@ -96,14 +127,23 @@ router.post(
         skipEmptyLines: true,
         complete: (results) => {
           if (!results.data || results.data.length === 0) {
-            return sendError(res, "VAL_MISSING_FIELD", { message: "CSV file is empty or has no data rows" });
+            return sendError(res, "VAL_MISSING_FIELD", {
+              message: "CSV file is empty or has no data rows",
+            });
+          }
+
+          if (results.data.length > MAX_CSV_ROWS) {
+            return sendError(res, "VAL_TOO_MANY_ROWS", {
+              message: `CSV exceeds the maximum of ${MAX_CSV_ROWS} rows`,
+              details: { maxRows: MAX_CSV_ROWS, received: results.data.length },
+            });
           }
 
           const validationErrors = validateCsvRows(results.data);
           if (validationErrors.length > 0) {
-            return sendError(res, "VAL_INVALID_JSON", { 
+            return sendError(res, "VAL_INVALID_JSON", {
               message: "CSV validation failed",
-              details: { errors: validationErrors } 
+              details: { errors: validationErrors },
             });
           }
 
@@ -116,7 +156,9 @@ router.post(
         },
         error: (parseError) => {
           logger.error({ err: parseError }, "CSV parsing failed");
-          return sendError(res, "VAL_INVALID_JSON", { message: `CSV parsing failed: ${parseError.message}` });
+          return sendError(res, "VAL_INVALID_JSON", {
+            message: `CSV parsing failed: ${parseError.message}`,
+          });
         },
       });
     } catch (err) {

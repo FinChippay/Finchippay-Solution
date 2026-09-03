@@ -10,14 +10,19 @@ const rateLimit = require("express-rate-limit");
 const router = express.Router();
 const knex = require("../db/connection");
 const notificationService = require("../services/notificationService");
+const pushService = require("../services/pushService");
+const { verifyJWT } = require("../middleware/auth");
+const { sensitiveLimiter } = require("../middleware/rateLimit");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { validate } = require("../validation/middleware");
 const {
   registerEmailSchema,
   updateEmailSchema,
   publicKeyParamSchema,
+  registerDeviceTokenSchema,
 } = require("../validation/schemas");
 const logger = require("../utils/logger");
+const auditService = require("../services/auditService");
 
 const notificationLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
@@ -27,6 +32,22 @@ const notificationLimiter = rateLimit({
   message: formatErrorResponse("RATE_LIMITED_SENSITIVE"),
 });
 
+/**
+ * Restrict a `:publicKey` route to the authenticated account. The JWT is the
+ * sole authorization boundary — a caller-supplied `publicKey` (body or param)
+ * is never trusted to scope PII (email, preferences, history) (WS1).
+ */
+function requireOwnPublicKey(req, res, next) {
+  if (req.user?.publicKey !== req.params.publicKey) {
+    return res.status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus).json(
+      formatErrorResponse("AUTH_FORBIDDEN", {
+        message: "Forbidden: you may only access your own notification preferences.",
+      }),
+    );
+  }
+  return next();
+}
+
 // ─── Existing email endpoints ────────────────────────────────────────────────
 
 /**
@@ -35,15 +56,32 @@ const notificationLimiter = rateLimit({
  *
  * Body: { publicKey: "G...", email: "user@example.com", events?: string[] }
  */
-router.post("/email", notificationLimiter, validate(registerEmailSchema), async (req, res, next) => {
-  try {
-    const { publicKey, email, events } = req.validated;
-    const preference = await notificationService.registerEmail(publicKey, email, { events });
-    return res.status(201).json({ success: true, preference });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post(
+  "/email",
+  notificationLimiter,
+  verifyJWT,
+  validate(registerEmailSchema),
+  async (req, res, next) => {
+    try {
+      const { email, events, consentOpenTracking, publicKey } = req.validated;
+      // The account comes from the JWT; a mismatched body publicKey is rejected.
+      if (publicKey && publicKey !== req.user.publicKey) {
+        return res.status(ERROR_CODES.AUTH_FORBIDDEN.httpStatus).json(
+          formatErrorResponse("AUTH_FORBIDDEN", {
+            message: "Forbidden: publicKey in body must match authenticated user.",
+          }),
+        );
+      }
+      const preference = await notificationService.registerEmail(req.user.publicKey, email, {
+        events,
+        consentOpenTracking,
+      });
+      return res.status(201).json({ success: true, preference });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /**
  * PUT /api/notifications/email/:publicKey
@@ -54,12 +92,14 @@ router.post("/email", notificationLimiter, validate(registerEmailSchema), async 
 router.put(
   "/email/:publicKey",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   validate(updateEmailSchema),
   async (req, res, next) => {
     try {
       const { publicKey } = req.validated;
-      const { email, events } = req.validated;
+      const { email, events, consentOpenTracking } = req.validated;
 
       // Fetch existing preference
       const existing = await notificationService.getEmailPreference(publicKey);
@@ -75,9 +115,13 @@ router.put(
       const preference = await notificationService.registerEmail(
         publicKey,
         email || existing.email,
-        { events: events || existing.events },
+        {
+          events: events || existing.events,
+          consentOpenTracking:
+            consentOpenTracking !== undefined ? consentOpenTracking : existing.consentOpenTracking,
+        },
       );
-      return res.json({ success: true, preference });
+      return res.status(200).json({ success: true, preference });
     } catch (err) {
       next(err);
     }
@@ -91,6 +135,8 @@ router.put(
 router.get(
   "/email/:publicKey",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -118,6 +164,8 @@ router.get(
 router.delete(
   "/email/:publicKey",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -175,6 +223,8 @@ function defaultEventChannels() {
 router.get(
   "/:publicKey/preferences",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -232,6 +282,8 @@ router.get(
 router.put(
   "/:publicKey/preferences",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -289,6 +341,14 @@ router.put(
         "Notification preferences updated",
       );
 
+      auditService.record({
+        actor: req.user.publicKey,
+        action: "notification.preferences.update",
+        resourceType: "notification_preference",
+        targetPublicKey: publicKey,
+        outcome: "success",
+      });
+
       return res.json({
         success: true,
         preference: {
@@ -321,6 +381,8 @@ router.put(
 router.get(
   "/:publicKey/history",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -371,6 +433,8 @@ router.get(
 router.put(
   "/:publicKey/history/:id/read",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -393,6 +457,8 @@ router.put(
 router.delete(
   "/:publicKey/history",
   notificationLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
   validate(publicKeyParamSchema, "params"),
   async (req, res, next) => {
     try {
@@ -404,6 +470,40 @@ router.delete(
         message: "Notification history cleared",
       });
     } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /api/notifications/:publicKey/device-token
+ * Register a native mobile push device token (FCM or APNs) for an account.
+ *
+ * Body: { token: string, provider?: "fcm" | "apns" }
+ */
+router.post(
+  "/:publicKey/device-token",
+  sensitiveLimiter,
+  verifyJWT,
+  requireOwnPublicKey,
+  validate(publicKeyParamSchema, "params"),
+  validate(registerDeviceTokenSchema),
+  async (req, res, next) => {
+    try {
+      const { publicKey } = req.validated;
+      const { token, provider } = req.validated;
+
+      const result = await pushService.registerDeviceToken(publicKey, token, provider);
+
+      return res.status(result.created ? 201 : 200).json({
+        success: true,
+        data: result,
+        message: result.created ? "Device token registered" : "Device token updated",
+      });
+    } catch (err) {
+      if (err.status === 400) {
+        return res.status(400).json({ error: err.message });
+      }
       next(err);
     }
   },
