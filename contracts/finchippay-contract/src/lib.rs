@@ -312,6 +312,7 @@ pub struct BatchClaimCursor {
 /// Maximum number of escrows tracked per recipient index (prevents state bloat).
 const MAX_USER_ESCROWS: u32 = 100;
 const MAX_USER_STREAMS: u32 = 100;
+const MAX_USER_RECEIPTS: u32 = 1_000;
 const MAX_PAGE_SIZE: u32 = 50;
 
 // ─── Batch swap helper types ─────────────────────────────────────────────────
@@ -2370,6 +2371,10 @@ impl FinchippayContract {
             .persistent()
             .get(&DataKey::ReceiptCount(from.clone()))
             .unwrap_or(0);
+
+        if count >= MAX_USER_RECEIPTS {
+            panic!("User receipt limit reached");
+        }
 
         let receipt = ReceiptMetadata {
             from: from.clone(),

@@ -9,7 +9,7 @@ use crate::{
     contract_transfer_out, decrease_locked_balance, get_admin, get_token_client,
     increase_locked_balance, require_initialized, require_not_paused, require_transfer_succeeded,
     BatchClaimCursor, BatchClaimResult, BatchEscrowInput, BatchEscrowResult, ContractError,
-    DataKey, Escrow, EscrowStatus, BATCH_ESCROW_CURSOR_STEP, MAX_BATCH_SIZE, MAX_ESCROW_AMOUNT,
+    DataKey, Escrow, EscrowSummary, EscrowStatus, Milestone, BATCH_ESCROW_CURSOR_STEP, MAX_BATCH_SIZE, MAX_ESCROW_AMOUNT,
     MAX_ESCROW_LEDGERS, MAX_MILESTONES, MAX_USER_ESCROWS, MIN_ESCROW_AMOUNT,
 };
 

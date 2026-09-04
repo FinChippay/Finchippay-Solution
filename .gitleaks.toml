@@ -23,6 +23,10 @@ paths = [
   '''docs/sdk\.md''',
   '''.github/workflows/kubernetes-deploy\.yml''',
   '''sdk/src/index\.ts''',
+  '''CODE_REVIEW\.md''',
+  '''ANALYTICS_GUIDE\.md''',
+  '''frontend/stories/.*\.tsx''',
+  '''scripts/load-test/.*\.js''',
 ]
 
 # Additional custom rules for this project
