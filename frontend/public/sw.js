@@ -656,11 +656,14 @@ async function drainQueue() {
   // Legacy signed-XDR transactions.
   const pending = await getPendingTransactions(db);
   const horizonUrl = getHorizonUrl();
+  const results = [];
+
   for (const record of pending) {
     await putTransaction(db, { ...record, status: "submitting" });
     try {
       await submitXdrToHorizon(horizonUrl, record.signedXDR);
       await deleteTransaction(db, record.id);
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: true });
     } catch (err) {
       await putTransaction(db, {
         ...record,
@@ -668,6 +671,7 @@ async function drainQueue() {
         error: err instanceof Error ? err.message : String(err),
         attempts: (record.attempts || 0) + 1,
       });
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: false, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -685,10 +689,7 @@ async function drainQueue() {
   // necessary, finish unsigned payments via Freighter on the main thread.
   const clientList = await self.clients.matchAll({ type: "window" });
   for (const client of clientList) {
-    client.postMessage({ type: "QUEUE_PROCESSED" });
-    if (hasUnsignedPayments) {
-      client.postMessage({ type: "QUEUE_NEEDS_SIGNING" });
-    }
+    client.postMessage({ type: "QUEUE_PROCESSED", results });
   }
 }
 

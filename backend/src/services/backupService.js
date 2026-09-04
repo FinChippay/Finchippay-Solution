@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
 const cron = require("node-cron");
+const logger = require("../utils/logger");
 
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(process.cwd(), "backups");
 const BACKUP_SCHEDULE = process.env.BACKUP_SCHEDULE || "0 2 * * *";
@@ -156,7 +157,7 @@ function startScheduler() {
     try {
       await performBackup();
     } catch (err) {
-      console.error("Automated backup failed:", err);
+      logger.error({ err }, "Automated backup failed");
     }
   });
 }

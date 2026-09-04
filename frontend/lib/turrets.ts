@@ -1,17 +1,26 @@
 /**
  * lib/turrets.ts
  * Frontend API helpers for Turrets txFunctions.
- *
- * Uses the @finchippay/sdk client for all API calls.
  */
 
-import type {
-  TxFunctionChallengeRequest,
-  TxFunctionDeployRequest,
-  TxFunctionDeployment,
-  ExecutionLogEntry,
-} from "@finchippay/sdk";
-import { sdk } from "./sdk-instance";
+import { apiFetch } from "./api";
+
+const API_URL =
+  (typeof window !== "undefined"
+    ? process.env.NEXT_PUBLIC_API_URL
+    : process.env.NEXT_PUBLIC_API_URL) || "http://localhost:4000";
+
+function getBaseUrl(): string {
+  return API_URL.replace(/\/+$/, "");
+}
+
+function authHeaders(token?: string | null): Record<string, string> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) {
+    h.Authorization = `Bearer ${token}`;
+  }
+  return h;
+}
 
 export type TurretsType = "dca" | "stop_loss";
 
@@ -44,13 +53,17 @@ export async function createTurretsChallenge(params: {
   type: TurretsType;
   config: Record<string, unknown>;
 }) {
-  const { data } = await sdk.turrets.createChallenge(params as TxFunctionChallengeRequest);
-  return data as {
+  const res = await apiFetch(`${getBaseUrl()}/api/turrets/challenge`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(params),
+  });
+  return res.json() as Promise<{
     challengeXDR: string;
     deploymentHash: string;
     normalizedConfig: Record<string, unknown>;
     networkPassphrase: string;
-  };
+  }>;
 }
 
 export async function deployTurretsFunction(params: {
@@ -60,24 +73,40 @@ export async function deployTurretsFunction(params: {
   deploymentHash: string;
   signedChallengeXDR: string;
 }) {
-  const { data } = await sdk.turrets.deploy(params as TxFunctionDeployRequest);
-  return data as TurretsDeployment;
+  const res = await apiFetch(`${getBaseUrl()}/api/turrets/deploy`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(params),
+  });
+  return res.json() as Promise<TurretsDeployment>;
 }
 
 export async function listTurretsFunctions(ownerPublicKey: string) {
-  const { data } = await sdk.turrets.list({ ownerPublicKey });
-  return data as TurretsDeployment[];
+  const res = await apiFetch(
+    `${getBaseUrl()}/api/turrets/list?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`,
+    { headers: authHeaders() }
+  );
+  return res.json() as Promise<TurretsDeployment[]>;
 }
 
 export async function getTurretsHistory(id: string) {
-  const { data } = await sdk.turrets.getHistory(id);
-  return data as TurretsExecutionHistory[];
+  const res = await apiFetch(
+    `${getBaseUrl()}/api/turrets/history/${encodeURIComponent(id)}`,
+    { headers: authHeaders() }
+  );
+  return res.json() as Promise<TurretsExecutionHistory[]>;
 }
 
 export async function pauseTurretsFunction(id: string) {
-  await sdk.turrets.pause(id);
+  await apiFetch(`${getBaseUrl()}/api/turrets/pause/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
 }
 
 export async function resumeTurretsFunction(id: string) {
-  await sdk.turrets.resume(id);
+  await apiFetch(`${getBaseUrl()}/api/turrets/resume/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
 }

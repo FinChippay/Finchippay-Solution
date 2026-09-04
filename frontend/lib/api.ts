@@ -7,27 +7,46 @@
 import { withCorrelation } from "./correlation";
 
 /**
- * Generates a standard W3C traceparent header.
+ * Generate cryptographically secure random bytes as a hex string.
+ * Uses `crypto.getRandomValues` (Web Crypto API) instead of `Math.random`
+ * to produce spec-compliant, unforgeable randomness for W3C traceparent IDs.
+ *
+ * @param byteLength - Number of random bytes to generate.
+ * @returns Lowercase hex string of length `byteLength * 2`.
+ */
+function secureRandomHex(byteLength: number): string {
+  const buf = new Uint8Array(byteLength);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Generates a W3C Traceparent header.
  * Format: 00-traceid-parentid-traceflags
+ *
+ * Uses `crypto.getRandomValues` for cryptographically secure randomness
+ * so that trace and parent IDs are unforgeable and spec-compliant.
+ * Implements probabilistic sampling instead of hardcoded '01' (Issue #725).
  */
 export function generateTraceParent(): string {
   const version = "00";
-  // Generate random 16 bytes (32 hex characters) trace ID
-  const traceId = Array.from({ length: 16 }, () =>
-    Math.floor(Math.random() * 256)
-      .toString(16)
-      .padStart(2, "0"),
-  ).join("");
-  // Generate random 8 bytes (16 hex characters) parent ID (span ID)
-  const parentId = Array.from({ length: 8 }, () =>
-    Math.floor(Math.random() * 256)
-      .toString(16)
-      .padStart(2, "0"),
-  ).join("");
-  const traceFlags = "01"; // Sampled
+  // W3C spec: trace-id = 32 hex chars (16 bytes), parent-id = 16 hex chars (8 bytes)
+  const traceId = secureRandomHex(16);
+  const parentId = secureRandomHex(8);
+
+  // Define sampling rate (e.g., 0.1 for 10% of requests, or 1.0 for 100%)
+  // Ideally, this value comes from an environment variable
+  const samplingRate = process.env.NEXT_PUBLIC_TRACE_SAMPLING_RATE 
+    ? parseFloat(process.env.NEXT_PUBLIC_TRACE_SAMPLING_RATE) 
+    : 0.1; // Default to 10% to prevent backend overload
+
+  // Determine trace flags
+  // 01 = Sampled, 00 = Not Sampled
+  const isSampled = Math.random() < samplingRate;
+  const traceFlags = isSampled ? "01" : "00";
+
   return `${version}-${traceId}-${parentId}-${traceFlags}`;
 }
-
 /**
  * A wrapper around the native fetch API that automatically adds
  * traceparent headers for outgoing request tracing.
@@ -41,6 +60,48 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     ...init,
     headers,
   });
+}
+
+/**
+ * Determines whether an outgoing request targets the application's own backend
+ * API and is therefore safe to receive W3C `traceparent` context.
+ *
+ * `traceparent` carries internal distributed-tracing context that must never
+ * leave first-party infrastructure. The previous heuristic injected it into any
+ * URL whose string merely *contained* `/api/` (e.g.
+ * `https://api.coingecko.com/api/v3/...`), leaking trace context to third-party
+ * hosts. We now restrict injection to:
+ *   1. relative paths (same-origin to the frontend), and
+ *   2. absolute URLs whose origin exactly matches the configured backend API
+ *      origin (`NEXT_PUBLIC_API_URL`).
+ *
+ * @param urlStr the request URL as a string, URL, or Request
+ */
+function isFirstPartyApiRequest(urlStr: string): boolean {
+  // Relative URLs (e.g. "/api/health") are same-origin to the frontend and are
+  // always treated as first-party.
+  if (!/^https?:\/\//i.test(urlStr)) {
+    return true;
+  }
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  let backendOrigin: string | null = null;
+  try {
+    backendOrigin = new URL(apiUrl).origin;
+  } catch {
+    backendOrigin = null;
+  }
+  if (!backendOrigin) {
+    // Without a resolvable backend origin we must not assume a third-party host
+    // is first-party, so never inject trace context.
+    return false;
+  }
+
+  try {
+    return new URL(urlStr).origin === backendOrigin;
+  } catch {
+    return false;
+  }
 }
 
 // Automatically patch global fetch for backend API calls made outside apiFetch.
@@ -63,10 +124,8 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
               ? input.href
               : (input as Request).url;
 
-        // Only inject traceparent headers for relative paths or API endpoints
-        const isBackendApi = urlStr.includes("/api/") || !urlStr.startsWith("http");
-
-        if (isBackendApi) {
+        // Only inject traceparent headers for first-party backend requests.
+        if (isFirstPartyApiRequest(urlStr)) {
           const headers = new Headers(init?.headers);
           if (!headers.has("traceparent")) {
             headers.set("traceparent", generateTraceParent());

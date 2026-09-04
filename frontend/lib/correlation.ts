@@ -67,11 +67,16 @@ export function withCorrelation(fetchImpl: typeof fetch): typeof fetch {
     const headers = new Headers(requestHeaders);
     new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
 
-    if (!headers.has("X-Request-ID")) {
-      headers.set("X-Request-ID", createActionId());
-    } else {
-      lastActionId = headers.get("X-Request-ID");
+    // Always generate a fresh request ID so retries are distinguishable.
+    // If the caller supplied an X-Request-ID (e.g. from a cached init object),
+    // its value is preserved as X-Retry-Of so the backend can correlate retries.
+    const oldId = headers.get("X-Request-ID");
+    const newId = createActionId();
+    headers.set("X-Request-ID", newId);
+    if (oldId) {
+      headers.set("X-Retry-Of", oldId);
     }
+    lastActionId = newId;
 
     if (!headers.has("X-Session-ID")) {
       headers.set("X-Session-ID", sessionId);

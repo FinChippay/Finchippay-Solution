@@ -111,14 +111,24 @@ function buildPage(rows, limit, getCursorFields) {
  */
 function applyKnexKeyset(query, cursor, columns) {
   if (!cursor) return query;
+  // `columns` entries may be table-qualified (e.g. "e.created_at") to avoid
+  // ambiguity in joined queries, but cursor objects are always encoded with
+  // plain field names (see buildPage/encodeCursor). Strip the alias so the
+  // lookup below actually finds the value instead of reading `undefined`.
+  const cursorKey = (col) => (col.includes(".") ? col.split(".").pop() : col);
+  // A cursor missing a required sort-key field can't produce a valid seek
+  // predicate; skip filtering rather than comparing a column to `undefined`,
+  // which would silently exclude every row.
+  const hasAllFields = columns.every((c) => cursor[cursorKey(c[0])] !== undefined);
+  if (!hasAllFields) return query;
   return query.where(function () {
     for (let i = 0; i < columns.length; i++) {
       this.orWhere(function () {
         for (let j = 0; j < i; j++) {
-          this.andWhere(columns[j][0], "=", cursor[columns[j][0]]);
+          this.andWhere(columns[j][0], "=", cursor[cursorKey(columns[j][0])]);
         }
         const op = columns[i][1] === "asc" ? ">" : "<";
-        this.andWhere(columns[i][0], op, cursor[columns[i][0]]);
+        this.andWhere(columns[i][0], op, cursor[cursorKey(columns[i][0])]);
       });
     }
   });

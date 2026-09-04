@@ -165,7 +165,7 @@ All errors returned by the API use a machine-readable error code. The canonical 
 
 ### Contract Errors (`CONTRACT_*`)
 
-Mapped from the Soroban contract's numeric `ContractError` codes (1–17).
+Mapped from the Soroban contract's numeric `ContractError` codes (1–29).
 
 | Code                              | HTTP | Contract Code | Description                           |
 | --------------------------------- | ---- | ------------- | ------------------------------------- |

@@ -73,17 +73,16 @@ describe("validateEnv.collectErrors", () => {
   });
 
   it("requires a strong rate-limit hash salt in production", () => {
-    const missingSalt = collectErrors({
+    const prodBase = {
+      JWT_SECRET: "some-long-jwt-secret-for-tests",
       NODE_ENV: "production",
       STELLAR_NETWORK: "mainnet",
       HORIZON_URL: "https://horizon.stellar.org",
-    });
-    const shortSalt = collectErrors({
-      NODE_ENV: "production",
-      STELLAR_NETWORK: "mainnet",
-      HORIZON_URL: "https://horizon.stellar.org",
-      RATE_LIMIT_IP_HASH_SALT: "too-short",
-    });
+      WEBHOOK_ENCRYPTION_KEY: "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee",
+      WEBHOOK_SECRET_KEY: "stable-webhook-secret-key-for-tests",
+    };
+    const missingSalt = collectErrors(prodBase);
+    const shortSalt = collectErrors({ ...prodBase, RATE_LIMIT_IP_HASH_SALT: "too-short" });
 
     expect(missingSalt).toEqual(
       expect.arrayContaining([expect.stringContaining("RATE_LIMIT_IP_HASH_SALT is required")]),
@@ -96,10 +95,13 @@ describe("validateEnv.collectErrors", () => {
   it("accepts a strong rate-limit hash salt in production", () => {
     expect(
       collectErrors({
+        JWT_SECRET: "some-long-jwt-secret-for-tests",
         NODE_ENV: "production",
         STELLAR_NETWORK: "mainnet",
         HORIZON_URL: "https://horizon.stellar.org",
         RATE_LIMIT_IP_HASH_SALT: "a".repeat(32),
+        WEBHOOK_ENCRYPTION_KEY: "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee",
+        WEBHOOK_SECRET_KEY: "stable-webhook-secret-key-for-tests",
       }),
     ).toEqual([]);
   });
@@ -203,9 +205,11 @@ describe("validateEnv.collectErrors", () => {
 
   it("requires WEBHOOK_ENCRYPTION_KEY in production", () => {
     const errors = collectErrors({
+      JWT_SECRET: "some-long-jwt-secret-for-tests",
       STELLAR_NETWORK: "testnet",
       HORIZON_URL: "https://horizon-testnet.stellar.org",
       NODE_ENV: "production",
+      WEBHOOK_SECRET_KEY: "stable-webhook-secret-key-for-tests",
     });
     expect(errors).toEqual(
       expect.arrayContaining([expect.stringContaining("WEBHOOK_ENCRYPTION_KEY is required")]),
@@ -215,12 +219,40 @@ describe("validateEnv.collectErrors", () => {
   it("passes when WEBHOOK_ENCRYPTION_KEY is set in production", () => {
     expect(
       collectErrors({
+        JWT_SECRET: "some-long-jwt-secret-for-tests",
         STELLAR_NETWORK: "testnet",
         HORIZON_URL: "https://horizon-testnet.stellar.org",
         NODE_ENV: "production",
+        RATE_LIMIT_IP_HASH_SALT: "a".repeat(32),
         WEBHOOK_ENCRYPTION_KEY: "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee",
+        WEBHOOK_SECRET_KEY: "a-very-long-random-secret-key-that-is-stable-across-boots",
       }),
     ).toEqual([]);
+  });
+
+  // ─── WEBHOOK_SECRET_KEY validation (WS7) ───────────────────────────────
+
+  it("does not require WEBHOOK_SECRET_KEY in non-production", () => {
+    expect(
+      collectErrors({
+        STELLAR_NETWORK: "testnet",
+        HORIZON_URL: "https://horizon-testnet.stellar.org",
+        NODE_ENV: "development",
+      }),
+    ).toEqual([]);
+  });
+
+  it("requires WEBHOOK_SECRET_KEY in production", () => {
+    const errors = collectErrors({
+      JWT_SECRET: "some-long-jwt-secret-for-tests",
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+      NODE_ENV: "production",
+      WEBHOOK_ENCRYPTION_KEY: "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("WEBHOOK_SECRET_KEY is required")]),
+    );
   });
 });
 

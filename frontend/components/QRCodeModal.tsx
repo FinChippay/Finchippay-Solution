@@ -16,6 +16,7 @@ interface QRCodeModalProps {
 
 export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCodeModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useFocusTrap<HTMLDivElement>({ active: isOpen, onEscape: onClose });
 
   // Generate SEP-0007 URI format: web+stellar:pay?destination=G...[&amount=X]

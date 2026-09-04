@@ -59,6 +59,51 @@ export const MAX_RETRY_DELAY_MS = 30_000;
  */
 const PROCESSING_STALE_MS = 30_000;
 
+// ─── Change notifications (pub/sub for live UI updates) ───────────────────────
+// Lets the UI observe queue mutations (queue / status change / remove / sync)
+// so pending-transaction lists and sync indicators update in real time.
+
+const QUEUE_CHANGE_EVENT = "finchippay:offline-queue-changed";
+type QueueListener = () => void;
+const listeners = new Set<QueueListener>();
+
+function dispatchQueueChange() {
+  listeners.forEach((l) => {
+    try {
+      l();
+    } catch {
+      // A failing subscriber must not break the others.
+    }
+  });
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new Event(QUEUE_CHANGE_EVENT));
+    } catch {
+      // window may be unavailable in non-DOM environments.
+    }
+  }
+}
+
+/**
+ * Subscribe to queue changes. Returns an unsubscribe function.
+ */
+export function subscribeToQueue(listener: QueueListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Listen to queue changes via a window event (e.g. across component trees).
+ * Returns an unsubscribe function.
+ */
+export function onQueueChanged(cb: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(QUEUE_CHANGE_EVENT, cb);
+  return () => window.removeEventListener(QUEUE_CHANGE_EVENT, cb);
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** Lifecycle status of a generic queue entry. */
@@ -624,6 +669,7 @@ export async function queueTransaction(
   });
 
   await registerBackgroundSync();
+  dispatchQueueChange();
 }
 
 /**
@@ -664,7 +710,7 @@ export async function getQueueCount(): Promise<number> {
  */
 export async function removeTransaction(id: string): Promise<void> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(TX_STORE, "readwrite");
     tx.objectStore(TX_STORE).delete(id);
     tx.oncomplete = () => {
@@ -676,6 +722,7 @@ export async function removeTransaction(id: string): Promise<void> {
       reject(tx.error);
     };
   });
+  dispatchQueueChange();
 }
 
 /**
@@ -683,7 +730,7 @@ export async function removeTransaction(id: string): Promise<void> {
  */
 async function updateTransaction(record: QueuedTransaction): Promise<void> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(TX_STORE, "readwrite");
     tx.objectStore(TX_STORE).put(record);
     tx.oncomplete = () => {
@@ -694,6 +741,8 @@ async function updateTransaction(record: QueuedTransaction): Promise<void> {
       db.close();
       reject(tx.error);
     };
+  }).then(() => {
+    dispatchQueueChange();
   });
 }
 
@@ -720,12 +769,14 @@ export async function processQueue(): Promise<void> {
 
   const pending = transactions.filter((t) => t.status === "queued" || t.status === "failed");
 
+  const results: Array<QueueTransactionMetadata & { success: boolean; error?: string }> = [];
   for (const record of pending) {
     await updateTransaction({ ...record, status: "submitting" });
 
     try {
       await submitXDRToHorizon(record.signedXDR);
       await removeTransaction(record.id);
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       await updateTransaction({
@@ -734,11 +785,11 @@ export async function processQueue(): Promise<void> {
         error: message,
         attempts: record.attempts + 1,
       });
+      results.push({ destination: record.destination, amount: record.amount, asset: record.asset, success: false, error: message });
     }
   }
-
-  // Then drain the generic queue (Issue #483).
-  await processGenericQueue();
+  if (results.length && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("finchippay:queue-results", { detail: results }));
+  dispatchQueueChange();
 }
 
 // ─── Horizon submission ───────────────────────────────────────────────────────

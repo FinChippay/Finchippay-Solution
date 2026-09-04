@@ -41,7 +41,7 @@ export default function Trade() {
       const data = await fetchOrderbook(USDC, Asset.native(), 10);
       setOrderbook(data);
     } catch (error) {
-      logger.error("Failed to load orderbook:", error);
+      logger.error("Failed to load orderbook:", {}, error instanceof Error ? error : undefined);
     }
   }, []);
 
@@ -61,7 +61,7 @@ export default function Trade() {
       );
       setTradeHistory(data);
     } catch (error) {
-      logger.error("Failed to load trade history:", error);
+      logger.error("Failed to load trade history:", {}, error instanceof Error ? error : undefined);
     }
   }, []);
 
@@ -72,7 +72,7 @@ export default function Trade() {
       const offers = await fetchOpenOffers(publicKey);
       setOpenOffers(offers);
     } catch (error) {
-      logger.error("Failed to load open offers:", error);
+      logger.error("Failed to load open offers:", {}, error instanceof Error ? error : undefined);
     }
   }, [publicKey]);
 
@@ -103,7 +103,7 @@ export default function Trade() {
       showToast("Offer cancelled successfully!", "success");
       loadOpenOffers(); // Reload offers
     } catch (error) {
-      logger.error("Failed to cancel offer:", error);
+      logger.error("Failed to cancel offer:", {}, error instanceof Error ? error : undefined);
       showToast(error instanceof Error ? error.message : "Failed to cancel offer", "error");
     } finally {
       setIsLoading(false);

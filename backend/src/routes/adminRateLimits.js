@@ -8,6 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const knex = require("../db/connection");
+const { strictLimiter } = require("../middleware/rateLimit");
 const { verifyJWT, requireAdmin } = require("../middleware/auth");
 const rateLimitConfigService = require("../services/rateLimitConfigService");
 const { getRateLimitStats } = require("../middleware/rateLimitMetrics");
@@ -17,7 +18,7 @@ const logger = require("../utils/logger");
  * GET /api/admin/rate-limits/stats
  * Returns rate limit analytics overview.
  */
-router.get("/stats", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/stats", strictLimiter, verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const stats = getRateLimitStats();
 
@@ -48,7 +49,7 @@ router.get("/stats", verifyJWT, requireAdmin, async (req, res, next) => {
  * GET /api/admin/rate-limits
  * List current rate limit rules.
  */
-router.get("/", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/", strictLimiter, verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const rules = await rateLimitConfigService.getAllRules();
     res.json({ success: true, rules });
@@ -62,7 +63,7 @@ router.get("/", verifyJWT, requireAdmin, async (req, res, next) => {
  * Update a rate limit rule.
  * Body: { id: number, limit?: number, window_ms?: number, enabled?: boolean }
  */
-router.put("/", verifyJWT, requireAdmin, async (req, res, next) => {
+router.put("/", strictLimiter, verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const { id, limit, window_ms, enabled } = req.body;
     if (!id) return res.status(400).json({ error: "id is required" });
@@ -87,7 +88,7 @@ router.put("/", verifyJWT, requireAdmin, async (req, res, next) => {
  * Simulate a request to preview if it would be blocked.
  * Body: { method: string, route: string, limit: number, windowMs: number }
  */
-router.post("/test", verifyJWT, requireAdmin, async (req, res, next) => {
+router.post("/test", strictLimiter, verifyJWT, requireAdmin, async (req, res, next) => {
   try {
     const { method, route, limit, windowMs } = req.body;
     const result = await rateLimitConfigService.testRule(method, route, limit, windowMs);

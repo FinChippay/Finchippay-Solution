@@ -10,6 +10,10 @@
 // set in .env is visible when the OpenTelemetry SDK initialises.
 require("dotenv").config();
 
+// Docker secrets (JWT_SECRET_FILE, DATABASE_URL_FILE, etc.) must be resolved
+// into plain env vars before any other module reads them.
+require("./config/dockerSecrets");
+
 // ─── OpenTelemetry tracing (must load before Express/HTTP imports) ────────────
 // Auto-instrumentation hooks into Node's module loader via require-in-the-middle,
 // so this must be required before express, http, etc. are imported.
@@ -24,11 +28,13 @@ const express = require("express");
 const cors = require("cors");
 const pinoHttp = require("pino-http");
 const { strictLimiter, createInstrumentedLimiter } = require("./middleware/rateLimit");
+const { deprecationHeader } = require("./middleware/deprecation");
 const Sentry = require("@sentry/node");
 const { formatErrorResponse, ERROR_CODES } = require("../../shared/errorCodes");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
+const apiKeysRoutes = require("./routes/apiKeys");
 const paymentRoutes = require("./routes/payments");
 const receiptsRoutes = require("./routes/receipts");
 const analyticsRoutes = require("./routes/analytics");
@@ -38,6 +44,7 @@ const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
 const webhookRoutes = require("./routes/webhooks");
 const { restoreWebhooks } = require("./services/webhookService");
+const inboundWebhookSecretService = require("./services/inboundWebhookSecretService");
 const parsePaymentRoutes = require("./routes/parsePayment");
 const scheduledTransactionRoutes = require("./routes/scheduledTransactions");
 const sep24Routes = require("./routes/sep24");
@@ -47,6 +54,7 @@ const eventRoutes = require("./routes/events");
 const notificationRoutes = require("./routes/notifications");
 const featuresRoutes = require("./routes/features");
 const adminFeatureFlagsRoutes = require("./routes/adminFeatureFlags");
+const adminAuditLogRoutes = require("./routes/adminAuditLog");
 const tokensRoutes = require("./routes/tokens");
 const pushRoutes = require("./routes/push");
 const emailRoutes = require("./routes/emails");
@@ -57,7 +65,7 @@ const eventIndexer = require("./services/eventIndexer");
 const {
   startRetryWorker,
   closeAllStreams: closeWebhookStreams,
-} = require("./services/webhookSubscriptionService");
+} = require("./services/webhookService");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const { requireJsonContentType } = require("./middleware/bodyParsing");
@@ -76,14 +84,7 @@ const { requestIdMiddleware } = require("./middleware/requestId");
 const traceContextMiddleware = require("./middleware/tracing");
 const crypto = require("crypto");
 
-const { ApolloServer } = require("@apollo/server");
-const { expressMiddleware } = require("@as-integrations/express4");
-const {
-  ApolloServerPluginLandingPageLocalDefault,
-  ApolloServerPluginLandingPageDisabled,
-} = require("@apollo/server/plugin/landingPage/default");
-const typeDefs = require("./graphql/schema");
-const resolvers = require("./graphql/resolvers");
+const { mountGraphQL } = require("./graphql");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -189,9 +190,12 @@ app.use(requireJsonContentType);
 // JSON body size limits (#81, #353) — configurable via env vars.
 // Apply standard body parsing with env-configured limits.
 const { bodyParsing } = require("./middleware/bodyParsing");
-bodyParsing(app);
-// /api/turrets gets a larger limit for txFunction payloads.
+// /api/turrets gets a larger limit for txFunction payloads (#81). Mounted
+// BEFORE the global parser so the override actually applies: express parses
+// the body with the first matching middleware, so mounting the global parser
+// first would silently shadow the 512kb limit.
 app.use("/api/turrets", express.json({ limit: "512kb" }));
+bodyParsing(app);
 
 // JSON body parsing error handler — uses standardized error codes
 app.use((err, req, res, next) => {
@@ -226,6 +230,7 @@ app.use(
     allowedHeaders: [
       "Content-Type",
       "Authorization",
+      "X-API-Key",
       "X-Request-ID",
       "X-Correlation-ID",
       "X-Session-ID",
@@ -298,7 +303,22 @@ for (const { path, router } of apiRouteMounts) {
   app.use(`/api/v1${path}`, router);
 }
 
+// Legacy (unversioned) /api/* routes are deprecated in favour of /api/v1.
+// Mark them with a Deprecation header, but leave versioned and docs routes
+// clean so clients can detect the migration path.
+app.use((req, res, next) => {
+  if (
+    req.path.startsWith("/api/") &&
+    !req.path.startsWith("/api/v1/") &&
+    !req.path.startsWith("/api/docs")
+  ) {
+    return deprecationHeader(req, res, next);
+  }
+  next();
+});
+
 app.use("/api/auth", authRoutes);
+app.use("/api/keys", apiKeysRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/receipts", receiptsRoutes);
@@ -319,9 +339,16 @@ app.use("/api/push", pushRoutes);
 app.use("/api/emails", emailRoutes);
 app.use("/api/features", featuresRoutes);
 app.use("/api/admin/feature-flags", adminFeatureFlagsRoutes);
+app.use("/api/admin/audit-log", adminAuditLogRoutes);
 app.use("/api/v1/tokens", tokensRoutes);
 app.use("/federation", federationRoutes);
 app.use("/metrics", metricsRoutes);
+
+// ─── GraphQL ───────────────────────────────────────────────────────────────────
+// Mounted at module scope (not inside the require.main guard below) so the
+// endpoint exists on the exported `app` for both production startup and
+// tests that `require("../src/server")` directly.
+mountGraphQL(app);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
 
@@ -477,47 +504,6 @@ if (require.main === module) {
     require("./services/scheduledExecutor").start();
     require("./services/dataRetentionService").startRetentionCron();
 
-    const apolloServer = new ApolloServer({
-      typeDefs,
-      resolvers,
-      introspection: process.env.NODE_ENV !== "production",
-      plugins: [
-        process.env.NODE_ENV !== "production"
-          ? ApolloServerPluginLandingPageLocalDefault({ footer: false })
-          : ApolloServerPluginLandingPageDisabled(),
-      ],
-    });
-
-    await apolloServer.start();
-    app.use(
-      "/api/graphql",
-      express.json(),
-      expressMiddleware(apolloServer, {
-        context: async ({ req }) => {
-          let user = null;
-          const authHeader = req.headers.authorization;
-          if (authHeader && authHeader.startsWith("Bearer ")) {
-            try {
-              const token = authHeader.split(" ")[1];
-              const jwt = require("jsonwebtoken");
-              const jwtSecret = process.env.JWT_SECRET || null;
-              if (!jwtSecret) {
-                // JWT_SECRET is not configured — skip token decoding
-                return { user: null };
-              }
-              const decoded = jwt.verify(token, jwtSecret);
-              if (decoded.publicKey && /^G[A-Z0-9]{55}$/.test(decoded.publicKey)) {
-                user = decoded;
-              }
-            } catch {
-              // invalid token — context.user stays null
-            }
-          }
-          return { user };
-        },
-      }),
-    );
-
     const server = app.listen(PORT, async () => {
       logger.info(
         { port: PORT, network: process.env.STELLAR_NETWORK || "testnet" },
@@ -532,6 +518,19 @@ if (require.main === module) {
       // streams. Must run after the server is bound so the port is guaranteed
       // ready before any incoming payment events trigger deliveries.
       await restoreWebhooks();
+      // First boot only: provision a secret for the SEP-24 anchor callback
+      // if one doesn't already exist, so the endpoint is verifiable without
+      // a separate manual setup step. Printed once — never persisted to
+      // logs again — so an operator can capture it and configure it on the
+      // anchor's side. Use inboundWebhookSecretService.rotateSecret() to
+      // change it afterwards.
+      const newSep24Secret = await inboundWebhookSecretService.ensureSecretExists("sep24_callback");
+      if (newSep24Secret) {
+        logger.warn(
+          { endpoint: "sep24_callback", secretId: newSep24Secret.id },
+          `Generated a new sep24_callback webhook secret — configure this on the anchor's side, it will not be shown again: ${newSep24Secret.secret}`,
+        );
+      }
       startTurretsServer();
       eventIndexer.start();
       startRetryWorker();

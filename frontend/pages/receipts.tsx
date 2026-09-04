@@ -56,7 +56,7 @@ export default function ReceiptsPage() {
 
       setReceipts(startPage === 1 ? validResults : [...currentReceipts, ...validResults]);
     } catch (err) {
-      logger.error("Failed to fetch receipts:", err);
+      logger.error("Failed to fetch receipts:", {}, err instanceof Error ? err : undefined);
     } finally {
       setLoading(false);
     }

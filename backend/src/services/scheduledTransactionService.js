@@ -16,7 +16,7 @@ const { Asset, Memo, Networks, Operation, TransactionBuilder } = require("@stell
 const knex = require("../db/connection");
 const { server } = require("../config/stellar");
 const { validatePublicKey } = require("./stellarService");
-const webhookService = require("./webhookSubscriptionService");
+const webhookService = require("./webhookService");
 const logger = require("../utils/logger");
 
 const NETWORK_PASSPHRASE =
@@ -24,14 +24,12 @@ const NETWORK_PASSPHRASE =
 
 const activeCronJobs = new Map();
 
+const { normalizeAsset } = require("../utils/asset");
+
 function toAsset(assetStr) {
-  if (!assetStr || assetStr === "XLM") return Asset.native();
-  const [code, issuer] = assetStr.split(":");
-  if (!code || !issuer) {
-    const err = new Error("Non-XLM asset must be formatted as CODE:ISSUER");
-    err.status = 400;
-    throw err;
-  }
+  const normalized = normalizeAsset(assetStr);
+  if (normalized === "XLM") return Asset.native();
+  const [code, issuer] = normalized.split(":");
   return new Asset(code, issuer);
 }
 
@@ -181,6 +179,7 @@ async function createSchedule(body) {
     cronExpression,
     startDate,
   } = body;
+  const normalizedAsset = normalizeAsset(asset);
 
   if (!ownerPk || !recipient || !amount || !frequency || !startDate) {
     const err = new Error("ownerPk, recipient, amount, frequency, and startDate are required");
@@ -189,6 +188,23 @@ async function createSchedule(body) {
   }
   validatePublicKey(ownerPk);
   validatePublicKey(recipient);
+
+  // Per-account cap on active schedules so a single account cannot create an
+  // unbounded executor backlog (WS6).
+  const MAX_SCHEDULES_PER_ACCOUNT = parseInt(process.env.MAX_SCHEDULES_PER_ACCOUNT, 10) || 50;
+  const existing = await knex("scheduled_transactions")
+    .where("owner_pk", ownerPk)
+    .andWhere("status", "active")
+    .count("id as cnt")
+    .first();
+  const currentCount = parseInt((existing && existing.cnt) || "0", 10);
+  if (currentCount >= MAX_SCHEDULES_PER_ACCOUNT) {
+    const err = new Error(
+      `Maximum of ${MAX_SCHEDULES_PER_ACCOUNT} active schedules per account reached`,
+    );
+    err.status = 400;
+    throw err;
+  }
 
   const resolvedCron = frequencyToCron(frequency, startDate, cronExpression);
   const id = crypto.randomUUID();
@@ -199,7 +215,7 @@ async function createSchedule(body) {
     owner_pk: ownerPk,
     recipient,
     amount: String(amount),
-    asset,
+    asset: normalizedAsset,
     memo: memo || null,
     frequency,
     cron_expression: resolvedCron,
@@ -225,6 +241,10 @@ async function updateSchedule(id, updates) {
     const err = new Error("Scheduled transaction not found");
     err.status = 404;
     throw err;
+  }
+
+  if (updates.asset) {
+    updates.asset = normalizeAsset(updates.asset);
   }
 
   const merged = { ...existing, ...updates };
@@ -292,8 +312,44 @@ async function submitPendingExecution(id, signedXDR) {
     throw err;
   }
 
+  // Decode the signed XDR up front so we can validate ownership before we
+  // commit any state transition (WS2).
+  let tx;
   try {
-    const tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
+    tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
+  } catch (err) {
+    const wrapped = new Error(`Invalid signed XDR: ${err.message}`);
+    wrapped.status = 400;
+    throw wrapped;
+  }
+
+  // The submitted transaction must originate from the pending execution's
+  // owner. Without this an attacker who learns a pending_executions.id could
+  // submit an unrelated transaction and have it attributed to the victim's
+  // schedule (WS2).
+  const source = tx.source;
+  if (source !== pending.owner_pk) {
+    const err = new Error("Signed XDR source account must match the pending execution owner");
+    err.status = 403;
+    throw err;
+  }
+
+  // Atomically claim the pending execution. Only the caller that flips the
+  // row from "awaiting_signature" wins the right to submit to Horizon; a
+  // concurrent submit (retry + cron, or two rapid POSTs) that lost the race
+  // gets a 409 here and never double-submits (WS3).
+  const claimed = await knex("pending_executions")
+    .where("id", id)
+    .where("status", "awaiting_signature")
+    .update({ status: "submitting" });
+  if (claimed === 0) {
+    const current = await knex("pending_executions").where("id", id).first();
+    const err = new Error(`Pending execution is already ${current ? current.status : "resolved"}`);
+    err.status = 409;
+    throw err;
+  }
+
+  try {
     const result = await server.submitTransaction(tx);
     await knex("pending_executions").where("id", id).update({
       status: "submitted",
@@ -302,7 +358,9 @@ async function submitPendingExecution(id, signedXDR) {
     });
     return { status: "submitted", hash: result.hash };
   } catch (err) {
-    await knex("pending_executions").where("id", id).update({
+    // Only mark failed if we still own the claim — a newer state (e.g. a
+    // re-submission) must not be clobbered.
+    await knex("pending_executions").where("id", id).where("status", "submitting").update({
       status: "failed",
       error: err.message,
       resolved_at: new Date().toISOString(),
@@ -311,6 +369,14 @@ async function submitPendingExecution(id, signedXDR) {
     wrapped.status = 400;
     throw wrapped;
   }
+}
+
+async function getScheduleById(id) {
+  return knex("scheduled_transactions").where("id", id).first();
+}
+
+async function getPendingExecutionById(id) {
+  return knex("pending_executions").where("id", id).first();
 }
 
 module.exports = {
@@ -323,4 +389,6 @@ module.exports = {
   loadActiveSchedules,
   buildUnsignedPaymentXDR,
   estimateNextRun,
+  getScheduleById,
+  getPendingExecutionById,
 };

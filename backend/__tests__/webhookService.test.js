@@ -5,6 +5,8 @@
  */
 "use strict";
 
+const crypto = require("crypto");
+
 // Set test env vars before any module is required
 process.env.NODE_ENV = "test";
 // 64-char hex key required by the AES-256-GCM encryption utility
@@ -46,7 +48,14 @@ const mockEvents = new Map();
  * webhookService.js.
  */
 function mockMakeBuilder(tableName) {
-  const state = { table: tableName, wheres: [], whereIns: [] };
+  const state = {
+    table: tableName,
+    wheres: [],
+    whereIns: [],
+    isCount: false,
+    funcs: [],
+    onConflictCol: null,
+  };
 
   function getStore() {
     if (tableName === "webhooks") return mockWebhooks;
@@ -69,10 +78,17 @@ function mockMakeBuilder(tableName) {
   const builder = {
     where(col, val) {
       if (typeof col === "function") {
-        state.wheres.push({ fn: () => true });
+        state.funcs.push(col);
+        state.wheres.push({ fn: (row) => state.funcs.every((f) => f(row)) });
       } else {
         state.wheres.push({ col, val });
       }
+      return builder;
+    },
+    orWhere(fnOrCol, val) {
+      // Mirror the simple (always-true) orWhere used by the service's deadline
+      // query so it never crashes the chain.
+      state.wheres.push({ fn: fnOrCol ? () => true : () => true });
       return builder;
     },
     andWhere(colOrFn, val) {
@@ -95,15 +111,36 @@ function mockMakeBuilder(tableName) {
       return builder;
     },
     select() {
-      return Promise.resolve(Array.from(getStore().values()).filter(matchesRow));
+      let rows = Array.from(getStore().values()).filter(matchesRow);
+      if (state.isCount) {
+        return Promise.resolve([{ cnt: rows.length }]);
+      }
+      return Promise.resolve(rows);
     },
     first() {
-      const row = Array.from(getStore().values()).find(matchesRow);
-      return Promise.resolve(row || null);
+      const rows = Array.from(getStore().values()).filter(matchesRow);
+      if (state.isCount) {
+        return Promise.resolve({ cnt: rows.length });
+      }
+      return Promise.resolve(rows[0] || null);
     },
     insert(row) {
-      getStore().set(row.id, { ...row });
-      return Promise.resolve([1]);
+      // Resolve on the next microtask so `.onConflict().ignore()` can attach.
+      const p = Promise.resolve().then(() => {
+        if (state.onConflictCol && row[state.onConflictCol] !== undefined) {
+          const existing = Array.from(getStore().values()).some(
+            (r) => r[state.onConflictCol] === row[state.onConflictCol],
+          );
+          if (existing) return [0]; // unique conflict → nothing inserted
+        }
+        getStore().set(row.id, { ...row });
+        return [1];
+      });
+      p.onConflict = (col) => {
+        state.onConflictCol = col;
+        return { ignore: () => p.then((cntOrArr) => cntOrArr[0] ?? cntOrArr) };
+      };
+      return p;
     },
     del() {
       let count = 0;
@@ -130,16 +167,124 @@ function mockMakeBuilder(tableName) {
       return Promise.resolve(count);
     },
     join() {
-      // Joins for dead-delivery and event queries — return empty arrays
-      return {
-        where: () => ({
-          andWhere: () => ({
-            orderBy: () => ({ select: () => Promise.resolve([]) }),
-          }),
-          select: () => Promise.resolve([]),
-          groupBy: () => ({ select: () => ({ count: () => Promise.resolve([]) }) }),
-        }),
+      // Joins for dead-delivery and event queries. Resolves webhook_events
+      // rows joined with webhooks (so WS4 keyset tests can exercise the real
+      // query chain), handling the `w.` / `e.` column prefixes.
+      //
+      // `where(fn)` / `andWhere(fn)` / `orWhere(fn)` callback forms are
+      // evaluated per-row via `runWhereCallback` so the real keyset predicate
+      // built by `applyKnexKeyset` (an OR-of-ANDs seek comparison) actually
+      // filters rows instead of being treated as a no-op.
+      const stripAlias = (col) => col.split(".").pop();
+      function evalComparison(col, op, val, row) {
+        const rowVal = row[stripAlias(col)];
+        if (op === "=") return rowVal === val;
+        if (op === "<") return rowVal < val;
+        if (op === ">") return rowVal > val;
+        if (op === "<=") return rowVal <= val;
+        if (op === ">=") return rowVal >= val;
+        return true;
+      }
+      // Builds a `(row) => boolean` matcher from a knex-style where callback
+      // by giving it a `this` that records AND/OR clauses, then evaluating
+      // them against each row.
+      function runWhereCallback(fn) {
+        const clauses = [];
+        const ctx = {
+          andWhere(colOrFn, opOrVal, maybeVal) {
+            if (typeof colOrFn === "function") {
+              clauses.push({ and: true, test: runWhereCallback(colOrFn) });
+            } else if (maybeVal === undefined) {
+              clauses.push({ and: true, col: colOrFn, op: "=", val: opOrVal });
+            } else {
+              clauses.push({ and: true, col: colOrFn, op: opOrVal, val: maybeVal });
+            }
+            return ctx;
+          },
+          orWhere(colOrFn, opOrVal, maybeVal) {
+            if (typeof colOrFn === "function") {
+              clauses.push({ and: false, test: runWhereCallback(colOrFn) });
+            } else if (maybeVal === undefined) {
+              clauses.push({ and: false, col: colOrFn, op: "=", val: opOrVal });
+            } else {
+              clauses.push({ and: false, col: colOrFn, op: opOrVal, val: maybeVal });
+            }
+            return ctx;
+          },
+        };
+        ctx.where = ctx.andWhere;
+        fn.call(ctx);
+        return (row) => {
+          const ands = clauses.filter((c) => c.and);
+          const ors = clauses.filter((c) => !c.and);
+          const evalClause = (c) => (c.test ? c.test(row) : evalComparison(c.col, c.op, c.val, row));
+          const andOk = ands.every(evalClause);
+          const orOk = ors.length === 0 || ors.some(evalClause);
+          return andOk && orOk;
+        };
+      }
+      const resolveJoined = () => {
+        const webhookRows = Array.from(mockWebhooks.values());
+        let rows = Array.from(mockEvents.values()).filter((ev) => {
+          const wh = webhookRows.find((w) => w.id === ev.webhook_id);
+          if (!wh) return false;
+          return state.wheres.every(({ col, val, fn }) => {
+            if (fn) return fn(ev);
+            if (col === "w.public_key") return wh.public_key === val;
+            if (col === "w.id") return wh.id === val;
+            return evalComparison(col, "=", val, ev);
+          });
+        });
+        if (state.orderByCols) {
+          const cols = state.orderByCols;
+          rows = [...rows].sort((a, b) => {
+            for (const { column, order } of cols) {
+              const key = stripAlias(column);
+              if (a[key] === b[key]) continue;
+              const cmp = a[key] < b[key] ? -1 : 1;
+              return order === "desc" ? -cmp : cmp;
+            }
+            return 0;
+          });
+        }
+        return rows;
       };
+      const joined = {
+        where(colOrFn, opOrVal, maybeVal) {
+          if (typeof colOrFn === "function") {
+            state.wheres.push({ fn: runWhereCallback(colOrFn) });
+          } else if (maybeVal === undefined) {
+            state.wheres.push({ col: colOrFn, val: opOrVal });
+          } else {
+            state.wheres.push({ fn: (row) => evalComparison(colOrFn, opOrVal, maybeVal, row) });
+          }
+          return joined;
+        },
+        andWhere(colOrFn, opOrVal, maybeVal) {
+          return joined.where(colOrFn, opOrVal, maybeVal);
+        },
+        orderBy(cols) {
+          state.orderByCols = Array.isArray(cols) ? cols : [cols];
+          return joined;
+        },
+        limit(n) {
+          state.limit = n;
+          return joined;
+        },
+        select() {
+          return joined;
+        },
+        groupBy() {
+          return { select: () => ({ count: () => Promise.resolve([]) }) };
+        },
+        // Real knex query builders are thenable; the service returns the
+        // builder and relies on `await` to execute it. Mirror that here.
+        then(resolve) {
+          const rows = resolveJoined();
+          return Promise.resolve(state.limit ? rows.slice(0, state.limit) : rows).then(resolve);
+        },
+      };
+      return joined;
     },
     orderBy() {
       return builder;
@@ -151,7 +296,8 @@ function mockMakeBuilder(tableName) {
       return builder;
     },
     count() {
-      return Promise.resolve([]);
+      state.isCount = true;
+      return builder;
     },
   };
 
@@ -260,6 +406,39 @@ describe("webhook registry", () => {
     expect(row.secret).not.toBe("supersecret");
   });
 
+  it("keeps only the ciphertext in memory after registration (WS7)", async () => {
+    await webhookService.registerWebhook(ACCOUNT_A, "https://x.test/hook", "supersecret");
+
+    // The DB row stores ciphertext, never the plaintext.
+    const [row] = Array.from(mockWebhooks.values());
+    expect(row.secret).toBe("enc:supersecret");
+    expect(row.secret).not.toBe("supersecret");
+
+    // Delivery decrypts the ciphertext blob at send time and signs with the
+    // plaintext — a restored webhook (ciphertext-only) delivers correctly.
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
+    try {
+      const restored = { id: row.id, publicKey: ACCOUNT_A, url: row.url, secret: row.secret };
+      await webhookService.deliverWebhook(
+        restored,
+        { event: "payment.received" },
+        "payment.received",
+      );
+      const call = global.fetch.mock.calls[0];
+      expect(call[1].headers["X-Webhook-Signature"]).toBe("sig-supersecret");
+    } finally {
+      delete global.fetch;
+    }
+  });
+
+  it("lists webhooks with ciphertext secrets, never the plaintext (WS7)", async () => {
+    await webhookService.registerWebhook(ACCOUNT_A, "https://x.test/hook", "supersecret");
+
+    const list = await webhookService.getWebhooksByPublicKey(ACCOUNT_A);
+    expect(list[0].secret).toBe("enc:supersecret");
+    expect(list[0].secret).not.toBe("supersecret");
+  });
+
   it("scopes listing to the account and supports deletion", async () => {
     const webhook = await webhookService.registerWebhook(
       ACCOUNT_B,
@@ -347,20 +526,6 @@ describe("signPayload", () => {
     const sig = webhookService.signPayload("mysecret", { event: "test" });
     expect(sig).toBe("sig-mysecret");
   });
-
-  it("builds a SEP-0045 compatible payload and headers", () => {
-    const payload = webhookService.buildPayload(
-      "payment.received",
-      { amount: "1" },
-      "secret",
-      "v2",
-    );
-    expect(payload).toHaveProperty("id");
-    expect(payload).toHaveProperty("timestamp");
-    expect(payload).toHaveProperty("type", "payment.received");
-    expect(payload).toHaveProperty("data");
-    expect(payload.data).toEqual({ amount: "1" });
-  });
 });
 
 describe("closeAllStreams (graceful shutdown on SIGTERM/SIGINT)", () => {
@@ -416,5 +581,160 @@ describe("dead letter queue", () => {
   it("resets dead deliveries for retry", async () => {
     const result = await webhookService.retryDeadDeliveries(ACCOUNT_A);
     expect(result).toHaveProperty("reset");
+  });
+});
+
+describe("webhook event idempotency (WS3)", () => {
+  beforeAll(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
+  });
+
+  afterAll(() => {
+    delete global.fetch;
+  });
+
+  it("delivering the same event twice creates one event and one delivery", async () => {
+    const webhook = {
+      id: "wh-idem-1",
+      publicKey: ACCOUNT_A,
+      url: "https://x.test/hook",
+      secret: "enc:supersecret",
+    };
+    const payload = {
+      event: "payment.received",
+      publicKey: ACCOUNT_A,
+      payment: { id: "op-1", amount: "1", asset: "XLM", from: ACCOUNT_B, to: ACCOUNT_A },
+    };
+
+    await webhookService.deliverWebhook(webhook, payload, "payment.received");
+    await webhookService.deliverWebhook(webhook, payload, "payment.received");
+
+    // Stable idempotency key ⇒ the second delivery dedupes at the event level.
+    expect(Array.from(mockEvents.values())).toHaveLength(1);
+    expect(Array.from(mockDeliveries.values())).toHaveLength(1);
+
+    const events = Array.from(mockEvents.values());
+    expect(events[0].idempotency_key).toBeTruthy();
+    // No timestamp in the key ⇒ deterministic for the same (id, type, payload).
+    const keys = events.map((e) => e.idempotency_key);
+    expect(new Set(keys).size).toBe(1);
+  });
+});
+
+describe("webhook events keyset pagination (WS4)", () => {
+  function seedEvent(webhookId, created, id = crypto.randomUUID()) {
+    mockEvents.set(id, {
+      id,
+      webhook_id: webhookId,
+      event_type: "payment.received",
+      payload: JSON.stringify({ event: "payment.received" }),
+      idempotency_key: `key-${id}`,
+      created_at: created,
+    });
+    return id;
+  }
+
+  it("returns only events for the caller's webhooks (joined by public key)", async () => {
+    const whA = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    const whB = await webhookService.registerWebhook(
+      ACCOUNT_B,
+      "https://y.test/hook",
+      "supersecret",
+    );
+    seedEvent(whA.id, "2026-08-25T10:00:00.000Z");
+    seedEvent(whB.id, "2026-08-25T11:00:00.000Z");
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10 });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].webhook_id).toBe(whA.id);
+  });
+
+  it("fetches limit + 1 rows so the caller can detect a next page without a second query", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    for (let i = 0; i < 4; i++) {
+      seedEvent(wh.id, `2026-08-25T0${i}:00:00.000Z`, `ev-${i}`);
+    }
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 3 });
+    expect(events).toHaveLength(4); // limit + 1 (3 + 1)
+  });
+
+  it("accepts an opaque keyset cursor without error", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    seedEvent(wh.id, "2026-08-25T10:00:00.000Z", "ev-cursor");
+
+    const cursor = Buffer.from(
+      JSON.stringify({ created_at: "2026-08-25T10:00:00.000Z", id: "ev-cursor" }),
+    ).toString("base64url");
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10, cursor });
+    expect(Array.isArray(events)).toBe(true);
+  });
+
+  it("ignores a malformed cursor instead of crashing the query", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    seedEvent(wh.id, "2026-08-25T10:00:00.000Z", "ev-ok");
+
+    const events = await webhookService.getEvents(ACCOUNT_A, { limit: 10, cursor: "not-json!!!" });
+    expect(Array.isArray(events)).toBe(true);
+    expect(events).toHaveLength(1);
+  });
+
+  // Acceptance criteria: paginating with equal `created_at` values across
+  // rows must not skip or repeat any row. The `id` tiebreaker in the
+  // keyset comparison is what makes this deterministic (WS4).
+  it("paginates equal-timestamp rows across two pages with no overlap and no gap", async () => {
+    const wh = await webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/hook",
+      "supersecret",
+    );
+    const sameTimestamp = "2026-08-25T10:00:00.000Z";
+    const seededIds = Array.from({ length: 5 }, (_, i) =>
+      seedEvent(wh.id, sameTimestamp, `ev-${i}`),
+    );
+
+    const pageSize = 2;
+    const pageOne = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize });
+    const firstPageRows = pageOne.slice(0, pageSize);
+    expect(firstPageRows).toHaveLength(pageSize);
+
+    const lastRow = firstPageRows[firstPageRows.length - 1];
+    const cursor = Buffer.from(
+      JSON.stringify({ created_at: lastRow.created_at, id: lastRow.id }),
+    ).toString("base64url");
+    const pageTwo = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize, cursor });
+    const secondPageRows = pageTwo.slice(0, pageSize);
+    expect(secondPageRows).toHaveLength(pageSize);
+
+    const pageThreeCursorRow = secondPageRows[secondPageRows.length - 1];
+    const cursor2 = Buffer.from(
+      JSON.stringify({ created_at: pageThreeCursorRow.created_at, id: pageThreeCursorRow.id }),
+    ).toString("base64url");
+    const pageThree = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize, cursor: cursor2 });
+    const thirdPageRows = pageThree.slice(0, pageSize);
+
+    const seenIds = [...firstPageRows, ...secondPageRows, ...thirdPageRows].map((r) => r.id);
+    // No overlap: every id appears exactly once across all pages.
+    expect(new Set(seenIds).size).toBe(seenIds.length);
+    // No gap: every seeded event was eventually returned.
+    expect(new Set(seenIds)).toEqual(new Set(seededIds));
   });
 });

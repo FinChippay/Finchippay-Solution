@@ -2,9 +2,9 @@ terraform {
   required_version = ">= 1.6.0"
 
   required_providers {
-    digitalocean = {
-      source  = "digitalocean/digitalocean"
-      version = "~> 2.39.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.40.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -12,22 +12,35 @@ terraform {
     }
   }
 
-  # Uncomment to store state remotely (recommended for production):
-  # backend "s3" {
-  #   endpoint                    = "https://nyc3.digitaloceanspaces.com"
-  #   bucket                      = "finchippay-tf-state"
-  #   key                         = "finchippay/terraform.tfstate"
-  #   region                      = "us-east-1"   # required by the s3 backend; ignored by DO Spaces
-  #   skip_credentials_validation = true
-  #   skip_metadata_api_check     = true
-  #   skip_region_validation      = true
-  #   force_path_style            = true
-  # }
+  # Remote state backend — S3 bucket + DynamoDB lock table.
+  #
+  # Bootstrap once per AWS account before the first apply:
+  #   aws s3api create-bucket --bucket finchippay-tf-state --region us-east-1
+  #   aws dynamodb create-table \
+  #     --table-name finchippay-tf-state-lock \
+  #     --attribute-definitions AttributeName=LockID,AttributeType=S \
+  #     --key-schema AttributeName=LockID,KeyType=HASH \
+  #     --billing-mode PAY_PER_REQUEST
+  #
+  # CI overrides these values via -backend-config (see terraform/environments/*).
+  # Use `terraform init -backend=false` for local fmt/validate checks.
+  backend "s3" {
+    bucket         = "finchippay-tf-state"
+    key            = "finchippay/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "finchippay-tf-state-lock"
+    encrypt        = true
+  }
 }
 
-provider "digitalocean" {
-  # Reads DIGITALOCEAN_TOKEN from the environment.
-  # Set it before running terraform plan/apply:
-  #   export DIGITALOCEAN_TOKEN="<your-personal-access-token>"
-  token = var.do_token
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
 }

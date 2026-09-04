@@ -95,3 +95,10 @@ path = "fuzz_targets/approve_multisig.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "airdrop"
+path = "fuzz_targets/airdrop.rs"
+test = false
+doc = false
+bench = false

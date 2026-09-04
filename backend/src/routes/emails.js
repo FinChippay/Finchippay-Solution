@@ -204,18 +204,22 @@ router.post("/:publicKey/verify", async (req, res) => {
   }
 
   try {
-    const { rendered } = await emailVerificationService.initiateVerification(publicKey, email);
+    await emailVerificationService.initiateVerification(publicKey, email);
 
     // Queue the verification email
-    await notificationService.queueEmail(email, "email_verification", {
-      verificationUrl: `${BASE_URL}/api/emails/${encodeURIComponent(publicKey)}/confirm?token=PENDING`,
-    }, { publicKey });
+    await notificationService.queueEmail(
+      email,
+      "email_verification",
+      {
+        verificationUrl: `${BASE_URL}/api/emails/${encodeURIComponent(publicKey)}/confirm?token=PENDING`,
+      },
+      { publicKey },
+    );
 
     // Actually send immediately for verification flows
     const t = notificationService.isEnabled;
     if (t) {
-      const { token } = await emailVerificationService.initiateVerification(publicKey, email);
-      const verificationUrl = `${BASE_URL}/api/emails/${encodeURIComponent(publicKey)}/confirm?token=${token}`;
+      await emailVerificationService.initiateVerification(publicKey, email);
       const r2 = emailVerificationService;
       void r2; // just ensuring service is loaded
     }
