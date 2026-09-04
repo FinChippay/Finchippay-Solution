@@ -55,11 +55,11 @@ jobs:
             [ -f "$lock" ] || continue
             out="osv-results/$(echo "$lock" | tr '/' '_').json"
             echo "::group::Scanning $lock"
-            osv-scanner scan source --lockfile="$lock" \
+            osv-scanner scan source --config="osv-scanner.toml" --lockfile="$lock" \
               --format=json --output-file="$out" || true
             # Human-readable table for the log, and its summary line
             # is also our severity source of truth (see below).
-            TABLE_OUT=$(osv-scanner scan source --lockfile="$lock" || true)
+            TABLE_OUT=$(osv-scanner scan source --config="osv-scanner.toml" --lockfile="$lock" || true)
             echo "$TABLE_OUT"
             echo "::endgroup::"
 
