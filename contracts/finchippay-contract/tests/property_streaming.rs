@@ -308,8 +308,8 @@ fn invariant_get_claimable_is_idempotent() {
     runner
         .run(&(0u32..=10_000_000u32), |advance| {
             advance_ledger(&env, advance);
-            let first = client.get_claimable(&stream_id);
-            let second = client.get_claimable(&stream_id);
+            let first = client.get_claimable(&stream_id).unwrap();
+            let second = client.get_claimable(&stream_id).unwrap();
             prop_assert_eq!(first, second);
             Ok(())
         })
