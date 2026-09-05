@@ -2821,7 +2821,7 @@ impl FinchippayContract {
     }
 
     /// Calculate how much the recipient could claim right now without mutating state.
-    pub fn get_claimable(env: Env, stream_id: u32) -> i128 {
+    pub fn get_claimable(env: Env, stream_id: u32) -> Result<i128, ContractError> {
         streams::get_claimable(env, stream_id)
     }
 
@@ -3666,14 +3666,14 @@ mod tests {
 
         // After 5 ledgers: claimable = 50.
         advance(&env, start + 5);
-        assert_eq!(client.get_claimable(&sid), 50);
+        assert_eq!(client.get_claimable(&sid), Ok(50));
         let claimed = client.claim_stream(&sid, &recipient);
         assert_eq!(claimed, 50);
         assert_eq!(token.balance(&recipient), 50);
 
         // After 20 more ledgers: claimable = 200 additional.
         advance(&env, start + 25);
-        assert_eq!(client.get_claimable(&sid), 200);
+        assert_eq!(client.get_claimable(&sid), Ok(200));
         let claimed2 = client.claim_stream(&sid, &recipient);
         assert_eq!(claimed2, 200);
         assert_eq!(token.balance(&recipient), 250);
@@ -3694,7 +3694,7 @@ mod tests {
 
         // Far in the future — capped at 500.
         advance(&env, start + 10_000);
-        assert_eq!(client.get_claimable(&sid), 500);
+        assert_eq!(client.get_claimable(&sid), Ok(500));
     }
 
     #[test]
@@ -4236,7 +4236,7 @@ mod tests {
         // Advance to a very large ledger — claimable should be capped by
         // total_streamed = rate * elapsed, not by MAX_STREAM_DEPOSIT.
         advance(&env, start + 1_000_000);
-        let claimable = client.get_claimable(&sid);
+        let claimable = client.get_claimable(&sid).unwrap();
         let expected = MAX_STREAM_RATE * 1_000_000;
         assert_eq!(claimable, expected);
     }

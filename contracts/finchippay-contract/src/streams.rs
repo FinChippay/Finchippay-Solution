@@ -402,13 +402,8 @@ pub fn get_stream(env: Env, stream_id: u32) -> Result<Stream, ContractError> {
 }
 
 /// Calculate how much the recipient could claim right now without mutating state.
-pub fn get_claimable(env: Env, stream_id: u32) -> i128 {
-    let stream: Stream = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Stream(stream_id))
-        .expect("stream not found");
-    bump(&env, &DataKey::Stream(stream_id));
+pub fn get_claimable(env: Env, stream_id: u32) -> Result<i128, ContractError> {
+    let stream = get_stream(env.clone(), stream_id)?;
     claimable_at(&stream, env.ledger().sequence())
 }
 
@@ -454,10 +449,10 @@ pub fn list_streams_by_payer(env: Env, payer: Address, offset: u32, limit: u32) 
     let mut result = Vec::new(&env);
     for i in offset..end {
         let id = p_streams.get(i).unwrap();
-        let stream_key = DataKey::Stream(id);
-        let stream: Stream = env.storage().persistent().get(&stream_key).unwrap();
-        bump(&env, &stream_key);
-        result.push_back(stream);
+        if let Ok(stream) = get_stream(env.clone(), id) {
+            result.push_back(stream);
+        }
+        // Stale index entries are skipped rather than panicking.
     }
     result
 }

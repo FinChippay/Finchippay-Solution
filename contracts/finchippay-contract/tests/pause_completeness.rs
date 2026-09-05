@@ -512,7 +512,7 @@ fn test_views_work_while_paused() {
 
     // Stream views.
     assert_eq!(client.get_stream(&sid).deposited, 3_000);
-    assert_eq!(client.get_claimable(&sid), 0);
+    assert_eq!(client.get_claimable(&sid), Ok(0));
     assert_eq!(client.get_stream_count(), 1);
     assert_eq!(client.stream_count(), 1);
     assert_eq!(client.list_streams_by_payer(&from, &0, &10).len(), 1);
