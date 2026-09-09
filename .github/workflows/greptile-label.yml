@@ -22,7 +22,7 @@ name: Greptile PR Labeling
 on:
   pull_request_target:
     types: [opened, ready_for_review, reopened, synchronize]
-    branches: [main, develop]
+    branches: [main]
 
 permissions:
   contents: read

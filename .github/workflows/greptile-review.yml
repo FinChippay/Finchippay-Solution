@@ -25,7 +25,7 @@ name: Greptile AI Code Review
 on:
   pull_request:
     types: [opened, ready_for_review, reopened, synchronize]
-    branches: [main, develop]
+    branches: [main]
   issues:
     types: [opened]
   workflow_dispatch:

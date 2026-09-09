@@ -1,0 +1,37 @@
+name: Stale Bot
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # Daily at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Close stale issues and PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/stale@v9
+        with:
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has
+            had no activity in the last 30 days. It will be closed in 7 days
+            unless it is updated or the `pinned` label is added.
+          stale-pr-message: >
+            This pull request has been automatically marked as stale because
+            it has had no activity in the last 30 days. It will be closed in
+            7 days unless it is updated or the `pinned` label is added.
+          close-issue-message: "This issue was closed automatically after being stale for 7 days."
+          close-pr-message: "This pull request was closed automatically after being stale for 7 days."
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-label: "stale"
+          stale-pr-label: "stale"
+          exempt-issue-labels: "security,bug,pinned,good first issue,needs-review,help wanted"
+          exempt-pr-labels: "security,dependencies,pinned,needs-review,draft"
+          exempt-draft-pr: true

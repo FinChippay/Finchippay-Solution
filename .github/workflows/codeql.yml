@@ -13,7 +13,7 @@ name: CodeQL Security Scan
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:

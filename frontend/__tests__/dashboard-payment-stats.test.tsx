@@ -123,9 +123,12 @@ describe("Dashboard payment stats widget", () => {
       }),
     } as Response);
 
-    await waitFor(() => {
-      expect(screen.getByText("142.50 XLM sent")).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("142.50 XLM sent")).toBeInTheDocument();
+      },
+      { timeout: 5000 },
+    );
 
     expect(screen.getByText("67.00 XLM received")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();

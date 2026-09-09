@@ -1,0 +1,28 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: Conventional Commit Title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR title: ${PR_TITLE}"
+          # release.yml generates release notes from conventional commits, so
+          # titles must match the Conventional Commits spec.
+          if ! echo "${PR_TITLE}" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|release)(\([a-z0-9-]+\))?!?: .+'; then
+            echo "::error::PR title must follow Conventional Commits, e.g. \"feat(ui): add export button\" or \"fix: resolve balance rounding\"."
+            exit 1
+          fi
+          echo "✅ Title follows Conventional Commits."

@@ -1,0 +1,50 @@
+# .github/workflows/auto-merge.yml
+# Auto-merges Dependabot patch/minor dependency PRs after their CI checks
+# pass. Major updates and manual PRs always require human review.
+# (Renovate manages its own patch/pin automerge via renovate.json.)
+
+name: Dependabot Auto Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge patch/minor updates
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          alert-lookup: true
+
+      - name: Wait for CI checks to pass
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Give workflows time to start, then watch until every reported
+          # check is green. Fails the job (blocking auto-merge) otherwise.
+          for i in $(seq 1 20); do
+            TOTAL=$(gh pr view "$PR_URL" --json statusCheckRollup --jq '.statusCheckRollup | length' 2>/dev/null || echo 0)
+            [ "${TOTAL:-0}" -gt 0 ] && break
+            sleep 30
+          done
+          gh pr checks "$PR_URL" --watch --interval 30
+
+      - name: Enable auto-merge (patch/minor only)
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --merge "$PR_URL"

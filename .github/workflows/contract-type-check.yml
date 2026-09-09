@@ -2,9 +2,12 @@ name: Contract Type Check
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   contract-bindings:

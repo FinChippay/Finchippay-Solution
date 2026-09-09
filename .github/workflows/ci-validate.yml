@@ -3,11 +3,17 @@ name: CI Validate
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     name: Validate Config
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,21 +33,35 @@ jobs:
   error-docs:
     name: Error Code Docs
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: ".nvmrc"
       - run: npm ci --ignore-scripts
       - run: node scripts/generate-error-codes-doc.js --check
 
   coverage:
-    name: Coverage Report
+    name: Coverage Gate
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-      - run: echo "Coverage reports from frontend/coverage/ and backend/coverage/"
+          node-version-file: ".nvmrc"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+      - name: Frontend coverage
+        working-directory: frontend
+        run: npx jest --ci --coverage --coverageReporters=text-summary
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Backend coverage
+        working-directory: backend
+        run: npx jest --ci --coverage --coverageReporters=text-summary
+        env:
+          NODE_ENV: test

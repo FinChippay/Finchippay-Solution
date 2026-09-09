@@ -8,6 +8,11 @@ yarn-error.log*
 frontend/.next/
 frontend/out/
 frontend/storybook-static/
+
+# Jest coverage output (regenerable)
+coverage/
+frontend/coverage/
+backend/coverage/
 frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local

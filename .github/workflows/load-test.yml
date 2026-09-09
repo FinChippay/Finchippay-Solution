@@ -1,0 +1,66 @@
+# .github/workflows/load-test.yml
+# Nightly k6 load tests against a fresh sqlite-backed backend.
+# Runs the existing scenarios in tests/load/ (dashboard, payments burst,
+# analytics queries, sustained load) and uploads JSON results as artifacts.
+# Fails on any scenario that does not meet its k6 thresholds.
+
+name: Load Test
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # Daily at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    name: k6 Load Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install k6
+        run: |
+          curl -sSfL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz \
+            | tar xz -C /tmp
+          sudo mv /tmp/k6-v0.54.0-linux-amd64/k6 /usr/local/bin/k6
+          k6 version
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          mkdir -p data
+          npm ci
+          npm start &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4000/health && echo "Backend ready" && break
+            [ "$i" -eq 30 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+        env:
+          PORT: 4000
+          NODE_ENV: test
+          DB_PROVIDER: sqlite
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          JWT_SECRET: test-secret-for-load-test
+          ALLOWED_ORIGINS: "*"
+
+      - name: Run k6 scenarios
+        env:
+          BASE_URL: http://localhost:4000
+        run: bash tests/load/run-all.sh
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: k6-results/
+          retention-days: 30

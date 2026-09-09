@@ -5,7 +5,7 @@
 # FinchippayContract WASM to Stellar testnet.
 #
 # Triggers:
-#   - push to master
+#   - push to main
 #   - manual workflow_dispatch
 #
 # Outputs:
@@ -17,14 +17,18 @@ name: Contract Deploy (Testnet)
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
     inputs:
       identity:
-        description: 'Stellar identity name for deployment'
+        description: "Stellar identity name for deployment"
         required: false
         type: string
-        default: 'deployer'
+        default: "deployer"
+
+permissions:
+  contents: read
+  pull-requests: write
 
 env:
   STELLAR_NETWORK: testnet
