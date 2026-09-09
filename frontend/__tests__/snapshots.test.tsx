@@ -4,8 +4,8 @@
  * Catches unintended UI regressions in CI.
  */
 
-import React from "react";
 import { render } from "@testing-library/react";
+import React from "react";
 import "@testing-library/jest-dom";
 
 // ─── Mocks (must be declared before imports) ──────────────────────────────────
@@ -14,17 +14,36 @@ import "@testing-library/jest-dom";
 global.fetch = jest.fn(() =>
   Promise.resolve({
     json: () => Promise.resolve({ stellar: { usd: 0.12 } }),
-  } as Response)
+  } as Response),
 );
 
 jest.mock("next/router", () => ({
   useRouter: () => ({
     pathname: "/",
+    asPath: "/",
     push: jest.fn(),
     replace: jest.fn(),
     prefetch: jest.fn(),
     query: {},
+    events: { on: jest.fn(), off: jest.fn(), emit: jest.fn() },
   }),
+}));
+
+jest.mock("@/lib/ThemeContext", () => ({
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  ACCENT_COLOURS: { stellar: "#3e5aa7" },
+  useTheme: jest.fn(() => ({
+    theme: "dark",
+    accent: "stellar",
+    fontSize: "normal",
+    highContrast: false,
+    toggleTheme: jest.fn(),
+    setTheme: jest.fn(),
+    setAccent: jest.fn(),
+    setFontSize: jest.fn(),
+    setHighContrast: jest.fn(),
+    resetToDefaults: jest.fn(),
+  })),
 }));
 
 jest.mock("next/link", () => {
@@ -67,10 +86,17 @@ jest.mock("@/lib/stellar", () => ({
   explorerUrl: jest.fn((hash: string) => `https://expert.stellar.org/tx/${hash}`),
   isValidStellarAddress: jest.fn((addr: string) => addr.startsWith("G") && addr.length === 56),
   submitTransaction: jest.fn(),
-  getNetworkConfig: jest.fn(() => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" })),
+  getNetworkConfig: jest.fn(() => ({
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  })),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
-  getBalances: jest.fn(() => Promise.resolve([{ asset: "native", balance: "100.0000000", assetCode: "XLM" }])),
-  getPaymentHistory: jest.fn(() => Promise.resolve({ payments: [], hasMore: false })),
+  getBalances: jest.fn(() =>
+    Promise.resolve([{ asset: "native", balance: "100.0000000", assetCode: "XLM" }]),
+  ),
+  getPaymentHistory: jest.fn(() =>
+    Promise.resolve({ records: [], hasMore: false, nextCursor: undefined }),
+  ),
   getXLMBalance: jest.fn(() => Promise.resolve("100.0000000")),
   getUSDCBalance: jest.fn(() => Promise.resolve(null)),
   getAccountReserveInfo: jest.fn(() => Promise.resolve({ subentryCount: 0, minimumBalance: 1 })),
@@ -99,6 +125,9 @@ jest.mock("@/lib/wallet", () => ({
   performSEP0010Auth: jest.fn(() => Promise.resolve({ error: null })),
   getLedgerPublicKey: jest.fn(),
   isLedgerSupported: jest.fn(() => Promise.resolve(false)),
+  getTrezorPublicKey: jest.fn(() => Promise.resolve({ error: "Trezor not available" })),
+  isTrezorSupported: jest.fn(() => false),
+  setActiveWalletType: jest.fn(),
   signTransactionWithWallet: jest.fn(),
 }));
 
@@ -118,10 +147,8 @@ jest.mock("@/lib/useWallet", () => ({
     xlmBalance: "0.0000000",
     usdcBalance: null,
   }),
-  getAccountDisplayName: (
-    account: { label?: string },
-    index: number
-  ) => account.label || `Account ${index + 1}`,
+  getAccountDisplayName: (account: { label?: string }, index: number) =>
+    account.label || `Account ${index + 1}`,
   WalletProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -148,14 +175,22 @@ jest.mock("@/utils/export", () => ({
   downloadPDF: jest.fn(),
 }));
 
+// ErrorBoundary imports @sentry/nextjs, whose browser entry crashes at module
+// load in jsdom (reads window/document during instrumentation). Mock it so the
+// components under test can render.
+jest.mock("@sentry/nextjs", () => ({
+  captureException: jest.fn(),
+  withErrorBoundary: (Component: React.ComponentType) => Component,
+}));
+
 // ─── Component imports ────────────────────────────────────────────────────────
 
 import Navbar from "@/components/Navbar";
-import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
-import Home from "@/pages/index";
+import WalletConnect from "@/components/WalletConnect";
 import Dashboard from "@/pages/dashboard";
+import Home from "@/pages/index";
 import Transactions from "@/pages/transactions";
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────
@@ -185,7 +220,7 @@ describe("SendPaymentForm snapshot", () => {
         publicKey="GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ"
         xlmBalance="100.0000000"
         usdcBalance="50.0000000"
-      />
+      />,
     );
     expect(container).toMatchSnapshot();
   });
@@ -196,9 +231,7 @@ describe("SendPaymentForm snapshot", () => {
 describe("TransactionList snapshot", () => {
   it("renders empty state", () => {
     const { container } = render(
-      <TransactionList
-        publicKey="GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ"
-      />
+      <TransactionList publicKey="GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ" />,
     );
     expect(container).toMatchSnapshot();
   });

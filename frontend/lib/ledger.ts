@@ -56,15 +56,19 @@ export async function connectLedger(): Promise<{
     const StellarApp = (await import("@ledgerhq/hw-app-str")).default;
 
     transportInstance = await TransportWebUSB.create();
-    stellarAppInstance = new StellarApp(transportInstance);
+    const stellarApp = new StellarApp(transportInstance);
+    stellarAppInstance = stellarApp;
 
-    const result = await stellarAppInstance.getPublicKey("44'/148'/0'");
+    const result = await stellarApp.getPublicKey("44'/148'/0'");
     return { publicKey: result.publicKey, error: null };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes("No device selected") || message.includes("Access denied")) {
-      return { publicKey: null, error: "Ledger connection was cancelled. Please approve the connection on your device." };
+      return {
+        publicKey: null,
+        error: "Ledger connection was cancelled. Please approve the connection on your device.",
+      };
     }
     if (message.includes("CLA_NOT_SUPPORTED") || message.includes("0x6e00")) {
       return { publicKey: null, error: "Please open the Stellar app on your Ledger device." };
@@ -73,7 +77,10 @@ export async function connectLedger(): Promise<{
       return { publicKey: null, error: "Ledger device is locked. Please unlock it and try again." };
     }
     if (message.includes("TransportError") || message.includes("disconnected")) {
-      return { publicKey: null, error: "Ledger device disconnected. Please reconnect and try again." };
+      return {
+        publicKey: null,
+        error: "Ledger device disconnected. Please reconnect and try again.",
+      };
     }
 
     return { publicKey: null, error: `Ledger connection failed: ${message}` };
@@ -85,26 +92,30 @@ export async function connectLedger(): Promise<{
  */
 export async function signTransactionWithLedger(
   xdr: string,
-  _publicKey: string
+  _publicKey: string,
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   if (!stellarAppInstance) {
     return { signedXDR: null, error: "Ledger not connected. Please connect your device first." };
   }
 
   try {
-    const result = await stellarAppInstance.signTransaction(
-      "44'/148'/0'",
-      xdr
-    );
+    const result = await stellarAppInstance.signTransaction("44'/148'/0'", xdr);
     return { signedXDR: result.signature, error: null };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
 
-    if (message.includes("User declined") || message.includes("rejected") || message.includes("cancelled")) {
+    if (
+      message.includes("User declined") ||
+      message.includes("rejected") ||
+      message.includes("cancelled")
+    ) {
       return { signedXDR: null, error: "Transaction was rejected on the Ledger device." };
     }
     if (message.includes("Not connected") || message.includes("disconnected")) {
-      return { signedXDR: null, error: "Ledger device disconnected during signing. Please reconnect and try again." };
+      return {
+        signedXDR: null,
+        error: "Ledger device disconnected during signing. Please reconnect and try again.",
+      };
     }
 
     return { signedXDR: null, error: `Ledger signing failed: ${message}` };

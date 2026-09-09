@@ -204,7 +204,7 @@ describe("GET /api/turrets/:id", () => {
 
 describe("GET /api/turrets/:id/history", () => {
   it("returns history (200)", async () => {
-    turretsService.getDeployment.mockResolvedValue({ id: "d1" });
+    turretsService.getDeployment.mockResolvedValue({ id: "d1", ownerPublicKey: VALID_KEY });
     turretsService.getExecutionHistory.mockResolvedValue([{ event: "deployed" }]);
     const res = await request(app).get("/api/turrets/d1/history");
     expect(res.status).toBe(200);

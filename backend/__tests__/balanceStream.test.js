@@ -155,6 +155,12 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
 
   afterEach(async () => {
     balanceStreamService.closeAll();
+    // Destroy any sockets that were not fully torn down by stream.close()
+    // (an SSE response can keep its connection alive past the client-side
+    // destroy), then wait for the server to actually stop listening. Without
+    // the forced close, server.close() hangs whenever the suite runs under
+    // load and every hook blows the jest timeout.
+    server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
   });
 

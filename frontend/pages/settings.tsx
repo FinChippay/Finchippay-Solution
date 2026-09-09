@@ -14,10 +14,15 @@ import NotificationHistory from "@/components/NotificationHistory";
 import NotificationPreferences from "@/components/NotificationPreferences";
 import ThemeSettings from "@/components/ThemeSettings";
 import { useContacts } from "@/hooks/useContacts";
-import { SUPPORTED_LANGUAGES, getCurrentLanguage, setLanguage, type SupportedLanguage } from "@/lib/i18n";
 import { apiClient } from "@/lib/api";
+import {
+  SUPPORTED_LANGUAGES,
+  getCurrentLanguage,
+  setLanguage,
+  type SupportedLanguage,
+} from "@/lib/i18n";
 import { logger } from "@/lib/logger";
-import { resetTour } from '@/lib/onboardingState';
+import { resetTour } from "@/lib/onboardingState";
 import { shortenAddress } from "@/lib/stellar";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import {
@@ -30,7 +35,6 @@ import {
 } from "@/lib/turrets";
 import { useWallet } from "@/lib/useWallet";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
-import { logger } from "@/lib/logger";
 
 interface SettingsPageProps {
   publicKey?: string | null;
@@ -54,7 +58,9 @@ export default function SettingsPage({
   });
   const [customUrl, setCustomUrl] = useState("");
   const [showMainnetWarning, setShowMainnetWarning] = useState(false);
-  const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(null);
+  const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(
+    null,
+  );
 
   const [deployments, setDeployments] = useState<TurretsDeployment[]>([]);
   const [turretsLoading, setTurretsLoading] = useState(false);
@@ -207,7 +213,7 @@ export default function SettingsPage({
       });
 
       setTurretsSuccess(
-        `Turrets ${type === "dca" ? "DCA" : "stop-loss"} function deployed successfully.`
+        `Turrets ${type === "dca" ? "DCA" : "stop-loss"} function deployed successfully.`,
       );
       setDeployments((prev) => [deployment, ...prev]);
     } catch (err) {
@@ -282,7 +288,7 @@ export default function SettingsPage({
   // Username registration handler
   const handleRegisterUsername = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!username.trim() || !publicKey) {
       setUsernameError("Username and wallet connection required");
       return;
@@ -338,9 +344,7 @@ export default function SettingsPage({
               <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white mb-2">
                 {t("settings.title")}
               </h1>
-              <p className="text-slate-600 dark:text-slate-400">
-                {t("settings.subtitle")}
-              </p>
+              <p className="text-slate-600 dark:text-slate-400">{t("settings.subtitle")}</p>
             </div>
 
             {/* Connected accounts + labels (#147) */}
@@ -354,7 +358,9 @@ export default function SettingsPage({
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
                 {t("settings.languageTitle")}
               </h2>
-              <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">{t("settings.languageDescription")}</p>
+              <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">
+                {t("settings.languageDescription")}
+              </p>
               <p className="mb-4 text-xs text-slate-500 dark:text-slate-400" role="status">
                 {t("settings.rtlSupportNote")}
               </p>
@@ -392,8 +398,18 @@ export default function SettingsPage({
             {/* Notification Preferences */}
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-stellar-700 dark:text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                <svg
+                  className="w-5 h-5 text-stellar-700 dark:text-stellar-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.6}
+                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                  />
                 </svg>
                 Notifications
               </h2>
@@ -487,7 +503,8 @@ export default function SettingsPage({
                     Turrets / Server-side Signing
                   </h2>
                   <p className="text-sm text-slate-400 dark:text-slate-400 mt-1">
-                    Deploy programmatic txFunctions with Freighter-signed authorization and server-side evaluation.
+                    Deploy programmatic txFunctions with Freighter-signed authorization and
+                    server-side evaluation.
                   </p>
                 </div>
                 <button
@@ -517,33 +534,51 @@ export default function SettingsPage({
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">DCA into XLM</p>
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">Quote Amount (USD)</label>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">
+                      DCA into XLM
+                    </p>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">
+                      Quote Amount (USD)
+                    </label>
                     <input
                       type="number"
                       value={dcaForm.amountQuote}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, amountQuote: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, amountQuote: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Interval (minutes)</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Interval (minutes)
+                    </label>
                     <input
                       type="number"
                       value={dcaForm.intervalMinutes}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, intervalMinutes: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, intervalMinutes: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Quote Asset Code</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Quote Asset Code
+                    </label>
                     <input
                       type="text"
                       value={dcaForm.quoteAssetCode}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, quoteAssetCode: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, quoteAssetCode: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Quote Asset Issuer</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Quote Asset Issuer
+                    </label>
                     <input
                       type="text"
                       value={dcaForm.quoteAssetIssuer}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, quoteAssetIssuer: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, quoteAssetIssuer: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
                     <button
@@ -557,40 +592,62 @@ export default function SettingsPage({
                   </div>
 
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Stop-loss Monitor</p>
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">Threshold Price (USD)</label>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">
+                      Stop-loss Monitor
+                    </p>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">
+                      Threshold Price (USD)
+                    </label>
                     <input
                       type="number"
                       value={stopLossForm.thresholdPrice}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, thresholdPrice: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, thresholdPrice: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Amount to Sell</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Amount to Sell
+                    </label>
                     <input
                       type="number"
                       value={stopLossForm.amountSell}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, amountSell: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, amountSell: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Sell Asset Code</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Sell Asset Code
+                    </label>
                     <input
                       type="text"
                       value={stopLossForm.sellAssetCode}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, sellAssetCode: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, sellAssetCode: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Sell Asset Issuer</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Sell Asset Issuer
+                    </label>
                     <input
                       type="text"
                       value={stopLossForm.sellAssetIssuer}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, sellAssetIssuer: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, sellAssetIssuer: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Cooldown (minutes)</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Cooldown (minutes)
+                    </label>
                     <input
                       type="number"
                       value={stopLossForm.cooldownMinutes}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, cooldownMinutes: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, cooldownMinutes: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
                     <button
@@ -607,21 +664,36 @@ export default function SettingsPage({
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">Deployments</p>
-                      <span className="text-xs text-slate-400 dark:text-slate-400">{deployments.length} active</span>
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">
+                        Deployments
+                      </p>
+                      <span className="text-xs text-slate-400 dark:text-slate-400">
+                        {deployments.length} active
+                      </span>
                     </div>
                     {turretsLoading ? (
-                      <p className="text-sm text-slate-400 dark:text-slate-400">Loading deployments...</p>
+                      <p className="text-sm text-slate-400 dark:text-slate-400">
+                        Loading deployments...
+                      </p>
                     ) : deployments.length === 0 ? (
-                      <p className="text-sm text-slate-400 dark:text-slate-400">No Turrets functions deployed yet.</p>
+                      <p className="text-sm text-slate-400 dark:text-slate-400">
+                        No Turrets functions deployed yet.
+                      </p>
                     ) : (
                       <div className="space-y-3">
                         {deployments.map((deployment) => (
-                          <div key={deployment.id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-cosmos-900">
+                          <div
+                            key={deployment.id}
+                            className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-cosmos-900"
+                          >
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-white">{deployment.type === "dca" ? "DCA" : "Stop-loss"}</p>
-                                <p className="text-xs text-slate-400 dark:text-slate-400">{deployment.id}</p>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                  {deployment.type === "dca" ? "DCA" : "Stop-loss"}
+                                </p>
+                                <p className="text-xs text-slate-400 dark:text-slate-400">
+                                  {deployment.id}
+                                </p>
                               </div>
                               <button
                                 type="button"
@@ -635,7 +707,9 @@ export default function SettingsPage({
                               <div>Next run: {deployment.nextRunAt || "n/a"}</div>
                               <div>Last checked: {deployment.lastCheckedAt || "n/a"}</div>
                               <div>Last executed: {deployment.lastExecutedAt || "n/a"}</div>
-                              {deployment.lastError && <div className="text-rose-400">Error: {deployment.lastError}</div>}
+                              {deployment.lastError && (
+                                <div className="text-rose-400">Error: {deployment.lastError}</div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -650,8 +724,18 @@ export default function SettingsPage({
             {publicKey ? (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                  <svg className="w-5 h-5 text-stellar-700 dark:text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  <svg
+                    className="w-5 h-5 text-stellar-700 dark:text-stellar-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.6}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
                   </svg>
                   {t("settings.creatorUsername")}
                 </h2>
@@ -659,12 +743,26 @@ export default function SettingsPage({
                 {registeredUsername ? (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                      <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      <svg
+                        className="w-5 h-5 text-emerald-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
                       </svg>
                       <div>
                         <p className="text-emerald-400 font-medium">@{registeredUsername}</p>
-                        <p className="text-xs text-slate-600 dark:text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">
+                          Your tip page:{" "}
+                          {typeof window !== "undefined" ? window.location.origin : ""}/tip/
+                          {registeredUsername}
+                        </p>
                       </div>
                     </div>
                     <Link
@@ -682,7 +780,9 @@ export default function SettingsPage({
                       </label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400">@</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400">
+                            @
+                          </span>
                           <input
                             type="text"
                             value={username}
@@ -731,8 +831,18 @@ export default function SettingsPage({
             ) : (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <div className="text-center py-4">
-                  <svg className="w-12 h-12 mx-auto text-slate-600 dark:text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  <svg
+                    className="w-12 h-12 mx-auto text-slate-600 dark:text-slate-400 mb-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
                   </svg>
                   <p className="text-slate-600 dark:text-slate-400">
                     Connect your wallet to register a username
@@ -744,13 +854,24 @@ export default function SettingsPage({
             {/* Address Book Management Section */}
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <svg className="w-5 h-5 text-stellar-700 dark:text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                <svg
+                  className="w-5 h-5 text-stellar-700 dark:text-stellar-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.6}
+                    d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+                  />
                 </svg>
                 Address Book
               </h2>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Manage your locally stored contacts. Contacts are stored in this browser and persist across sessions.
+                Manage your locally stored contacts. Contacts are stored in this browser and persist
+                across sessions.
               </p>
               <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-cosmos-900 rounded-lg border border-slate-200 dark:border-slate-700">
                 <div>
@@ -780,8 +901,18 @@ export default function SettingsPage({
           <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 max-w-md w-full">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <svg
+                  className="w-5 h-5 text-red-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -789,7 +920,9 @@ export default function SettingsPage({
               </h3>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-6">
-              This will permanently delete all {contacts.length} contact{contacts.length !== 1 ? "s" : ""} from your local storage. This action cannot be undone.
+              This will permanently delete all {contacts.length} contact
+              {contacts.length !== 1 ? "s" : ""} from your local storage. This action cannot be
+              undone.
             </p>
             <div className="flex gap-3">
               <button
@@ -815,8 +948,18 @@ export default function SettingsPage({
           <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 max-w-md w-full">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                <svg
+                  className="w-5 h-5 text-amber-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -824,7 +967,8 @@ export default function SettingsPage({
               </h3>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-6">
-              Mainnet uses real XLM and real funds. Make sure you understand the risks and have backed up your keys. This action will disconnect your wallet.
+              Mainnet uses real XLM and real funds. Make sure you understand the risks and have
+              backed up your keys. This action will disconnect your wallet.
             </p>
             <div className="flex gap-3">
               <button
@@ -844,17 +988,30 @@ export default function SettingsPage({
               </button>
             </div>
           </div>
-        
+
           <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Onboarding Tour</h2>
-              <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">Replay the onboarding tour to refamiliarize yourself with the app.</p>
-              <button onClick={() => { resetTour(); window.location.href = '/dashboard'; }} className="px-4 py-2 bg-stellar-500 hover:bg-stellar-600 text-white font-medium rounded-lg transition-colors text-sm">Replay Onboarding Tour</button>
-            </div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+              Onboarding Tour
+            </h2>
+            <p className="text-sm text-slate-400 dark:text-slate-400 mb-4">
+              Replay the onboarding tour to refamiliarize yourself with the app.
+            </p>
+            <button
+              onClick={() => {
+                resetTour();
+                window.location.href = "/dashboard";
+              }}
+              className="px-4 py-2 bg-stellar-500 hover:bg-stellar-600 text-white font-medium rounded-lg transition-colors text-sm"
+            >
+              Replay Onboarding Tour
+            </button>
+          </div>
 
           <div className="card">
             <h2 className="text-lg font-semibold mb-2">Your Stellar Name</h2>
             <p className="text-sm text-gray-500 mb-4">
-              Register a human-readable name (e.g. <strong>alice.xlm</strong>) that others can use to send you payments instead of your full address.
+              Register a human-readable name (e.g. <strong>alice.xlm</strong>) that others can use
+              to send you payments instead of your full address.
             </p>
             {publicKey && (
               <p className="text-xs text-gray-400 mb-4 break-all">
@@ -870,7 +1027,7 @@ export default function SettingsPage({
               Register your name on StellarNames →
             </a>
           </div>
-</div>
+        </div>
       )}
     </>
   );

@@ -5,33 +5,33 @@
  * dates and relative times follow the conventions of the user's locale.
  */
 
-export type SupportedLocale = 'en' | 'es' | 'fr' | 'ja' | 'pt' | 'ar' | 'he';
+export type SupportedLocale = "en" | "es" | "fr" | "ja" | "pt" | "ar" | "he";
 
-const DEFAULT_LOCALE: SupportedLocale = 'en';
+const DEFAULT_LOCALE: SupportedLocale = "en";
 
 /** BCP-47 tags used for each supported UI locale. */
 const LOCALE_TAGS: Record<SupportedLocale, string> = {
-  en: 'en-US',
-  es: 'es-ES',
-  fr: 'fr-FR',
-  ja: 'ja-JP',
-  pt: 'pt-BR',
-  ar: 'ar-SA',
-  he: 'he-IL',
+  en: "en-US",
+  es: "es-ES",
+  fr: "fr-FR",
+  ja: "ja-JP",
+  pt: "pt-BR",
+  ar: "ar-SA",
+  he: "he-IL",
 };
 
 // ---- Intl feature detection (graceful fallback for older browsers) ----
 
 export function isIntlSupported(): boolean {
-  return typeof Intl !== 'undefined' && typeof Intl.NumberFormat !== 'undefined';
+  return typeof Intl !== "undefined" && typeof Intl.NumberFormat !== "undefined";
 }
 
 export function isDateTimeFormatSupported(): boolean {
-  return typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat !== 'undefined';
+  return typeof Intl !== "undefined" && typeof Intl.DateTimeFormat !== "undefined";
 }
 
 export function isRelativeTimeFormatSupported(): boolean {
-  return typeof Intl !== 'undefined' && typeof (Intl as any).RelativeTimeFormat !== 'undefined';
+  return typeof Intl !== "undefined" && typeof (Intl as any).RelativeTimeFormat !== "undefined";
 }
 
 function resolveLocaleTag(locale: string): string {
@@ -46,15 +46,19 @@ function resolveLocaleTag(locale: string): string {
 export function formatNumber(
   value: number,
   locale: string = DEFAULT_LOCALE,
-  options: Intl.NumberFormatOptions = {}
+  options: Intl.NumberFormatOptions = {},
 ): string {
   if (!isIntlSupported()) return value.toString();
 
+  // Node 18+/newer V8 dropped the implicit thousands grouping in
+  // Intl.NumberFormat, so re-enable it explicitly unless the caller opted out.
+  const effectiveOptions: Intl.NumberFormatOptions = { useGrouping: true, ...options };
+
   try {
-    return new Intl.NumberFormat(resolveLocaleTag(locale), options).format(value);
+    return new Intl.NumberFormat(resolveLocaleTag(locale), effectiveOptions).format(value);
   } catch {
     // Unknown locale tag -> fall back to English rather than throwing.
-    return new Intl.NumberFormat(LOCALE_TAGS[DEFAULT_LOCALE], options).format(value);
+    return new Intl.NumberFormat(LOCALE_TAGS[DEFAULT_LOCALE], effectiveOptions).format(value);
   }
 }
 
@@ -69,9 +73,9 @@ export function formatNumber(
  */
 export function formatCurrency(
   amount: number,
-  currency: string = 'XLM',
+  currency: string = "XLM",
   locale: string = DEFAULT_LOCALE,
-  options: Intl.NumberFormatOptions = {}
+  options: Intl.NumberFormatOptions = {},
 ): string {
   if (!isIntlSupported()) return `${amount.toFixed(2)} ${currency}`;
 
@@ -79,11 +83,12 @@ export function formatCurrency(
 
   try {
     return new Intl.NumberFormat(localeTag, {
-      style: 'currency',
+      style: "currency",
       currency,
-      currencyDisplay: 'code',
+      currencyDisplay: "code",
       minimumFractionDigits: 2,
       maximumFractionDigits: 7, // Stellar amounts support up to 7 decimals
+      useGrouping: true,
       ...options,
     }).format(amount);
   } catch {
@@ -100,7 +105,7 @@ export function formatCurrency(
 export function formatDate(
   date: Date | number | string,
   locale: string = DEFAULT_LOCALE,
-  options: Intl.DateTimeFormatOptions = {}
+  options: Intl.DateTimeFormatOptions = {},
 ): string {
   const d = date instanceof Date ? date : new Date(date);
 
@@ -108,9 +113,9 @@ export function formatDate(
 
   try {
     return new Intl.DateTimeFormat(resolveLocaleTag(locale), {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
       ...options,
     }).format(d);
   } catch {
@@ -121,13 +126,13 @@ export function formatDate(
 // ---- Relative time ----
 
 const RELATIVE_UNITS: { unit: Intl.RelativeTimeFormatUnit; ms: number }[] = [
-  { unit: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
-  { unit: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
-  { unit: 'week', ms: 7 * 24 * 60 * 60 * 1000 },
-  { unit: 'day', ms: 24 * 60 * 60 * 1000 },
-  { unit: 'hour', ms: 60 * 60 * 1000 },
-  { unit: 'minute', ms: 60 * 1000 },
-  { unit: 'second', ms: 1000 },
+  { unit: "year", ms: 365 * 24 * 60 * 60 * 1000 },
+  { unit: "month", ms: 30 * 24 * 60 * 60 * 1000 },
+  { unit: "week", ms: 7 * 24 * 60 * 60 * 1000 },
+  { unit: "day", ms: 24 * 60 * 60 * 1000 },
+  { unit: "hour", ms: 60 * 60 * 1000 },
+  { unit: "minute", ms: 60 * 1000 },
+  { unit: "second", ms: 1000 },
 ];
 
 /**
@@ -135,20 +140,20 @@ const RELATIVE_UNITS: { unit: Intl.RelativeTimeFormatUnit; ms: number }[] = [
  */
 export function formatRelativeTime(
   date: Date | number | string,
-  locale: string = DEFAULT_LOCALE
+  locale: string = DEFAULT_LOCALE,
 ): string {
   const d = date instanceof Date ? date : new Date(date);
   const diffMs = d.getTime() - Date.now();
 
   if (!isRelativeTimeFormatSupported()) return formatDate(d, locale);
 
-  const rtf = new Intl.RelativeTimeFormat(resolveLocaleTag(locale), { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(resolveLocaleTag(locale), { numeric: "auto" });
 
   for (const { unit, ms } of RELATIVE_UNITS) {
     const delta = diffMs / ms;
-    if (Math.abs(delta) >= 1 || unit === 'second') {
+    if (Math.abs(delta) >= 1 || unit === "second") {
       return rtf.format(Math.round(delta), unit);
     }
   }
-  return rtf.format(0, 'second');
+  return rtf.format(0, "second");
 }

@@ -51,7 +51,10 @@ export interface TrezorSignResult {
 
 /** Minimal shape of the lazily-loaded @trezor/connect module. */
 interface TrezorConnectModule {
-  init(options: { manifest?: { email: string; appUrl: string }; lazyLoad?: boolean }): Promise<unknown>;
+  init(options: {
+    manifest?: { email: string; appUrl: string };
+    lazyLoad?: boolean;
+  }): Promise<unknown>;
   dispose?(): Promise<unknown>;
   stellarGetPublicKey(params: {
     path: string;
@@ -77,9 +80,20 @@ export function isTrezorSupported(): boolean {
 async function loadTrezorConnect(): Promise<TrezorConnectModule> {
   if (!connectModulePromise) {
     connectModulePromise = (async () => {
-      // @ts-expect-error @trezor/connect is an optional peer dependency
-      const mod = await import("@trezor/connect");
-      const TrezorConnect: TrezorConnectModule = mod.default ?? mod;
+      let mod: { default?: TrezorConnectModule } | TrezorConnectModule | undefined;
+      try {
+        // @ts-expect-error @trezor/connect is an optional peer dependency; the
+        // try/catch (mirroring lib/ledger.ts) also lets Turbopack treat the
+        // unresolved dynamic import as a warning instead of a build error.
+        mod = await import("@trezor/connect");
+      } catch (err) {
+        throw new Error(
+          `Trezor Connect is not available: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const TrezorConnect: TrezorConnectModule = (
+        mod && "default" in mod ? mod.default : mod
+      ) as TrezorConnectModule;
 
       if (typeof TrezorConnect.init === "function" && typeof window !== "undefined") {
         await TrezorConnect.init({
@@ -136,7 +150,7 @@ export async function getTrezorPublicKey(): Promise<{
  */
 export async function signTransactionWithTrezor(
   xdr: string,
-  publicKey: string
+  publicKey: string,
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   if (!isTrezorSupported()) {
     return {
@@ -469,7 +483,9 @@ function derToRaw(hex: string): string {
   return raw.length === 64 ? raw.toString("hex") : hex;
 }
 
-function stripLeadingZero(buf: Buffer): Buffer {
+function stripLeadingZero<TArrayBuffer extends ArrayBufferLike>(
+  buf: Buffer<TArrayBuffer>,
+): Buffer<TArrayBuffer> {
   let i = 0;
   while (i < buf.length - 1 && buf[i] === 0) i += 1;
   return buf.subarray(i);

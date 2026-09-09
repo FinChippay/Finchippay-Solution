@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { expect, fn, userEvent, within } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { lazy, Suspense } from "react";
+import { expect, fn, userEvent, within } from "storybook/test";
 import RecurringPayments, { type RecurringSchedule } from "../components/RecurringPayments";
 
 const STORAGE_KEY = "finchippay:recurring-schedules";
@@ -20,7 +20,7 @@ const schedules: RecurringSchedule[] = [
 ];
 
 const DeferredRecurringPayments = lazy(
-  () => new Promise<{ default: typeof RecurringPayments }>(() => undefined)
+  () => new Promise<{ default: typeof RecurringPayments }>(() => undefined),
 );
 
 const meta = {
@@ -94,12 +94,20 @@ export const Error: Story = {
 
 export const Mobile: Story = {
   beforeEach: seedSchedules,
+
   parameters: {
-    viewport: { defaultViewport: "mobile1" },
     layout: "fullscreen",
   },
+
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(await canvas.findByText("15 XLM")).toBeInTheDocument();
+  },
+
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

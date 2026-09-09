@@ -69,20 +69,17 @@ export interface PathFinderResult {
 /**
  * Convert a Stellar `Asset` to Horizon query parameter strings.
  */
-function assetToParams(
-  asset: Asset,
-  prefix: "source" | "destination"
-): Record<string, string> {
+function assetToParams(asset: Asset, prefix: "source" | "destination"): Record<string, string> {
+  const params: Record<string, string> = {};
   if (asset.isNative()) {
-    return { [`${prefix}_asset_type`]: "native" };
+    params[`${prefix}_asset_type`] = "native";
+    return params;
   }
-  const assetType =
-    asset.code.length <= 4 ? "credit_alphanum4" : "credit_alphanum12";
-  return {
-    [`${prefix}_asset_type`]: assetType,
-    [`${prefix}_asset_code`]: asset.code,
-    [`${prefix}_asset_issuer`]: asset.issuer,
-  };
+  const assetType = asset.code.length <= 4 ? "credit_alphanum4" : "credit_alphanum12";
+  params[`${prefix}_asset_type`] = assetType;
+  params[`${prefix}_asset_code`] = asset.code;
+  params[`${prefix}_asset_issuer`] = asset.issuer ?? "";
+  return params;
 }
 
 /**
@@ -99,14 +96,8 @@ export function formatPathAsset(asset: PathAsset): string {
  * @example
  * buildRouteDisplay(path) // "XLM → yXLM → USDC"
  */
-export function buildRouteDisplay(
-  path: PaymentPath,
-  sourceAsset: Asset,
-  destAsset: Asset
-): string {
-  const sourceLabel = sourceAsset.isNative()
-    ? "XLM"
-    : sourceAsset.code;
+export function buildRouteDisplay(path: PaymentPath, sourceAsset: Asset, destAsset: Asset): string {
+  const sourceLabel = sourceAsset.isNative() ? "XLM" : sourceAsset.code;
   const destLabel = destAsset.isNative() ? "XLM" : destAsset.code;
 
   if (!path.path || path.path.length === 0) {
@@ -137,7 +128,7 @@ export async function findStrictSendPaths(
   sourceAsset: Asset,
   sourceAmount: string,
   destAsset: Asset,
-  destinationAccount?: string
+  destinationAccount?: string,
 ): Promise<PathFinderResult> {
   const config = getNetworkConfig();
   const baseUrl = config.horizonUrl;
@@ -168,7 +159,7 @@ export async function findStrictSendPaths(
       };
     }
     throw new Error(
-      `Horizon strict-send path lookup failed: ${response.status} ${response.statusText}`
+      `Horizon strict-send path lookup failed: ${response.status} ${response.statusText}`,
     );
   }
 
@@ -180,7 +171,7 @@ export async function findStrictSendPaths(
 
   // Sort best-first: highest destination_amount first
   const sorted = [...records].sort(
-    (a, b) => parseFloat(b.destination_amount) - parseFloat(a.destination_amount)
+    (a, b) => parseFloat(b.destination_amount) - parseFloat(a.destination_amount),
   );
 
   const best = sorted[0] ?? null;
@@ -216,7 +207,7 @@ export async function findStrictReceivePaths(
   sourceAsset: Asset,
   destAsset: Asset,
   destAmount: string,
-  sourceAccount?: string
+  sourceAccount?: string,
 ): Promise<PathFinderResult> {
   const config = getNetworkConfig();
   const baseUrl = config.horizonUrl;
@@ -246,7 +237,7 @@ export async function findStrictReceivePaths(
       };
     }
     throw new Error(
-      `Horizon strict-receive path lookup failed: ${response.status} ${response.statusText}`
+      `Horizon strict-receive path lookup failed: ${response.status} ${response.statusText}`,
     );
   }
 
@@ -258,7 +249,7 @@ export async function findStrictReceivePaths(
 
   // Sort best-first: lowest source_amount first
   const sorted = [...records].sort(
-    (a, b) => parseFloat(a.source_amount) - parseFloat(b.source_amount)
+    (a, b) => parseFloat(a.source_amount) - parseFloat(b.source_amount),
   );
 
   const best = sorted[0] ?? null;
@@ -291,7 +282,7 @@ export async function findStrictReceivePaths(
 export function calculatePriceImpact(
   sourceAmount: string,
   destinationAmount: string,
-  marketRate?: number
+  marketRate?: number,
 ): number {
   const src = parseFloat(sourceAmount);
   const dst = parseFloat(destinationAmount);
@@ -318,10 +309,7 @@ export function calculatePriceImpact(
  * @param slippagePercent   - Slippage tolerance (e.g. 0.5 for 0.5%).
  * @returns Minimum received amount as a string (7 decimal places).
  */
-export function applySlippage(
-  destinationAmount: string,
-  slippagePercent: number
-): string {
+export function applySlippage(destinationAmount: string, slippagePercent: number): string {
   const dst = parseFloat(destinationAmount);
   if (!dst || dst <= 0) return "0.0000000";
   const slippageFactor = 1 - slippagePercent / 100;

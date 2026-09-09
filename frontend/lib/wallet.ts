@@ -17,50 +17,46 @@ import {
   isAllowed,
   signMessage,
 } from "@stellar/freighter-api";
-import { logger } from "@/lib/logger";
 
-import {
-  setJwtToken as persistAuthToken,
-  clearJwtToken as clearAuthToken,
-} from "./auth";
-import { sdk } from "./sdk-instance";
-import { getNetworkPassphrase } from "./stellar";
-import {
-  getOrCreateSalt,
-  deriveKey,
-  setSessionKey,
-  getSessionKey,
-  getSessionOwner,
-} from "@/lib/encryption";
 import {
   unlockAddressBook,
   reEncryptAddressBook,
   unlockFederationCache,
   reEncryptFederationCache,
 } from "./addressBook";
-import {
-  unlockPaymentTemplates,
-  reEncryptPaymentTemplates,
-} from "./paymentTemplates";
+import { setJwtToken as persistAuthToken, clearJwtToken as clearAuthToken } from "./auth";
+import { signTransactionWithLedger } from "./ledger";
+import { unlockPaymentTemplates, reEncryptPaymentTemplates } from "./paymentTemplates";
+import { sdk } from "./sdk-instance";
+import { getNetworkPassphrase } from "./stellar";
+import { signTransactionWithTrezor } from "./trezor";
+import { deriveKey, setSessionKey, getSessionKey, getSessionOwner } from "@/lib/encryption";
+import { logger } from "@/lib/logger";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
 let jwtToken: string | null = null;
-export function setJwtToken(token: string | null) { jwtToken = token; }
-export function getJwtToken() { return jwtToken; }
+export function setJwtToken(token: string | null) {
+  jwtToken = token;
+}
+export function getJwtToken() {
+  return jwtToken;
+}
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
   const { transaction } = await sdk.getChallenge(publicKey);
   return transaction;
 }
 
-async function verifyAuthChallenge(signedXDR: string): Promise<{ accessToken: string; refreshToken: string }> {
+async function verifyAuthChallenge(
+  signedXDR: string,
+): Promise<{ accessToken: string; refreshToken: string }> {
   const res = await sdk.verifyChallenge(signedXDR);
   const data = res as Record<string, string | undefined>;
   const accessToken = data.accessToken || data.token || null;
   const refreshToken = data.refreshToken ?? null;
   sdk.setToken(accessToken);
-  return { accessToken: accessToken || '', refreshToken: refreshToken || '' };
+  return { accessToken: accessToken || "", refreshToken: refreshToken || "" };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -130,7 +126,9 @@ export async function connectWallet(): Promise<{
     if (access.error) {
       return {
         publicKey: null,
-        error: access.error.message || "Connection rejected. Please approve the connection in Freighter.",
+        error:
+          access.error.message ||
+          "Connection rejected. Please approve the connection in Freighter.",
       };
     }
 
@@ -166,11 +164,14 @@ export async function getConnectedPublicKey(): Promise<string | null> {
 // ─── SEP-0010 auth flow ──────────────────────────────────────────────────────
 
 export async function performSEP0010Auth(
-  publicKey: string
+  publicKey: string,
 ): Promise<{ token: string | null; error: string | null }> {
   try {
     const challengeXDR = await fetchAuthChallenge(publicKey);
-    const { signedXDR, error: signError } = await signTransactionWithWallet(challengeXDR, publicKey);
+    const { signedXDR, error: signError } = await signTransactionWithWallet(
+      challengeXDR,
+      publicKey,
+    );
     if (signError || !signedXDR) {
       return { token: null, error: signError || "Failed to sign challenge transaction" };
     }
@@ -204,10 +205,13 @@ export function getActiveWalletType(): SigningWalletType {
 
 export async function signTransactionWithWallet(
   transactionXDR: string,
-  publicKey?: string
+  publicKey?: string,
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   if (typeof window === "undefined") {
-    return { signedXDR: null, error: "Wallet signing is not available during server-side rendering." };
+    return {
+      signedXDR: null,
+      error: "Wallet signing is not available during server-side rendering.",
+    };
   }
 
   // Route signing through the active hardware-wallet type when one is set and
@@ -245,13 +249,14 @@ export async function signTransactionWithWallet(
 export async function initEncryptionSession(publicKey: string): Promise<void> {
   if (typeof window === "undefined" || !publicKey) return;
   try {
-    const message = "Finchippay Encryption Key Derivation\n\nSign this message to unlock your encrypted local data.";
+    const message =
+      "Finchippay Encryption Key Derivation\n\nSign this message to unlock your encrypted local data.";
     const { signedMessage, error } = await signMessage(message, { address: publicKey });
     if (error || !signedMessage) {
       throw new Error(error?.message || "User declined message signature.");
     }
 
-    const key = await deriveKey(signedMessage);
+    const key = await deriveKey(String(signedMessage));
     setSessionKey(key, publicKey);
     await Promise.all([
       unlockAddressBook(key, publicKey),
@@ -259,7 +264,11 @@ export async function initEncryptionSession(publicKey: string): Promise<void> {
       unlockFederationCache(key, publicKey),
     ]);
   } catch (err) {
-    logger.error("Failed to initialise encryption session", {}, err instanceof Error ? err : undefined);
+    logger.error(
+      "Failed to initialise encryption session",
+      {},
+      err instanceof Error ? err : undefined,
+    );
   }
 }
 
@@ -283,17 +292,27 @@ export function disconnectWallet(): void {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(aToken ? { "Authorization": `Bearer ${aToken}` } : {})
+      ...(aToken ? { Authorization: `Bearer ${aToken}` } : {}),
     },
   }).catch((err) => {
-    logger.error("Failed to revoke token family on logout", {}, err instanceof Error ? err : undefined);
+    logger.error(
+      "Failed to revoke token family on logout",
+      {},
+      err instanceof Error ? err : undefined,
+    );
   });
 
   setJwtToken(null);
   clearAuthToken();
 }
 
-export { isLedgerSupported, signTransactionWithLedger, getLedgerPublicKey, connectLedger, disconnectLedger } from "./ledger";
+export {
+  isLedgerSupported,
+  signTransactionWithLedger,
+  getLedgerPublicKey,
+  connectLedger,
+  disconnectLedger,
+} from "./ledger";
 export {
   isTrezorSupported,
   signTransactionWithTrezor,

@@ -60,7 +60,8 @@ describe("correlation ID propagation", () => {
     const headers = new Headers(fetchMock.mock.calls[0][1].headers);
     expect(headers.get("X-Request-ID")).toBeTruthy();
     expect(headers.get("X-Session-ID")).toBe(getSessionId());
-    expect(headers.get("traceparent")).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+    // Trace flags are randomly sampled (default 10% rate), so accept either.
+    expect(headers.get("traceparent")).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-(00|01)$/);
     globalThis.fetch = originalFetch;
   });
 

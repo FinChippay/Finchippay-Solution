@@ -390,7 +390,9 @@ export class FinchippayClient {
       return nativeToScVal(value, { type: "symbol" });
     }
     if (Array.isArray(value)) {
-      return nativeToScVal(value, { type: "vec" });
+      // nativeToScVal converts arrays to scvVec recursively; the SDK does not
+      // accept a "vec" hint in this version's NativeToScValOpts.
+      return nativeToScVal(value);
     }
     // Fall back to native conversion
     return nativeToScVal(value);
@@ -592,12 +594,11 @@ export class FinchippayClient {
     if (!result) return null;
     const decoded = result as Record<string, unknown>;
     const approvalsRaw = decoded.approvals;
+    const rawActionData = decoded.action_data ?? decoded.actionData;
     return {
       id: Number(proposalId),
       actionType: String(decoded.action_type ?? decoded.actionType ?? "unknown"),
-      actionData: Array.isArray(decoded.action_data ?? decoded.actionData)
-        ? (decoded.action_data ?? decoded.actionData)
-        : [],
+      actionData: Array.isArray(rawActionData) ? rawActionData : [],
       approvals: Array.isArray(approvalsRaw) ? approvalsRaw.map(String) : [],
       threshold: Number(decoded.threshold ?? 1),
       executed: Boolean(decoded.executed ?? false),
@@ -611,10 +612,7 @@ export class FinchippayClient {
    * When the approval count reaches the configured admin threshold the
    * contract auto-executes the action.
    */
-  async buildApproveAdminActionTx(
-    proposalId: number,
-    approver: string,
-  ): Promise<Transaction> {
+  async buildApproveAdminActionTx(proposalId: number, approver: string): Promise<Transaction> {
     return this.buildTransaction("approve_admin_action", [proposalId, approver], approver);
   }
 
@@ -622,10 +620,7 @@ export class FinchippayClient {
    * Build an approve_multisig transaction for a payment multi-sig proposal,
    * ready for wallet signing.
    */
-  async buildApprovePaymentMultisigTx(
-    proposalId: number,
-    signer: string,
-  ): Promise<Transaction> {
+  async buildApprovePaymentMultisigTx(proposalId: number, signer: string): Promise<Transaction> {
     return this.buildTransaction("approve_multisig", [proposalId, signer], signer);
   }
 }

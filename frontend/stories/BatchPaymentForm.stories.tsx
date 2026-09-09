@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { expect, userEvent, within } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, within } from "storybook/test";
 import BatchPaymentForm from "../components/BatchPaymentForm";
 
 const PUBLIC_KEY = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
@@ -67,17 +67,24 @@ export const Error: Story = {
     const canvas = await fillValidRecipient(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Send batch" }));
     await expect(
-      await canvas.findByText("Stellar rejected this recipient payment.")
+      await canvas.findByText("Stellar rejected this recipient payment."),
     ).toBeInTheDocument();
   },
 };
 
 export const Mobile: Story = {
   parameters: {
-    viewport: { defaultViewport: "mobile1" },
     layout: "fullscreen",
   },
+
   play: async ({ canvasElement }) => {
     await fillValidRecipient(canvasElement);
+  },
+
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

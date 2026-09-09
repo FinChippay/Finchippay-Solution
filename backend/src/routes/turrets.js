@@ -12,7 +12,6 @@ const { validate } = require("../validation/middleware");
 const {
   turretChallengeSchema,
   turretDeploySchema,
-  turretsListQuerySchema,
   idParamSchema,
 } = require("../validation/schemas");
 const controller = require("../controllers/turretsController");
@@ -77,11 +76,7 @@ router.post(
   controller.deploy,
 );
 router.get("/health", strictLimiter, controller.health);
-router.get(
-  "/:id",
-  strictLimiter,
-  verifyJWT,
-  async (req, res, next) => {
+router.get("/:id", strictLimiter, verifyJWT, async (req, res, next) => {
   if (
     typeof req.params.id === "string" &&
     req.params.id.startsWith("G") &&
@@ -92,21 +87,41 @@ router.get(
   }
   return controller.getOne(req, res, next);
 });
-router.get("/:id/history", strictLimiter, verifyJWT, validate(idParamSchema, "params"), async (req, res, next) => {
-  // The :id could be a deployment ID — verify ownership first
-  try {
-    const deployment = await turretsService.getDeployment(req.validated?.id || req.params.id);
-    if (req.user?.publicKey !== deployment.ownerPublicKey) {
-      return sendError(res, "AUTH_FORBIDDEN", {
-        message: "Forbidden: you may only access your own turret data.",
-      });
+router.get(
+  "/:id/history",
+  strictLimiter,
+  verifyJWT,
+  validate(idParamSchema, "params"),
+  async (req, res, next) => {
+    // The :id could be a deployment ID — verify ownership first
+    try {
+      const deployment = await turretsService.getDeployment(req.validated?.id || req.params.id);
+      if (req.user?.publicKey !== deployment.ownerPublicKey) {
+        return sendError(res, "AUTH_FORBIDDEN", {
+          message: "Forbidden: you may only access your own turret data.",
+        });
+      }
+    } catch (err) {
+      return next(err);
     }
-  } catch (err) {
-    return next(err);
-  }
-  return controller.getHistory(req, res, next);
-});
-router.post("/:id/pause", strictLimiter, verifyJWT, validate(idParamSchema, "params"), requireOwnTurret, controller.pause);
-router.post("/:id/resume", strictLimiter, verifyJWT, validate(idParamSchema, "params"), requireOwnTurret, controller.resume);
+    return controller.getHistory(req, res, next);
+  },
+);
+router.post(
+  "/:id/pause",
+  strictLimiter,
+  verifyJWT,
+  validate(idParamSchema, "params"),
+  requireOwnTurret,
+  controller.pause,
+);
+router.post(
+  "/:id/resume",
+  strictLimiter,
+  verifyJWT,
+  validate(idParamSchema, "params"),
+  requireOwnTurret,
+  controller.resume,
+);
 
 module.exports = router;

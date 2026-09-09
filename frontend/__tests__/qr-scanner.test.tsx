@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 
 const mockDecodeFromConstraints = jest.fn();
 const mockStop = jest.fn();
@@ -22,9 +22,7 @@ jest.mock("@/lib/stellar", () => ({
   isValidFederationAddress: jest.fn((addr) => addr.includes("*")),
   resolveFederationAddress: jest.fn(),
   submitTransaction: jest.fn(),
-  fetchNetworkFeeStats: jest.fn(() =>
-    Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })
-  ),
+  fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
   truncateMemoText: jest.fn((text: string) => text),
   STELLAR_BASE_FEE_XLM: 0.00001,
   STELLAR_MEMO_TEXT_MAX_BYTES: 28,
@@ -63,11 +61,13 @@ jest.mock("@/components/MultiSigFlow", () => ({
 
 import SendPaymentForm from "../components/SendPaymentForm";
 
-const VALID_ADDRESS = "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ";
+// Genuine 56-char Stellar public keys (the mock's isValidStellarAddress
+// requires length === 56, matching the real StrKey checksum check).
+const VALID_ADDRESS = "GCJHMFYY5JL6VS6OJFRAQRBGWRBAHXOAEZAELU6QOPUWGEKSVO5UCIX4";
 
 function defaultProps() {
   return {
-    publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    publicKey: "GDTE6C7MHXXFLDNKL6F6WC4BGVF6YMOCZUJGFJYBPFZ6KDD33MQBQKWA",
     xlmBalance: "100.0000000",
     usdcBalance: "50.0000000",
     onSuccess: jest.fn(),
@@ -78,7 +78,11 @@ function getScannerButton() {
   return screen.getByRole("button", { name: /Scan QR code/i });
 }
 
-function captureScanCallback(): (result: { getText: () => string }, error: undefined, controls: { stop: () => void }) => void {
+function captureScanCallback(): (
+  result: { getText: () => string },
+  error: undefined,
+  controls: { stop: () => void },
+) => void {
   return mockDecodeFromConstraints.mock.calls[0][2];
 }
 
@@ -173,7 +177,9 @@ describe("QR Scanner in SendPaymentForm", () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/G\.\.\./)).toHaveValue(VALID_ADDRESS);
     });
-    expect(screen.getByPlaceholderText("0.0000000")).toHaveValue("25.5");
+    // The amount input is type="number", so jest-dom normalizes the value
+    // to a number.
+    expect(screen.getByPlaceholderText("0.0000000")).toHaveValue(25.5);
     expect(screen.getByPlaceholderText("Payment note...")).toHaveValue("Invoice 42");
   });
 

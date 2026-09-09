@@ -32,9 +32,14 @@ function shortenAddress(addr: string): string {
 
 function statusBadgeClass(status: EscrowRecord["status"]): string {
   switch (status) {
-    case "Pending": return "bg-amber-500/10 text-amber-300 border-amber-500/20";
-    case "Released": return "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
-    case "Cancelled": return "bg-rose-500/10 text-rose-300 border-rose-500/20";
+    case "Pending":
+      return "bg-amber-500/10 text-amber-300 border-amber-500/20";
+    case "Released":
+      return "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
+    case "Cancelled":
+      return "bg-rose-500/10 text-rose-300 border-rose-500/20";
+    default:
+      return "bg-slate-500/10 text-slate-300 border-slate-500/20";
   }
 }
 
@@ -48,30 +53,35 @@ export default function EscrowManage() {
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<EscrowTab>("active");
-  const [sortBy, setSortBy] = useState<"time-remaining" | "amount-desc" | "date-created">("time-remaining");
+  const [sortBy, setSortBy] = useState<"time-remaining" | "amount-desc" | "date-created">(
+    "time-remaining",
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState("");
 
-  const refresh = useCallback(async (forceRefresh = false) => {
-    if (!publicKey) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [escrowList, ledger] = await Promise.all([
-        getEscrows(publicKey, forceRefresh),
-        getCurrentLedger(),
-      ]);
-      setEscrows(escrowList);
-      setCurrentLedger(ledger);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load escrows");
-    } finally {
-      setLoading(false);
-    }
-  }, [publicKey]);
+  const refresh = useCallback(
+    async (forceRefresh = false) => {
+      if (!publicKey) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const [escrowList, ledger] = await Promise.all([
+          getEscrows(publicKey, forceRefresh),
+          getCurrentLedger(),
+        ]);
+        setEscrows(escrowList);
+        setCurrentLedger(ledger);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load escrows");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [publicKey],
+  );
 
   useEffect(() => {
     refresh();
@@ -79,9 +89,12 @@ export default function EscrowManage() {
 
   const categorized = categorizeEscrows(escrows, publicKey || "");
   const tabEscrows = (() => {
-    const source = activeTab === "active" ? categorized.active
-      : activeTab === "completed" ? categorized.completed
-      : categorized.incoming;
+    const source =
+      activeTab === "active"
+        ? categorized.active
+        : activeTab === "completed"
+          ? categorized.completed
+          : categorized.incoming;
     const sorted = sortEscrows(source, sortBy);
     return filterEscrows(sorted, searchQuery);
   })();
@@ -139,11 +152,18 @@ export default function EscrowManage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16">
         <Head>
           <title>Escrow Dashboard | Finchippay-Solution</title>
-          <meta name="description" content="Manage your escrows — active, pending, and completed." />
+          <meta
+            name="description"
+            content="Manage your escrows — active, pending, and completed."
+          />
         </Head>
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">Escrow Dashboard</h1>
-          <p className="text-slate-600 dark:text-slate-400">Connect your wallet to manage escrows</p>
+          <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3">
+            Escrow Dashboard
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            Connect your wallet to manage escrows
+          </p>
         </div>
         <WalletConnect />
       </div>
@@ -154,13 +174,18 @@ export default function EscrowManage() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
       <Head>
         <title>Escrow Dashboard | Finchippay-Solution</title>
-        <meta name="description" content="Comprehensive escrow management dashboard with real-time status and countdown timers." />
+        <meta
+          name="description"
+          content="Comprehensive escrow management dashboard with real-time status and countdown timers."
+        />
       </Head>
 
       <div className="mb-8">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-1">Escrow Dashboard</h1>
+            <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-white mb-1">
+              Escrow Dashboard
+            </h1>
             <p className="text-slate-600 dark:text-slate-400">
               Current ledger: <span className="font-mono">{currentLedger.toLocaleString()}</span>
             </p>
@@ -170,8 +195,18 @@ export default function EscrowManage() {
               onClick={() => refresh(true)}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"
+                />
               </svg>
               Refresh
             </button>
@@ -179,7 +214,13 @@ export default function EscrowManage() {
               href="/escrow"
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-stellar-700 dark:text-stellar-300 bg-stellar-50 dark:bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 transition-colors"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
               New Escrow
@@ -190,7 +231,8 @@ export default function EscrowManage() {
         {!CONTRACT_ID && (
           <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
             <p className="text-sm text-amber-200">
-              <strong>NEXT_PUBLIC_CONTRACT_ID</strong> is not configured. Escrow calls will fail until a deployed contract ID is wired in.
+              <strong>NEXT_PUBLIC_CONTRACT_ID</strong> is not configured. Escrow calls will fail
+              until a deployed contract ID is wired in.
             </p>
           </div>
         )}
@@ -225,8 +267,18 @@ export default function EscrowManage() {
       {/* Search & Sort */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="flex-1 relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.5 5.5a7.5 7.5 0 0010.5 10.5z" />
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.5 5.5a7.5 7.5 0 0010.5 10.5z"
+            />
           </svg>
           <input
             type="text"
@@ -250,9 +302,24 @@ export default function EscrowManage() {
       {/* Loading */}
       {loading && (
         <div className="text-center py-16">
-          <svg className="animate-spin w-8 h-8 mx-auto text-stellar-400 mb-3" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <svg
+            className="animate-spin w-8 h-8 mx-auto text-stellar-400 mb-3"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
           </svg>
           <p className="text-sm text-slate-400">Loading escrows...</p>
         </div>
@@ -261,12 +328,25 @@ export default function EscrowManage() {
       {/* Escrow list */}
       {!loading && tabEscrows.length === 0 && (
         <div className="card text-center py-16">
-          <svg className="w-12 h-12 mx-auto mb-3 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          <svg
+            className="w-12 h-12 mx-auto mb-3 text-slate-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+            />
           </svg>
           <p className="text-slate-400">No escrows found in this view.</p>
           {activeTab !== "active" && (
-            <button onClick={() => setActiveTab("active")} className="mt-3 text-sm text-stellar-400 hover:text-stellar-300 transition-colors">
+            <button
+              onClick={() => setActiveTab("active")}
+              className="mt-3 text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
+            >
               View active escrows
             </button>
           )}
@@ -285,33 +365,52 @@ export default function EscrowManage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     <span className="text-lg font-bold text-white">#{escrow.id}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${statusBadgeClass(escrow.status)}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${statusBadgeClass(escrow.status)}`}
+                    >
                       {escrow.status}
                     </span>
-                    <EscrowCountdown releaseLedger={escrow.releaseLedger} currentLedger={currentLedger} />
+                    <EscrowCountdown
+                      releaseLedger={escrow.releaseLedger}
+                      currentLedger={currentLedger}
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
                     <div>
                       <span className="text-slate-500">Amount:</span>
-                      <span className="ml-1 text-white font-mono">{stroopsToXlm(escrow.amount)} XLM</span>
+                      <span className="ml-1 text-white font-mono">
+                        {stroopsToXlm(escrow.amount)} XLM
+                      </span>
                     </div>
                     <div>
                       <span className="text-slate-500">Token:</span>
-                      <span className="ml-1 text-white font-mono">{escrow.token.slice(0, 8)}...</span>
+                      <span className="ml-1 text-white font-mono">
+                        {escrow.token.slice(0, 8)}...
+                      </span>
                     </div>
                     <div>
                       <span className="text-slate-500">Release:</span>
-                      <span className="ml-1 text-white font-mono">#{escrow.releaseLedger.toLocaleString()}</span>
+                      <span className="ml-1 text-white font-mono">
+                        #{escrow.releaseLedger.toLocaleString()}
+                      </span>
                     </div>
                     <div className="col-span-2 sm:col-span-3 flex items-center gap-1">
                       <span className="text-slate-500">From:</span>
-                      <button onClick={() => handleCopy(escrow.from)} className="text-white font-mono hover:text-stellar-400 transition-colors" title="Copy address">
+                      <button
+                        onClick={() => handleCopy(escrow.from)}
+                        className="text-white font-mono hover:text-stellar-400 transition-colors"
+                        title="Copy address"
+                      >
                         {shortenAddress(escrow.from)}
                       </button>
                       <span className="text-slate-500 mx-1">→</span>
                       <span className="text-slate-500">To:</span>
-                      <button onClick={() => handleCopy(escrow.to)} className="text-white font-mono hover:text-stellar-400 transition-colors" title="Copy address">
+                      <button
+                        onClick={() => handleCopy(escrow.to)}
+                        className="text-white font-mono hover:text-stellar-400 transition-colors"
+                        title="Copy address"
+                      >
                         {shortenAddress(escrow.to)}
                       </button>
                     </div>
@@ -319,14 +418,16 @@ export default function EscrowManage() {
 
                   {/* Counterparty info */}
                   <div className="mt-2 flex items-center gap-2 text-xs">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                      isSender(escrow) ? "bg-blue-500/10 text-blue-300" : "bg-slate-500/10 text-slate-400"
-                    }`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                        isSender(escrow)
+                          ? "bg-blue-500/10 text-blue-300"
+                          : "bg-slate-500/10 text-slate-400"
+                      }`}
+                    >
                       {isSender(escrow) ? "You sent" : "Sent to you"}
                     </span>
-                    {escrow.memo && (
-                      <span className="text-slate-500">Memo: {escrow.memo}</span>
-                    )}
+                    {escrow.memo && <span className="text-slate-500">Memo: {escrow.memo}</span>}
                   </div>
 
                   {/* Milestone visualization placeholder */}
@@ -334,8 +435,20 @@ export default function EscrowManage() {
                     <div className="mt-3">
                       <MilestoneProgress
                         milestones={[
-                          { id: 1, label: "Deposited", amount: stroopsToXlm(escrow.amount), deadline: escrow.releaseLedger - 100, status: "approved" },
-                          { id: 2, label: "Approved", amount: stroopsToXlm(escrow.amount), deadline: escrow.releaseLedger, status: currentLedger >= escrow.releaseLedger ? "claimed" : "pending" },
+                          {
+                            id: 1,
+                            label: "Deposited",
+                            amount: stroopsToXlm(escrow.amount),
+                            deadline: escrow.releaseLedger - 100,
+                            status: "approved",
+                          },
+                          {
+                            id: 2,
+                            label: "Approved",
+                            amount: stroopsToXlm(escrow.amount),
+                            deadline: escrow.releaseLedger,
+                            status: currentLedger >= escrow.releaseLedger ? "claimed" : "pending",
+                          },
                         ]}
                       />
                     </div>
@@ -351,9 +464,11 @@ export default function EscrowManage() {
                         disabled={!canClaim(escrow) || actionLoading === escrow.id}
                         className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 transition-colors"
                         title={
-                          !isRecipient(escrow) ? "Only the recipient can claim"
-                          : currentLedger < escrow.releaseLedger ? "Release ledger not reached"
-                          : "Claim escrow"
+                          !isRecipient(escrow)
+                            ? "Only the recipient can claim"
+                            : currentLedger < escrow.releaseLedger
+                              ? "Release ledger not reached"
+                              : "Claim escrow"
                         }
                       >
                         {actionLoading === escrow.id ? "Claiming..." : "Claim"}
@@ -363,9 +478,11 @@ export default function EscrowManage() {
                         disabled={!canCancel(escrow)}
                         className="px-4 py-2 rounded-lg text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 disabled:bg-slate-700 disabled:text-slate-500 transition-colors"
                         title={
-                          !isSender(escrow) ? "Only the sender can cancel"
-                          : currentLedger >= escrow.releaseLedger ? "Release ledger already reached"
-                          : "Cancel escrow"
+                          !isSender(escrow)
+                            ? "Only the sender can cancel"
+                            : currentLedger >= escrow.releaseLedger
+                              ? "Release ledger already reached"
+                              : "Cancel escrow"
                         }
                       >
                         Cancel
@@ -386,7 +503,9 @@ export default function EscrowManage() {
               {/* Cancel confirmation dialog */}
               {cancelConfirmId === escrow.id && (
                 <div className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                  <p className="text-sm text-rose-200 mb-2">Are you sure you want to cancel escrow #{escrow.id}?</p>
+                  <p className="text-sm text-rose-200 mb-2">
+                    Are you sure you want to cancel escrow #{escrow.id}?
+                  </p>
                   <input
                     type="text"
                     value={cancelReason}
@@ -402,7 +521,10 @@ export default function EscrowManage() {
                       {actionLoading === escrow.id ? "Cancelling..." : "Confirm Cancel"}
                     </button>
                     <button
-                      onClick={() => { setCancelConfirmId(null); setCancelReason(""); }}
+                      onClick={() => {
+                        setCancelConfirmId(null);
+                        setCancelReason("");
+                      }}
                       className="px-3 py-1.5 rounded text-xs font-medium bg-white/5 text-slate-400 hover:bg-white/10 transition-colors"
                     >
                       Back
@@ -416,8 +538,17 @@ export default function EscrowManage() {
       )}
 
       <div className="mt-8">
-        <Link href="/escrow" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <Link
+          href="/escrow"
+          className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+        >
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
           Back to escrow page

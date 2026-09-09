@@ -1,5 +1,3 @@
-import { getSessionId } from "@/lib/correlation";
-
 function extractHeaders(call: any): Headers {
   return new Headers(call[1]?.headers);
 }
@@ -11,6 +9,10 @@ describe("patchGlobalFetch traceparent scoping", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     process.env.NEXT_PUBLIC_API_URL = originalApiUrl;
+    // lib/api patches global fetch once per process (guarded by
+    // __correlationFetchPatched); each test installs a fresh fetch mock, so
+    // reset the guard to let the next isolated import re-patch.
+    delete (globalThis as { __correlationFetchPatched?: boolean }).__correlationFetchPatched;
   });
 
   it("does NOT inject traceparent into third-party URLs that merely contain /api/", async () => {
@@ -44,8 +46,11 @@ describe("patchGlobalFetch traceparent scoping", () => {
     });
 
     const headers = extractHeaders(fetchMock.mock.calls[0]);
-    expect(headers.get("traceparent")).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
-    expect(headers.get("X-Session-ID")).toBe(getSessionId());
+    // Trace flags are randomly sampled (default 10% rate), so accept either.
+    expect(headers.get("traceparent")).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-(00|01)$/);
+    // The isolated module import instantiates its own session; just verify a
+    // session ID header was attached rather than matching this module's copy.
+    expect(headers.get("X-Session-ID")).toMatch(/^[a-f0-9-]{36}$/);
   });
 
   it("injects traceparent for relative (same-origin) API paths", async () => {
@@ -59,7 +64,8 @@ describe("patchGlobalFetch traceparent scoping", () => {
     await globalThis.fetch("/api/health", { method: "GET" });
 
     const headers = extractHeaders(fetchMock.mock.calls[0]);
-    expect(headers.get("traceparent")).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+    // Trace flags are randomly sampled (default 10% rate), so accept either.
+    expect(headers.get("traceparent")).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-(00|01)$/);
   });
 
   it("does NOT inject traceparent into third-party hosts even when path has /api/", async () => {

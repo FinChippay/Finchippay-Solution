@@ -103,15 +103,12 @@ function mockMakeBuilder(tableName) {
       state.wheres.push({ col, val: null });
       return builder;
     },
-    orWhere() {
-      return builder;
-    },
     whereIn(col, vals) {
       state.whereIns.push({ col, vals });
       return builder;
     },
     select() {
-      let rows = Array.from(getStore().values()).filter(matchesRow);
+      const rows = Array.from(getStore().values()).filter(matchesRow);
       if (state.isCount) {
         return Promise.resolve([{ cnt: rows.length }]);
       }
@@ -217,7 +214,8 @@ function mockMakeBuilder(tableName) {
         return (row) => {
           const ands = clauses.filter((c) => c.and);
           const ors = clauses.filter((c) => !c.and);
-          const evalClause = (c) => (c.test ? c.test(row) : evalComparison(c.col, c.op, c.val, row));
+          const evalClause = (c) =>
+            c.test ? c.test(row) : evalComparison(c.col, c.op, c.val, row);
           const andOk = ands.every(evalClause);
           const orOk = ors.length === 0 || ors.some(evalClause);
           return andOk && orOk;
@@ -728,7 +726,10 @@ describe("webhook events keyset pagination (WS4)", () => {
     const cursor2 = Buffer.from(
       JSON.stringify({ created_at: pageThreeCursorRow.created_at, id: pageThreeCursorRow.id }),
     ).toString("base64url");
-    const pageThree = await webhookService.getEvents(ACCOUNT_A, { limit: pageSize, cursor: cursor2 });
+    const pageThree = await webhookService.getEvents(ACCOUNT_A, {
+      limit: pageSize,
+      cursor: cursor2,
+    });
     const thirdPageRows = pageThree.slice(0, pageSize);
 
     const seenIds = [...firstPageRows, ...secondPageRows, ...thirdPageRows].map((r) => r.id);

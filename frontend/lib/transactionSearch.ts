@@ -74,10 +74,7 @@ export function tokenizeText(text: string): string[] {
 /**
  * Check if transaction matches search operators
  */
-export function matchesOperators(
-  payment: PaymentRecord,
-  operators: SearchOperators
-): boolean {
+export function matchesOperators(payment: PaymentRecord, operators: SearchOperators): boolean {
   if (operators.from) {
     const from = payment.type === "payment" ? payment.from : "";
     if (!from.toLowerCase().includes(operators.from.toLowerCase())) {
@@ -146,10 +143,7 @@ export function highlightText(text: string, searchTokens: string[]): string[] {
 /**
  * Calculate relevance score for search results
  */
-export function calculateRelevance(
-  payment: PaymentRecord,
-  searchTokens: string[]
-): number {
+export function calculateRelevance(payment: PaymentRecord, searchTokens: string[]): number {
   if (searchTokens.length === 0) return 0;
 
   let score = 0;
@@ -183,19 +177,25 @@ export function calculateRelevance(
 /**
  * Filter payments by search query
  */
-export function searchPayments(
-  payments: PaymentRecord[],
-  query: string
-): SearchResult[] {
+export function searchPayments(payments: PaymentRecord[], query: string): SearchResult[] {
   if (!query.trim()) return [];
 
   const parsed = parseSearchQuery(query);
   const searchTokens = tokenizeText(parsed.text);
+  // `parsed` also carries the free-text `text` member, which is not part of
+  // SearchOperators — pass only the explicit operator fields to the matcher.
+  const operators: SearchOperators = {
+    from: parsed.from,
+    to: parsed.to,
+    asset: parsed.asset,
+    amount: parsed.amount,
+    memo: parsed.memo,
+  };
 
   const results: SearchResult[] = payments
     .map((payment) => {
       // Check operator matching
-      if (!matchesOperators(payment, { ...parsed, text: "" })) {
+      if (!matchesOperators(payment, operators)) {
         return null;
       }
 

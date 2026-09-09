@@ -1,5 +1,5 @@
-import type { Preview } from "@storybook/experimental-nextjs-vite";
-import { INITIAL_VIEWPORTS } from "@storybook/addon-viewport";
+import type { Preview } from "@storybook/nextjs-vite";
+import { INITIAL_VIEWPORTS } from "storybook/viewport";
 import { createElement } from "react";
 import { I18nextProvider } from "react-i18next";
 import { ThemeProvider } from "../lib/ThemeContext";
@@ -17,20 +17,21 @@ const preview: Preview = {
       },
     },
     backgrounds: {
-      default: "light",
-      values: [
-        { name: "dark", value: "#050a1a" },
-        { name: "light", value: "#f0f6ff" },
-      ],
+      options: {
+        dark: { name: "dark", value: "#050a1a" },
+        light: { name: "light", value: "#f0f6ff" },
+      },
     },
     viewport: {
-      viewports: INITIAL_VIEWPORTS,
+      options: INITIAL_VIEWPORTS,
     },
     nextjs: {
       appDirectory: false,
     },
   },
+
   beforeAll: initializeStorybookI18n,
+
   decorators: [
     (Story) =>
       createElement(
@@ -42,11 +43,17 @@ const preview: Preview = {
           createElement(
             ToastProvider,
             null,
-            createElement(WalletProvider, null, createElement(Story))
-          )
-        )
+            createElement(WalletProvider, null, createElement(Story)),
+          ),
+        ),
       ),
   ],
+
+  initialGlobals: {
+    backgrounds: {
+      value: "light",
+    },
+  },
 };
 
 export default preview;

@@ -122,9 +122,6 @@ async function clearBackoff() {
 async function clearAll() {
   const items = await getQueuedTransactions();
   for (const t of items) await removeTransaction(t.id);
-
-  const entries = await getAll();
-  for (const entry of entries) await remove(entry.id);
 }
 
 describe("offlineQueue", () => {

@@ -99,9 +99,7 @@ export default function TransactionSimulationPreview({
     const values = [change.before, change.after, change.difference].map(Number);
     return values.some(
       (value, index) =>
-        !Number.isFinite(value) ||
-        Math.abs(value) > MAX_DISPLAY_AMOUNT ||
-        (index < 2 && value < 0),
+        !Number.isFinite(value) || Math.abs(value) > MAX_DISPLAY_AMOUNT || (index < 2 && value < 0),
     );
   })
     ? "Simulation returned an unsafe balance amount. Review the transaction before signing."
@@ -382,7 +380,7 @@ function BalanceChangeRow({ change }: { change: BalanceChange }) {
             !isNegative && !isPositive && "text-slate-400",
           )}
         >
-          {isPositive ? "+" : ""}
+          {isPositive ? "+" : isNegative ? "-" : ""}
           {difference}
         </span>
       </div>

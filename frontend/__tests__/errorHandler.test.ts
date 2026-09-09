@@ -3,6 +3,7 @@
  * Unit tests for the frontend errorHandler module.
  */
 
+import { ERROR_CODES } from "../../shared/errorCodes";
 import {
   parseApiError,
   getContractErrorMessage,
@@ -10,7 +11,6 @@ import {
   isRetryableError,
   isSupportError,
 } from "@/lib/errorHandler";
-import { ERROR_CODES } from "../../shared/errorCodes";
 
 // Helper to create a mock fetch Response
 function mockResponse(status: number, body: unknown): Response {
@@ -159,9 +159,7 @@ describe("getErrorMessage()", () => {
   it("returns the correct error for a known code", () => {
     const err = getErrorMessage("AUTH_FORBIDDEN");
     expect(err.code).toBe("AUTH_FORBIDDEN");
-    expect(err.message).toBe(
-      "You do not have permission to access this resource.",
-    );
+    expect(err.message).toBe("You do not have permission to access this resource.");
   });
 
   it("falls back to GEN_UNKNOWN for an unknown code", () => {
@@ -223,14 +221,14 @@ describe("error codes contract with ERROR_CODES", () => {
     // Spot-check a few known retryable codes
     const sample = ["SRV_INTERNAL", "RATE_LIMITED_GLOBAL", "GEN_NETWORK_ERROR"];
     for (const code of sample) {
-      expect(ERROR_CODES[code]).toBeDefined();
+      expect(ERROR_CODES[code as keyof typeof ERROR_CODES]).toBeDefined();
     }
   });
 
   it("every support code exists in ERROR_CODES", () => {
     const sample = ["SRV_INTERNAL", "CONTRACT_TRANSFER_FAILED"];
     for (const code of sample) {
-      expect(ERROR_CODES[code]).toBeDefined();
+      expect(ERROR_CODES[code as keyof typeof ERROR_CODES]).toBeDefined();
     }
   });
 });

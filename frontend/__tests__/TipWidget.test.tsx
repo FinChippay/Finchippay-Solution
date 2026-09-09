@@ -3,18 +3,30 @@ import userEvent from "@testing-library/user-event";
 import TipWidget from "@/components/TipWidget";
 import { getXLMBalance } from "@/lib/stellar";
 
+interface MockSendPaymentFormProps {
+  prefill?: { destination: string; amount: string; memo?: string } | null;
+  onSuccess?: (txHash?: string) => void;
+  title?: string;
+  submitLabel?: string;
+  successTitle?: string;
+  assetOptions?: string[];
+  hideAssetSelector?: boolean;
+  hideDestinationField?: boolean;
+  hideAmountField?: boolean;
+}
+
 const mockSendPaymentForm = jest.fn();
 const mockUseWallet = jest.fn();
 
 jest.mock("@/components/SendPaymentForm", () => ({
   __esModule: true,
-  default: (props: Record<string, unknown>) => {
+  default: (props: MockSendPaymentFormProps) => {
     mockSendPaymentForm(props);
 
     return (
       <div data-testid="send-payment-form">
         <div data-testid="prefill-amount">{props.prefill?.amount}</div>
-        <button type="button" onClick={props.onSuccess}>
+        <button type="button" onClick={() => props.onSuccess?.()}>
           Complete tip
         </button>
       </div>

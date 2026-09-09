@@ -36,8 +36,8 @@ export function generateTraceParent(): string {
 
   // Define sampling rate (e.g., 0.1 for 10% of requests, or 1.0 for 100%)
   // Ideally, this value comes from an environment variable
-  const samplingRate = process.env.NEXT_PUBLIC_TRACE_SAMPLING_RATE 
-    ? parseFloat(process.env.NEXT_PUBLIC_TRACE_SAMPLING_RATE) 
+  const samplingRate = process.env.NEXT_PUBLIC_TRACE_SAMPLING_RATE
+    ? parseFloat(process.env.NEXT_PUBLIC_TRACE_SAMPLING_RATE)
     : 0.1; // Default to 10% to prevent backend overload
 
   // Determine trace flags
@@ -322,3 +322,71 @@ export function cursorSlice<T extends { id: string; pagingToken?: string }>(
     hasMore,
   };
 }
+
+// ─── API client (dogfoods @finchippay/sdk) ──────────────────────────────────
+
+// The SDK ships CommonJS whose named exports are re-exported through getters;
+// Rollup cannot statically detect those, so import the namespace and read the
+// client off it (works identically at runtime, and type-checks too).
+import * as FinchippaySdk from "@finchippay/sdk";
+import { getJwtToken } from "./auth";
+
+/**
+ * Central, type-safe HTTP client for the Finchippay backend, dogfooding the
+ * `@finchippay/sdk` package. Every request reads the current JWT from the
+ * in-memory auth store, so pages/components can call `apiClient.*` directly
+ * without manually attaching `Authorization` headers.
+ *
+ * Constructed lazily on first access: the FinchippayClient constructor throws
+ * when `fetch` is unavailable (Node < 18 test environments), and constructing
+ * it eagerly here would break every test that merely imports this module for
+ * `apiFetch` or the helper functions.
+ */
+let apiClientInstance: FinchippaySdk.FinchippayClient | null = null;
+
+function getApiClient(): FinchippaySdk.FinchippayClient {
+  if (!apiClientInstance) {
+    apiClientInstance = new FinchippaySdk.FinchippayClient({
+      baseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
+      cacheToken: false,
+      getAuthToken: () => getJwtToken(),
+    });
+  }
+  return apiClientInstance;
+}
+
+// Lazily-initialised client: reading the property constructs the Finchippay
+// client on first use (browsers and modern Node always have `fetch`), so
+// merely importing this module for `apiFetch` or the helper functions never
+// throws in environments without `fetch`. The getter returns a genuine
+// instance, so `instanceof FinchippayClient` works.
+export let apiClient: FinchippaySdk.FinchippayClient;
+
+Object.defineProperty(module.exports, "apiClient", {
+  get: getApiClient,
+  configurable: true,
+});
+
+// Response shapes used by the UI. These intentionally mirror what the backend
+// actually returns (see backend/src/services/tipsService.js) rather than the
+// more generic SDK types, so components render the exact fields present.
+export interface Tip {
+  id: number;
+  senderPublicKey: string;
+  creatorPublicKey: string;
+  amount: string;
+  asset: string;
+  memo: string;
+  txHash: string;
+  timestamp: string;
+}
+
+export interface TipStats {
+  totalTips: number;
+  totalByAsset: Record<string, { count: number; amount: string }>;
+  averageTip: string | null;
+  largestTip: string | null;
+  smallestTip: string | null;
+}
+
+export type { ParsePaymentResponse } from "@finchippay/sdk";

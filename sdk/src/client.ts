@@ -110,7 +110,16 @@ export class FinchippayClient {
     this.baseUrl = (options.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.authToken = options.authToken || null;
     this.getAuthToken = options.getAuthToken;
-    this.fetchFn = options.fetch || (globalThis as any).fetch;
+    if (options.fetch) {
+      this.fetchFn = options.fetch;
+    } else {
+      // Resolve the global fetch lazily on every request instead of capturing
+      // it at construction time. This honours monkey-patched globals (test
+      // harnesses, service workers, CDN wrappers) even when the client is a
+      // long-lived singleton.
+      this.fetchFn = (input: RequestInfo | URL, init?: RequestInit) =>
+        (globalThis as { fetch: typeof fetch }).fetch(input, init);
+    }
     this.cacheToken = options.cacheToken ?? true;
     this.apiVersion = options.apiVersion || "1";
     this.correlationIdFactory = options.correlationIdFactory || createCorrelationId;
@@ -266,9 +275,13 @@ export class FinchippayClient {
    * and then call `verifyChallenge(signedXDR)`.
    */
   async getChallenge(account: string): Promise<ChallengeResponse> {
-    const res = await this.request<SuccessResponse<ChallengeResponse> | ChallengeResponse>("GET", "/api/auth", {
-      params: { account },
-    });
+    const res = await this.request<SuccessResponse<ChallengeResponse> | ChallengeResponse>(
+      "GET",
+      "/api/auth",
+      {
+        params: { account },
+      },
+    );
     return "data" in res && res.data ? res.data : (res as ChallengeResponse);
   }
 
@@ -304,8 +317,7 @@ export class FinchippayClient {
 
   auth = {
     /** Get SEP-0010 challenge transaction. */
-    getChallenge: (account: string): Promise<ChallengeResponse> =>
-      this.getChallenge(account),
+    getChallenge: (account: string): Promise<ChallengeResponse> => this.getChallenge(account),
 
     /** Submit signed challenge to receive tokens. */
     verifyChallenge: (signedTransactionXDR: string): Promise<TokenResponse> =>
@@ -316,9 +328,12 @@ export class FinchippayClient {
       const res = await this.request<SuccessResponse<TokenResponse> | TokenResponse>(
         "POST",
         "/api/auth/refresh",
-        { body: { refreshToken } }
+        { body: { refreshToken } },
       );
-      const data = "data" in res && res.data ? (res as SuccessResponse<TokenResponse>).data : (res as TokenResponse);
+      const data =
+        "data" in res && res.data
+          ? (res as SuccessResponse<TokenResponse>).data
+          : (res as TokenResponse);
       if (this.cacheToken && (data.accessToken || data.token)) {
         this.authToken = data.accessToken || data.token;
       }
@@ -329,13 +344,17 @@ export class FinchippayClient {
     getSessions: async (): Promise<SessionInfo[]> => {
       const res = await this.request<{ success: boolean; sessions: SessionInfo[] }>(
         "GET",
-        "/api/auth/sessions"
+        "/api/auth/sessions",
       );
       return res.sessions || [];
     },
 
     /** Revoke a session, refresh token, or all active sessions. */
-    revoke: (body: { sessionId?: number | string; refreshToken?: string; all?: boolean }): Promise<{ success: boolean; message?: string }> =>
+    revoke: (body: {
+      sessionId?: number | string;
+      refreshToken?: string;
+      all?: boolean;
+    }): Promise<{ success: boolean; message?: string }> =>
       this.request("POST", "/api/auth/revoke", { body }),
 
     /** Logout and revoke tokens. */
@@ -349,7 +368,9 @@ export class FinchippayClient {
 
   async health(): Promise<HealthStatus> {
     const res = await this.request<SuccessResponse<HealthStatus> | HealthStatus>("GET", "/health");
-    return "data" in res && res.data ? (res as SuccessResponse<HealthStatus>).data : (res as HealthStatus);
+    return "data" in res && res.data
+      ? (res as SuccessResponse<HealthStatus>).data
+      : (res as HealthStatus);
   }
 
   /* ─── Accounts ─── */
@@ -364,7 +385,9 @@ export class FinchippayClient {
       this.request("GET", `/api/accounts/${encodeURIComponent(publicKey)}/balance`),
 
     /** Resolve a username to a Stellar public key or vice versa. */
-    resolveUsername: (usernameOrPublicKey: string): Promise<SuccessResponse<ResolveUsernameResponse>> =>
+    resolveUsername: (
+      usernameOrPublicKey: string,
+    ): Promise<SuccessResponse<ResolveUsernameResponse>> =>
       this.request("GET", `/api/accounts/resolve/${encodeURIComponent(usernameOrPublicKey)}`),
 
     /** Register a username for an account. */
@@ -397,8 +420,11 @@ export class FinchippayClient {
       this.request("GET", `/api/analytics/${encodeURIComponent(publicKey)}/summary`),
 
     /** Get top payment recipients. */
-    getTopRecipients: (publicKey: string): Promise<SuccessResponse<{ topRecipients: TopRecipient[] }> | SuccessResponse<TopRecipient[]>> =>
-      this.request("GET", `/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`),
+    getTopRecipients: (
+      publicKey: string,
+    ): Promise<
+      SuccessResponse<{ topRecipients: TopRecipient[] }> | SuccessResponse<TopRecipient[]>
+    > => this.request("GET", `/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`),
 
     /** Get payment activity by day. */
     getActivity: (publicKey: string): Promise<SuccessResponse<ActivityDay[]>> =>
@@ -409,15 +435,27 @@ export class FinchippayClient {
 
   tips = {
     /** Get tips received by a creator. */
-    getReceived: (creatorPublicKey: string, params?: { limit?: number; offset?: number }): Promise<SuccessResponse<Tip[]> | { success: boolean; tips: Tip[]; total?: number }> =>
-      this.request("GET", `/api/tips/received/${encodeURIComponent(creatorPublicKey)}`, { params: params as Record<string, unknown> }),
+    getReceived: (
+      creatorPublicKey: string,
+      params?: { limit?: number; offset?: number },
+    ): Promise<SuccessResponse<Tip[]> | { success: boolean; tips: Tip[]; total?: number }> =>
+      this.request("GET", `/api/tips/received/${encodeURIComponent(creatorPublicKey)}`, {
+        params: params as Record<string, unknown>,
+      }),
 
     /** Get tips sent by an account. */
-    getSent: (senderPublicKey: string, params?: { limit?: number; offset?: number }): Promise<SuccessResponse<Tip[]> | { success: boolean; tips: Tip[]; total?: number }> =>
-      this.request("GET", `/api/tips/sent/${encodeURIComponent(senderPublicKey)}`, { params: params as Record<string, unknown> }),
+    getSent: (
+      senderPublicKey: string,
+      params?: { limit?: number; offset?: number },
+    ): Promise<SuccessResponse<Tip[]> | { success: boolean; tips: Tip[]; total?: number }> =>
+      this.request("GET", `/api/tips/sent/${encodeURIComponent(senderPublicKey)}`, {
+        params: params as Record<string, unknown>,
+      }),
 
     /** Get tip statistics for a creator. */
-    getStats: (creatorPublicKey: string): Promise<SuccessResponse<TipStats> | { success: boolean; stats: TipStats }> =>
+    getStats: (
+      creatorPublicKey: string,
+    ): Promise<SuccessResponse<TipStats> | { success: boolean; stats: TipStats }> =>
       this.request("GET", `/api/tips/stats/${encodeURIComponent(creatorPublicKey)}`),
 
     /** Record a new tip. */
@@ -433,8 +471,13 @@ export class FinchippayClient {
       this.request("GET", `/api/events/${encodeURIComponent(publicKey)}/stats`),
 
     /** Get contract events for a participant address. */
-    getEvents: (publicKey: string, params?: { limit?: number; offset?: number }): Promise<SuccessResponse<unknown[]>> =>
-      this.request("GET", `/api/events/${encodeURIComponent(publicKey)}`, { params: params as Record<string, unknown> }),
+    getEvents: (
+      publicKey: string,
+      params?: { limit?: number; offset?: number },
+    ): Promise<SuccessResponse<unknown[]>> =>
+      this.request("GET", `/api/events/${encodeURIComponent(publicKey)}`, {
+        params: params as Record<string, unknown>,
+      }),
   };
 
   /* ─── Turrets (txFunctions) ─── */
@@ -511,7 +554,10 @@ export class FinchippayClient {
       this.request("GET", "/api/sep12/customer/status", { params: { anchorName } }),
 
     /** Submit KYC fields to the configured anchor. */
-    putCustomer: (body: { anchorName: string; fields: Record<string, unknown> }): Promise<SuccessResponse<Sep12CustomerResponse>> =>
+    putCustomer: (body: {
+      anchorName: string;
+      fields: Record<string, unknown>;
+    }): Promise<SuccessResponse<Sep12CustomerResponse>> =>
       this.request("POST", "/api/sep12/customer", { body }),
   };
 

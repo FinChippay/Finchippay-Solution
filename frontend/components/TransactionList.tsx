@@ -22,7 +22,6 @@ import {
 import { useContacts } from "@/hooks/useContacts";
 import { CursorPageInfo, mergeRecordPages } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { getQueueCount } from "@/lib/offlineQueue";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -445,34 +444,7 @@ function TransactionList({
     fetchPayments();
   }, [fetchPayments, isVisible]);
 
-  // ── Offline queue badge ──────────────────────────────────────────────────
-  // Number of payments queued offline (from the generic + legacy queues).
-  useEffect(() => {
-    let active = true;
-
-    const refreshQueued = async () => {
-      try {
-        const count = await getQueueCount();
-        if (active) setQueuedCount(count);
-      } catch {
-        // IndexedDB unavailable — leave the badge hidden.
-      }
-    };
-
-    void refreshQueued();
-    const intervalId = window.setInterval(() => void refreshQueued(), 15_000);
-
-    const onSwMessage = (event: MessageEvent) => {
-      if (event.data?.type === "QUEUE_PROCESSED") void refreshQueued();
-    };
-    navigator.serviceWorker?.addEventListener("message", onSwMessage);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-      navigator.serviceWorker?.removeEventListener("message", onSwMessage);
-    };
-  }, []);
+  // Offline-queue badge was moved to the Navbar; there is nothing to render here.
 
   const handleLoadMore = () => fetchPayments(true);
 
@@ -589,7 +561,7 @@ function TransactionList({
     );
   }
 
-  if (payments.length === 0) {
+  if (payments.length === 0 && pendingPayments.length === 0) {
     if (compact) return null;
     return (
       <div ref={containerRef} className="card">

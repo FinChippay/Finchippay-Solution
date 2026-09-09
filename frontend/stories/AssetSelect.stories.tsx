@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import AssetSelect from "../components/AssetSelect";
 
 const meta: Meta<typeof AssetSelect> = {
@@ -26,8 +26,20 @@ type Story = StoryObj<typeof AssetSelect>;
 const sampleOptions = [
   { code: "XLM", displayName: "XLM", isTrusted: true },
   { code: "USDC", displayName: "USDC", isTrusted: true, balance: "10.50" },
-  { code: "EURT", displayName: "EURT", issuer: "GAP5...", issuerHint: "tempo.eu.com", isTrusted: false },
-  { code: "NGNT", displayName: "NGNT", issuer: "GAWO...", issuerHint: "cowrie.exchange", isTrusted: true },
+  {
+    code: "EURT",
+    displayName: "EURT",
+    issuer: "GAP5...",
+    issuerHint: "tempo.eu.com",
+    isTrusted: false,
+  },
+  {
+    code: "NGNT",
+    displayName: "NGNT",
+    issuer: "GAWO...",
+    issuerHint: "cowrie.exchange",
+    isTrusted: true,
+  },
 ];
 
 export const Default: Story = {

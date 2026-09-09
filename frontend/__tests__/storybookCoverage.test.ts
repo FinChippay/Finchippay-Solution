@@ -22,7 +22,12 @@ describe("Storybook component coverage", () => {
     expect(source).toMatch(/export const Loading\b/);
     expect(source).toMatch(/export const Error\b/);
     expect(source).toMatch(/export const Mobile\b/);
-    expect(source).toMatch(/defaultViewport:\s*["']mobile1["']/);
+    // Storybook 9 moved viewport selection from `parameters.viewport
+    // .defaultViewport` to `globals.viewport.value`; accept both so the test
+    // documents the intent (a mobile-width story) regardless of format.
+    expect(source).toMatch(
+      /defaultViewport:\s*["']mobile1["']|viewport:\s*{[\s\S]*?value:\s*["']mobile1["']/,
+    );
     expect(source).not.toContain("mocked(");
   });
 
@@ -41,12 +46,13 @@ describe("Storybook component coverage", () => {
     expect(storybookConfig).toContain('"../stories/**/*.mdx"');
   });
 
-  it("builds Storybook and runs Chromatic in CI", () => {
-    const workflowPath = resolve(process.cwd(), "..", ".github", "workflows", "ci.yml");
+  it("builds Storybook in CI", () => {
+    // The Storybook build lives in the frontend job of ci-core.yml (the
+    // workflow was renamed from ci.yml and the Chromatic upload step was
+    // removed, so only the build step remains).
+    const workflowPath = resolve(process.cwd(), "..", ".github", "workflows", "ci-core.yml");
     const source = readFileSync(workflowPath, "utf8");
 
     expect(source).toContain("npm run build-storybook");
-    expect(source).toContain("chromaui/action@");
-    expect(source).toContain("CHROMATIC_PROJECT_TOKEN");
   });
 });

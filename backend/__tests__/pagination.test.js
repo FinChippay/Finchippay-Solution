@@ -482,6 +482,12 @@ describe("GET /api/v1/webhooks/:publicKey", () => {
 // ─── Integration: Turrets Endpoint ────────────────────────────────────────────
 describe("GET /api/v1/turrets", () => {
   const OWNER = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+  const jwt = require("jsonwebtoken");
+  const { JWT_SECRET } = require("../src/middleware/auth");
+  const token = jwt.sign({ publicKey: OWNER }, JWT_SECRET, {
+    expiresIn: 60 * 60,
+    algorithm: "HS256",
+  });
 
   function app() {
     const server = express();
@@ -497,7 +503,7 @@ describe("GET /api/v1/turrets", () => {
       { id: "turret_2", ownerPublicKey: OWNER },
       { id: "turret_1", ownerPublicKey: OWNER },
     ]);
-    turretsService.getDeployment.mockResolvedValue({ id: "turret_1" });
+    turretsService.getDeployment.mockResolvedValue({ id: "turret_1", ownerPublicKey: OWNER });
     turretsService.getExecutionHistory.mockResolvedValue([
       { id: "exec_2", timestamp: 200 },
       { id: "exec_1", timestamp: 100 },
@@ -505,7 +511,9 @@ describe("GET /api/v1/turrets", () => {
   });
 
   it("returns paginated turrets deployments list", async () => {
-    const res = await request(app()).get(`/api/v1/turrets?limit=2`);
+    const res = await request(app())
+      .get(`/api/v1/turrets?limit=2`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(2);
     expect(res.body.pagination.nextCursor).toBeTruthy();
@@ -514,7 +522,9 @@ describe("GET /api/v1/turrets", () => {
   });
 
   it("returns paginated execution history for a turret deployment", async () => {
-    const res = await request(app()).get(`/api/v1/turrets/turret_1/history?limit=1`);
+    const res = await request(app())
+      .get(`/api/v1/turrets/turret_1/history?limit=1`)
+      .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
     expect(res.body.pagination.nextCursor).toBeTruthy();

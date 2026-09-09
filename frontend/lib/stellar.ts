@@ -37,9 +37,7 @@ import {
 import { logRpcCorrelation } from "@/lib/correlation";
 import { logger } from "@/lib/logger";
 
-
 // ─── Config ────────────────────────────────────────────────────────────────
-
 
 export {
   server,
@@ -89,8 +87,7 @@ export function isHorizonAccountNotFoundError(error: unknown): boolean {
   const candidate = error as HorizonAccountError;
   const status =
     candidate?.response?.status ?? candidate?.status ?? candidate?.response?.data?.status;
-  const type =
-    candidate?.response?.data?.type ?? candidate?.response?.type ?? candidate?.type;
+  const type = candidate?.response?.data?.type ?? candidate?.response?.type ?? candidate?.type;
   return status === 404 || type === "not_found";
 }
 
@@ -1456,10 +1453,7 @@ export function streamPayments(
         }
       } else {
         try {
-          const tx = await server
-            .transactions()
-            .transaction(payment.transaction_hash)
-            .call();
+          const tx = await server.transactions().transaction(payment.transaction_hash).call();
           if (tx.memo && tx.memo_type === "text") {
             memo = tx.memo;
           }
@@ -1988,7 +1982,7 @@ export async function buildCreateEscrowTransaction({
   if (!CONTRACT_ID) throw new Error("Contract ID is not configured.");
   const sourceAccount = await server.loadAccount(fromPublicKey);
   const contract = new Contract(CONTRACT_ID);
-    let assetContractId: string;
+  let assetContractId: string;
   if (asset === "XLM") {
     assetContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
   } else if (asset === "USDC") {
@@ -2234,26 +2228,62 @@ export async function buildClaimStreamTransaction(
   return sorobanServer.prepareTransaction(tx);
 }
 
-// --- Stub exports ---
+// ─── NFT Receipts (read side) ────────────────────────────────────────────────
+
+/**
+ * On-chain payment receipt (NFT) metadata as stored by the contract's
+ * `mint_receipt` entrypoint.
+ */
 export interface ReceiptMetadata {
-  payer: string;
+  from: string;
+  to: string;
   amount: string;
-  timestamp: string;
-  index: number;
+  timestamp: number;
+  memo: string;
+  ledger: number;
 }
-export async function getReceipt(_payer: string, _index: number): Promise<ReceiptMetadata> {
-  throw new Error("getReceipt not yet implemented");
+
+/**
+ * Fetch a single on-chain payment receipt minted for `payer` at `index`.
+ *
+ * Returns `null` when the contract is not configured, the receipt does not
+ * exist, or the RPC lookup fails, so callers can render a "not found" state
+ * instead of crashing.
+ */
+export async function getReceipt(payer: string, index: number): Promise<ReceiptMetadata | null> {
+  if (!CONTRACT_ID) return null;
+  try {
+    const client = new FinchippayContractClient(CONTRACT_ID);
+    return await client.getReceipt(payer, index);
+  } catch (err) {
+    logger.error(
+      "Failed to fetch receipt",
+      { payer: payer.slice(0, 8), index },
+      err instanceof Error ? err : undefined,
+    );
+    return null;
+  }
 }
-export interface StreamRecord {
-  id: number;
-  recipient: string;
-  amount: string;
-  status: string;
-}
+
+/**
+ * List streams in creation order with offset/limit pagination.
+ *
+ * The contract exposes no payer/recipient index, so like
+ * {@link getActiveStreamsForRecipient} this walks the stream ID space
+ * (0..count) and slices the requested window. Returns an empty array when the
+ * contract is not configured.
+ */
 export async function listStreamsByPayer(
-  _payer: string,
-  _offset?: number,
-  _limit?: number,
+  payer: string,
+  offset = 0,
+  limit = 10,
 ): Promise<StreamRecord[]> {
-  return [];
+  const count = await getStreamCount(payer);
+  if (count === 0 || offset >= count) return [];
+
+  const safeLimit = Math.max(1, Math.floor(limit));
+  const end = Math.min(count, offset + safeLimit);
+  const ids = Array.from({ length: Math.max(0, end - offset) }, (_, i) => offset + i);
+  const streams = await Promise.all(ids.map((id) => getStream(payer, id)));
+  return streams.filter((s): s is StreamRecord => s !== null);
 }

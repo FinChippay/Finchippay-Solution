@@ -2,10 +2,12 @@
  * lib/sdk-instance.ts
  * Type-safe SDK client instance for Finchippay API calls.
  *
- * Re-exports the central apiClient instance from @/lib/api dogfooding @finchippay/sdk.
+ * Thin wrapper around the backend's SEP-0010 auth endpoints, used by the
+ * wallet connect flow. HTTP requests go through `apiFetch` (trace/correlation
+ * aware) and carry the JWT when one is set.
  */
 
-import { apiClient, apiFetch } from "./api";
+import { apiFetch } from "./api";
 import { getJwtToken } from "./auth";
 
 interface SdkConfig {
@@ -34,12 +36,17 @@ class FinchippaySdk {
     return h;
   }
 
-  async getChallenge(publicKey: string): Promise<{ transaction: string; networkPassphrase: string }> {
-    const res = await apiFetch(`\${this.baseUrl}/api/auth?account=\${encodeURIComponent(publicKey)}`, {
-      method: "GET",
-      credentials: "include",
-      headers: this.headers(),
-    });
+  async getChallenge(
+    publicKey: string,
+  ): Promise<{ transaction: string; networkPassphrase: string }> {
+    const res = await apiFetch(
+      `${this.baseUrl}/api/auth?account=${encodeURIComponent(publicKey)}`,
+      {
+        method: "GET",
+        credentials: "include",
+        headers: this.headers(),
+      },
+    );
     return res.json();
   }
 
@@ -48,7 +55,7 @@ class FinchippaySdk {
     token?: string;
     refreshToken?: string;
   }> {
-    const res = await apiFetch(`\${this.baseUrl}/api/auth`, {
+    const res = await apiFetch(`${this.baseUrl}/api/auth`, {
       method: "POST",
       credentials: "include",
       headers: this.headers(),
@@ -68,7 +75,5 @@ export const sdk = new FinchippaySdk({ baseUrl: API_URL ?? "" });
 /** Initialize SDK authentication from stored token. */
 export function initSdkAuth(): void {
   const token = getJwtToken();
-  if (token) {
-    sdk.setToken(token);
-  }
+  sdk.setToken(token);
 }

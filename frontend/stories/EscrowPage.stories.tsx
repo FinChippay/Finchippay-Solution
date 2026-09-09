@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { expect, userEvent, within } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, within } from "storybook/test";
 import EscrowPage from "../pages/escrow";
 
 const PUBLIC_KEY = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
@@ -58,7 +58,10 @@ export const Error: Story = {
 };
 
 export const Mobile: Story = {
-  parameters: {
-    viewport: { defaultViewport: "mobile1" },
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

@@ -1,6 +1,9 @@
-import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
 import "@testing-library/jest-dom";
+// Initialise the i18n singleton so useTranslation() resolves real strings
+// (e.g. "4 outgoing payments") instead of raw keys.
+import "@/lib/i18n";
 import Dashboard from "@/pages/dashboard";
 
 jest.mock("next/router", () => ({
@@ -32,7 +35,9 @@ jest.mock("@/components/SendPaymentForm", () => ({
 }));
 
 jest.mock("@/lib/stellar", () => ({
-  getBalances: jest.fn().mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
+  getBalances: jest
+    .fn()
+    .mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
   getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),
@@ -44,6 +49,8 @@ jest.mock("@/lib/stellar", () => ({
   waitForAccountFunding: jest.fn().mockResolvedValue(true),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
   streamPayments: jest.fn(() => jest.fn()),
+  // RecurringPayments (rendered by Dashboard) calls these on mount.
+  listStreamsByPayer: jest.fn().mockResolvedValue([]),
   isValidStellarAddress: jest.fn().mockReturnValue(true),
   shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
   explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),

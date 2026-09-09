@@ -3,14 +3,14 @@
  * Unit tests for CSV and PDF export functions.
  */
 
-import { generateCSV } from "@/utils/export";
 import { PaymentRecord } from "@/lib/stellar";
+import { generateCSV } from "@/utils/export";
 
 // Mock explorer URL to avoid import issues
 jest.mock("@/lib/stellar", () => ({
   ...jest.requireActual("@/lib/stellar"),
   explorerUrl: jest.fn((hash: string) =>
-    hash.length === 64 ? `https://stellar.expert/explorer/testnet/tx/${hash}` : null
+    hash.length === 64 ? `https://stellar.expert/explorer/testnet/tx/${hash}` : null,
   ),
 }));
 
@@ -34,6 +34,7 @@ function createMockPayment(overrides: Partial<PaymentRecord> = {}): PaymentRecor
     memo: "Test payment",
     createdAt: "2026-07-21T12:00:00Z",
     transactionHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    hash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
     ...overrides,
   };
 }

@@ -33,9 +33,12 @@ jest.mock("@/lib/sdk-instance", () => ({
   initSdkAuth: jest.fn(),
 }));
 
-// Mock fetch
-global.fetch = jest.fn();
+// Mock fetch — resolve by default so disconnectWallet's logout request (which
+// chains .catch()) never throws a TypeError from a non-promise return value.
+global.fetch = jest.fn(() => Promise.resolve({ ok: true } as Response));
 
+import * as freighterApi from "@stellar/freighter-api";
+import { sdk } from "@/lib/sdk-instance";
 import {
   isFreighterInstalled,
   connectWallet,
@@ -49,13 +52,18 @@ import {
   getJwtToken,
 } from "@/lib/wallet";
 
-import * as freighterApi from "@stellar/freighter-api";
-
 const mockIsConnected = freighterApi.isConnected as jest.Mock;
 const mockGetAddress = freighterApi.getAddress as jest.Mock;
 const mockRequestAccess = freighterApi.requestAccess as jest.Mock;
 const mockSignTransaction = freighterApi.signTransaction as jest.Mock;
 const mockIsAllowed = freighterApi.isAllowed as jest.Mock;
+const mockGetChallenge = (sdk.getChallenge as jest.Mock).mockResolvedValue({
+  transaction: "challenge-xdr-123",
+});
+const mockVerifyChallenge = (sdk.verifyChallenge as jest.Mock).mockResolvedValue({
+  accessToken: "jwt-token-456",
+  refreshToken: "refresh-789",
+});
 
 describe("wallet.ts", () => {
   const mockPublicKey = "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ";
@@ -66,6 +74,7 @@ describe("wallet.ts", () => {
     jest.clearAllMocks();
     setJwtToken(null);
     (global.fetch as jest.Mock).mockClear();
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true } as Response);
   });
 
   describe("isFreighterInstalled", () => {
@@ -333,7 +342,6 @@ describe("wallet.ts", () => {
 
       expect(clearJwtToken).toHaveBeenCalled();
     });
-
   });
 
   describe("performSEP0010Auth", () => {

@@ -29,10 +29,18 @@ Object.defineProperty(window, "matchMedia", {
 
 // ─── Shared mocks (mirrors __tests__/snapshots.test.tsx) ──────────────────────
 
+// ErrorBoundary imports @sentry/nextjs, whose browser entry crashes at module
+// load in jsdom (reads window/document during instrumentation). Mock it so the
+// components under test can render; captureException is what ErrorBoundary uses.
+jest.mock("@sentry/nextjs", () => ({
+  captureException: jest.fn(),
+  withErrorBoundary: (Component: React.ComponentType) => Component,
+}));
+
 global.fetch = jest.fn(() =>
   Promise.resolve({
     json: () => Promise.resolve({ stellar: { usd: 0.12 } }),
-  } as Response)
+  } as Response),
 ) as unknown as typeof fetch;
 
 jest.mock("next/router", () => ({
@@ -51,7 +59,10 @@ jest.mock("next/link", () => {
     children,
     href,
     ...rest
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children: React.ReactNode; href: string }) => (
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+    children: React.ReactNode;
+    href: string;
+  }) => (
     <a href={href} {...rest}>
       {children}
     </a>
@@ -67,12 +78,17 @@ jest.mock("next/head", () => {
 });
 
 jest.mock("@/lib/stellar", () => ({
-  getNetworkConfig: jest.fn(() => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" })),
+  getNetworkConfig: jest.fn(() => ({
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  })),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
   getPaymentHistory: jest.fn(() => Promise.resolve({ records: [], hasMore: false })),
   shortenAddress: jest.fn((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`),
   explorerUrl: jest.fn((hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`),
-  isValidStellarAddress: jest.fn((addr: string) => typeof addr === "string" && addr.startsWith("G")),
+  isValidStellarAddress: jest.fn(
+    (addr: string) => typeof addr === "string" && addr.startsWith("G"),
+  ),
 }));
 
 jest.mock("@/lib/wallet", () => ({
@@ -115,14 +131,14 @@ jest.mock("@/hooks/useContacts", () => ({
 
 // ─── Component imports (after mocks) ───────────────────────────────────────────
 
-import Navbar from "@/components/Navbar";
-import TransactionList from "@/components/TransactionList";
-import ExportModal from "@/components/ExportModal";
 import ContactExportModal from "@/components/ContactExportModal";
-import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
+import ExportModal from "@/components/ExportModal";
+import Navbar from "@/components/Navbar";
 import PaymentStatusModal from "@/components/PaymentStatusModal";
-import AccessibilityStatement from "@/pages/accessibility";
+import ScreenReaderAnnouncements from "@/components/ScreenReaderAnnouncements";
+import TransactionList from "@/components/TransactionList";
 import { ThemeProvider } from "@/lib/ThemeContext";
+import AccessibilityStatement from "@/pages/accessibility";
 
 async function expectNoViolations(container: Element) {
   const results = await axe(container);
@@ -134,13 +150,15 @@ describe("Accessibility (axe-core)", () => {
     const { container } = render(
       <ThemeProvider>
         <Navbar />
-      </ThemeProvider>
+      </ThemeProvider>,
     );
     await expectNoViolations(container);
   });
 
   it("TransactionList (empty state) has no violations", async () => {
-    const { container } = render(<TransactionList publicKey="GBMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCK" />);
+    const { container } = render(
+      <TransactionList publicKey="GBMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCKMOCK" />,
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -149,7 +167,7 @@ describe("Accessibility (axe-core)", () => {
 
   it("ExportModal has no violations", async () => {
     const { container } = render(
-      <ExportModal publicKey="GBMOCK" isOpen={true} onClose={jest.fn()} />
+      <ExportModal publicKey="GBMOCK" isOpen={true} onClose={jest.fn()} />,
     );
     await expectNoViolations(container);
   });
@@ -174,7 +192,7 @@ describe("Accessibility (axe-core)", () => {
           confirming: { startedAt: null, completedAt: null, error: null },
         }}
         onClose={jest.fn()}
-      />
+      />,
     );
     await expectNoViolations(container);
   });

@@ -15,6 +15,14 @@ const jwt = require("jsonwebtoken");
 jest.mock("../src/services/sep12Service");
 const sep12Service = require("../src/services/sep12Service");
 
+// The routes attach the real sensitiveLimiter (10 req/min per IP); with 13+
+// requests per suite the shared in-memory store would 429 the final cases.
+// Like the other route suites, stub the limiter so the tests exercise auth
+// and validation, not the limiter budget.
+jest.mock("../src/middleware/rateLimit", () => ({
+  sensitiveLimiter: (req, res, next) => next(),
+}));
+
 // ─── Build a minimal Express app with auth middleware ─────────────────────────
 
 const { verifyJWT, JWT_SECRET } = require("../src/middleware/auth");

@@ -20,6 +20,14 @@ jest.mock("@/lib/stellar", () => ({
   explorerUrl: () => "https://stellar.expert",
 }));
 
+// ErrorBoundary imports @sentry/nextjs, whose browser entry crashes at module
+// load in jsdom (reads window/document during instrumentation). Mock it so the
+// component under test can render.
+jest.mock("@sentry/nextjs", () => ({
+  captureException: jest.fn(),
+  withErrorBoundary: (Component: React.ComponentType) => Component,
+}));
+
 describe("Optimistic UI Updates for Transactions", () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -43,19 +51,19 @@ describe("Optimistic UI Updates for Transactions", () => {
       to: "GDTEST",
       createdAt: new Date().toISOString(),
       transactionHash: "pending-123",
+      hash: "pending-123",
       isPending: true,
     };
 
     // Simulate custom event from SendPaymentForm
     act(() => {
-      window.dispatchEvent(
-        new CustomEvent("finchippay:pending-tx", { detail: pendingTx })
-      );
+      window.dispatchEvent(new CustomEvent("finchippay:pending-tx", { detail: pendingTx }));
     });
 
-    // Expect the pending badge and the transaction to appear
+    // Expect the pending badge and the transaction to appear. The amount is
+    // rendered as a signed, trimmed amount (e.g. "-10 XLM").
     expect(screen.getByText("Pending")).toBeInTheDocument();
-    expect(screen.getByText("-10.0000000 XLM")).toBeInTheDocument();
+    expect(screen.getByText("-10 XLM")).toBeInTheDocument();
   });
 
   it("strips out the pending entry if a simulated network submission failure occurs", async () => {
@@ -74,13 +82,12 @@ describe("Optimistic UI Updates for Transactions", () => {
       to: "GDTEST",
       createdAt: new Date().toISOString(),
       transactionHash: "pending-123",
+      hash: "pending-123",
       isPending: true,
     };
 
     act(() => {
-      window.dispatchEvent(
-        new CustomEvent("finchippay:pending-tx", { detail: pendingTx })
-      );
+      window.dispatchEvent(new CustomEvent("finchippay:pending-tx", { detail: pendingTx }));
     });
 
     expect(screen.getByText("Pending")).toBeInTheDocument();
@@ -88,12 +95,12 @@ describe("Optimistic UI Updates for Transactions", () => {
     // Simulate failure response
     act(() => {
       window.dispatchEvent(
-        new CustomEvent("finchippay:failed-tx", { detail: { pendingId: "pending-123" } })
+        new CustomEvent("finchippay:failed-tx", { detail: { pendingId: "pending-123" } }),
       );
     });
 
     // The pending transaction should be removed
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
-    expect(screen.queryByText("-10.0000000 XLM")).not.toBeInTheDocument();
+    expect(screen.queryByText("-10 XLM")).not.toBeInTheDocument();
   });
 });

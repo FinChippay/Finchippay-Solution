@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { expect, fn, userEvent, within } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, fn, userEvent, within } from "storybook/test";
 import AIPaymentAssistant from "../components/AIPaymentAssistant";
 
 const RECIPIENT = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -39,7 +39,7 @@ async function submitPrompt(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   await userEvent.type(
     canvas.getByLabelText("Payment description"),
-    `Send 50 XLM to ${RECIPIENT} for design work`
+    `Send 50 XLM to ${RECIPIENT} for design work`,
   );
   await userEvent.click(canvas.getByRole("button", { name: "Parse Payment" }));
   return canvas;
@@ -57,9 +57,9 @@ export const Default: Story = {
             isValid: true,
             clarification: "",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
-      )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
     ),
   play: async ({ canvasElement }) => {
     const canvas = await submitPrompt(canvasElement);
@@ -76,18 +76,20 @@ export const Loading: Story = {
 };
 
 export const Error: Story = {
-  beforeEach: () =>
-    installFetch(() => Promise.resolve(new Response(null, { status: 503 }))),
+  beforeEach: () => installFetch(() => Promise.resolve(new Response(null, { status: 503 }))),
   play: async ({ canvasElement }) => {
     const canvas = await submitPrompt(canvasElement);
     await expect(
-      await canvas.findByText("Failed to parse your request. Please try again.")
+      await canvas.findByText("Failed to parse your request. Please try again."),
     ).toBeInTheDocument();
   },
 };
 
 export const Mobile: Story = {
-  parameters: {
-    viewport: { defaultViewport: "mobile1" },
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

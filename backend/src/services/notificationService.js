@@ -37,6 +37,12 @@ var BASE_URL = process.env.APP_BASE_URL || "https://finchippay.io";
 var UNSUBSCRIBE_EMAIL = process.env.EMAIL_UNSUBSCRIBE_ADDRESS || "unsubscribe@finchippay.io";
 var RATE_LIMIT_PER_HOUR = parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || "10", 10);
 var STALE_PROCESSING_MS = parseInt(process.env.EMAIL_STALE_PROCESSING_MS || "600000", 10);
+var QUEUE_BATCH_SIZE = parseInt(process.env.EMAIL_QUEUE_BATCH_SIZE || "50", 10);
+// How long a claimed ("processing") row is allowed to sit before another
+// worker treats it as abandoned (crashed worker) and reclaims it.
+var QUEUE_LOCK_TIMEOUT_MS = parseInt(process.env.EMAIL_QUEUE_LOCK_TIMEOUT_MS || "300000", 10);
+// Stable per-process id so claimed rows can be traced back to their worker.
+var WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 
 /**
  * Canonical set of notification event types a caller may subscribe to.
@@ -372,7 +378,7 @@ async function processEmailQueue() {
       this.where({ status: "processing" }).andWhere("updated_at", "<", staleCutoff);
     })
     .orderBy("next_attempt_at", "asc")
-    .limit(50)
+    .limit(QUEUE_BATCH_SIZE)
     .select();
 
   var processed = 0;

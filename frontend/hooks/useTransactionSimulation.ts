@@ -123,13 +123,12 @@ function sanitizeBalanceChanges(balanceChanges: BalanceChange[]): SanitizedBalan
     const numbers = [change.before, change.after, change.difference].map(Number);
     const hasInvalidValue = numbers.some(
       (value, index) =>
-        !Number.isFinite(value) ||
-        Math.abs(value) > MAX_DISPLAY_AMOUNT ||
-        (index < 2 && value < 0),
+        !Number.isFinite(value) || Math.abs(value) > MAX_DISPLAY_AMOUNT || (index < 2 && value < 0),
     );
 
     if (hasInvalidValue) {
-      issue = "Simulation returned an unsafe balance amount. Review the transaction before signing.";
+      issue =
+        "Simulation returned an unsafe balance amount. Review the transaction before signing.";
     }
 
     const clamp = (value: number) =>
@@ -158,11 +157,12 @@ function sanitizeResourceFee(resourceFee: ResourceFee | null): {
     !Number.isFinite(resourceFee.xlm) ||
     resourceFee.xlm < 0 ||
     resourceFee.xlm > MAX_DISPLAY_AMOUNT;
-  const stroops = resourceFee.stroops < 0
-    ? 0n
-    : resourceFee.stroops > maxStroops
-      ? maxStroops
-      : resourceFee.stroops;
+  const stroops =
+    resourceFee.stroops < 0
+      ? 0n
+      : resourceFee.stroops > maxStroops
+        ? maxStroops
+        : resourceFee.stroops;
 
   return {
     fee: {
@@ -221,6 +221,13 @@ function extractResourceFee(sim: rpc.Api.SimulateTransactionResponse | null): Re
   const minResourceFee = response.minResourceFee ?? null;
 
   if (minResourceFee == null) return null;
+  if (
+    typeof minResourceFee !== "number" &&
+    typeof minResourceFee !== "bigint" &&
+    typeof minResourceFee !== "string"
+  ) {
+    return null;
+  }
 
   const stroops = BigInt(minResourceFee);
   const xlm = Number(stroops) / STELLAR_STROOPS_PER_XLM;
@@ -279,8 +286,11 @@ async function computeBalanceChanges(
 
         // If this looks like a balance entry for our user, compute the diff
         if (key && before !== undefined && after !== undefined) {
-          const beforeNative = scValToNative(before);
-          const afterNative = scValToNative(after);
+          // stateChanges entries arrive as xdr.ScVal-shaped objects; the SDK
+          // types the raw JSON as unknown, so assert the shape scValToNative
+          // expects. Failures are caught below and the change is skipped.
+          const beforeNative = scValToNative(before as xdr.ScVal);
+          const afterNative = scValToNative(after as xdr.ScVal);
 
           if (typeof beforeNative === "bigint" || typeof beforeNative === "number") {
             const beforeNum = Number(beforeNative);
@@ -409,9 +419,8 @@ export function useTransactionSimulation(options: UseTransactionSimulationOption
           await computeBalanceChanges(publicKey, sim, tx),
         );
         const { fee: sanitizedResourceFee, issue: feeIssue } = sanitizeResourceFee(resourceFee);
-        const simulationIssue = balanceIssue || feeIssue
-          ? { message: balanceIssue || feeIssue }
-          : contractError;
+        const issueText = balanceIssue || feeIssue;
+        const simulationIssue = issueText ? { message: issueText } : contractError;
 
         // The prepared transaction (with resource fees filled in)
         let preparedTransactionXdr: string | null = null;

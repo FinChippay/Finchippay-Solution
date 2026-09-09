@@ -3,15 +3,15 @@
  * Tests for TransactionSearchBar component
  */
 
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 import TransactionSearchBar from "@/components/TransactionSearchBar";
-import { PaymentRecord } from "@/lib/stellar";
+import type { PaymentRecord } from "@/lib/stellar";
 
 // Mock the search functions
 jest.mock("@/lib/transactionSearch", () => ({
-  searchPayments: jest.fn((payments, query) => {
+  searchPayments: jest.fn((payments: PaymentRecord[], query: string) => {
     if (!query) return [];
     return payments
       .filter((p) => p.memo?.includes(query) || p.hash?.includes(query))
@@ -46,48 +46,38 @@ describe("TransactionSearchBar", () => {
       asset: "XLM:native",
       memo: "Test payment",
       hash: "abc123",
-      createdAt: new Date(),
-      status: "success",
+      transactionHash: "abc123",
+      createdAt: new Date().toISOString(),
     },
   ];
 
   const mockOnSearchResults = jest.fn();
+  let user: ReturnType<typeof userEvent.setup>;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // userEvent's async APIs wait on timers internally, so it must know how to
+    // advance the fake timers the debounce tests install — otherwise the
+    // `type` promise never resolves and the tests time out.
+    user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
   });
 
   it("renders search input", () => {
-    render(
-      <TransactionSearchBar
-        payments={mockPayments}
-        onSearchResults={mockOnSearchResults}
-      />
-    );
+    render(<TransactionSearchBar payments={mockPayments} onSearchResults={mockOnSearchResults} />);
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
   it("displays help text when empty", () => {
-    render(
-      <TransactionSearchBar
-        payments={mockPayments}
-        onSearchResults={mockOnSearchResults}
-      />
-    );
+    render(<TransactionSearchBar payments={mockPayments} onSearchResults={mockOnSearchResults} />);
     expect(screen.getByText(/Operators/)).toBeInTheDocument();
   });
 
   it("calls onSearchResults when typing", async () => {
     jest.useFakeTimers();
-    render(
-      <TransactionSearchBar
-        payments={mockPayments}
-        onSearchResults={mockOnSearchResults}
-      />
-    );
+    render(<TransactionSearchBar payments={mockPayments} onSearchResults={mockOnSearchResults} />);
 
     const input = screen.getByRole("textbox");
-    await userEvent.type(input, "test");
+    await user.type(input, "test");
 
     jest.advanceTimersByTime(150);
 
@@ -99,15 +89,10 @@ describe("TransactionSearchBar", () => {
   });
 
   it("clears search when clicking clear button", async () => {
-    render(
-      <TransactionSearchBar
-        payments={mockPayments}
-        onSearchResults={mockOnSearchResults}
-      />
-    );
+    render(<TransactionSearchBar payments={mockPayments} onSearchResults={mockOnSearchResults} />);
 
     const input = screen.getByRole("textbox") as HTMLInputElement;
-    await userEvent.type(input, "test");
+    await user.type(input, "test");
 
     expect(input.value).toBe("test");
 
@@ -119,15 +104,10 @@ describe("TransactionSearchBar", () => {
 
   it("displays operator badge when operators are used", async () => {
     jest.useFakeTimers();
-    render(
-      <TransactionSearchBar
-        payments={mockPayments}
-        onSearchResults={mockOnSearchResults}
-      />
-    );
+    render(<TransactionSearchBar payments={mockPayments} onSearchResults={mockOnSearchResults} />);
 
     const input = screen.getByRole("textbox");
-    await userEvent.type(input, "from:GTEST");
+    await user.type(input, "from:GTEST");
 
     jest.advanceTimersByTime(150);
 
@@ -140,15 +120,10 @@ describe("TransactionSearchBar", () => {
 
   it("handles empty search results", async () => {
     jest.useFakeTimers();
-    render(
-      <TransactionSearchBar
-        payments={mockPayments}
-        onSearchResults={mockOnSearchResults}
-      />
-    );
+    render(<TransactionSearchBar payments={mockPayments} onSearchResults={mockOnSearchResults} />);
 
     const input = screen.getByRole("textbox");
-    await userEvent.type(input, "nonexistent");
+    await user.type(input, "nonexistent");
 
     jest.advanceTimersByTime(150);
 

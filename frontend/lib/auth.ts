@@ -5,6 +5,9 @@
 
 import { logger } from "@/lib/logger";
 
+/** Base URL of the Finchippay backend API (without a trailing slash). */
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
+
 let inMemoryAccessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
@@ -57,7 +60,6 @@ async function performRefresh(): Promise<string | null> {
   const rToken = getRefreshToken();
   if (!rToken) return null;
 
-  const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
   try {
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: "POST",
@@ -82,7 +84,11 @@ async function performRefresh(): Promise<string | null> {
       }
     }
   } catch (err) {
-    logger.error("Token refresh failed", { apiUrl: API_URL }, err instanceof Error ? err : new Error(String(err)));
+    logger.error(
+      "Token refresh failed",
+      { apiUrl: API_URL },
+      err instanceof Error ? err : new Error(String(err)),
+    );
   }
 
   clearJwtToken();
@@ -208,7 +214,11 @@ export async function revokeSession(sessionId: number | string): Promise<boolean
       return Boolean(data.success);
     }
   } catch (err) {
-    logger.error("Failed to revoke session", { sessionId: String(sessionId) }, err instanceof Error ? err : undefined);
+    logger.error(
+      "Failed to revoke session",
+      { sessionId: String(sessionId) },
+      err instanceof Error ? err : undefined,
+    );
   }
   return false;
 }
@@ -239,4 +249,3 @@ export async function revokeAllSessions(): Promise<boolean> {
   }
   return false;
 }
-

@@ -4,8 +4,8 @@
  */
 
 import { formatDistanceToNow, format } from "date-fns";
+import { formatCurrency, formatNumber, formatRelativeTime } from "./intlFormat";
 import { PaymentRecord } from "@/lib/stellar";
-import { formatCurrency, formatNumber, formatRelativeTime } from './intlFormat';
 
 interface AssetFormatRule {
   minimumFractionDigits: number;
@@ -51,19 +51,14 @@ export function formatXLM(amount: string | number): string {
 /**
  * Format a Stellar asset amount with asset-specific precision rules.
  */
-export function formatAsset(
-  amount: string | number,
-  assetCode = DEFAULT_ASSET_CODE
-): string {
+export function formatAsset(amount: string | number, assetCode = DEFAULT_ASSET_CODE): string {
   const normalizedAssetCode = normalizeAssetCode(assetCode);
   const rule = getAssetFormatRule(normalizedAssetCode);
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
 
   if (amount == null || Number.isNaN(num)) {
     const zeroValue =
-      rule.minimumFractionDigits > 0
-        ? (0).toFixed(rule.minimumFractionDigits)
-        : "0";
+      rule.minimumFractionDigits > 0 ? (0).toFixed(rule.minimumFractionDigits) : "0";
     return `${zeroValue} ${normalizedAssetCode}`;
   }
 
@@ -82,6 +77,25 @@ export function formatStroopsToXLM(stroops: bigint | string | number): string {
     return `${xlm.toFixed(7)} XLM`;
   } catch (err) {
     return "0.0000000 XLM";
+  }
+}
+
+/**
+ * Convert stroops to a clean XLM string for display, trimming trailing zeros
+ * so whole amounts render as e.g. "50 XLM" instead of "50.0000000 XLM".
+ * Returns `null` when the input cannot be parsed.
+ */
+export function stroopsToCleanXlm(stroops: bigint | string | number): string | null {
+  try {
+    if (stroops === null || stroops === undefined) return null;
+    const s = typeof stroops === "bigint" ? stroops : BigInt(stroops);
+    const xlm = Number(s) / 10_000_000;
+    if (!Number.isFinite(xlm)) return null;
+    const fixed = xlm.toFixed(7);
+    const trimmed = fixed.replace(/\.?0+$/, "");
+    return `${trimmed} XLM`;
+  } catch {
+    return null;
   }
 }
 
@@ -109,8 +123,8 @@ export function formatDate(dateString: string): string {
 
 export function formatAmount(
   amount: number,
-  currency: string = 'XLM',
-  locale: string = 'en'
+  currency: string = "XLM",
+  locale: string = "en",
 ): string {
   return formatCurrency(amount, currency, locale);
 }
@@ -190,14 +204,14 @@ export function parseCSV(csv: string): string[][] {
       continue;
     }
 
-    if (!inQuotes && char === ',') {
+    if (!inQuotes && char === ",") {
       pushCell();
       continue;
     }
 
-    if (!inQuotes && (char === '\n' || char === '\r')) {
+    if (!inQuotes && (char === "\n" || char === "\r")) {
       pushRow();
-      if (char === '\r' && csv[i + 1] === '\n') {
+      if (char === "\r" && csv[i + 1] === "\n") {
         i += 1;
       }
       continue;
@@ -252,7 +266,6 @@ export function clampAmount(value: string, min = 0.0000001, max = 999999): numbe
   return Math.max(min, Math.min(max, num));
 }
 
-
 /** Wrap a cell value in quotes and escape any internal quotes. */
 function csvCell(value: string | number | undefined | null): string {
   const str = value == null ? "" : String(value);
@@ -274,7 +287,7 @@ function triggerDownload(contents: string, filename: string, type: string): void
   document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
- 
+
 /**
  * Convert an array of PaymentRecords to a CSV string and trigger a browser
  * file download. No server required — uses a Blob URL.
@@ -282,17 +295,8 @@ function triggerDownload(contents: string, filename: string, type: string): void
  * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash
  */
 export function exportToCSV(payments: PaymentRecord[]): void {
-  const HEADERS = [
-    "Date",
-    "Type",
-    "Amount",
-    "Asset",
-    "From",
-    "To",
-    "Memo",
-    "Transaction Hash",
-  ];
- 
+  const HEADERS = ["Date", "Type", "Amount", "Asset", "From", "To", "Memo", "Transaction Hash"];
+
   const rows = payments.map((tx) => [
     csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
     csvCell(tx.type === "sent" ? "Sent" : "Received"),
@@ -303,12 +307,9 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     csvCell(tx.memo ?? ""),
     csvCell(tx.transactionHash),
   ]);
- 
-  const csv = [
-    HEADERS.map(csvCell).join(","),
-    ...rows.map((r) => r.join(",")),
-  ].join("\r\n");
- 
+
+  const csv = [HEADERS.map(csvCell).join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+
   const dateStamp = format(new Date(), "yyyy-MM-dd");
   const filename = `finchippay-transactions-${dateStamp}.csv`;
   triggerDownload(csv, filename, "text/csv;charset=utf-8;");

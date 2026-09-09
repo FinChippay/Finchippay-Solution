@@ -3,7 +3,7 @@
  * Storybook stories for transaction detail components
  */
 
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import TransactionActions from "@/components/TransactionActions";
 import TransactionTimeline from "@/components/TransactionTimeline";
 

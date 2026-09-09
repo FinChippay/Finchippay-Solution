@@ -58,15 +58,15 @@ export default function QuickAddPanel({
 
       {/* Available tokens */}
       <div>
-        <h4 className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
-          Tokens
-        </h4>
+        <h4 className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Tokens</h4>
         <div className="grid grid-cols-2 gap-2">
           {TOKENS.map((token) => (
             <motion.div
               key={token.code}
               draggable
-              onDragStart={(e) => handleDragStart(e, "token", token.code)}
+              onDragStart={(e) =>
+                handleDragStart(e as unknown as React.DragEvent<HTMLElement>, "token", token.code)
+              }
               className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-3 cursor-grab active:cursor-grabbing hover:border-stellar-500/40 transition-colors focus:outline-none focus:ring-2 focus:ring-stellar-400"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
@@ -101,7 +101,13 @@ export default function QuickAddPanel({
             <motion.button
               key={preset.label}
               draggable
-              onDragStart={(e) => handleDragStart(e, "amount", preset.value)}
+              onDragStart={(e) =>
+                handleDragStart(
+                  e as unknown as React.DragEvent<HTMLElement>,
+                  "amount",
+                  preset.value,
+                )
+              }
               className="px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs text-slate-300 cursor-grab active:cursor-grabbing hover:border-stellar-500/30 hover:bg-stellar-500/5 transition-colors focus:outline-none focus:ring-2 focus:ring-stellar-400"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { useTheme, type ThemeMode, type AccentName } from "../lib/ThemeContext";
@@ -33,15 +33,21 @@ function ThemeTogglePreview({ initialTheme, initialAccent }: ThemeTogglePreviewP
         <dl className="mt-6 space-y-3 border-t border-slate-200 pt-4 text-sm dark:border-slate-700">
           <div className="flex items-center justify-between gap-4">
             <dt className="text-slate-600 dark:text-slate-400">Selected preference</dt>
-            <dd className="font-mono font-medium capitalize text-slate-900 dark:text-white">{theme}</dd>
+            <dd className="font-mono font-medium capitalize text-slate-900 dark:text-white">
+              {theme}
+            </dd>
           </div>
           <div className="flex items-center justify-between gap-4">
             <dt className="text-slate-600 dark:text-slate-400">Resolved appearance</dt>
-            <dd className="font-mono font-medium capitalize text-slate-900 dark:text-white">{resolved}</dd>
+            <dd className="font-mono font-medium capitalize text-slate-900 dark:text-white">
+              {resolved}
+            </dd>
           </div>
           <div className="flex items-center justify-between gap-4">
             <dt className="text-slate-600 dark:text-slate-400">Accent colour</dt>
-            <dd className="font-mono font-medium capitalize text-slate-900 dark:text-white">{accent}</dd>
+            <dd className="font-mono font-medium capitalize text-slate-900 dark:text-white">
+              {accent}
+            </dd>
           </div>
         </dl>
       </div>
@@ -69,25 +75,45 @@ type Story = StoryObj<typeof meta>;
 
 export const Light: Story = {
   render: () => <ThemeTogglePreview initialTheme="light" />,
-  parameters: { backgrounds: { default: "light" } },
+  globals: {
+    backgrounds: {
+      value: "light",
+    },
+  },
 };
 
 export const Dark: Story = {
   render: () => <ThemeTogglePreview initialTheme="dark" />,
-  parameters: { backgrounds: { default: "dark" } },
+  globals: {
+    backgrounds: {
+      value: "dark",
+    },
+  },
 };
 
 export const System: Story = {
   render: () => <ThemeTogglePreview initialTheme="system" />,
-  parameters: { backgrounds: { default: "light" } },
+  globals: {
+    backgrounds: {
+      value: "light",
+    },
+  },
 };
 
 export const EmeraldAccent: Story = {
   render: () => <ThemeTogglePreview initialTheme="light" initialAccent="emerald" />,
-  parameters: { backgrounds: { default: "light" } },
+  globals: {
+    backgrounds: {
+      value: "light",
+    },
+  },
 };
 
 export const VioletAccent: Story = {
   render: () => <ThemeTogglePreview initialTheme="dark" initialAccent="violet" />,
-  parameters: { backgrounds: { default: "dark" } },
+  globals: {
+    backgrounds: {
+      value: "dark",
+    },
+  },
 };

@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { expect, userEvent, within } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, within } from "storybook/test";
 import TipWidget from "../components/TipWidget";
 
 const PUBLIC_KEY = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
@@ -47,14 +47,15 @@ export const Error: Story = {
     const amount = canvas.getByLabelText("Custom amount");
     await userEvent.clear(amount);
     await userEvent.type(amount, "0");
-    await expect(
-      canvas.getByText("Enter at least 0.0000001 XLM to continue.")
-    ).toBeInTheDocument();
+    await expect(canvas.getByText("Enter at least 0.0000001 XLM to continue.")).toBeInTheDocument();
   },
 };
 
 export const Mobile: Story = {
-  parameters: {
-    viewport: { defaultViewport: "mobile1" },
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

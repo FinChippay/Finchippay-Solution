@@ -1,6 +1,6 @@
 import React from "react";
 import type { ReceiptMetadata } from "@/lib/stellar";
-import { formatXLM, shortenAddress } from "@/utils/format";
+import { shortenAddress, stroopsToCleanXlm } from "@/utils/format";
 
 interface ReceiptCardProps {
   index: number;
@@ -10,9 +10,9 @@ interface ReceiptCardProps {
 
 export default function ReceiptCard({ index, receipt, onViewDetails }: ReceiptCardProps) {
   const formattedDate = new Date(receipt.timestamp * 1000).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
 
   return (
@@ -20,10 +20,10 @@ export default function ReceiptCard({ index, receipt, onViewDetails }: ReceiptCa
       <div className="absolute top-0 right-0 rounded-bl-xl bg-stellar-500/20 px-3 py-1 text-xs font-bold text-stellar-700 dark:text-stellar-300">
         #{index}
       </div>
-      
+
       <div className="mb-4 mt-2">
         <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-          {formatXLM(Number(receipt.amount) / 10000000)} XLM
+          {stroopsToCleanXlm(receipt.amount) ?? "0 XLM"}
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">{formattedDate}</p>
       </div>
@@ -44,7 +44,10 @@ export default function ReceiptCard({ index, receipt, onViewDetails }: ReceiptCa
         {receipt.memo && (
           <div className="flex justify-between border-t border-white/10 pt-2 mt-2">
             <span className="text-slate-500 dark:text-slate-400">Memo</span>
-            <span className="text-slate-900 dark:text-slate-200 text-right truncate max-w-[150px]" title={receipt.memo}>
+            <span
+              className="text-slate-900 dark:text-slate-200 text-right truncate max-w-[150px]"
+              title={receipt.memo}
+            >
               {receipt.memo}
             </span>
           </div>

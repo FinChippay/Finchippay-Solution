@@ -14,11 +14,10 @@
 
 const express = require("express");
 const router = express.Router();
-const { strictLimiter } = require("../middleware/rateLimit");
+const { sensitiveLimiter, strictLimiter } = require("../middleware/rateLimit");
 const webhookService = require("../services/webhookService");
 const { formatErrorResponse, ERROR_CODES } = require("../../../shared/errorCodes");
 const { verifyJWT } = require("../middleware/auth");
-const { sensitiveLimiter, strictLimiter } = require("../middleware/rateLimit");
 const { validate } = require("../validation/middleware");
 const { registerWebhookSchema } = require("../validation/webhookSchemas");
 const {
@@ -33,7 +32,6 @@ const {
   setPaginationHeaders,
   formatPaginatedResponse,
 } = require("../utils/paginate");
-const { verifyJWT } = require("../middleware/auth");
 const { sendError } = require("../utils/errorResponse");
 
 /**
@@ -43,10 +41,7 @@ const { sendError } = require("../utils/errorResponse");
  */
 function requireOwnWebhookAccount(req, res, next) {
   const targetPublicKey =
-    req.validatedParams?.publicKey ||
-    req.validated?.publicKey ||
-    req.params.publicKey ||
-    null;
+    req.validatedParams?.publicKey || req.validated?.publicKey || req.params.publicKey || null;
 
   if (!targetPublicKey || req.user?.publicKey !== targetPublicKey) {
     return sendError(res, "AUTH_FORBIDDEN", {
@@ -54,30 +49,6 @@ function requireOwnWebhookAccount(req, res, next) {
     });
   }
   next();
-}
-
-/**
- * Verify the authenticated user owns the webhook identified by the :id
- * route parameter. Looks up the webhook first, then checks ownership.
- * Must run after verifyJWT.
- */
-async function requireOwnWebhookById(req, res, next) {
-  try {
-    const webhook = await webhookService.getWebhookById(req.validated?.id || req.params.id);
-    if (!webhook) {
-      return sendError(res, "RES_NOT_FOUND", {
-        details: { resourceType: "webhook", id: req.validated?.id || req.params.id },
-      });
-    }
-    if (req.user?.publicKey !== webhook.publicKey) {
-      return sendError(res, "AUTH_FORBIDDEN", {
-        message: "Forbidden: you may only access your own webhook data.",
-      });
-    }
-    next();
-  } catch (err) {
-    next(err);
-  }
 }
 
 /**

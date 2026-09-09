@@ -1,7 +1,17 @@
-import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 import RecurringPayments, { RecurringSchedule } from "../components/RecurringPayments";
+
+// The component reads the wallet's public key on mount and queries on-chain
+// streams; provide deterministic mocks so the suite runs in isolation.
+jest.mock("@/lib/useWallet", () => ({
+  useWallet: () => ({ publicKey: "GABC1234567890ABCDEF", connectWallet: jest.fn() }),
+}));
+
+jest.mock("@/lib/stellar", () => ({
+  listStreamsByPayer: jest.fn().mockResolvedValue([]),
+}));
 
 const STORAGE_KEY = "finchippay:recurring-schedules";
 
@@ -54,16 +64,21 @@ describe("RecurringPayments Component", () => {
     render(<RecurringPayments onPayNow={mockOnPayNow} />);
 
     await user.click(screen.getByRole("button", { name: /\+ New schedule/i }));
-    await user.type(screen.getByPlaceholderText("G..."), "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ");
+    await user.type(
+      screen.getByPlaceholderText("G..."),
+      "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ",
+    );
     await user.type(screen.getByPlaceholderText("0.0000000"), "250");
     await user.type(screen.getByPlaceholderText("Rent, Salary..."), "Monthly Rent");
 
     await user.click(screen.getByRole("button", { name: /^Create$/i }));
 
     expect(screen.queryByText("New recurring payment")).not.toBeInTheDocument();
-    expect(screen.getByText("250 XLM")).toBeInTheDocument();
-    expect(screen.getByText("monthly")).toBeInTheDocument();
-    expect(screen.getByText("· Monthly Rent")).toBeInTheDocument();
+    // The new schedule starts today, so it appears both in the due-today
+    // banner and in the schedule list.
+    expect(screen.getAllByText("250 XLM").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("monthly").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("· Monthly Rent").length).toBeGreaterThan(0);
 
     const storedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
     expect(storedData).toHaveLength(1);
@@ -79,8 +94,9 @@ describe("RecurringPayments Component", () => {
         amount: "150.5",
         memo: "Software Subscription",
         frequency: "weekly",
-        startDate: "2026-08-01",
-        nextDueDate: "2026-08-01",
+        // Future due date so the schedule is NOT in the due-today banner.
+        startDate: "2027-01-01",
+        nextDueDate: "2027-01-01",
         createdAt: 1700000000000,
       },
     ];
@@ -103,8 +119,9 @@ describe("RecurringPayments Component", () => {
         amount: "50",
         memo: "Test Delete",
         frequency: "monthly",
-        startDate: "2026-08-01",
-        nextDueDate: "2026-08-01",
+        // Future due date so the schedule is NOT in the due-today banner.
+        startDate: "2027-02-01",
+        nextDueDate: "2027-02-01",
         createdAt: 1700000000000,
       },
     ];
@@ -131,8 +148,9 @@ describe("RecurringPayments Component", () => {
         amount: "100",
         memo: "Original Memo",
         frequency: "weekly",
-        startDate: "2026-08-01",
-        nextDueDate: "2026-08-01",
+        // Future due date so the schedule is NOT in the due-today banner.
+        startDate: "2027-03-01",
+        nextDueDate: "2027-03-01",
         createdAt: 1700000000000,
       },
     ];

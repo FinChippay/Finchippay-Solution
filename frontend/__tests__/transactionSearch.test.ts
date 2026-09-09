@@ -3,6 +3,7 @@
  * Tests for transaction search functionality
  */
 
+import { PaymentRecord } from "@/lib/stellar";
 import {
   parseSearchQuery,
   tokenizeText,
@@ -10,7 +11,6 @@ import {
   calculateRelevance,
   searchPayments,
 } from "@/lib/transactionSearch";
-import { PaymentRecord } from "@/lib/stellar";
 
 describe("Transaction Search", () => {
   const mockPayments: PaymentRecord[] = [
@@ -23,20 +23,20 @@ describe("Transaction Search", () => {
       asset: "XLM:native",
       memo: "Payment for invoice #123",
       hash: "abc123def456ghi789jkl012mno345pqr678stu901vwx234yz",
-      createdAt: new Date("2026-01-15"),
-      status: "success",
+      transactionHash: "abc123def456ghi789jkl012mno345pqr678stu901vwx234yz",
+      createdAt: "2026-01-15T00:00:00.000Z",
     },
     {
       id: "2",
-      type: "payment_received",
+      type: "received",
       from: "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       to: "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
       amount: "50",
       asset: "USDC:GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
       memo: "Salary deposit",
       hash: "zyx987wvu654tsr321qpo098nml765kji432hgf109edc876baz",
-      createdAt: new Date("2026-01-14"),
-      status: "success",
+      transactionHash: "zyx987wvu654tsr321qpo098nml765kji432hgf109edc876baz",
+      createdAt: "2026-01-14T00:00:00.000Z",
     },
     {
       id: "3",
@@ -47,8 +47,8 @@ describe("Transaction Search", () => {
       asset: "XLM:native",
       memo: "",
       hash: "qqq123rrr456sss789ttt012uuu345vvv678www901xxx234yyy",
-      createdAt: new Date("2026-01-10"),
-      status: "success",
+      transactionHash: "qqq123rrr456sss789ttt012uuu345vvv678www901xxx234yyy",
+      createdAt: "2026-01-10T00:00:00.000Z",
     },
   ];
 
@@ -210,26 +210,20 @@ describe("Transaction Search", () => {
     it("should apply from: operator", () => {
       const results = searchPayments(mockPayments, "from:GA2C5RF");
       expect(results.length).toBe(2); // Two payments from this address
-      expect(
-        results.every((r) => r.payment.type === "payment" || r.payment.from === mockPayments[0].from)
-      ).toBe(true);
+      expect(results.every((r) => r.payment.from === mockPayments[0].from)).toBe(true);
     });
 
     it("should apply amount: operator", () => {
       const results = searchPayments(mockPayments, "amount:>100");
       expect(results.length).toBeGreaterThan(0);
-      expect(
-        results.every((r) => parseFloat(r.payment.amount) > 100)
-      ).toBe(true);
+      expect(results.every((r) => parseFloat(r.payment.amount) > 100)).toBe(true);
     });
 
     it("should sort results by relevance", () => {
       const results = searchPayments(mockPayments, "payment");
       if (results.length > 1) {
         for (let i = 0; i < results.length - 1; i++) {
-          expect(results[i].relevance).toBeGreaterThanOrEqual(
-            results[i + 1].relevance
-          );
+          expect(results[i].relevance).toBeGreaterThanOrEqual(results[i + 1].relevance);
         }
       }
     });
@@ -240,9 +234,9 @@ describe("Transaction Search", () => {
         const result = results[0];
         expect(result.highlights).toBeDefined();
         expect(
-          result.highlights.memo.length > 0 ||
-            result.highlights.address.length > 0 ||
-            result.highlights.hash.length > 0
+          (result.highlights.memo?.length ?? 0) > 0 ||
+            (result.highlights.address?.length ?? 0) > 0 ||
+            (result.highlights.hash?.length ?? 0) > 0,
         ).toBe(true);
       }
     });

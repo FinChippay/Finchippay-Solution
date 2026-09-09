@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "@/components/icons";
 import type { ReceiptMetadata } from "@/lib/stellar";
-import { formatXLM } from "@/utils/format";
+import { stroopsToCleanXlm } from "@/utils/format";
 
 interface ReceiptDetailProps {
   index: number;
@@ -13,16 +13,17 @@ interface ReceiptDetailProps {
 export default function ReceiptDetail({ index, receipt, username, onClose }: ReceiptDetailProps) {
   const [copied, setCopied] = useState(false);
 
-  const shareLink = typeof window !== "undefined"
-    ? `${window.location.origin}/${username}/receipt/${index}`
-    : `/${username}/receipt/${index}`;
+  const shareLink =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/${username}/receipt/${index}`
+      : `/${username}/receipt/${index}`;
 
   const formattedDate = new Date(receipt.timestamp * 1000).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
   const handleCopyLink = async () => {
@@ -42,9 +43,7 @@ export default function ReceiptDetail({ index, receipt, username, onClose }: Rec
           <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-1">
             Receipt #{index}
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {formattedDate}
-          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{formattedDate}</p>
         </div>
         {onClose && (
           <button
@@ -52,7 +51,12 @@ export default function ReceiptDetail({ index, receipt, username, onClose }: Rec
             className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
           >
             <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         )}
@@ -63,31 +67,45 @@ export default function ReceiptDetail({ index, receipt, username, onClose }: Rec
           Amount Paid
         </p>
         <p className="text-4xl font-black text-stellar-600 dark:text-stellar-400">
-          {formatXLM(Number(receipt.amount) / 10000000)} XLM
+          {stroopsToCleanXlm(receipt.amount) ?? "0 XLM"}
         </p>
       </div>
 
       <div className="space-y-4">
         <div className="flex flex-col border-b border-slate-200 pb-4 dark:border-white/10">
-          <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">From</span>
-          <span className="font-mono text-sm text-slate-900 dark:text-slate-200 break-all mt-1">{receipt.from}</span>
+          <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            From
+          </span>
+          <span className="font-mono text-sm text-slate-900 dark:text-slate-200 break-all mt-1">
+            {receipt.from}
+          </span>
         </div>
-        
+
         <div className="flex flex-col border-b border-slate-200 pb-4 dark:border-white/10">
-          <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">To</span>
-          <span className="font-mono text-sm text-slate-900 dark:text-slate-200 break-all mt-1">{receipt.to}</span>
+          <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            To
+          </span>
+          <span className="font-mono text-sm text-slate-900 dark:text-slate-200 break-all mt-1">
+            {receipt.to}
+          </span>
         </div>
 
         {receipt.memo && (
           <div className="flex flex-col border-b border-slate-200 pb-4 dark:border-white/10">
-            <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Memo</span>
+            <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+              Memo
+            </span>
             <span className="text-sm text-slate-900 dark:text-slate-200 mt-1">{receipt.memo}</span>
           </div>
         )}
 
         <div className="flex flex-col pb-4">
-          <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Ledger</span>
-          <span className="font-mono text-sm text-slate-900 dark:text-slate-200 mt-1">{receipt.ledger}</span>
+          <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Ledger
+          </span>
+          <span className="font-mono text-sm text-slate-900 dark:text-slate-200 mt-1">
+            {receipt.ledger}
+          </span>
         </div>
       </div>
 

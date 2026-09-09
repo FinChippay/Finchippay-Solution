@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { fn } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { fn } from "storybook/test";
 import PaymentStatusModal, {
   type PaymentStepId,
   type PaymentStepTiming,
@@ -8,7 +8,7 @@ import PaymentStatusModal, {
 const timing = (
   startedAt: number | null,
   completedAt: number | null,
-  error: string | null = null
+  error: string | null = null,
 ): PaymentStepTiming => ({ startedAt, completedAt, error });
 
 const successTimings: Record<PaymentStepId, PaymentStepTiming> = {
@@ -84,7 +84,10 @@ export const Error: Story = {
 
 export const Mobile: Story = {
   args: Default.args,
-  parameters: {
-    viewport: { defaultViewport: "mobile1" },
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

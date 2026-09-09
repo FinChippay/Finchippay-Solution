@@ -20,7 +20,10 @@ describe("FinchippayClient SDK dogfooding", () => {
   });
 
   it("handles auth challenge and token verification", async () => {
-    const mockChallenge = { transaction: "AAAA_XDR_CHALLENGE", networkPassphrase: "Test SDF Network" };
+    const mockChallenge = {
+      transaction: "AAAA_XDR_CHALLENGE",
+      networkPassphrase: "Test SDF Network",
+    };
     mockFetch.mockResolvedValueOnce({
       ok: true,
       headers: new Headers({ "content-type": "application/json" }),
@@ -32,11 +35,13 @@ describe("FinchippayClient SDK dogfooding", () => {
       fetch: mockFetch,
     });
 
-    const challenge = await client.auth.getChallenge("GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W");
+    const challenge = await client.auth.getChallenge(
+      "GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W",
+    );
     expect(challenge.transaction).toBe("AAAA_XDR_CHALLENGE");
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.finchippay.test/api/v1/auth?account=GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W",
-      expect.objectContaining({ method: "GET" })
+      expect.objectContaining({ method: "GET" }),
     );
 
     mockFetch.mockResolvedValueOnce({
@@ -59,7 +64,10 @@ describe("FinchippayClient SDK dogfooding", () => {
       headers: new Headers({ "content-type": "application/json" }),
       json: async () => ({
         success: true,
-        data: { username: "alice", publicKey: "GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W" },
+        data: {
+          username: "alice",
+          publicKey: "GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W",
+        },
       }),
     });
 
@@ -72,7 +80,7 @@ describe("FinchippayClient SDK dogfooding", () => {
     expect(res.data.username).toBe("alice");
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.finchippay.test/api/v1/accounts/resolve/alice",
-      expect.objectContaining({ method: "GET" })
+      expect.objectContaining({ method: "GET" }),
     );
   });
 
@@ -104,7 +112,11 @@ describe("FinchippayClient SDK dogfooding", () => {
     });
 
     const stats = await client.tips.getStats("GCREATOR123");
-    expect((stats.data as any).totalReceived).toBe("100.5");
+    if ("data" in stats) {
+      expect(stats.data.totalReceived).toBe("100.5");
+    } else {
+      expect(stats.stats.totalReceived).toBe("100.5");
+    }
   });
 
   it("fetches event stats via events namespace", async () => {
@@ -122,7 +134,9 @@ describe("FinchippayClient SDK dogfooding", () => {
       fetch: mockFetch,
     });
 
-    const res = await client.events.getStats("GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W");
+    const res = await client.events.getStats(
+      "GBZXN7PIRZGNMHGA72ST2EQTV6QGQUVJWOG2PTSAXBZ4P4GC65M52D3W",
+    );
     expect(res.data.totalEvents).toBe(42);
   });
 

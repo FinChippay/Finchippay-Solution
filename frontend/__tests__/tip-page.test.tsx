@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import TipPage from "@/pages/tip/[username]";
 import { useRouter } from "next/router";
+import TipPage from "@/pages/tip/[username]";
 
 jest.mock("next/router", () => ({
   useRouter: jest.fn(),
@@ -8,17 +8,25 @@ jest.mock("next/router", () => ({
 
 jest.mock("@/components/TipWidget", () => ({
   __esModule: true,
-  default: ({
-    creatorUsername,
-    destination,
-  }: {
-    creatorUsername: string;
-    destination: string;
-  }) => (
+  default: ({ creatorUsername, destination }: { creatorUsername: string; destination: string }) => (
     <div data-testid="tip-widget">
       {creatorUsername}:{destination}
     </div>
   ),
+}));
+
+// The page resolves the creator through the shared apiClient singleton, whose
+// fetch is bound at construction (before any per-test fetch mock is set). Mock
+// the client boundary so each test controls the resolve outcome deterministically.
+const mockResolveUsername = jest.fn();
+
+jest.mock("@/lib/api", () => ({
+  apiClient: {
+    accounts: {
+      resolveUsername: (...args: unknown[]) => mockResolveUsername(...args),
+    },
+  },
+  apiFetch: jest.fn(),
 }));
 
 describe("tip page", () => {
@@ -28,6 +36,7 @@ describe("tip page", () => {
       query: { username: "alice" },
     });
 
+    mockResolveUsername.mockReset();
     global.fetch = jest.fn();
   });
 
@@ -36,16 +45,11 @@ describe("tip page", () => {
   });
 
   it("loads the tip widget for a resolved username", async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        data: {
-          username: "alice",
-          publicKey: `G${"A".repeat(55)}`,
-        },
-      }),
+    mockResolveUsername.mockResolvedValue({
+      data: {
+        username: "alice",
+        publicKey: `G${"A".repeat(55)}`,
+      },
     });
 
     render(<TipPage />);
@@ -54,19 +58,13 @@ describe("tip page", () => {
       expect(screen.getByTestId("tip-widget")).toHaveTextContent(`alice:G${"A".repeat(55)}`);
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/accounts/resolve/alice"),
-      expect.anything()
-    );
+    expect(mockResolveUsername).toHaveBeenCalledWith("alice");
   });
 
   it("shows a friendly not-found state for an invalid username", async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: false,
+    mockResolveUsername.mockRejectedValue({
       status: 404,
-      json: async () => ({
-        error: "Username not found",
-      }),
+      message: "Username not found",
     });
 
     render(<TipPage />);

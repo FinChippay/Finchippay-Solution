@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 import CSVUpload from "../components/CSVUpload";
 
 jest.mock("papaparse", () => ({
@@ -10,18 +10,8 @@ jest.mock("papaparse", () => ({
       config.complete({
         data: [
           ["recipient", "amount", "asset", "memo"],
-          [
-            "GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE",
-            "10",
-            "XLM",
-            "Payment 1",
-          ],
-          [
-            "GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B",
-            "20",
-            "XLM",
-            "Payment 2",
-          ],
+          ["GA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE", "10", "XLM", "Payment 1"],
+          ["GBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B", "20", "XLM", "Payment 2"],
         ],
       });
     } else if (file.name === "invalid.csv") {
@@ -53,9 +43,7 @@ jest.mock("papaparse", () => ({
 }));
 
 jest.mock("@/lib/stellar", () => ({
-  isValidStellarAddress: jest.fn(
-    (addr: string) => addr.startsWith("G") && addr.length === 56
-  ),
+  isValidStellarAddress: jest.fn((addr: string) => addr.startsWith("G") && addr.length === 56),
 }));
 
 describe("CSVUpload Component", () => {
@@ -68,9 +56,7 @@ describe("CSVUpload Component", () => {
 
   it("renders upload step with drag-and-drop zone", () => {
     render(<CSVUpload onImport={mockOnImport} onCancel={mockOnCancel} />);
-    expect(
-      screen.getByText("Drag and drop your CSV file here")
-    ).toBeInTheDocument();
+    expect(screen.getByText("Drag and drop your CSV file here")).toBeInTheDocument();
     expect(screen.getByText(/browse/i)).toBeInTheDocument();
     expect(screen.getByText("📥 Download template")).toBeInTheDocument();
   });
@@ -83,7 +69,7 @@ describe("CSVUpload Component", () => {
         "recipient,amount,asset,memo\nGA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE,10,XLM,Test",
       ],
       "valid.csv",
-      { type: "text/csv" }
+      { type: "text/csv" },
     );
 
     const browseButton = screen.getByText(/browse/i);
@@ -104,11 +90,9 @@ describe("CSVUpload Component", () => {
   it("displays column mapping UI with dropdown selectors", async () => {
     render(<CSVUpload onImport={mockOnImport} onCancel={mockOnCancel} />);
 
-    const file = new File(
-      ["recipient,amount,asset,memo\nG...,10,XLM,Test"],
-      "valid.csv",
-      { type: "text/csv" }
-    );
+    const file = new File(["recipient,amount,asset,memo\nG...,10,XLM,Test"], "valid.csv", {
+      type: "text/csv",
+    });
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     Object.defineProperty(fileInput, "files", {
@@ -119,7 +103,10 @@ describe("CSVUpload Component", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Recipient Address/i)).toBeInTheDocument();
-      expect(screen.getByText(/Amount/i)).toBeInTheDocument();
+      // The mapping step renders a labelled dropdown for each CSV column;
+      // /Amount/i also matches the "amount" <option>, so assert there is at
+      // least one matching element rather than exactly one.
+      expect(screen.getAllByText(/Amount/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -131,7 +118,7 @@ describe("CSVUpload Component", () => {
         "recipient,amount,asset,memo\nGA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE,10,XLM,Test",
       ],
       "valid.csv",
-      { type: "text/csv" }
+      { type: "text/csv" },
     );
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -148,8 +135,8 @@ describe("CSVUpload Component", () => {
 
     // Map columns
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0"); // recipient
-    await userEvent.selectOption(selects[1], "1"); // amount
+    await userEvent.selectOptions(selects[0], "0"); // recipient
+    await userEvent.selectOptions(selects[1], "1"); // amount
 
     const continueButton = screen.getByText(/Continue to preview/i);
     fireEvent.click(continueButton);
@@ -167,7 +154,7 @@ describe("CSVUpload Component", () => {
         "recipient,amount,asset,memo\nGA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE,10,XLM,Test1\nGBBD47IFQTWJG7QNO6O74H5GLT4H3PTJQ4XHMFNKDQYSCY5BXKDY3J7B,20,XLM,Test2",
       ],
       "valid.csv",
-      { type: "text/csv" }
+      { type: "text/csv" },
     );
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -184,8 +171,8 @@ describe("CSVUpload Component", () => {
 
     // Map columns
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0"); // recipient
-    await userEvent.selectOption(selects[1], "1"); // amount
+    await userEvent.selectOptions(selects[0], "0"); // recipient
+    await userEvent.selectOptions(selects[1], "1"); // amount
 
     // Continue to preview
     const continueButton = screen.getByText(/Continue to preview/i);
@@ -238,7 +225,7 @@ describe("CSVUpload Component", () => {
     const file = new File(
       ["recipient,amount,asset,memo\nINVALID_ADDRESS,-10,XLM,BadPayment"],
       "invalid.csv",
-      { type: "text/csv" }
+      { type: "text/csv" },
     );
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -253,8 +240,8 @@ describe("CSVUpload Component", () => {
     });
 
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0"); // recipient
-    await userEvent.selectOption(selects[1], "1"); // amount
+    await userEvent.selectOptions(selects[0], "0"); // recipient
+    await userEvent.selectOptions(selects[1], "1"); // amount
 
     const continueButton = screen.getByText(/Continue to preview/i);
     fireEvent.click(continueButton);
@@ -293,7 +280,7 @@ describe("CSVUpload Component", () => {
         "recipient,amount,asset,memo\nGA2C5RFPE6GCKMY3US5PAB4UZLKIGF42QD2VXYL43AYVR2AKXT672LAE,10,XLM,Test",
       ],
       "valid.csv",
-      { type: "text/csv" }
+      { type: "text/csv" },
     );
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -308,8 +295,8 @@ describe("CSVUpload Component", () => {
     });
 
     const selects = screen.getAllByRole("combobox");
-    await userEvent.selectOption(selects[0], "0");
-    await userEvent.selectOption(selects[1], "1");
+    await userEvent.selectOptions(selects[0], "0");
+    await userEvent.selectOptions(selects[1], "1");
 
     const continueButton = screen.getByText(/Continue to preview/i);
     fireEvent.click(continueButton);

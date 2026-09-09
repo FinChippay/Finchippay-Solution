@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import type { TreasuryProposal } from "@/lib/treasury";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import ProposalDetail from "../components/ProposalDetail";
+import type { TreasuryProposal } from "@/lib/treasury";
 
 const PUBLIC_KEY = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
 

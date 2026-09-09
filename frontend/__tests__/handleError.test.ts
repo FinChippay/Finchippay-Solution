@@ -257,21 +257,27 @@ describe("formatForDisplay()", () => {
 });
 
 describe("sanitizeMessage()", () => {
-  const originalEnv = process.env.NODE_ENV;
+  function setNodeEnv(value: string | undefined) {
+    Object.defineProperty(process.env, "NODE_ENV", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  }
 
   afterEach(() => {
-    process.env.NODE_ENV = originalEnv;
+    setNodeEnv(undefined);
   });
 
   it("replaces an internal message with the generic copy in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     const internal = 'SQLITE_ERROR: near "SELECT": syntax error at storage key 0x9f2e';
 
     expect(sanitizeMessage(internal)).toBe(SRV_INTERNAL_USER_MESSAGE);
   });
 
   it("passes a catalogue-approved message through unchanged in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
 
     expect(sanitizeMessage(ERROR_CODES.PAY_INSUFFICIENT_BALANCE.message)).toBe(
       ERROR_CODES.PAY_INSUFFICIENT_BALANCE.message,
@@ -279,14 +285,14 @@ describe("sanitizeMessage()", () => {
   });
 
   it("returns raw text unchanged outside production", () => {
-    process.env.NODE_ENV = "development";
+    setNodeEnv("development");
     const internal = "TypeError: cannot read property 'x' of undefined";
 
     expect(sanitizeMessage(internal)).toBe(internal);
   });
 
   it("falls back to the generic message for empty input in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
 
     expect(sanitizeMessage("")).toBe(SRV_INTERNAL_USER_MESSAGE);
     expect(sanitizeMessage(undefined)).toBe(SRV_INTERNAL_USER_MESSAGE);
@@ -294,7 +300,7 @@ describe("sanitizeMessage()", () => {
   });
 
   it("never leaks a raw server message through formatForDisplay in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     // Simulate a backend bug that stuffs internal detail into the field that
     // would normally hold vetted catalogue copy.
     const handled = describeError("SRV_INTERNAL");

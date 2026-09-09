@@ -20,6 +20,7 @@ import TransactionSimulationPreview from "@/components/TransactionSimulationPrev
 import WalletConnect from "@/components/WalletConnect";
 import { useSimulatedTransactionFlow } from "@/hooks/useSimulatedTransactionFlow";
 import { getKnownAssets, type AssetInfo } from "@/lib/assetDiscovery";
+import { getClient } from "@/lib/soroban";
 import {
   buildCreateEscrowTransaction,
   buildClaimEscrowTransaction,
@@ -92,7 +93,9 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
       .catch(() => {
         // Catalogue unavailable — XLM-only form remains fully functional.
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [publicKey]);
 
   const escrowAssetOptions = useMemo<AssetSelectOption[]>(() => {
@@ -116,7 +119,9 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   const [lookupId, setLookupId] = useState("");
   const [lookup, setLookup] = useState<LookupState>({ kind: "idle" });
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState<null | "claim" | "cancel" | "partialClaim">(null);
+  const [actionPending, setActionPending] = useState<null | "claim" | "cancel" | "partialClaim">(
+    null,
+  );
   const [partialClaimAmount, setPartialClaimAmount] = useState("");
 
   // Soroban client instance (lazy singleton)
@@ -133,10 +138,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     async function bootstrap() {
       if (!publicKey) return;
       try {
-        const [bal, ledger] = await Promise.all([
-          loadXLMBalance(publicKey),
-          loadCurrentLedger(),
-        ]);
+        const [bal, ledger] = await Promise.all([loadXLMBalance(publicKey), loadCurrentLedger()]);
         if (cancelled) return;
         setXlmBalance(bal);
         setLatestLedger(ledger);
@@ -152,7 +154,8 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
 
   const isSelfTransfer = Boolean(publicKey && recipient === publicKey);
   const isInvalidAmount = amount !== "" && (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0);
-  const isPastLedger = releaseLedger !== "" && latestLedger !== null && parseInt(releaseLedger, 10) <= latestLedger;
+  const isPastLedger =
+    releaseLedger !== "" && latestLedger !== null && parseInt(releaseLedger, 10) <= latestLedger;
 
   const isCreateDisabled = (() => {
     if (!publicKey) return true;
@@ -174,7 +177,12 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
       toPublicKey: recipient,
       amount,
       releaseLedger: parseInt(releaseLedger, 10),
-      asset: selectedAsset === "XLM" ? "XLM" : selectedIssuer ? { code: selectedAsset, issuer: selectedIssuer } : "XLM",
+      asset:
+        selectedAsset === "XLM"
+          ? "XLM"
+          : selectedIssuer
+            ? { code: selectedAsset, issuer: selectedIssuer }
+            : "XLM",
     });
   }
 
@@ -235,9 +243,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
   async function buildAction(action: "claim" | "cancel") {
     if (!publicKey) throw new Error("Wallet not connected");
     if (lookup.kind !== "found") throw new Error("No escrow loaded");
-    const builder = action === "claim"
-      ? buildClaimEscrowTransaction
-      : buildCancelEscrowTransaction;
+    const builder = action === "claim" ? buildClaimEscrowTransaction : buildCancelEscrowTransaction;
     return builder(publicKey, lookup.escrow.id);
   }
 
@@ -257,15 +263,21 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
 
   async function handleAction(action: "claim" | "cancel" | "partialClaim") {
     if (!publicKey || lookup.kind !== "found") return;
-    if (action === "cancel" && typeof window !== "undefined" && window.confirm && !window.confirm("Are you sure you want to cancel this escrow?")) {
+    if (
+      action === "cancel" &&
+      typeof window !== "undefined" &&
+      window.confirm &&
+      !window.confirm("Are you sure you want to cancel this escrow?")
+    ) {
       return;
     }
     setActionPending(action);
     setActionError(null);
 
-    const builder = action === "partialClaim"
-      ? buildPartialClaim
-      : () => buildAction(action as "claim" | "cancel");
+    const builder =
+      action === "partialClaim"
+        ? buildPartialClaim
+        : () => buildAction(action as "claim" | "cancel");
 
     await simFlow.execute({
       builder,
@@ -285,18 +297,21 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
     <main className="mx-auto max-w-2xl p-6">
       <Head>
         <title>Escrow | Finchippay-Solution</title>
-        <meta name="description" content="Create, claim, and cancel time-locked Soroban escrow payments on Stellar." />
+        <meta
+          name="description"
+          content="Create, claim, and cancel time-locked Soroban escrow payments on Stellar."
+        />
       </Head>
       <h1 className="mb-2 text-2xl font-semibold">Escrow payments</h1>
       <p className="mb-6 text-sm text-gray-600">
-        Lock XLM until a future ledger. Recipient claims on or after the
-        release ledger; sender can cancel any time before it.
+        Lock XLM until a future ledger. Recipient claims on or after the release ledger; sender can
+        cancel any time before it.
       </p>
 
       {!CONTRACT_ID && (
         <div className="mb-4 rounded border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
-          <strong>NEXT_PUBLIC_CONTRACT_ID</strong> is not configured. Escrow
-          calls will fail until a deployed contract id is wired in.
+          <strong>NEXT_PUBLIC_CONTRACT_ID</strong> is not configured. Escrow calls will fail until a
+          deployed contract id is wired in.
         </div>
       )}
 
@@ -308,9 +323,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
             <h2 className="mb-3 text-lg font-medium">Create escrow</h2>
             <p className="mb-3 text-xs text-gray-500">
               Balance: {xlmBalance} XLM
-              {latestLedger !== null && (
-                <> · Current ledger: {latestLedger.toLocaleString()}</>
-              )}
+              {latestLedger !== null && <> · Current ledger: {latestLedger.toLocaleString()}</>}
             </p>
             <form onSubmit={handleCreate} className="space-y-3">
               <label className="block text-sm">
@@ -356,8 +369,8 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                   className="mt-1 w-full rounded border border-gray-300 px-3 py-2"
                 />
                 <span className="mt-1 block text-xs text-gray-500">
-                  Stellar ledgers close ~5s apart. For a ~1 hour lock,
-                  add ~720 to the current ledger.
+                  Stellar ledgers close ~5s apart. For a ~1 hour lock, add ~720 to the current
+                  ledger.
                 </span>
               </label>
               {isSelfTransfer && (
@@ -367,15 +380,15 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                 <p className="text-xs text-red-600">Amount must be a positive number.</p>
               )}
               {isPastLedger && (
-                <p className="text-xs text-red-600">Release ledger must be greater than current ledger.</p>
+                <p className="text-xs text-red-600">
+                  Release ledger must be greater than current ledger.
+                </p>
               )}
-              {createError && (
-                <p className="text-sm text-red-600">{createError}</p>
-              )}
+              {createError && <p className="text-sm text-red-600">{createError}</p>}
               {createdId !== null && (
                 <p className="rounded bg-green-50 px-3 py-2 text-sm text-green-700">
-                  Escrow created. Note the id from the transaction return
-                  value to claim or cancel later.
+                  Escrow created. Note the id from the transaction return value to claim or cancel
+                  later.
                 </p>
               )}
               <button
@@ -383,7 +396,11 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                 disabled={isCreateDisabled}
                 className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:bg-gray-300"
               >
-                {simFlow.executing ? "Processing…" : creating ? "Locking funds…" : "Lock funds in escrow"}
+                {simFlow.executing
+                  ? "Processing…"
+                  : creating
+                    ? "Locking funds…"
+                    : "Lock funds in escrow"}
               </button>
             </form>
           </section>
@@ -453,7 +470,11 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                         }
                         className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
                       >
-                        {simFlow.executing && actionPending === "claim" ? "Processing…" : actionPending === "claim" ? "Claiming…" : "Claim"}
+                        {simFlow.executing && actionPending === "claim"
+                          ? "Processing…"
+                          : actionPending === "claim"
+                            ? "Claiming…"
+                            : "Claim"}
                       </button>
                       <button
                         type="button"
@@ -473,15 +494,17 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                         }
                         className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
                       >
-                        {simFlow.executing && actionPending === "cancel" ? "Processing…" : actionPending === "cancel" ? "Cancelling…" : "Cancel"}
+                        {simFlow.executing && actionPending === "cancel"
+                          ? "Processing…"
+                          : actionPending === "cancel"
+                            ? "Cancelling…"
+                            : "Cancel"}
                       </button>
                     </div>
 
                     {/* Partial claim */}
                     <div className="border-t border-gray-200 pt-3">
-                      <p className="mb-2 text-xs text-gray-500">
-                        Or claim a partial amount (XLM):
-                      </p>
+                      <p className="mb-2 text-xs text-gray-500">Or claim a partial amount (XLM):</p>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="number"
@@ -514,7 +537,11 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
                           }
                           className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
                         >
-                          {simFlow.executing && actionPending === "partialClaim" ? "Processing…" : actionPending === "partialClaim" ? "Claiming…" : "Partial claim"}
+                          {simFlow.executing && actionPending === "partialClaim"
+                            ? "Processing…"
+                            : actionPending === "partialClaim"
+                              ? "Claiming…"
+                              : "Partial claim"}
                         </button>
                       </div>
                     </div>
@@ -523,9 +550,7 @@ export default function EscrowPage({ walletPublicKey, services }: EscrowPageProp
               </div>
             )}
 
-            {actionError && (
-              <p className="mt-3 text-sm text-red-600">{actionError}</p>
-            )}
+            {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
           </section>
         </>
       )}

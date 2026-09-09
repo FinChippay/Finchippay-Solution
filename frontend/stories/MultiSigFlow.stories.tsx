@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
-import { expect, userEvent, within } from "@storybook/test";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, within } from "storybook/test";
 import MultiSigFlow from "../components/MultiSigFlow";
 
 const PUBLIC_KEY = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
@@ -59,14 +59,20 @@ export const Error: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Build Transaction" }));
     await expect(
-      await canvas.findByText("Unable to load the source account from Stellar.")
+      await canvas.findByText("Unable to load the source account from Stellar."),
     ).toBeInTheDocument();
   },
 };
 
 export const Mobile: Story = {
   parameters: {
-    viewport: { defaultViewport: "mobile1" },
     layout: "fullscreen",
+  },
+
+  globals: {
+    viewport: {
+      value: "mobile1",
+      isRotated: false,
+    },
   },
 };

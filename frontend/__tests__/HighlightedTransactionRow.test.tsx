@@ -3,8 +3,8 @@
  * Tests for HighlightedTransactionRow component
  */
 
-import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
+import React from "react";
 import HighlightedTransactionRow from "../components/HighlightedTransactionRow";
 import { PaymentRecord } from "@/lib/stellar";
 import { SearchResult } from "@/lib/transactionSearch";
@@ -25,10 +25,11 @@ jest.mock("@/utils/format", () => ({
 // Mock framer-motion
 jest.mock("framer-motion", () => ({
   motion: {
-    div: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => <div {...props}>{children}</div>,
+    div: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+      <div {...props}>{children}</div>
+    ),
   },
 }));
-
 
 describe("HighlightedTransactionRow Component", () => {
   const mockPayment: PaymentRecord = {
@@ -40,8 +41,8 @@ describe("HighlightedTransactionRow Component", () => {
     asset: "XLM:native",
     memo: "Test payment memo",
     hash: "abc123def456ghi789",
-    createdAt: new Date("2024-01-15T10:00:00Z"),
-    status: "success",
+    transactionHash: "abc123def456ghi789",
+    createdAt: "2024-01-15T10:00:00.000Z",
   };
 
   const mockSearchResult: SearchResult = {
@@ -56,12 +57,7 @@ describe("HighlightedTransactionRow Component", () => {
 
   describe("Rendering", () => {
     it("should render transaction row with payment data", () => {
-      render(
-        <HighlightedTransactionRow
-          payment={mockPayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={mockPayment} result={mockSearchResult} />);
 
       // Should display the amount and asset
       expect(screen.getByText(/100/)).toBeInTheDocument();
@@ -76,35 +72,20 @@ describe("HighlightedTransactionRow Component", () => {
     });
 
     it("should display relevance score badge when result provided", () => {
-      render(
-        <HighlightedTransactionRow
-          payment={mockPayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={mockPayment} result={mockSearchResult} />);
 
       // Score should be visible (8 points for the result)
-      expect(screen.getByText(/8\s*pts/)).toBeInTheDocument();
+      expect(screen.getByText("Match: 8 points")).toBeInTheDocument();
     });
 
     it("should display time ago", () => {
-      render(
-        <HighlightedTransactionRow
-          payment={mockPayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={mockPayment} result={mockSearchResult} />);
 
       expect(screen.getByText("2 hours ago")).toBeInTheDocument();
     });
 
     it("should display memo text", () => {
-      render(
-        <HighlightedTransactionRow
-          payment={mockPayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={mockPayment} result={mockSearchResult} />);
 
       expect(screen.getByText(/Test payment memo/)).toBeInTheDocument();
     });
@@ -117,7 +98,7 @@ describe("HighlightedTransactionRow Component", () => {
           payment={mockPayment}
           result={mockSearchResult}
           compact={true}
-        />
+        />,
       );
 
       // Component should render (we can't easily check CSS in tests, but we verify it renders)
@@ -132,11 +113,11 @@ describe("HighlightedTransactionRow Component", () => {
           payment={mockPayment}
           result={mockSearchResult}
           onPrintReceipt={() => {}}
-        />
+        />,
       );
 
-      // PrintIcon should be rendered
-      expect(screen.getByText("PrintIcon")).toBeInTheDocument();
+      // The print button should be rendered (emoji action with a title)
+      expect(screen.getByTitle("Print receipt")).toBeInTheDocument();
     });
 
     it("should call onPrintReceipt when print button clicked", () => {
@@ -146,12 +127,11 @@ describe("HighlightedTransactionRow Component", () => {
           payment={mockPayment}
           result={mockSearchResult}
           onPrintReceipt={mockPrint}
-        />
+        />,
       );
 
       // Find and click the print button
-      const printButtons = screen.getAllByText("PrintIcon");
-      fireEvent.click(printButtons[0].closest("button") || printButtons[0]);
+      fireEvent.click(screen.getByTitle("Print receipt"));
 
       // Verify the callback was invoked
       expect(mockPrint).toHaveBeenCalledWith(mockPayment);
@@ -163,12 +143,11 @@ describe("HighlightedTransactionRow Component", () => {
           payment={mockPayment}
           result={mockSearchResult}
           onSendAgain={() => {}}
-        />
+        />,
       );
 
-      // SendIcon should be rendered for outgoing
-      const sendIcons = screen.queryAllByText("SendIcon");
-      expect(sendIcons.length).toBeGreaterThan(0);
+      // Send-again button should be rendered for outgoing transactions
+      expect(screen.getByTitle("Send again")).toBeInTheDocument();
     });
 
     it("should call onSendAgain with correct parameters when clicked", () => {
@@ -178,18 +157,13 @@ describe("HighlightedTransactionRow Component", () => {
           payment={mockPayment}
           result={mockSearchResult}
           onSendAgain={mockSendAgain}
-        />
+        />,
       );
 
       // Find and click the send again button
-      const sendButtons = screen.queryAllByText("SendIcon");
-      if (sendButtons.length > 0) {
-        fireEvent.click(sendButtons[0].closest("button") || sendButtons[0]);
-        expect(mockSendAgain).toHaveBeenCalledWith(
-          mockPayment.to,
-          mockPayment.amount
-        );
-      }
+      const sendButton = screen.getByTitle("Send again");
+      fireEvent.click(sendButton);
+      expect(mockSendAgain).toHaveBeenCalledWith(mockPayment.to, mockPayment.amount);
     });
   });
 
@@ -201,10 +175,7 @@ describe("HighlightedTransactionRow Component", () => {
       };
 
       const { container: incomingContainer } = render(
-        <HighlightedTransactionRow
-          payment={incomingPayment}
-          result={mockSearchResult}
-        />
+        <HighlightedTransactionRow payment={incomingPayment} result={mockSearchResult} />,
       );
 
       // Should render (styling differences are in CSS classes)
@@ -223,10 +194,7 @@ describe("HighlightedTransactionRow Component", () => {
       };
 
       const { container } = render(
-        <HighlightedTransactionRow
-          payment={mockPayment}
-          result={resultWithHighlights}
-        />
+        <HighlightedTransactionRow payment={mockPayment} result={resultWithHighlights} />,
       );
 
       // Mark tags should exist for highlights (rendered by HighlightText component)
@@ -238,12 +206,7 @@ describe("HighlightedTransactionRow Component", () => {
   describe("Empty/Edge Cases", () => {
     it("should handle transactions without memo gracefully", () => {
       const noMemoPayment = { ...mockPayment, memo: "" };
-      render(
-        <HighlightedTransactionRow
-          payment={noMemoPayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={noMemoPayment} result={mockSearchResult} />);
 
       expect(screen.getByText(/100/)).toBeInTheDocument();
     });
@@ -259,12 +222,7 @@ describe("HighlightedTransactionRow Component", () => {
         ...mockPayment,
         amount: "999999999.99",
       };
-      render(
-        <HighlightedTransactionRow
-          payment={largePayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={largePayment} result={mockSearchResult} />);
 
       expect(screen.getByText(/999999999.99/)).toBeInTheDocument();
     });
@@ -274,12 +232,7 @@ describe("HighlightedTransactionRow Component", () => {
         ...mockPayment,
         amount: "0.00001",
       };
-      render(
-        <HighlightedTransactionRow
-          payment={smallPayment}
-          result={mockSearchResult}
-        />
-      );
+      render(<HighlightedTransactionRow payment={smallPayment} result={mockSearchResult} />);
 
       expect(screen.getByText(/0.00001/)).toBeInTheDocument();
     });

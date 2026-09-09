@@ -9,12 +9,12 @@ exports[`Dashboard page snapshot renders unauthenticated state 1`] = `
       class="text-center mb-10"
     >
       <h1
-        class="font-display text-3xl font-bold text-white mb-3"
+        class="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3"
       >
         Dashboard
       </h1>
       <p
-        class="text-slate-400"
+        class="text-slate-600 dark:text-slate-400"
       >
         Connect your wallet to get started
       </p>
@@ -34,10 +34,6 @@ exports[`Home page snapshot renders landing page 1`] = `
     <meta
       content="Experience lightning-fast payments on the Stellar network. Send funds globally with streaming, escrow, multi-sig, and batch payments — non-custodial and secure."
       name="description"
-    />
-    <link
-      href="/"
-      rel="canonical"
     />
     <div
       class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-stellar-500/5 rounded-full blur-3xl pointer-events-none"
@@ -137,7 +133,7 @@ exports[`Home page snapshot renders landing page 1`] = `
         class="text-center mb-20 animate-fade-in"
       >
         <div
-          class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-400 text-xs font-medium mb-8"
+          class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-700 dark:text-stellar-400 text-xs font-medium mb-8"
         >
           <span
             class="w-1.5 h-1.5 rounded-full bg-stellar-400 animate-pulse"
@@ -145,7 +141,7 @@ exports[`Home page snapshot renders landing page 1`] = `
           Built on Stellar Testnet · Open Source
         </div>
         <h1
-          class="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-white leading-tight mb-6"
+          class="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-slate-950 dark:text-white leading-tight mb-6"
         >
           Money moves at the
            
@@ -156,7 +152,7 @@ exports[`Home page snapshot renders landing page 1`] = `
           </span>
         </h1>
         <p
-          class="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed"
+          class="text-slate-600 dark:text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed"
         >
           Finchippay Solution lets anyone send tiny payments across borders instant — for fractions of a cent. No bank. No borders. No friction.
         </p>
@@ -171,7 +167,7 @@ exports[`Home page snapshot renders landing page 1`] = `
           </button>
           <a
             aria-label="View Finchippay-Solution source code on GitHub"
-            class="btn-secondary text-base px-8 py-3.5 flex items-center gap-2"
+            class="btn-secondary text-stellar-700 dark:text-stellar-400 text-base px-8 py-3.5 flex items-center gap-2"
             href="https://github.com/FinChippay/Finchippay-Solution"
             rel="noopener noreferrer"
             target="_blank"
@@ -256,12 +252,12 @@ exports[`Home page snapshot renders landing page 1`] = `
             ⚡
           </div>
           <h3
-            class="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors"
+            class="font-display font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-stellar-700 dark:group-hover:text-stellar-300 transition-colors"
           >
             Instant Settlement
           </h3>
           <p
-            class="text-slate-400 text-sm leading-relaxed"
+            class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed"
           >
             Stellar transactions confirm in 3–5 seconds. No waiting for bank transfers.
           </p>
@@ -275,12 +271,12 @@ exports[`Home page snapshot renders landing page 1`] = `
             🌍
           </div>
           <h3
-            class="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors"
+            class="font-display font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-stellar-700 dark:group-hover:text-stellar-300 transition-colors"
           >
             Truly Global
           </h3>
           <p
-            class="text-slate-400 text-sm leading-relaxed"
+            class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed"
           >
             Send XLM to anyone with a Stellar address, anywhere in the world.
           </p>
@@ -294,12 +290,12 @@ exports[`Home page snapshot renders landing page 1`] = `
             💰
           </div>
           <h3
-            class="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors"
+            class="font-display font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-stellar-700 dark:group-hover:text-stellar-300 transition-colors"
           >
             Micro Fees
           </h3>
           <p
-            class="text-slate-400 text-sm leading-relaxed"
+            class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed"
           >
             Each transaction costs ~0.00001 XLM. Send $0.01 or $1,000 for the same fee.
           </p>
@@ -313,12 +309,12 @@ exports[`Home page snapshot renders landing page 1`] = `
             🔐
           </div>
           <h3
-            class="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors"
+            class="font-display font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-stellar-700 dark:group-hover:text-stellar-300 transition-colors"
           >
             Non-Custodial
           </h3>
           <p
-            class="text-slate-400 text-sm leading-relaxed"
+            class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed"
           >
             Your keys, your funds. We never touch your private key.
           </p>
@@ -334,12 +330,12 @@ exports[`Home page snapshot renders landing page 1`] = `
             class="text-center mb-8"
           >
             <h2
-              class="font-display text-3xl sm:text-4xl font-bold text-white mb-3"
+              class="font-display text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white mb-3"
             >
               What is Stellar?
             </h2>
             <p
-              class="text-slate-400 text-sm sm:text-base"
+              class="text-slate-600 dark:text-slate-400 text-sm sm:text-base"
             >
               A quick explainer for newcomers, with links to the official Stellar docs.
             </p>
@@ -351,19 +347,19 @@ exports[`Home page snapshot renders landing page 1`] = `
               class="card cursor-default group"
             >
               <summary
-                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold"
+                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold"
               >
                 <span>
                   What is Stellar?
                 </span>
                 <span
-                  class="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
+                  class="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
                 >
                   +
                 </span>
               </summary>
               <div
-                class="mt-4 text-sm leading-relaxed text-slate-400 space-y-3"
+                class="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3"
               >
                 <p>
                   Stellar is an open blockchain network for moving money quickly and with very low fees. It's designed for payments, remittances, and cross-border transfers that settle faster than traditional bank systems.
@@ -372,7 +368,7 @@ exports[`Home page snapshot renders landing page 1`] = `
                   Read the official
                    
                   <a
-                    class="text-stellar-400 hover:text-stellar-300 underline underline-offset-4"
+                    class="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4"
                     href="https://developers.stellar.org/docs/learn/overview"
                     rel="noopener noreferrer"
                     target="_blank"
@@ -387,19 +383,19 @@ exports[`Home page snapshot renders landing page 1`] = `
               class="card cursor-default group"
             >
               <summary
-                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold"
+                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold"
               >
                 <span>
                   What is XLM?
                 </span>
                 <span
-                  class="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
+                  class="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
                 >
                   +
                 </span>
               </summary>
               <div
-                class="mt-4 text-sm leading-relaxed text-slate-400 space-y-3"
+                class="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3"
               >
                 <p>
                   XLM is Stellar's native asset. It's used to pay transaction fees and can also be sent directly like any other digital currency.
@@ -408,7 +404,7 @@ exports[`Home page snapshot renders landing page 1`] = `
                   See the official
                    
                   <a
-                    class="text-stellar-400 hover:text-stellar-300 underline underline-offset-4"
+                    class="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4"
                     href="https://developers.stellar.org/docs/tokens"
                     rel="noopener noreferrer"
                     target="_blank"
@@ -423,19 +419,19 @@ exports[`Home page snapshot renders landing page 1`] = `
               class="card cursor-default group"
             >
               <summary
-                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold"
+                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold"
               >
                 <span>
                   How fast is it?
                 </span>
                 <span
-                  class="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
+                  class="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
                 >
                   +
                 </span>
               </summary>
               <div
-                class="mt-4 text-sm leading-relaxed text-slate-400 space-y-3"
+                class="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3"
               >
                 <p>
                   Stellar transactions typically confirm in just a few seconds, which is why it feels much faster than a bank transfer.
@@ -444,7 +440,7 @@ exports[`Home page snapshot renders landing page 1`] = `
                   Read about transaction flow in the
                    
                   <a
-                    class="text-stellar-400 hover:text-stellar-300 underline underline-offset-4"
+                    class="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4"
                     href="https://developers.stellar.org/docs/learn/fundamentals/transactions"
                     rel="noopener noreferrer"
                     target="_blank"
@@ -459,19 +455,19 @@ exports[`Home page snapshot renders landing page 1`] = `
               class="card cursor-default group"
             >
               <summary
-                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold"
+                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold"
               >
                 <span>
                   How much does it cost?
                 </span>
                 <span
-                  class="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
+                  class="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
                 >
                   +
                 </span>
               </summary>
               <div
-                class="mt-4 text-sm leading-relaxed text-slate-400 space-y-3"
+                class="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3"
               >
                 <p>
                   Fees are tiny—usually a fraction of a cent. That makes Stellar useful for small payments where a bank transfer would be expensive or too slow.
@@ -480,7 +476,7 @@ exports[`Home page snapshot renders landing page 1`] = `
                   See the official
                    
                   <a
-                    class="text-stellar-400 hover:text-stellar-300 underline underline-offset-4"
+                    class="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4"
                     href="https://developers.stellar.org/docs/learn/fundamentals/transactions"
                     rel="noopener noreferrer"
                     target="_blank"
@@ -495,19 +491,19 @@ exports[`Home page snapshot renders landing page 1`] = `
               class="card cursor-default group"
             >
               <summary
-                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold"
+                class="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-slate-900 dark:text-white font-semibold"
               >
                 <span>
                   Is it safe?
                 </span>
                 <span
-                  class="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
+                  class="text-stellar-700 dark:text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45"
                 >
                   +
                 </span>
               </summary>
               <div
-                class="mt-4 text-sm leading-relaxed text-slate-400 space-y-3"
+                class="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400 space-y-3"
               >
                 <p>
                   Stellar uses public-key cryptography, so only the owner of a wallet can sign transactions from it. As with any blockchain app, keeping your recovery phrase and private keys secure is essential.
@@ -516,7 +512,7 @@ exports[`Home page snapshot renders landing page 1`] = `
                   Learn more about account security and the network in the
                    
                   <a
-                    class="text-stellar-400 hover:text-stellar-300 underline underline-offset-4"
+                    class="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4"
                     href="https://developers.stellar.org/docs/learn/fundamentals/accounts"
                     rel="noopener noreferrer"
                     target="_blank"
@@ -527,7 +523,7 @@ exports[`Home page snapshot renders landing page 1`] = `
                   and
                    
                   <a
-                    class="text-stellar-400 hover:text-stellar-300 underline underline-offset-4"
+                    class="text-stellar-700 hover:text-stellar-600 dark:text-stellar-400 dark:hover:text-stellar-300 underline underline-offset-4"
                     href="https://developers.stellar.org/docs/networks"
                     rel="noopener noreferrer"
                     target="_blank"
@@ -542,20 +538,26 @@ exports[`Home page snapshot renders landing page 1`] = `
         </div>
       </section>
       <div
-        class="text-center pt-12 border-t border-white/5"
+        class="text-center pt-12 border-t border-slate-200 dark:border-white/5"
       >
         <p
-          class="text-slate-600 text-sm"
+          class="text-slate-600 dark:text-slate-400 text-sm"
         >
           Open source · MIT License ·
            
           <a
-            class="hover:text-stellar-400 transition-colors cursor-pointer"
+            class="hover:text-stellar-700 dark:hover:text-stellar-400 transition-colors cursor-pointer"
             href="https://github.com/FinChippay/Finchippay-Solution"
             rel="noopener noreferrer"
             target="_blank"
           >
             Contribute on GitHub
+          </a>
+           · 
+          <a
+            href="/accessibility"
+          >
+            Accessibility
           </a>
         </p>
       </div>
@@ -567,7 +569,7 @@ exports[`Home page snapshot renders landing page 1`] = `
 exports[`Navbar snapshot renders disconnected state 1`] = `
 <div>
   <nav
-    class="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 backdrop-blur-xl transition-colors duration-300 dark:bg-cosmos-900/80"
+    class="sticky top-0 z-50 border-b border-[var(--color-accent-border)] bg-[var(--color-bg-surface)]/80 backdrop-blur-xl transition-colors duration-300"
   >
     <div
       class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6"
@@ -605,7 +607,7 @@ exports[`Navbar snapshot renders disconnected state 1`] = `
           </span>
         </a>
         <span
-          class="hidden items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide md:inline-flex border-amber-400/35 bg-amber-400/10 text-amber-300"
+          class="hidden items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide md:inline-flex border-amber-500/35 bg-amber-100 text-amber-800 dark:border-amber-400/35 dark:bg-amber-400/10 dark:text-amber-300"
         >
           Testnet
         </span>
@@ -621,6 +623,11 @@ exports[`Navbar snapshot renders disconnected state 1`] = `
             href="/dashboard"
           >
             Dashboard
+          </a>
+          <a
+            href="/portfolio"
+          >
+            Portfolio
           </a>
           <a
             href="/trade"
@@ -647,28 +654,158 @@ exports[`Navbar snapshot renders disconnected state 1`] = `
       <div
         class="flex items-center gap-3"
       >
-        <button
-          aria-label="Switch to light mode"
-          class="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90"
+        <label
+          class="flex items-center gap-2 bidi-ltr"
+        >
+          <span
+            class="sr-only"
+          >
+            Language
+          </span>
+          <select
+            aria-label="Select language"
+            class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-stellar-400 dark:border-slate-700 dark:bg-cosmos-800 dark:text-slate-100"
+          >
+            <option
+              value="en"
+            >
+              English
+            </option>
+            <option
+              value="es"
+            >
+              Español
+            </option>
+            <option
+              value="fr"
+            >
+              Français
+            </option>
+            <option
+              value="ja"
+            >
+              日本語
+            </option>
+            <option
+              value="pt"
+            >
+              Português
+            </option>
+            <option
+              value="ar"
+            >
+              العربية
+            </option>
+            <option
+              value="he"
+            >
+              עברית
+            </option>
+          </select>
+        </label>
+        <div
+          class="relative"
+        >
+          <button
+            aria-expanded="false"
+            aria-haspopup="menu"
+            aria-label="Change theme. Current selection: dark theme, accent: undefined"
+            class="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition-colors duration-200 hover:border-[var(--color-accent)] hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-white dark:border-slate-700 dark:bg-cosmos-800 dark:text-slate-100 dark:hover:border-[var(--color-accent)] dark:hover:bg-cosmos-700 dark:focus:ring-offset-cosmos-900"
+            title="Theme: dark theme, accent: undefined"
+            type="button"
+          >
+            <svg
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span
+              aria-hidden="true"
+              class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-cosmos-800"
+            />
+          </button>
+        </div>
+        <a
+          href="/dashboard"
         >
           <svg
-            class="h-4 w-4"
+            aria-hidden="true"
+            class="h-5 w-5"
             fill="none"
             stroke="currentColor"
             stroke-width="2"
             viewBox="0 0 24 24"
           >
             <path
-              d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"
+              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
               stroke-linecap="round"
               stroke-linejoin="round"
             />
           </svg>
-        </button>
+        </a>
+        <div
+          class="relative hidden md:block"
+        >
+          <button
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Help menu"
+            class="flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+            data-testid="help-menu-button"
+          >
+            <svg
+              aria-hidden="true"
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>
+              Help
+            </span>
+          </button>
+        </div>
         <button
           class="btn-primary px-4 py-2 text-sm"
+          data-tour="wallet-connect"
         >
           Connect Wallet
+        </button>
+        <button
+          aria-controls="mobile-nav-menu"
+          aria-expanded="false"
+          aria-label="Toggle mobile menu"
+          class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-cosmos-800 dark:hover:text-slate-200 md:hidden"
+        >
+          <svg
+            aria-hidden="true"
+            class="h-6 w-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M4 6h16M4 12h16M4 18h16"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+            />
+          </svg>
         </button>
       </div>
     </div>
@@ -681,42 +818,67 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
   <div
     class="card animate-fade-in"
   >
-    <h2
-      class="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2"
+    <div
+      class="flex items-center justify-between mb-6 flex-wrap gap-2"
     >
-      <svg
-        class="w-5 h-5 text-stellar-400"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
+      <h2
+        class="font-display text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2"
       >
-        <path
-          d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-        />
-      </svg>
-      Send Payment
-    </h2>
+        <svg
+          class="w-5 h-5 text-stellar-700 dark:text-stellar-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+          />
+        </svg>
+        Send Payment
+      </h2>
+      <button
+        aria-label="Switch to payment builder"
+        class="px-3 py-1.5 rounded-full text-xs font-medium border border-stellar-500/30 bg-stellar-500/10 text-stellar-700 dark:text-stellar-300 hover:bg-stellar-500/20 transition-all"
+        type="button"
+      >
+        Switch to payment builder
+      </button>
+    </div>
     <div
       class="space-y-5"
     >
       <div
         class="flex flex-wrap gap-2"
       >
-        <button
-          class="px-4 py-1.5 rounded-full text-sm font-medium border transition-all bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-          type="button"
+        <div
+          class="flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-all bg-stellar-500/15 text-stellar-700 dark:text-stellar-300 border-stellar-500/30"
         >
-          XLM
-        </button>
-        <button
-          class="px-4 py-1.5 rounded-full text-sm font-medium border transition-all text-slate-400 border-white/10 hover:border-white/20"
-          type="button"
+          <button
+            aria-pressed="true"
+            class="flex items-center gap-1.5 disabled:cursor-not-allowed"
+            type="button"
+          >
+            <span>
+              XLM
+            </span>
+          </button>
+        </div>
+        <div
+          class="flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-all text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
         >
-          USDC
-        </button>
+          <button
+            aria-pressed="false"
+            class="flex items-center gap-1.5 disabled:cursor-not-allowed"
+            type="button"
+          >
+            <span>
+              USDC
+            </span>
+          </button>
+        </div>
       </div>
       <div
         class="relative"
@@ -725,7 +887,7 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
           class="mb-2 flex items-center justify-between"
         >
           <label
-            class="label mb-0"
+            class="label mb-0 rtl:text-right"
           >
             Destination
           </label>
@@ -733,15 +895,22 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
             class="flex items-center gap-2"
           >
             <button
-              class="text-xs text-stellar-400 hover:text-stellar-300"
+              class="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
               type="button"
             >
               Contacts
             </button>
+            <button
+              class="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              title="__MISSING_TRANSLATION__"
+              type="button"
+            >
+              __MISSING_TRANSLATION__
+            </button>
           </div>
         </div>
         <input
-          class="input-field font-mono text-sm"
+          class="input-field font-mono text-sm rtl:text-left"
           placeholder="G..., alice*domain.com, or @username"
           type="text"
           value=""
@@ -752,17 +921,19 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
           class="mb-2 flex items-center justify-between"
         >
           <label
-            class="label mb-0"
+            class="label mb-0 rtl:text-right"
           >
-            Amount (
+            Amount
+             (
             XLM
             )
           </label>
           <button
-            class="text-xs text-stellar-400 hover:text-stellar-300"
+            class="text-xs text-stellar-700 dark:text-stellar-400 hover:text-stellar-600 dark:hover:text-stellar-300"
             type="button"
           >
-            Max: 
+            Max
+            : 
             99.0000000 XLM
           </button>
         </div>
@@ -778,15 +949,16 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
           class="mb-2 flex items-center justify-between"
         >
           <label
-            class="label mb-0"
+            class="label mb-0 rtl:text-right"
           >
             Memo (optional)
           </label>
           <span
-            class="text-xs transition-colors text-slate-400"
+            class="text-xs transition-colors text-slate-600 dark:text-slate-400"
           >
             0
-            /28 bytes
+            /28 
+            bytes
           </span>
         </div>
         <input
@@ -796,8 +968,111 @@ exports[`SendPaymentForm snapshot renders idle state 1`] = `
           value=""
         />
       </div>
+      <div
+        class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4"
+      >
+        <input
+          class="h-5 w-5 rounded border-slate-300 text-stellar-600 focus:ring-stellar-500"
+          id="autoMintReceipt"
+          type="checkbox"
+        />
+        <div
+          class="flex flex-col"
+        >
+          <label
+            class="text-sm font-medium text-slate-900 dark:text-white cursor-pointer"
+            for="autoMintReceipt"
+          >
+            Mint NFT Receipt
+          </label>
+          <span
+            class="text-xs text-slate-500 dark:text-slate-400"
+          >
+            Generate a shareable on-chain receipt for this transaction.
+          </span>
+        </div>
+      </div>
+      <div
+        class="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-4"
+      >
+        <div
+          class="mb-3 flex items-center justify-between"
+        >
+          <span
+            class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400"
+          >
+            Network Fee
+          </span>
+          <div
+            class="h-3 w-3 rounded-full border-2 border-stellar-400 border-t-transparent animate-spin"
+          />
+        </div>
+        <div
+          class="flex gap-2"
+        >
+          <button
+            aria-label="Economy fee tier"
+            aria-pressed="false"
+            class="flex-1 rounded-lg border px-3 py-2 text-center transition-all text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
+            type="button"
+          >
+            <span
+              class="block text-xs font-medium"
+            >
+              Economy
+            </span>
+            <span
+              class="block font-mono text-xs mt-0.5"
+            >
+              0.0000100
+            </span>
+          </button>
+          <button
+            aria-label="Standard fee tier"
+            aria-pressed="true"
+            class="flex-1 rounded-lg border px-3 py-2 text-center transition-all bg-stellar-500/15 text-stellar-700 dark:text-stellar-300 border-stellar-500/30"
+            type="button"
+          >
+            <span
+              class="block text-xs font-medium"
+            >
+              Standard
+            </span>
+            <span
+              class="block font-mono text-xs mt-0.5"
+            >
+              0.0000100
+            </span>
+          </button>
+          <button
+            aria-label="Fast fee tier"
+            aria-pressed="false"
+            class="flex-1 rounded-lg border px-3 py-2 text-center transition-all text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
+            type="button"
+          >
+            <span
+              class="block text-xs font-medium"
+            >
+              Fast
+            </span>
+            <span
+              class="block font-mono text-xs mt-0.5"
+            >
+              0.0001000
+            </span>
+          </button>
+        </div>
+        <p
+          class="mt-2 text-xs text-slate-500 dark:text-slate-400"
+        >
+          Estimated Fee
+          : 
+          0.0000100
+           XLM
+        </p>
+      </div>
       <button
-        class="btn-primary w-full flex items-center justify-center gap-2"
+        class="btn-primary w-full min-h-[44px] flex items-center justify-center gap-2"
         disabled=""
       >
         Send  XLM
@@ -974,12 +1249,12 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
       class="text-center mb-10"
     >
       <h1
-        class="font-display text-3xl font-bold text-white mb-3"
+        class="font-display text-3xl font-bold text-slate-900 dark:text-white mb-3"
       >
         Transaction History
       </h1>
       <p
-        class="text-slate-400"
+        class="text-slate-600 dark:text-slate-400"
       >
         Connect your wallet to view your payments
       </p>
@@ -991,7 +1266,7 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
         class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-stellar-500/10 border border-stellar-500/20 flex items-center justify-center"
       >
         <svg
-          class="w-8 h-8 text-stellar-400"
+          class="w-8 h-8 text-stellar-700 dark:text-stellar-400"
           fill="none"
           stroke="currentColor"
           stroke-width="1.5"
@@ -1005,12 +1280,12 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
         </svg>
       </div>
       <h2
-        class="font-display text-xl font-semibold text-white mb-2"
+        class="font-display text-xl font-semibold text-slate-900 dark:text-white mb-2"
       >
         Connect your wallet
       </h2>
       <p
-        class="text-slate-400 text-sm mb-6 leading-relaxed"
+        class="text-slate-600 dark:text-slate-400 text-sm mb-6 leading-relaxed"
       >
         Choose your preferred wallet to connect to the Stellar network and start sending payments.
       </p>
@@ -1082,15 +1357,51 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
           </div>
           Connect Ledger Hardware Wallet
         </button>
+        <button
+          class="btn-secondary w-full flex items-center justify-center gap-3"
+          disabled=""
+        >
+          <div
+            class="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center"
+          >
+            <svg
+              class="w-3 h-3 text-purple-400"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+            >
+              <rect
+                height="4"
+                rx="1.5"
+                width="7"
+                x="8.5"
+                y="3"
+              />
+              <rect
+                height="14"
+                rx="2"
+                width="12"
+                x="6"
+                y="7"
+              />
+              <path
+                d="M10 13.5h4M10 17h4"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+          Connect Trezor Hardware Wallet
+        </button>
       </div>
       <div
-        class="space-y-3 text-xs text-slate-400"
+        class="space-y-3 text-xs text-slate-600 dark:text-slate-400"
       >
         <div>
           Don't have Freighter?
            
           <a
-            class="text-stellar-400 hover:underline"
+            class="text-stellar-700 dark:text-stellar-400 hover:underline"
             href=""
             rel="noopener noreferrer"
             target="_blank"
@@ -1106,9 +1417,26 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
         <div>
           Using Ledger? Make sure your device is connected, unlocked, and the Stellar app is open.
         </div>
+        <div
+          class="text-amber-400"
+        >
+          Trezor requires a browser environment. Please use a desktop browser with the Trezor Suite extension or Bridge installed.
+        </div>
+        <div>
+          Using Trezor? Install 
+          <a
+            class="text-stellar-700 dark:text-stellar-400 hover:underline"
+            href="https://suite.trezor.io"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Trezor Suite + Bridge
+          </a>
+          , then connect your device and open the Stellar app.
+        </div>
       </div>
       <div
-        class="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-400"
+        class="mt-6 pt-4 border-t border-slate-200 dark:border-white/5 flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400"
       >
         <span
           class="w-1.5 h-1.5 rounded-full bg-amber-400"
@@ -1116,7 +1444,7 @@ exports[`Transactions page snapshot renders unauthenticated state 1`] = `
         Connected to
          
         <span
-          class="font-mono text-slate-400"
+          class="font-mono text-slate-600 dark:text-slate-400"
         >
           testnet
         </span>
@@ -1135,7 +1463,7 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
       class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-stellar-500/10 border border-stellar-500/20 flex items-center justify-center"
     >
       <svg
-        class="w-8 h-8 text-stellar-400"
+        class="w-8 h-8 text-stellar-700 dark:text-stellar-400"
         fill="none"
         stroke="currentColor"
         stroke-width="1.5"
@@ -1149,12 +1477,12 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
       </svg>
     </div>
     <h2
-      class="font-display text-xl font-semibold text-white mb-2"
+      class="font-display text-xl font-semibold text-slate-900 dark:text-white mb-2"
     >
       Connect your wallet
     </h2>
     <p
-      class="text-slate-400 text-sm mb-6 leading-relaxed"
+      class="text-slate-600 dark:text-slate-400 text-sm mb-6 leading-relaxed"
     >
       Choose your preferred wallet to connect to the Stellar network and start sending payments.
     </p>
@@ -1226,15 +1554,51 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
         </div>
         Connect Ledger Hardware Wallet
       </button>
+      <button
+        class="btn-secondary w-full flex items-center justify-center gap-3"
+        disabled=""
+      >
+        <div
+          class="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center"
+        >
+          <svg
+            class="w-3 h-3 text-purple-400"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            viewBox="0 0 24 24"
+          >
+            <rect
+              height="4"
+              rx="1.5"
+              width="7"
+              x="8.5"
+              y="3"
+            />
+            <rect
+              height="14"
+              rx="2"
+              width="12"
+              x="6"
+              y="7"
+            />
+            <path
+              d="M10 13.5h4M10 17h4"
+              stroke-linecap="round"
+            />
+          </svg>
+        </div>
+        Connect Trezor Hardware Wallet
+      </button>
     </div>
     <div
-      class="space-y-3 text-xs text-slate-400"
+      class="space-y-3 text-xs text-slate-600 dark:text-slate-400"
     >
       <div>
         Don't have Freighter?
          
         <a
-          class="text-stellar-400 hover:underline"
+          class="text-stellar-700 dark:text-stellar-400 hover:underline"
           href=""
           rel="noopener noreferrer"
           target="_blank"
@@ -1250,9 +1614,26 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
       <div>
         Using Ledger? Make sure your device is connected, unlocked, and the Stellar app is open.
       </div>
+      <div
+        class="text-amber-400"
+      >
+        Trezor requires a browser environment. Please use a desktop browser with the Trezor Suite extension or Bridge installed.
+      </div>
+      <div>
+        Using Trezor? Install 
+        <a
+          class="text-stellar-700 dark:text-stellar-400 hover:underline"
+          href="https://suite.trezor.io"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Trezor Suite + Bridge
+        </a>
+        , then connect your device and open the Stellar app.
+      </div>
     </div>
     <div
-      class="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-400"
+      class="mt-6 pt-4 border-t border-slate-200 dark:border-white/5 flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400"
     >
       <span
         class="w-1.5 h-1.5 rounded-full bg-amber-400"
@@ -1260,7 +1641,7 @@ exports[`WalletConnect snapshot renders wallet selection screen 1`] = `
       Connected to
        
       <span
-        class="font-mono text-slate-400"
+        class="font-mono text-slate-600 dark:text-slate-400"
       >
         testnet
       </span>

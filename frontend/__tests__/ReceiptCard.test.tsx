@@ -1,5 +1,5 @@
-import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
+import React from "react";
 import ReceiptCard from "../components/ReceiptCard";
 
 describe("ReceiptCard", () => {
@@ -9,7 +9,7 @@ describe("ReceiptCard", () => {
     amount: "500000000", // 50 XLM
     timestamp: 1672531200, // Jan 1, 2023
     memo: "Payment for services",
-    ledger: 123456
+    ledger: 123456,
   };
 
   it("renders receipt details correctly", () => {
@@ -19,10 +19,10 @@ describe("ReceiptCard", () => {
     expect(screen.getByText("#42")).toBeInTheDocument();
     expect(screen.getByText("50 XLM")).toBeInTheDocument();
     expect(screen.getByText("Payment for services")).toBeInTheDocument();
-    
-    // Addresses should be shortened
-    expect(screen.getByText("GBXXABC...BCDEF")).toBeInTheDocument();
-    expect(screen.getByText("GAYYXYZ...ZABCD")).toBeInTheDocument();
+
+    // Addresses should be shortened (first 4 + ... + last 4)
+    expect(screen.getByText("GBXX...CDEF")).toBeInTheDocument();
+    expect(screen.getByText("GAYY...ABCD")).toBeInTheDocument();
   });
 
   it("calls onViewDetails when button is clicked", () => {
@@ -35,7 +35,13 @@ describe("ReceiptCard", () => {
 
   it("renders correctly without a memo", () => {
     const mockOnViewDetails = jest.fn();
-    render(<ReceiptCard index={1} receipt={{ ...mockReceipt, memo: "" }} onViewDetails={mockOnViewDetails} />);
+    render(
+      <ReceiptCard
+        index={1}
+        receipt={{ ...mockReceipt, memo: "" }}
+        onViewDetails={mockOnViewDetails}
+      />,
+    );
 
     expect(screen.queryByText("Memo")).not.toBeInTheDocument();
   });

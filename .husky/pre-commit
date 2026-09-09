@@ -2,7 +2,7 @@ npx lint-staged
 
 # Run gitleaks on staged files
 echo "Running gitleaks secret scan on staged files..."
-if command -v gitleaks &> /dev/null; then
+if command -v gitleaks >/dev/null 2>&1; then
   gitleaks detect --verbose --config .gitleaks.toml --source . --no-git || {
     echo "::error::Secrets detected in staged files. Commit blocked."
     exit 1

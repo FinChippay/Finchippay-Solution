@@ -6,13 +6,14 @@
  * Run with: npm test -- --testPathPattern=a11y
  */
 
-import React from "react";
 import { render } from "@testing-library/react";
 import { axe } from "jest-axe";
+import React from "react";
 
 // ─── Mock dependencies ──────────────────────────────────────────────────────
 
 jest.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: jest.fn() },
   useTranslation: () => ({
     t: (key: string) => key,
     i18n: { language: "en", changeLanguage: jest.fn() },
@@ -20,12 +21,28 @@ jest.mock("react-i18next", () => ({
 }));
 
 jest.mock("@/lib/useWallet", () => ({
-  useWallet: jest.fn(() => ({ publicKey: null, connectWallet: jest.fn(), disconnectWallet: jest.fn() })),
+  useWallet: jest.fn(() => ({
+    publicKey: null,
+    connectWallet: jest.fn(),
+    disconnectWallet: jest.fn(),
+  })),
 }));
 
-jest.mock("@/pages/_app", () => ({
-  useTheme: jest.fn(() => ({ theme: "dark", toggleTheme: jest.fn() })),
-  ThemeContext: { Provider: ({ children }: { children: React.ReactNode }) => <>{children}</> },
+jest.mock("@/lib/ThemeContext", () => ({
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  ACCENT_COLOURS: { stellar: "#3e5aa7" },
+  useTheme: jest.fn(() => ({
+    theme: "dark",
+    accent: "stellar",
+    fontSize: "normal",
+    highContrast: false,
+    toggleTheme: jest.fn(),
+    setTheme: jest.fn(),
+    setAccent: jest.fn(),
+    setFontSize: jest.fn(),
+    setHighContrast: jest.fn(),
+    resetToDefaults: jest.fn(),
+  })),
 }));
 
 // Mock Next.js router and Link for Navbar
@@ -46,15 +63,29 @@ jest.mock("next/router", () => ({
 }));
 
 jest.mock("next/link", () => {
-  // Using React.forwardRef with an explicit displayName set below
-  return ({ children, href, ...props }: Record<string, unknown>) => {
-    return <a href={href as string} {...props}>{children}</a>;
+  return ({
+    children,
+    href,
+    ...props
+  }: {
+    children?: React.ReactNode;
+    href?: string;
+    [key: string]: unknown;
+  }) => {
+    return (
+      <a href={href as string | undefined} {...props}>
+        {children}
+      </a>
+    );
   };
 });
 
 jest.mock("@/lib/stellar", () => ({
   connectWallet: jest.fn(),
-  getNetworkConfig: jest.fn(() => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" })),
+  getNetworkConfig: jest.fn(() => ({
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  })),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ feeLevel: "normal", baseFeeXlm: 0.00001 })),
   shortenAddress: jest.fn((addr) => addr?.slice(0, 6) + "..."),
   isValidStellarAddress: jest.fn((addr) => addr?.startsWith("G") && addr.length === 56),
@@ -84,6 +115,14 @@ jest.mock("@/lib/FeatureFlags", () => ({
   FeatureFlagProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// ErrorBoundary imports @sentry/nextjs, whose browser entry crashes at module
+// load in jsdom (reads window/document during instrumentation). Mock it so the
+// components under test can render.
+jest.mock("@sentry/nextjs", () => ({
+  captureException: jest.fn(),
+  withErrorBoundary: (Component: React.ComponentType) => Component,
+}));
+
 jest.mock("@/components/WalletConnect", () => ({
   __esModule: true,
   default: () => <div data-testid="wallet-connect">WalletConnect</div>,
@@ -91,11 +130,11 @@ jest.mock("@/components/WalletConnect", () => ({
 
 // ─── Component imports ──────────────────────────────────────────────────────
 
-import Navbar from "@/components/Navbar";
-import QuickSendModal from "@/components/QuickSendModal";
-import QRCodeModal from "@/components/QRCodeModal";
-import PaymentStatusModal from "@/components/PaymentStatusModal";
 import MultiSigFlow from "@/components/MultiSigFlow";
+import Navbar from "@/components/Navbar";
+import PaymentStatusModal from "@/components/PaymentStatusModal";
+import QRCodeModal from "@/components/QRCodeModal";
+import QuickSendModal from "@/components/QuickSendModal";
 
 describe("Accessibility audits", () => {
   // ── Navbar ─────────────────────────────────────────────────────────────

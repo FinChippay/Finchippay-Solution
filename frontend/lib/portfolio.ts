@@ -83,12 +83,23 @@ export function loadCustomTokens(): CustomToken[] {
   try {
     const raw = localStorage.getItem(CUSTOM_TOKENS_STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    const source = Array.isArray(parsed)
-      ? parsed
-      : parsed?.version === CUSTOM_TOKENS_STORAGE_VERSION && Array.isArray(parsed.tokens)
-        ? parsed.tokens
-        : [];
+    const parsed = JSON.parse(raw) as unknown;
+    // Accept either a bare array (legacy format) or the versioned payload
+    // `{ version, tokens }`. JSON values are typed unknown, so narrow to an
+    // unknown[] before reviving entries.
+    let source: unknown[];
+    if (Array.isArray(parsed)) {
+      source = parsed;
+    } else {
+      const asPayload = parsed as { version?: unknown; tokens?: unknown };
+      // Only trust the versioned payload when the schema version matches;
+      // anything else must be discarded so stale/unknown formats never leak
+      // stored tokens (see the "resets unsupported schema versions" test).
+      source =
+        asPayload.version === CUSTOM_TOKENS_STORAGE_VERSION && Array.isArray(asPayload.tokens)
+          ? (asPayload.tokens as unknown[])
+          : [];
+    }
     shouldPersist = !Array.isArray(parsed) && source.length === 0;
 
     const tokens = source
@@ -199,14 +210,14 @@ const VS_CURRENCY: Record<FiatCurrency, string> = {
  * silently omitted from the result.
  */
 export async function fetchTokenPrices(
-  codes: string[]
+  codes: string[],
 ): Promise<Record<string, TokenPriceSnapshot>> {
   const ids = [...new Set(codes.map((c) => COINGECKO_ID_MAP[c]).filter(Boolean))];
   if (ids.length === 0) return {};
 
   const vsCurrencies = SUPPORTED_FIAT_CURRENCIES.map((c) => VS_CURRENCY[c]).join(",");
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(
-    ","
+    ",",
   )}&vs_currencies=${vsCurrencies}&include_24hr_change=true`;
 
   const res = await fetch(url);
@@ -231,7 +242,6 @@ export async function fetchTokenPrices(
   }
   return result;
 }
-
 
 // --- Price cache (localStorage, 5-minute TTL) ---
 
@@ -262,7 +272,7 @@ function savePriceCache(prices: Record<string, TokenPriceSnapshot>): void {
 }
 
 export async function fetchTokenPricesCached(
-  codes: string[]
+  codes: string[],
 ): Promise<{ prices: Record<string, TokenPriceSnapshot>; stale: boolean }> {
   const cached = loadPriceCache();
   const isFresh = cached !== null && Date.now() - cached.cachedAt < PRICE_CACHE_TTL_MS;
@@ -282,7 +292,6 @@ export async function fetchTokenPricesCached(
     throw err;
   }
 }
-
 
 // --- P&L tracking (daily portfolio value snapshots, localStorage) ---
 
@@ -307,7 +316,7 @@ export function loadPortfolioHistory(): PortfolioValueSnapshot[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (s): s is PortfolioValueSnapshot =>
-        typeof s?.date === "string" && typeof s?.totalValue === "number"
+        typeof s?.date === "string" && typeof s?.totalValue === "number",
     );
   } catch {
     return [];

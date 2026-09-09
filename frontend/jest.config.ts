@@ -12,7 +12,7 @@ const config: Config = {
   // it must run after the framework is installed — setupFilesAfterEnv, not
   // setupFiles.
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
-  testPathIgnorePatterns: ["<rootDir>/e2e/"],
+  testPathIgnorePatterns: ["<rootDir>/e2e/", "<rootDir>/__tests__/mocks/"],
   collectCoverageFrom: [
     "components/**/*.tsx",
     "pages/**/*.tsx",

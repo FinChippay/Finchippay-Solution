@@ -1,6 +1,6 @@
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 
 // Mock dependencies before importing EscrowPage
 jest.mock("next/head", () => {
@@ -36,6 +36,11 @@ jest.mock("@/lib/soroban", () => ({
 jest.mock("@/lib/stellar", () => ({
   getCurrentLedger: jest.fn(),
   submitTransaction: jest.fn(),
+  buildCreateEscrowTransaction: jest.fn(),
+  buildClaimEscrowTransaction: jest.fn(),
+  buildCancelEscrowTransaction: jest.fn(),
+  buildClaimEscrowPartialTransaction: jest.fn(),
+  buildClaimStreamTransaction: jest.fn(),
   isValidStellarAddress: jest.fn((addr: string) => addr?.startsWith("G") && addr.length === 56),
   getXLMBalance: jest.fn(),
   getEscrow: jest.fn(),
@@ -47,6 +52,39 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
+// The page drives every create/claim/cancel through the simulation flow hook.
+// Stub it so execute() builds -> signs -> submits immediately (no preview
+// modal), matching what the tests below assert.
+jest.mock("@/hooks/useSimulatedTransactionFlow", () => ({
+  useSimulatedTransactionFlow: () => ({
+    simulationResult: null,
+    simLoading: false,
+    simError: null,
+    simWarning: null,
+    showPreview: false,
+    executing: false,
+    flowError: null,
+    execute: async (opts: {
+      builder: () => Promise<{ toXDR: () => string }>;
+      onSuccess?: (hash: string) => void;
+      onError?: (error: string) => void;
+    }) => {
+      try {
+        const tx = await opts.builder();
+        const { signedXDR } = await walletModule.signTransactionWithWallet(tx.toXDR());
+        if (!signedXDR) throw new Error("Signing failed");
+        const result = await stellarModule.submitTransaction(signedXDR);
+        opts.onSuccess?.(result.hash);
+      } catch (err: unknown) {
+        opts.onError?.(err instanceof Error ? err.message : String(err));
+      }
+    },
+    handleProceedToSign: jest.fn(),
+    setShowPreview: jest.fn(),
+    reset: jest.fn(),
+  }),
+}));
+
 jest.mock("@/lib/assetDiscovery", () => ({
   getKnownAssets: jest.fn().mockResolvedValue([]),
 }));
@@ -55,7 +93,11 @@ jest.mock("@/components/AssetSelect", () => {
   const ReactMod = require("react");
   return {
     __esModule: true,
-    default: ({ options, selectedCode, onSelect }: {
+    default: ({
+      options,
+      selectedCode,
+      onSelect,
+    }: {
       options: Array<{ code: string; displayName?: string }>;
       selectedCode: string;
       onSelect: (code: string, issuer?: string) => void;
@@ -78,9 +120,9 @@ jest.mock("@/components/AssetSelect", () => {
 });
 
 import EscrowPage from "../pages/escrow";
-import { useWallet } from "@/lib/useWallet";
-import * as stellarModule from "@/lib/stellar";
 import * as sorobanModule from "@/lib/soroban";
+import * as stellarModule from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import * as walletModule from "@/lib/wallet";
 
 const mockUseWallet = useWallet as jest.Mock;
@@ -90,6 +132,11 @@ const mockSubmitTransaction = stellarModule.submitTransaction as jest.Mock;
 const mockSignTransactionWithWallet = walletModule.signTransactionWithWallet as jest.Mock;
 const mockGetClient = sorobanModule.getClient as jest.Mock;
 const mockStellarGetEscrow = stellarModule.getEscrow as jest.Mock;
+const mockBuildCreateEscrowTransaction = stellarModule.buildCreateEscrowTransaction as jest.Mock;
+const mockBuildClaimEscrowTransaction = stellarModule.buildClaimEscrowTransaction as jest.Mock;
+const mockBuildCancelEscrowTransaction = stellarModule.buildCancelEscrowTransaction as jest.Mock;
+const mockBuildClaimEscrowPartialTransaction =
+  stellarModule.buildClaimEscrowPartialTransaction as jest.Mock;
 
 describe("EscrowPage", () => {
   const senderPublicKey = "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ";
@@ -102,8 +149,12 @@ describe("EscrowPage", () => {
     mockGetXLMBalance.mockResolvedValue("100.0");
     mockGetCurrentLedger.mockResolvedValue(1000);
     mockSignTransactionWithWallet.mockResolvedValue({ signedXDR: "mock-signed-xdr" });
-    mockSubmitTransaction.mockResolvedValue({ returnValue: 42 });
+    mockSubmitTransaction.mockResolvedValue({ returnValue: 42, hash: "mock-hash" });
     mockGetClient.mockReturnValue(mockSorobanClient);
+    mockBuildCreateEscrowTransaction.mockResolvedValue(mockTx);
+    mockBuildClaimEscrowTransaction.mockResolvedValue(mockTx);
+    mockBuildCancelEscrowTransaction.mockResolvedValue(mockTx);
+    mockBuildClaimEscrowPartialTransaction.mockResolvedValue(mockTx);
 
     // Setup Soroban client mock defaults
     mockSorobanClient.buildCreateEscrowTx.mockResolvedValue({ tx: mockTx });
@@ -139,14 +190,18 @@ describe("EscrowPage", () => {
     // Enter release ledger equal to or less than current ledger (1000)
     await user.type(ledgerInput, "950");
 
-    expect(screen.getByText("Release ledger must be greater than current ledger.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Release ledger must be greater than current ledger."),
+    ).toBeInTheDocument();
     expect(submitBtn).toBeDisabled();
 
     // Fix release ledger to a future value (1500)
     await user.clear(ledgerInput);
     await user.type(ledgerInput, "1500");
 
-    expect(screen.queryByText("Release ledger must be greater than current ledger.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Release ledger must be greater than current ledger."),
+    ).not.toBeInTheDocument();
     expect(submitBtn).toBeEnabled();
   });
 
@@ -179,8 +234,8 @@ describe("EscrowPage", () => {
     await user.click(submitBtn);
 
     await waitFor(() => {
-      expect(mockSorobanClient.buildCreateEscrowTx).toHaveBeenCalled();
-      expect(mockSignTransactionWithWallet).toHaveBeenCalled();
+      expect(stellarModule.buildCreateEscrowTransaction).toHaveBeenCalled();
+      expect(mockSignTransactionWithWallet).toHaveBeenCalledWith("mock-tx-xdr");
       expect(mockSubmitTransaction).toHaveBeenCalledWith("mock-signed-xdr");
       expect(screen.getByText(/Escrow created/i)).toBeInTheDocument();
     });
@@ -289,7 +344,7 @@ describe("EscrowPage", () => {
 
     expect(confirmSpy).toHaveBeenCalledWith("Are you sure you want to cancel this escrow?");
     await waitFor(() => {
-      expect(mockSorobanClient.buildCancelEscrowTx).toHaveBeenCalledWith(42, senderPublicKey);
+      expect(stellarModule.buildCancelEscrowTransaction).toHaveBeenCalledWith(senderPublicKey, 42);
       expect(mockSubmitTransaction).toHaveBeenCalled();
     });
 
@@ -322,7 +377,7 @@ describe("EscrowPage", () => {
     await user.click(screen.getByRole("button", { name: /^Cancel$/i }));
 
     expect(confirmSpy).toHaveBeenCalled();
-    expect(mockSorobanClient.buildCancelEscrowTx).not.toHaveBeenCalled();
+    expect(stellarModule.buildCancelEscrowTransaction).not.toHaveBeenCalled();
 
     confirmSpy.mockRestore();
   });

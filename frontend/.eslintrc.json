@@ -1,5 +1,10 @@
 {
-  "extends": ["next/core-web-vitals", "plugin:@typescript-eslint/recommended", "prettier"],
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:@typescript-eslint/recommended",
+    "prettier",
+    "plugin:storybook/recommended"
+  ],
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint"],
   "rules": {
@@ -26,7 +31,9 @@
       "warn",
       {
         "groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
-        "alphabetize": { "order": "asc" }
+        "alphabetize": {
+          "order": "asc"
+        }
       }
     ]
   },
@@ -36,7 +43,12 @@
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
         "no-console": "off",
-        "react-hooks/rules-of-hooks": "off"
+        "react-hooks/rules-of-hooks": "off",
+        // jest.mock factories often render anonymous stub components, and
+        // tests legitimately use inline require() to re-read modules after
+        // jest.resetModules() — both are idiomatic in specs.
+        "react/display-name": "off",
+        "@typescript-eslint/no-require-imports": "off"
       }
     }
   ]
