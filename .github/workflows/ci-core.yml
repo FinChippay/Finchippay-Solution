@@ -3,17 +3,17 @@ name: CI Core
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   frontend:
-    name: Frontend (Node ${{ matrix.node-version }})
-    if: false # Disabled: not run on PRs or push
+    name: Frontend
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["22", "24"]
-    continue-on-error: ${{ matrix.node-version != '22' }}
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: frontend
@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version-file: ".nvmrc"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --ignore-scripts
@@ -38,10 +38,11 @@ jobs:
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
           NEXT_PUBLIC_CONTRACT_ID: CCW67TSZV3SSS2HXMBQ52NVF3FB25GQ2G6E3BGLZ52B7W7TKG4E7SML2
+      - name: Check bundle size budget
+        run: node ../scripts/check-bundle-size.js
 
   secrets-scan:
     name: Secrets scan
-    if: false # Disabled alongside the other CI jobs (see repo note)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,14 +60,9 @@ jobs:
           echo "Secrets scan clean."
 
   backend:
-    name: Backend (Node ${{ matrix.node-version }})
-    if: false # Disabled: not run on PRs or push
+    name: Backend
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["22", "24"]
-    continue-on-error: ${{ matrix.node-version != '22' }}
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -74,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version-file: ".nvmrc"
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
       - run: npm ci

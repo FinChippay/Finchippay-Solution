@@ -1,0 +1,100 @@
+# .github/workflows/rollback.yml
+# Manual rollback for canary/production deployments.
+#
+# Wraps scripts/rollback.sh:
+#   - frontend: reverts the Vercel alias so production traffic returns to the
+#     previous stable deployment
+#   - backend:  resets the ALB listener rule to 100% on the previous target
+#     group and deregisters the new task definition
+#
+# AWS auth uses OIDC (same pattern as terraform.yml) — no long-lived keys.
+#
+# Required GitHub Secrets:
+#   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID  (frontend rollback)
+#   AWS_ROLE_ARN                                     (backend rollback)
+#   ECS_CLUSTER, ECS_SERVICE, ALB_LISTENER_ARN       (backend rollback)
+
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Rollback target (frontend, backend, or both)"
+        required: true
+        type: choice
+        options:
+          - both
+          - frontend
+          - backend
+      commit_sha:
+        description: "Commit SHA of the canary deployment to roll back (defaults to HEAD)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    name: Rollback (${{ github.event.inputs.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: finchippay-rollback
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Install AWS CLI
+        run: |
+          if ! command -v aws &>/dev/null; then
+            curl -sSfL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -q /tmp/awscliv2.zip -d /tmp/awscli-install
+            sudo /tmp/awscli-install/aws/install --update
+          fi
+          aws --version
+
+      - name: Rollback frontend (Vercel)
+        if: github.event.inputs.target == 'frontend' || github.event.inputs.target == 'both'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+        run: |
+          bash scripts/rollback.sh frontend ${{ github.event.inputs.commit_sha || '' }}
+
+      - name: Rollback backend (ECS)
+        if: github.event.inputs.target == 'backend' || github.event.inputs.target == 'both'
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+          ALB_LISTENER_ARN: ${{ secrets.ALB_LISTENER_ARN }}
+        run: |
+          bash scripts/rollback.sh backend ${{ github.event.inputs.commit_sha || '' }}
+
+      - name: Post rollback summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? '✅ Success' : '❌ Failed';
+            const body = [
+              `## ↩️ Rollback — ${status}`,
+              '',
+              `| Field | Value |`,
+              `|-------|-------|`,
+              `| **Target** | \`${{ github.event.inputs.target }}\` |`,
+              `| **Commit SHA** | \`${{ github.event.inputs.commit_sha || 'HEAD' }}\` |`,
+              '',
+              `> Run: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            ].join('\n');
+            core.notice(body);
