@@ -38,6 +38,9 @@ const nextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128],
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 60,
+    // Static export (NEXT_OUTPUT=export, used by the Docker/nginx deploy) has
+    // no Image Optimization API, so images must be served unoptimized.
+    unoptimized: process.env.NEXT_OUTPUT === "export",
   },
   // Allow Stellar SDK in browser
   webpack: (config) => {

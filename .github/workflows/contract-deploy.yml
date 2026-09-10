@@ -103,6 +103,9 @@ jobs:
       - name: Install Stellar CLI
         run: |
           if ! command -v stellar &>/dev/null; then
+            # stellar-cli's libdbus-sys build needs the dbus-1 system library
+            # and pkg-config; the ubuntu-24.04 runner image does not ship them.
+            sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config
             cargo install --locked stellar-cli
           else
             echo "✅ Stellar CLI already installed"

@@ -165,7 +165,7 @@ jobs:
         id: subjects
         run: |
           cd sbom
-          sha256sum *.json > subjects.txt
+          sha256sum ./*.json > subjects.txt
           DIGESTS=$(base64 -w0 subjects.txt)
           echo "digests=$DIGESTS" >> "$GITHUB_OUTPUT"
 

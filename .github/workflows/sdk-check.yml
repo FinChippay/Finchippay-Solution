@@ -53,7 +53,13 @@ jobs:
           STELLAR_NETWORK: testnet
           HORIZON_URL: https://horizon-testnet.stellar.org
           JWT_SECRET: test-secret-for-sdk-check
-          ALLOWED_ORIGINS: "*"
+          # Backend env validation rejects "*" — it expects scheme://host[:port]
+          # entries with no wildcards. The drift check only talks to the API over
+          # localhost, so the local frontend origin is all that needs to pass.
+          ALLOWED_ORIGINS: "http://localhost:3000"
+          # Required at startup to provision the SEP-24 callback webhook secret
+          # (inboundWebhookSecretService), even outside production.
+          WEBHOOK_ENCRYPTION_KEY: "aaabbbcccdddeeefff000111222333444555666777888999000aaabbbcccdddee"
 
       - name: Check generated SDK types
         run: npm run check:sdk

@@ -45,10 +45,10 @@ jobs:
         id: registry
         run: |
           if [ "${{ steps.login.outcome }}" = "success" ]; then
-            echo "available=true" >> $GITHUB_OUTPUT
+            echo "available=true" >> "$GITHUB_OUTPUT"
             echo "GHCR login succeeded — push enabled"
           else
-            echo "available=false" >> $GITHUB_OUTPUT
+            echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=GHCR Unavailable::Skipping image push — GHCR not accessible. Build and scan only."
           fi
 
@@ -78,7 +78,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan backend image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: finchippay-backend:scan
           format: sarif
@@ -123,16 +123,20 @@ jobs:
       - name: Build frontend image (local, for scanning)
         uses: docker/build-push-action@v5
         with:
-          context: frontend
+          context: .
           file: frontend/Dockerfile.prod
           push: false
           load: true
           tags: finchippay-frontend:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_STELLAR_NETWORK=testnet
+            NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+            NEXT_PUBLIC_API_URL=http://localhost:4000
 
       - name: Scan frontend image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: finchippay-frontend:scan
           format: sarif
@@ -154,13 +158,17 @@ jobs:
         if: steps.registry.outputs.available == 'true'
         uses: docker/build-push-action@v5
         with:
-          context: frontend
+          context: .
           file: frontend/Dockerfile.prod
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_STELLAR_NETWORK=testnet
+            NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+            NEXT_PUBLIC_API_URL=http://localhost:4000
 
       # ── Image SBOMs (SPDX) uploaded as build artifacts ────────────────────
       - name: Install Syft

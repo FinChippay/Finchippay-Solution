@@ -67,12 +67,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Plan needs AWS OIDC credentials to reach remote state; skip with a
+      # notice when the secrets are not configured.
+      - name: Check AWS credentials configured
+        id: aws
+        run: |
+          if [ -n "${{ secrets.AWS_ROLE_ARN }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AWS Not Configured::AWS_ROLE_ARN secret is not set, so Terraform plan is skipped."
+          fi
+
       - name: Setup Terraform
+        if: steps.aws.outputs.configured == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Configure AWS credentials
+        if: steps.aws.outputs.configured == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -80,11 +94,13 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Format Check
+        if: steps.aws.outputs.configured == 'true'
         id: fmt
         run: terraform fmt -check -recursive
         continue-on-error: true
 
       - name: Terraform Init (remote state)
+        if: steps.aws.outputs.configured == 'true'
         id: init
         run: |
           terraform init \
@@ -96,10 +112,12 @@ jobs:
             -backend-config="encrypt=true"
 
       - name: Terraform Validate
+        if: steps.aws.outputs.configured == 'true'
         id: validate
         run: terraform validate -no-color
 
       - name: Terraform Plan
+        if: steps.aws.outputs.configured == 'true'
         id: plan
         run: |
           terraform plan \
@@ -185,12 +203,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Apply can't run without AWS OIDC credentials; when the secrets are
+      # not configured the job skips with a notice instead of failing red.
+      - name: Check AWS credentials configured
+        id: aws
+        run: |
+          if [ -n "${{ secrets.AWS_ROLE_ARN }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "AWS_ROLE_ARN is set — proceeding with apply"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AWS Not Configured::AWS_ROLE_ARN secret is not set, so Terraform apply is skipped. Add the secret (and OIDC trust) to enable infra deploys."
+          fi
+
       - name: Setup Terraform
+        if: steps.aws.outputs.configured == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Configure AWS credentials
+        if: steps.aws.outputs.configured == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -198,6 +231,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init (remote state)
+        if: steps.aws.outputs.configured == 'true'
         id: init
         run: |
           terraform init \
@@ -209,6 +243,7 @@ jobs:
             -backend-config="encrypt=true"
 
       - name: Terraform Plan (for apply)
+        if: steps.aws.outputs.configured == 'true'
         id: plan
         run: |
           terraform plan \
@@ -220,16 +255,19 @@ jobs:
           TF_VAR_allowed_origins: ${{ secrets.TF_VAR_allowed_origins || '' }}
 
       - name: Terraform Apply
+        if: steps.aws.outputs.configured == 'true'
         id: apply
         run: terraform apply -input=false -auto-approve tfplan
         env:
           TF_VAR_allowed_origins: ${{ secrets.TF_VAR_allowed_origins || '' }}
 
       - name: Terraform Output
+        if: steps.aws.outputs.configured == 'true'
         id: output
         run: terraform output -json | tee terraform-outputs.json
 
       - name: Upload Terraform Outputs
+        if: steps.aws.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: terraform-outputs-${{ github.sha }}
@@ -251,12 +289,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check AWS credentials configured
+        id: aws
+        run: |
+          if [ -n "${{ secrets.AWS_ROLE_ARN }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AWS Not Configured::AWS_ROLE_ARN secret is not set, so the manual Terraform ${{ github.event.inputs.action }} is skipped."
+          fi
+
       - name: Setup Terraform
+        if: steps.aws.outputs.configured == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Configure AWS credentials
+        if: steps.aws.outputs.configured == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -264,6 +314,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init (remote state)
+        if: steps.aws.outputs.configured == 'true'
         run: |
           terraform init \
             -input=false \
@@ -274,7 +325,7 @@ jobs:
             -backend-config="encrypt=true"
 
       - name: Terraform Plan
-        if: github.event.inputs.action == 'plan'
+        if: steps.aws.outputs.configured == 'true' && github.event.inputs.action == 'plan'
         run: |
           terraform plan \
             -no-color \
@@ -282,7 +333,7 @@ jobs:
             -var-file="environments/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars"
 
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
+        if: steps.aws.outputs.configured == 'true' && github.event.inputs.action == 'apply'
         run: |
           terraform plan \
             -no-color \
@@ -292,7 +343,7 @@ jobs:
           terraform apply -input=false -auto-approve tfplan
 
       - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy'
+        if: steps.aws.outputs.configured == 'true' && github.event.inputs.action == 'destroy'
         run: |
           terraform plan -destroy \
             -no-color \

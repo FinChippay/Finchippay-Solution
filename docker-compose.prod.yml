@@ -41,8 +41,10 @@ secrets:
 services:
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
+      # Repo-root context so the file:../sdk dependency (and the SDK source)
+      # is inside the build; see frontend/Dockerfile.prod.
+      context: .
+      dockerfile: frontend/Dockerfile.prod
     ports:
       - "80:8080"
     environment:
@@ -72,11 +74,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: '256M'
+          cpus: "0.5"
+          memory: "256M"
         reservations:
-          cpus: '0.1'
-          memory: '64M'
+          cpus: "0.1"
+          memory: "64M"
 
   backend:
     build:
@@ -139,11 +141,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: '512M'
+          cpus: "1.0"
+          memory: "512M"
         reservations:
-          cpus: '0.25'
-          memory: '256M'
+          cpus: "0.25"
+          memory: "256M"
 
   # ─── Redis (rate limiting, caching) ────────────────────────────────────────
 
@@ -176,11 +178,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: '256M'
+          cpus: "0.5"
+          memory: "256M"
         reservations:
-          cpus: '0.1'
-          memory: '64M'
+          cpus: "0.1"
+          memory: "64M"
 
   # ─── Jaeger all-in-one (production distributed tracing) ──────────────────────
 
@@ -217,11 +219,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: '512M'
+          cpus: "0.5"
+          memory: "512M"
         reservations:
-          cpus: '0.1'
-          memory: '128M'
+          cpus: "0.1"
+          memory: "128M"
 
 volumes:
   jaeger_data:

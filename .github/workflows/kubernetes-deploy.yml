@@ -87,7 +87,7 @@ jobs:
             dockerfile: backend/Dockerfile.prod
             image: ghcr.io/finchippay/finchippay-backend
           - name: frontend
-            context: frontend
+            context: .
             dockerfile: frontend/Dockerfile.prod
             image: ghcr.io/finchippay/finchippay-frontend
           - name: nginx
@@ -111,10 +111,10 @@ jobs:
         id: registry
         run: |
           if [ "${{ steps.login.outcome }}" = "success" ]; then
-            echo "available=true" >> $GITHUB_OUTPUT
+            echo "available=true" >> "$GITHUB_OUTPUT"
             echo "GHCR login succeeded — push enabled"
           else
-            echo "available=false" >> $GITHUB_OUTPUT
+            echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=GHCR Unavailable::Skipping image push — GHCR not accessible. Build and scan only."
           fi
 
@@ -142,12 +142,16 @@ jobs:
           tags: ${{ matrix.component.name }}:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_STELLAR_NETWORK=testnet
+            NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+            NEXT_PUBLIC_API_URL=http://localhost:4000
 
       # Fails the job on CRITICAL/HIGH findings (exit-code 1) so vulnerable
       # images are never pushed or deployed.
       - name: Scan image with Trivy
         id: scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: ${{ matrix.component.name }}:scan
           format: sarif
@@ -175,6 +179,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_STELLAR_NETWORK=testnet
+            NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+            NEXT_PUBLIC_API_URL=http://localhost:4000
 
   # ─── Lint Kubernetes Manifests ────────────────────────────────────────────
   k8s-lint:
@@ -248,6 +256,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Deploy can't run without the cluster kubeconfig; when the secret is
+      # not configured the job skips with a notice instead of failing red.
+      - name: Check cluster credentials configured
+        id: cluster
+        run: |
+          if [ -n "${{ secrets.KUBE_CONFIG }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "KUBE_CONFIG is set — proceeding with deploy"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Cluster Not Configured::KUBE_CONFIG secret is not set, so the Kubernetes deploy is skipped. Add the secret to enable cluster deploys."
+          fi
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
         with:
@@ -259,17 +280,20 @@ jobs:
           version: v3.14.0
 
       - name: Configure kubeconfig
+        if: steps.cluster.outputs.configured == 'true'
         run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
 
       - name: Verify cluster access
+        if: steps.cluster.outputs.configured == 'true'
         run: |
           kubectl cluster-info
           kubectl get nodes
 
       - name: Create/update secrets
+        if: steps.cluster.outputs.configured == 'true'
         run: |
           kubectl create secret generic finchippay-secrets \
             --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
@@ -277,12 +301,13 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy with Helm
+        if: steps.cluster.outputs.configured == 'true'
         run: |
           ENV="${{ github.event.inputs.environment || 'production' }}"
           SHA_TAG="sha-${GITHUB_SHA::7}"
 
           echo "::group::Helm upgrade install"
-          helm upgrade --install ${{ env.HELM_RELEASE }} ${{ env.HELM_CHART }} \
+          helm upgrade --install "${{ env.HELM_RELEASE }}" "${{ env.HELM_CHART }}" \
             --namespace finchippay \
             --create-namespace \
             --set environment="${ENV}" \
@@ -296,6 +321,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Verify deployment
+        if: steps.cluster.outputs.configured == 'true'
         run: |
           echo "::group::Deployment Status"
           kubectl rollout status deployment/finchippay-backend -n finchippay --timeout=5m
@@ -312,11 +338,12 @@ jobs:
       # migration surfaces here as a failed readiness probe. /health/ready
       # performs deep dependency checks (DB, executor, indexer).
       - name: Smoke test backend (/health/ready)
+        if: steps.cluster.outputs.configured == 'true'
         run: |
           kubectl port-forward svc/finchippay-backend -n finchippay 4000:4000 >/dev/null 2>&1 &
           PF_PID=$!
-          trap "kill $PF_PID 2>/dev/null || true" EXIT
-          for i in $(seq 1 30); do
+          trap 'kill $PF_PID 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
             if curl -sf http://127.0.0.1:4000/health/ready >/dev/null; then
               echo "✅ Backend /health/ready OK"
               exit 0
@@ -327,11 +354,12 @@ jobs:
           exit 1
 
       - name: Smoke test frontend (/)
+        if: steps.cluster.outputs.configured == 'true'
         run: |
           kubectl port-forward svc/finchippay-frontend -n finchippay 3000:3000 >/dev/null 2>&1 &
           PF_PID=$!
-          trap "kill $PF_PID 2>/dev/null || true" EXIT
-          for i in $(seq 1 30); do
+          trap 'kill $PF_PID 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
             if curl -sf -o /dev/null http://127.0.0.1:3000/; then
               echo "✅ Frontend / OK"
               exit 0

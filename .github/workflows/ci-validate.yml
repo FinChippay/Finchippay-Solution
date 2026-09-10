@@ -54,6 +54,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --ignore-scripts
+      - name: Build SDK
+        run: npm run build --workspace=sdk
       - name: Frontend coverage
         working-directory: frontend
         run: npx jest --ci --coverage --coverageReporters=text-summary
