@@ -78,7 +78,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan backend image with Trivy
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: finchippay-backend:scan
           format: sarif
@@ -136,7 +136,7 @@ jobs:
             NEXT_PUBLIC_API_URL=http://localhost:4000
 
       - name: Scan frontend image with Trivy
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: finchippay-frontend:scan
           format: sarif
