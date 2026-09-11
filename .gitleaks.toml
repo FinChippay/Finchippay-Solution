@@ -22,6 +22,7 @@ paths = [
   '''docs/api\.md''',
   '''docs/sdk\.md''',
   '''.github/workflows/kubernetes-deploy\.yml''',
+  '''.github/workflows/sdk-check\.yml''',
   '''sdk/src/index\.ts''',
   '''CODE_REVIEW\.md''',
   '''ANALYTICS_GUIDE\.md''',
