@@ -64,7 +64,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=sha,prefix=sha-
+            type=sha,prefix=sha-,format=short
 
       - name: Build backend image (local, for scanning)
         uses: docker/build-push-action@v5
@@ -117,7 +117,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=sha,prefix=sha-
+            type=sha,prefix=sha-,format=short
 
       # ── Frontend: build locally → scan → push ─────────────────────────────
       - name: Build frontend image (local, for scanning)
@@ -179,8 +179,8 @@ jobs:
       - name: Generate image SBOMs
         run: |
           mkdir -p sbom
-          syft "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"  -o spdx-json=sbom/backend-image.spdx.json
-          syft "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}" -o spdx-json=sbom/frontend-image.spdx.json
+          syft "ghcr.io/finchippay/finchippay-backend:sha-${GITHUB_SHA::7}"  -o spdx-json=sbom/backend-image.spdx.json
+          syft "ghcr.io/finchippay/finchippay-frontend:sha-${GITHUB_SHA::7}" -o spdx-json=sbom/frontend-image.spdx.json
 
       - name: Upload image SBOMs
         if: always()
@@ -200,24 +200,24 @@ jobs:
         if: steps.registry.outputs.available == 'true'
         run: |
           cosign sign --yes \
-            "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"
+            "ghcr.io/finchippay/finchippay-backend:sha-${GITHUB_SHA::7}"
 
       - name: Attach backend SBOM attestation
         if: steps.registry.outputs.available == 'true'
         run: |
           cosign attest --yes --type spdx \
             --predicate sbom/backend-image.spdx.json \
-            "ghcr.io/finchippay/finchippay-backend:sha-${{ github.sha }}"
+            "ghcr.io/finchippay/finchippay-backend:sha-${GITHUB_SHA::7}"
 
       - name: Sign frontend image (keyless)
         if: steps.registry.outputs.available == 'true'
         run: |
           cosign sign --yes \
-            "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}"
+            "ghcr.io/finchippay/finchippay-frontend:sha-${GITHUB_SHA::7}"
 
       - name: Attach frontend SBOM attestation
         if: steps.registry.outputs.available == 'true'
         run: |
           cosign attest --yes --type spdx \
             --predicate sbom/frontend-image.spdx.json \
-            "ghcr.io/finchippay/finchippay-frontend:sha-${{ github.sha }}"
+            "ghcr.io/finchippay/finchippay-frontend:sha-${GITHUB_SHA::7}"
