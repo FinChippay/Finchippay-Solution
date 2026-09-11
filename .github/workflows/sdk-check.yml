@@ -36,6 +36,13 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq build-essential python3
           npm ci
 
+      - name: Run database migrations
+        working-directory: backend
+        run: npm run migrate
+        env:
+          NODE_ENV: test
+          DB_PROVIDER: sqlite
+
       - name: Start backend for SDK drift check
         working-directory: backend
         run: |
