@@ -48,6 +48,14 @@ RUN cd frontend && npm run build
 # on 8080 by default instead of 80, since binding <1024 requires root.
 FROM nginxinc/nginx-unprivileged:1.31.3-alpine
 
+# The base image drops to the non-root "nginx" user (uid 101), so switch to
+# root just long enough to pull patched Alpine 3.24 packages, then drop back.
+# Without this the image ships CRITICAL/HIGH CVEs in openssl, util-linux and
+# libexpat, failing the Trivy gate in the Kubernetes deploy pipeline.
+USER root
+RUN apk upgrade --no-cache
+USER nginx
+
 # Copy built static files from build stage
 COPY --from=builder --chown=nginx:nginx /app/frontend/out /usr/share/nginx/html
 
