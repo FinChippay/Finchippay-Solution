@@ -99,13 +99,31 @@ jobs:
           path: target/wasm32v1-none/release/finchippay_contract.wasm
           retention-days: 90
 
+      # ─── Deployment credentials gate ────────────────────────────────────
+      # On-chain install/deploy needs a funded deployer key. When the secret
+      # is not configured the WASM still gets built (the build above verifies
+      # the contract compiles), but the on-chain steps skip with a notice
+      # instead of failing red — same pattern as the k8s/terraform jobs.
+      - name: Check deployer credentials configured
+        id: creds
+        run: |
+          if [ -n "${{ secrets.STELLAR_DEPLOYER_SECRET }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "STELLAR_DEPLOYER_SECRET is set — proceeding with on-chain deploy"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deployer Not Configured::STELLAR_DEPLOYER_SECRET is not set, so the on-chain deploy is skipped. Add the secret to enable testnet deploys."
+          fi
+
       # ─── Install Stellar CLI ────────────────────────────────────────────
       - name: Install Stellar CLI
+        if: steps.creds.outputs.configured == 'true'
         run: |
           if ! command -v stellar &>/dev/null; then
             # stellar-cli's libdbus-sys build needs the dbus-1 system library
-            # and pkg-config; the ubuntu-24.04 runner image does not ship them.
-            sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config
+            # and pkg-config, and its hidapi dependency needs libudev to
+            # build on Linux; the ubuntu-24.04 runner image ships none of them.
+            sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev libudev-dev pkg-config
             cargo install --locked stellar-cli
           else
             echo "✅ Stellar CLI already installed"
@@ -113,6 +131,7 @@ jobs:
 
       # ─── Set up Stellar identity ────────────────────────────────────────
       - name: Set up Stellar identity
+        if: steps.creds.outputs.configured == 'true'
         env:
           STELLAR_SECRET_KEY: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
         run: |
@@ -126,6 +145,7 @@ jobs:
 
       # ─── Install WASM on-chain (returns on-chain hash) ──────────────────
       - name: Install WASM on-chain
+        if: steps.creds.outputs.configured == 'true'
         id: install-wasm
         env:
           STELLAR_DEPLOYER_SECRET: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
@@ -158,6 +178,7 @@ jobs:
 
       # ─── Deploy contract from installed WASM hash ───────────────────────
       - name: Deploy contract
+        if: steps.creds.outputs.configured == 'true'
         id: deploy
         run: |
           WASM_HASH_ONCHAIN="${{ steps.install-wasm.outputs.wasm_hash }}"
@@ -175,6 +196,7 @@ jobs:
 
       # ─── Initialize contract ────────────────────────────────────────────
       - name: Initialize contract
+        if: steps.creds.outputs.configured == 'true'
         id: init
         env:
           STELLAR_DEPLOYER_SECRET: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
