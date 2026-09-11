@@ -140,6 +140,24 @@ function eventsOf(frames, name) {
   return frames.map(parseFrame).filter((f) => f.event === name);
 }
 
+/**
+ * Poll until `predicate()` holds, or throw after `timeoutMs`. Client
+ * disconnects surface through the event loop, so a fixed sleep can elapse
+ * before the server notices the closed socket when the suite runs under load.
+ *
+ * @param {() => boolean} predicate
+ * @param {number} [timeoutMs]
+ */
+async function waitUntil(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("GET /api/accounts/:publicKey/stream (#157)", () => {
@@ -270,14 +288,12 @@ describe("GET /api/accounts/:publicKey/stream (#157)", () => {
     await tabTwo.waitFor((frames) => eventsOf(frames, "balance").length >= 1);
 
     tabOne.close();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitUntil(() => balanceStreamService.subscriberCount(ME) === 1);
     expect(horizonStreams[0].close).not.toHaveBeenCalled();
-    expect(balanceStreamService.subscriberCount(ME)).toBe(1);
 
     tabTwo.close();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitUntil(() => balanceStreamService.activeStreamCount() === 0);
     expect(horizonStreams[0].close).toHaveBeenCalled();
-    expect(balanceStreamService.activeStreamCount()).toBe(0);
   });
 
   it("drops the cached account before reading the balance for a payment event", async () => {

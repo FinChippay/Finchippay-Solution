@@ -64,6 +64,6 @@ jobs:
         run: npm ci
       - name: Backend coverage
         working-directory: backend
-        run: npx jest --ci --coverage --coverageReporters=text-summary
+        run: npx jest --ci --coverage --coverageReporters=text-summary --forceExit
         env:
           NODE_ENV: test

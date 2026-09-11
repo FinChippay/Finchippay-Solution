@@ -16,6 +16,11 @@
 const pino = require("pino");
 
 const isProduction = process.env.NODE_ENV === "production";
+// pino-pretty runs in a thread-stream worker thread, which keeps the process
+// alive until it is torn down. That is fine for a long-running server, but it
+// makes Jest hang after the suite finishes ("Jest did not exit one second
+// after the test run has completed") — so tests log plain JSON instead.
+const isTest = process.env.NODE_ENV === "test";
 
 const STELLAR_SECRET_KEY_PATTERN = /S[A-Z2-7]{55}/g;
 const REDACTED_STELLAR = "[REDACTED_STELLAR_SECRET]";
@@ -53,7 +58,7 @@ function redactStellarKeys(obj) {
 }
 
 let transport = undefined;
-if (!isProduction) {
+if (!isProduction && !isTest) {
   try {
     require.resolve("pino-pretty");
     transport = {
