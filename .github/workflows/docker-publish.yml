@@ -67,7 +67,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Build backend image (local, for scanning)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: backend/Dockerfile.prod
@@ -98,7 +98,7 @@ jobs:
 
       - name: Push backend image
         if: steps.registry.outputs.available == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: backend/Dockerfile.prod
@@ -121,7 +121,7 @@ jobs:
 
       # ── Frontend: build locally → scan → push ─────────────────────────────
       - name: Build frontend image (local, for scanning)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: frontend/Dockerfile.prod
@@ -156,7 +156,7 @@ jobs:
 
       - name: Push frontend image
         if: steps.registry.outputs.available == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: frontend/Dockerfile.prod
